@@ -1,10 +1,6 @@
 import { spawn } from "node:child_process";
 
 import { getConfig } from "../../config/loader.js";
-import {
-  buildCredentialRefTrace,
-  type ProxyEnvVars,
-} from "../../outbound-proxy/index.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
@@ -17,9 +13,23 @@ import {
 } from "../network/script-proxy/index.js";
 import { registerTool } from "../registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ProxyEnvVars,
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../types.js";
 import { buildSanitizedEnv } from "./safe-env.js";
 import { wrapCommand } from "./sandbox.js";
+
+/** Build a credential ref resolution trace for diagnostic logging. */
+function buildCredentialRefTrace(
+  rawRefs: string[],
+  resolvedIds: string[],
+  unresolvedRefs: string[],
+) {
+  return { rawRefs, resolvedIds, unresolvedRefs };
+}
 
 const log = getLogger("shell-tool");
 

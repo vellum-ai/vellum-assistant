@@ -12,6 +12,7 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("runtime-http");
 
@@ -169,4 +170,23 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
     log.error({ err, type, name }, "Failed to delete secret via HTTP");
     return httpError("INTERNAL_ERROR", message, 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function secretRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "secrets",
+      method: "POST",
+      handler: async ({ req }) => handleAddSecret(req),
+    },
+    {
+      endpoint: "secrets",
+      method: "DELETE",
+      handler: async ({ req }) => handleDeleteSecret(req),
+    },
+  ];
 }

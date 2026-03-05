@@ -33,7 +33,6 @@ import {
   getPendingConflictByPair,
   listPendingConflictDetails,
   listPendingConflicts,
-  markConflictAsked,
   resolveConflict,
 } from "../memory/conflict-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
@@ -60,6 +59,10 @@ function resetTables() {
 function insertItemPair(
   suffix: string,
   scopeId = "default",
+  opts?: {
+    existingVerificationState?: string;
+    candidateVerificationState?: string;
+  },
 ): { existingItemId: string; candidateItemId: string } {
   const db = getDb();
   const now = Date.now();
@@ -76,7 +79,8 @@ function insertItemPair(
         confidence: 0.8,
         importance: 0.5,
         fingerprint: `fp-existing-${suffix}`,
-        verificationState: "assistant_inferred",
+        verificationState:
+          opts?.existingVerificationState ?? "assistant_inferred",
         scopeId,
         firstSeenAt: now,
         lastSeenAt: now,
@@ -90,7 +94,8 @@ function insertItemPair(
         confidence: 0.8,
         importance: 0.5,
         fingerprint: `fp-candidate-${suffix}`,
-        verificationState: "assistant_inferred",
+        verificationState:
+          opts?.candidateVerificationState ?? "assistant_inferred",
         scopeId,
         firstSeenAt: now,
         lastSeenAt: now,
@@ -218,24 +223,11 @@ describe("conflict-store", () => {
     expect(pendingDefault[0].status).toBe("pending_clarification");
   });
 
-  test("markConflictAsked updates lastAskedAt", () => {
-    const pair = insertItemPair("asked");
-    const conflict = createOrUpdatePendingConflict({
-      scopeId: "default",
-      existingItemId: pair.existingItemId,
-      candidateItemId: pair.candidateItemId,
-      relationship: "ambiguous_contradiction",
+  test("listPendingConflictDetails joins current statements and verification states", () => {
+    const pair = insertItemPair("details", "workspace-a", {
+      existingVerificationState: "user_confirmed",
+      candidateVerificationState: "assistant_inferred",
     });
-
-    const askedAt = 1_734_000_000_000;
-    expect(markConflictAsked(conflict.id, askedAt)).toBe(true);
-    const updated = getConflictById(conflict.id);
-    expect(updated?.lastAskedAt).toBe(askedAt);
-    expect(updated?.updatedAt).toBe(askedAt);
-  });
-
-  test("listPendingConflictDetails joins current statements", () => {
-    const pair = insertItemPair("details", "workspace-a");
     createOrUpdatePendingConflict({
       scopeId: "workspace-a",
       existingItemId: pair.existingItemId,
@@ -250,6 +242,8 @@ describe("conflict-store", () => {
     expect(details[0].candidateStatement).toBe("Candidate statement details");
     expect(details[0].existingKind).toBe("fact");
     expect(details[0].candidateKind).toBe("fact");
+    expect(details[0].existingVerificationState).toBe("user_confirmed");
+    expect(details[0].candidateVerificationState).toBe("assistant_inferred");
   });
 
   test("applyConflictResolution keeps candidate and resolves conflict row", () => {

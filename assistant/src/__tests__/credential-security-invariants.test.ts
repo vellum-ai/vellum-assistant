@@ -241,6 +241,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "schedule/integration-status.ts", // integration status checks for scheduled reports
       "daemon/handlers/oauth-connect.ts", // OAuth connect handler for integration setup
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
+      "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

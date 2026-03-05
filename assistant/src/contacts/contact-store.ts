@@ -2,14 +2,22 @@ import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
-import { contactChannels, contacts } from "../memory/schema.js";
+import { rawChanges } from "../memory/raw-query.js";
+import {
+  assistantContactMetadata,
+  contactChannels,
+  contacts,
+} from "../memory/schema.js";
 import { emitContactChange } from "./contact-events.js";
 import type {
+  AssistantContactMetadata,
+  AssistantSpecies,
   ChannelPolicy,
   ChannelStatus,
   Contact,
   ContactChannel,
   ContactRole,
+  ContactType,
   ContactWithChannels,
 } from "./types.js";
 
@@ -25,15 +33,13 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
   return {
     id: row.id,
     displayName: row.displayName,
-    relationship: row.relationship,
-    importance: row.importance,
-    responseExpectation: row.responseExpectation,
-    preferredTone: row.preferredTone,
+    notes: row.notes,
     lastInteraction: row.lastInteraction,
     interactionCount: row.interactionCount,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     role: row.role as Contact["role"],
+    contactType: (row.contactType as Contact["contactType"]) ?? "human",
     principalId: row.principalId,
     assistantId: row.assistantId ?? null,
   };
@@ -144,11 +150,9 @@ export function getChannelById(channelId: string): ContactChannel | null {
 export function upsertContact(params: {
   id?: string;
   displayName: string;
-  relationship?: string | null;
-  importance?: number;
-  responseExpectation?: string | null;
-  preferredTone?: string | null;
+  notes?: string | null;
   role?: ContactRole;
+  contactType?: ContactType;
   principalId?: string | null;
   assistantId: string;
   channels?: SyncChannelData[];
@@ -168,25 +172,12 @@ export function upsertContact(params: {
     if (existing) {
       const updateSet: Record<string, unknown> = {
         displayName: params.displayName,
-        relationship:
-          params.relationship !== undefined
-            ? params.relationship
-            : existing.relationship,
-        importance:
-          params.importance !== undefined
-            ? params.importance
-            : existing.importance,
-        responseExpectation:
-          params.responseExpectation !== undefined
-            ? params.responseExpectation
-            : existing.responseExpectation,
-        preferredTone:
-          params.preferredTone !== undefined
-            ? params.preferredTone
-            : existing.preferredTone,
         updatedAt: now,
       };
+      if (params.notes !== undefined) updateSet.notes = params.notes;
       if (params.role !== undefined) updateSet.role = params.role;
+      if (params.contactType !== undefined)
+        updateSet.contactType = params.contactType;
       if (params.principalId !== undefined)
         updateSet.principalId = params.principalId;
       if (params.assistantId !== undefined)
@@ -201,6 +192,7 @@ export function upsertContact(params: {
         syncChannels(contactId, params.channels, now);
       }
 
+      emitContactChange();
       return { ...getContactInternal(contactId)!, created: false };
     }
   }
@@ -247,15 +239,10 @@ export function upsertContact(params: {
           displayName: params.displayName,
           updatedAt: now,
         };
-        if (params.relationship !== undefined)
-          updateSet.relationship = params.relationship;
-        if (params.importance !== undefined)
-          updateSet.importance = params.importance;
-        if (params.responseExpectation !== undefined)
-          updateSet.responseExpectation = params.responseExpectation;
-        if (params.preferredTone !== undefined)
-          updateSet.preferredTone = params.preferredTone;
+        if (params.notes !== undefined) updateSet.notes = params.notes;
         if (params.role !== undefined) updateSet.role = params.role;
+        if (params.contactType !== undefined)
+          updateSet.contactType = params.contactType;
         if (params.principalId !== undefined)
           updateSet.principalId = params.principalId;
         if (params.assistantId !== undefined)
@@ -267,6 +254,7 @@ export function upsertContact(params: {
           .run();
 
         syncChannels(contactId, params.channels, now);
+        emitContactChange();
         return { ...getContactInternal(contactId)!, created: false };
       }
     }
@@ -278,13 +266,11 @@ export function upsertContact(params: {
     .values({
       id: contactId,
       displayName: params.displayName,
-      relationship: params.relationship ?? null,
-      importance: params.importance ?? 0.5,
-      responseExpectation: params.responseExpectation ?? null,
-      preferredTone: params.preferredTone ?? null,
+      notes: params.notes ?? null,
       lastInteraction: null,
       interactionCount: 0,
       role: params.role ?? "contact",
+      contactType: params.contactType ?? "human",
       principalId: params.principalId ?? null,
       assistantId: params.assistantId,
       createdAt: now,
@@ -296,6 +282,7 @@ export function upsertContact(params: {
     syncChannels(contactId, params.channels, now);
   }
 
+  emitContactChange();
   return { ...getContactInternal(contactId)!, created: true };
 }
 
@@ -421,8 +408,8 @@ export function searchContacts(params: {
   query?: string;
   channelAddress?: string;
   channelType?: string;
-  relationship?: string;
   role?: ContactRole;
+  contactType?: ContactType;
   limit?: number;
 }): ContactWithChannels[] {
   const db = getDb();
@@ -463,14 +450,53 @@ export function searchContacts(params: {
     for (const id of contactIds) {
       if (results.length >= limit) break;
       const contact = getContactInternal(id);
-      if (contact && (!params.role || contact.role === params.role)) {
+      if (
+        contact &&
+        (!params.role || contact.role === params.role) &&
+        (!params.contactType || contact.contactType === params.contactType)
+      ) {
         results.push(contact);
       }
     }
     return results;
   }
 
-  // Search by display name and/or relationship
+  // Search by channel type alone (no address)
+  if (params.channelType && !params.query) {
+    const channelRows = db
+      .select({ contactId: contactChannels.contactId })
+      .from(contactChannels)
+      .innerJoin(contacts, eq(contactChannels.contactId, contacts.id))
+      .where(
+        and(
+          or(
+            eq(contacts.assistantId, params.assistantId),
+            isNull(contacts.assistantId),
+          ),
+          eq(contactChannels.type, params.channelType),
+        ),
+      )
+      .all();
+
+    const contactIds = [...new Set(channelRows.map((r) => r.contactId))];
+    if (contactIds.length === 0) return [];
+
+    const results: ContactWithChannels[] = [];
+    for (const id of contactIds) {
+      if (results.length >= limit) break;
+      const contact = getContactInternal(id);
+      if (
+        contact &&
+        (!params.role || contact.role === params.role) &&
+        (!params.contactType || contact.contactType === params.contactType)
+      ) {
+        results.push(contact);
+      }
+    }
+    return results;
+  }
+
+  // Search by display name, optionally filtered by channelType
   const conditions = [
     or(
       eq(contacts.assistantId, params.assistantId),
@@ -479,26 +505,54 @@ export function searchContacts(params: {
   ];
   if (params.query) {
     const sanitized = escapeLike(params.query);
-    if (!sanitized && !params.relationship && !params.role) return [];
+    if (!sanitized && !params.role && !params.contactType) return [];
     if (sanitized) {
       conditions.push(like(contacts.displayName, `%${sanitized}%`));
     }
   }
-  if (params.relationship) {
-    conditions.push(eq(contacts.relationship, params.relationship));
-  }
   if (params.role) {
     conditions.push(eq(contacts.role, params.role));
+  }
+  if (params.contactType) {
+    conditions.push(eq(contacts.contactType, params.contactType));
+  }
+  if (params.channelType) {
+    conditions.push(eq(contactChannels.type, params.channelType));
   }
 
   const whereClause =
     conditions.length > 1 ? and(...conditions) : conditions[0];
 
+  // Join with contactChannels when channelType is specified so the filter
+  // can reference the channel table; otherwise query contacts alone.
+  if (params.channelType) {
+    const rows = db
+      .select({ contactId: contacts.id })
+      .from(contacts)
+      .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
+      .where(whereClause)
+      .orderBy(desc(contacts.updatedAt), desc(contacts.lastInteraction))
+      .all();
+
+    const contactIds = [...new Set(rows.map((r) => r.contactId))];
+    if (contactIds.length === 0) return [];
+
+    const results: ContactWithChannels[] = [];
+    for (const id of contactIds) {
+      if (results.length >= limit) break;
+      const contact = getContactInternal(id);
+      if (contact) {
+        results.push(contact);
+      }
+    }
+    return results;
+  }
+
   const rows = db
     .select()
     .from(contacts)
     .where(whereClause)
-    .orderBy(desc(contacts.importance), desc(contacts.lastInteraction))
+    .orderBy(desc(contacts.updatedAt), desc(contacts.lastInteraction))
     .limit(limit)
     .all();
 
@@ -509,6 +563,7 @@ export function listContacts(
   assistantId: string,
   limit = 50,
   role?: ContactRole,
+  contactType?: ContactType,
   opts?: { uncapped?: boolean },
 ): ContactWithChannels[] {
   const db = getDb();
@@ -517,13 +572,14 @@ export function listContacts(
     or(eq(contacts.assistantId, assistantId), isNull(contacts.assistantId))!,
   ];
   if (role) conditions.push(eq(contacts.role, role));
+  if (contactType) conditions.push(eq(contacts.contactType, contactType));
   const rows = db
     .select()
     .from(contacts)
     .where(conditions.length === 1 ? conditions[0] : and(...conditions))
     .orderBy(
       sql`${contacts.role} = 'guardian' DESC`,
-      desc(contacts.importance),
+      desc(contacts.updatedAt),
       desc(contacts.lastInteraction),
     )
     .limit(effectiveLimit)
@@ -532,9 +588,9 @@ export function listContacts(
 }
 
 /**
- * Merge two contacts into one. The surviving contact keeps the higher importance,
- * more recent interaction timestamp, and all channels from both contacts.
- * The donor contact is deleted after merging.
+ * Merge two contacts into one. The surviving contact keeps the
+ * more recent interaction timestamp, concatenated notes, and all channels
+ * from both contacts. The donor contact is deleted after merging.
  */
 export function mergeContacts(
   keepId: string,
@@ -579,7 +635,6 @@ export function mergeContacts(
     if (!merge) throw new Error(`Contact "${mergeId}" not found`);
 
     // Resolve merged field values — pick the better/more recent value
-    const mergedImportance = Math.max(keep.importance, merge.importance);
     const mergedInteractionCount =
       keep.interactionCount + merge.interactionCount;
     const mergedLastInteraction =
@@ -587,14 +642,9 @@ export function mergeContacts(
 
     tx.update(contacts)
       .set({
-        importance: mergedImportance,
         interactionCount: mergedInteractionCount,
         lastInteraction: mergedLastInteraction,
-        // Prefer keep's values, fall back to merge's
-        relationship: keep.relationship ?? merge.relationship,
-        responseExpectation:
-          keep.responseExpectation ?? merge.responseExpectation,
-        preferredTone: keep.preferredTone ?? merge.preferredTone,
+        notes: [keep.notes, merge.notes].filter(Boolean).join("\n") || null,
         updatedAt: now,
         // Rebind legacy null-scoped contacts to prevent cross-assistant leakage
         ...(keep.assistantId == null ? { assistantId } : {}),
@@ -634,6 +684,7 @@ export function mergeContacts(
     tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
   });
 
+  emitContactChange();
   return getContactInternal(keepId)!;
 }
 
@@ -930,4 +981,118 @@ export function updateChannelLastSeenById(channelId: string): void {
     .set({ lastSeenAt: now, updatedAt: now })
     .where(eq(contactChannels.id, channelId))
     .run();
+}
+
+/**
+ * Atomically increment interactionCount and set lastInteraction on a contact.
+ * Optimized for the hot path — single UPDATE with no prior SELECT.
+ */
+export function updateContactInteraction(contactId: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(contacts)
+    .set({
+      lastInteraction: now,
+      interactionCount: sql`${contacts.interactionCount} + 1`,
+      updatedAt: now,
+    })
+    .where(eq(contacts.id, contactId))
+    .run();
+}
+
+// ── Assistant Contact Metadata ──────────────────────────────────────
+
+function parseAssistantMetadata(
+  row: typeof assistantContactMetadata.$inferSelect,
+): AssistantContactMetadata {
+  // Species–metadata pairing is enforced at write time; the cast bridges the
+  // runtime DB row into the compile-time discriminated union.
+  return {
+    contactId: row.contactId,
+    species: row.species,
+    metadata: row.metadata ? JSON.parse(row.metadata) : null,
+  } as AssistantContactMetadata;
+}
+
+/**
+ * Validate that metadata matches the expected shape for the given species.
+ * Enforces the invariant that makes the discriminated union cast in
+ * parseAssistantMetadata safe.
+ */
+export function validateSpeciesMetadata(
+  species: AssistantSpecies,
+  metadata: Record<string, unknown> | null | undefined,
+): void {
+  if (metadata == null) return;
+
+  if (species === "vellum") {
+    if (typeof metadata.assistantId !== "string" || !metadata.assistantId) {
+      throw new Error(
+        'Vellum assistant metadata requires a non-empty "assistantId" string',
+      );
+    }
+    if (typeof metadata.gatewayUrl !== "string" || !metadata.gatewayUrl) {
+      throw new Error(
+        'Vellum assistant metadata requires a non-empty "gatewayUrl" string',
+      );
+    }
+  }
+}
+
+export function upsertAssistantContactMetadata(params: {
+  contactId: string;
+  species: AssistantSpecies;
+  metadata?: Record<string, unknown> | null;
+}): AssistantContactMetadata {
+  validateSpeciesMetadata(params.species, params.metadata);
+
+  const db = getDb();
+  const metadataJson =
+    params.metadata != null ? JSON.stringify(params.metadata) : null;
+
+  db.insert(assistantContactMetadata)
+    .values({
+      contactId: params.contactId,
+      species: params.species,
+      metadata: metadataJson,
+    })
+    .onConflictDoUpdate({
+      target: assistantContactMetadata.contactId,
+      set: {
+        species: params.species,
+        metadata: metadataJson,
+      },
+    })
+    .run();
+
+  const row = db
+    .select()
+    .from(assistantContactMetadata)
+    .where(eq(assistantContactMetadata.contactId, params.contactId))
+    .get();
+
+  return parseAssistantMetadata(row!);
+}
+
+export function getAssistantContactMetadata(
+  contactId: string,
+): AssistantContactMetadata | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(assistantContactMetadata)
+    .where(eq(assistantContactMetadata.contactId, contactId))
+    .get();
+
+  if (!row) return null;
+  return parseAssistantMetadata(row);
+}
+
+export function deleteAssistantContactMetadata(contactId: string): boolean {
+  const db = getDb();
+  db.delete(assistantContactMetadata)
+    .where(eq(assistantContactMetadata.contactId, contactId))
+    .run();
+
+  return rawChanges() > 0;
 }

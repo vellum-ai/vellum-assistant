@@ -6,6 +6,7 @@ import AppKit
 public enum VIconButtonVariant {
     case standard
     case filled(Color)
+    case outlined
 }
 
 public struct VIconButton: View {
@@ -40,9 +41,11 @@ public struct VIconButton: View {
                 if let customIcon {
                     customIcon
                         .font(.system(size: 12, weight: .medium))
+                        .frame(width: 14, height: 14)
                 } else {
                     Image(systemName: icon)
                         .font(.system(size: 12, weight: .medium))
+                        .frame(width: 14, height: 14)
                 }
                 if !iconOnly {
                     Text(label)
@@ -56,7 +59,9 @@ public struct VIconButton: View {
         #if os(macOS)
         .onHover { hovering in
             isHovered = hovering
-            if case .filled = variant {} else {
+            switch variant {
+            case .filled: break
+            default:
                 if hovering { NSCursor.pointingHand.set() }
                 else { NSCursor.arrow.set() }
             }
@@ -77,9 +82,9 @@ public struct VIconButton: View {
 
     private var iconForegroundColor: Color {
         if isActive {
-            return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._300)
+            return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._300)
         }
-        return adaptiveColor(light: Color(hex: 0x4B6845), dark: Forest._400)
+        return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
     }
 }
 
@@ -127,9 +132,9 @@ public struct VIconButtonStyle: ButtonStyle {
             .padding(size == nil ? VSpacing.sm : 0)
             .background(shape.fill(backgroundColor(isPressed: configuration.isPressed)))
             .overlay(
-                shape.stroke(
+                shape.strokeBorder(
                     borderColor,
-                    lineWidth: isEnabled && isFocused ? 1.25 : 1
+                    lineWidth: borderLineWidth
                 )
             )
             .clipShape(shape)
@@ -148,6 +153,11 @@ public struct VIconButtonStyle: ButtonStyle {
             if isHovered { return color.opacity(0.85) }
             return color
         }
+        if case .outlined = variant {
+            if isPressed { return VColor.ghostPressed }
+            if isHovered { return VColor.ghostHover }
+            return .clear
+        }
         guard isEnabled else {
             return isActive ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear
         }
@@ -162,8 +172,16 @@ public struct VIconButtonStyle: ButtonStyle {
         }
     }
 
+    private var borderLineWidth: CGFloat {
+        if case .outlined = variant { return 2 }
+        return isEnabled && isFocused ? 1.25 : 1
+    }
+
     private var borderColor: Color {
         if case .filled = variant { return .clear }
+        if case .outlined = variant {
+            return VColor.buttonSecondaryBorder
+        }
         guard isEnabled, isFocused else { return .clear }
         return VColor.accent.opacity(0.72)
     }
@@ -178,6 +196,7 @@ public struct VIconButtonStyle: ButtonStyle {
             VIconButton(label: "Icon Only", icon: "plus", iconOnly: true) {}
             VIconButton(label: "Active Icon", icon: "pencil", isActive: true, iconOnly: true) {}
             VIconButton(label: "Filled", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary)) {}
+            VIconButton(label: "Outlined", icon: "xmark", iconOnly: true, variant: .outlined) {}
         }
         .padding()
     }

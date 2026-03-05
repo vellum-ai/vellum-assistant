@@ -39,10 +39,9 @@ import type { AuthContext } from "../auth/types.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 import type {
   ApprovalConversationGenerator,
-  MessageProcessor,
-  NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
   RuntimeMessagePayload,
   SendMessageDeps,
@@ -124,7 +123,8 @@ async function tryConsumeCanonicalGuardianReply(params: {
     messageText: trimmedContent,
     channel: sourceChannel,
     actor: {
-      externalUserId: verifiedActorExternalUserId,
+      actorPrincipalId: verifiedActorPrincipalId,
+      actorExternalUserId: verifiedActorExternalUserId,
       channel: sourceChannel,
       guardianPrincipalId: verifiedActorPrincipalId,
     },
@@ -452,8 +452,6 @@ function makeHubPublisher(
 export async function handleSendMessage(
   req: Request,
   deps: {
-    processMessage?: MessageProcessor;
-    persistAndProcessMessage?: NonBlockingMessageProcessor;
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
   },
@@ -532,218 +530,171 @@ export async function handleSendMessage(
     }
   }
 
-  const mapping = getOrCreateConversation(conversationKey);
-
-  // ── Queue-if-busy path (preferred when sendMessageDeps is wired) ────
-  if (deps.sendMessageDeps) {
-    const smDeps = deps.sendMessageDeps;
-    const session = await smDeps.getOrCreateSession(mapping.conversationId);
-
-    // Resolve guardian context from the AuthContext's actorPrincipalId.
-    // The JWT-verified principal is used as the sender identity through
-    // the same trust resolution pipeline that channel ingress uses.
-    if (authContext.actorPrincipalId) {
-      const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-      const trustCtx = resolveTrustContext({
-        assistantId,
-        sourceChannel: "vellum",
-        conversationExternalId: "local",
-        actorExternalId: authContext.actorPrincipalId,
-      });
-      session.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
-    } else {
-      // Service principals (svc_gateway) or tokens without an actor ID
-      // get a minimal guardian context so downstream code has something.
-      session.setTrustContext({ trustClass: "guardian", sourceChannel });
-    }
-
-    const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
-    // Route server-authoritative state signals (confirmation_state_changed,
-    // assistant_activity_state) to the SSE hub. Without this, these signals
-    // only travel through session.sendToClient, which is a no-op for
-    // socketless HTTP sessions.
-    session.setStateSignalListener(onEvent);
-
-    const attachments = hasAttachments
-      ? smDeps.resolveAttachments(attachmentIds)
-      : [];
-
-    // Resolve the verified actor's external user ID and principal for inline
-    // approval routing from the session's guardian context.
-    const verifiedActorExternalUserId =
-      session.trustContext?.guardianExternalUserId;
-    const verifiedActorPrincipalId =
-      session.trustContext?.guardianPrincipalId ?? undefined;
-
-    // Try to consume the message as a canonical guardian approval/rejection reply.
-    // On failure, degrade to the existing queue/auto-deny path rather than
-    // surfacing a 500 — mirrors the IPC handler's catch-and-fallback.
-    try {
-      const inlineReplyResult = await tryConsumeCanonicalGuardianReply({
-        conversationId: mapping.conversationId,
-        sourceChannel,
-        sourceInterface,
-        content: content ?? "",
-        attachments,
-        session,
-        onEvent,
-        approvalConversationGenerator: deps.approvalConversationGenerator,
-        verifiedActorExternalUserId,
-        verifiedActorPrincipalId,
-      });
-      if (inlineReplyResult.consumed) {
-        return Response.json(
-          {
-            accepted: true,
-            ...(inlineReplyResult.messageId
-              ? { messageId: inlineReplyResult.messageId }
-              : {}),
-          },
-          { status: 202 },
-        );
-      }
-    } catch (err) {
-      log.warn(
-        { err, conversationId: mapping.conversationId },
-        "Inline approval consumption failed, falling through to normal send path",
-      );
-    }
-
-    if (session.isProcessing()) {
-      // If a tool confirmation is pending, auto-deny it so the agent
-      // can finish the current turn and process this queued message.
-      if (session.hasAnyPendingConfirmation()) {
-        // Emit authoritative denial state for each pending request.
-        // The onStateSignal listener routes these to the SSE hub automatically.
-        for (const interaction of pendingInteractions.getByConversation(
-          mapping.conversationId,
-        )) {
-          if (
-            interaction.session === session &&
-            interaction.kind === "confirmation"
-          ) {
-            session.emitConfirmationStateChanged({
-              sessionId: mapping.conversationId,
-              requestId: interaction.requestId,
-              state: "denied" as const,
-              source: "auto_deny" as const,
-            });
-          }
-        }
-        session.denyAllPendingConfirmations();
-        pendingInteractions.removeBySession(session);
-      }
-
-      // Queue the message so it's processed when the current turn completes
-      const requestId = crypto.randomUUID();
-      const result = session.enqueueMessage(
-        content ?? "",
-        attachments,
-        onEvent,
-        requestId,
-        undefined, // activeSurfaceId
-        undefined, // currentPage
-        {
-          userMessageChannel: sourceChannel,
-          assistantMessageChannel: sourceChannel,
-          userMessageInterface: sourceInterface,
-          assistantMessageInterface: sourceInterface,
-        },
-        { isInteractive: false },
-      );
-      if (result.rejected) {
-        return httpError(
-          "RATE_LIMITED",
-          "Message queue is full. Please retry later.",
-          429,
-        );
-      }
-      return Response.json({ accepted: true, queued: true }, { status: 202 });
-    }
-
-    // Session is idle — persist and fire agent loop immediately
-    session.setTurnChannelContext({
-      userMessageChannel: sourceChannel,
-      assistantMessageChannel: sourceChannel,
-    });
-    session.setTurnInterfaceContext({
-      userMessageInterface: sourceInterface,
-      assistantMessageInterface: sourceInterface,
-    });
-    const requestId = crypto.randomUUID();
-    const messageId = await session.persistUserMessage(
-      content ?? "",
-      attachments,
-      requestId,
-    );
-
-    // Fire-and-forget the agent loop; events flow to the hub via onEvent.
-    // Mark non-interactive so conflict clarification doesn't block the turn.
-    session
-      .runAgentLoop(content ?? "", messageId, onEvent, {
-        isInteractive: false,
-        isUserMessage: true,
-      })
-      .catch((err) => {
-        log.error(
-          { err, conversationId: mapping.conversationId },
-          "Agent loop failed (POST /messages)",
-        );
-      });
-
-    return Response.json({ accepted: true, messageId }, { status: 202 });
-  }
-
-  // ── Legacy path (fallback when sendMessageDeps not wired) ───────────
-  const processor = deps.persistAndProcessMessage ?? deps.processMessage;
-  if (!processor) {
+  if (!deps.sendMessageDeps) {
     return httpError(
       "SERVICE_UNAVAILABLE",
-      "Message processing not configured",
+      "Message processing is not available",
       503,
     );
   }
 
-  // Resolve guardian context from AuthContext for the legacy path too.
-  let trustContext: import("../../daemon/session-runtime-assembly.js").TrustContext;
+  const mapping = getOrCreateConversation(conversationKey);
+  const smDeps = deps.sendMessageDeps;
+  const session = await smDeps.getOrCreateSession(mapping.conversationId);
+
+  // Resolve guardian context from the AuthContext's actorPrincipalId.
+  // The JWT-verified principal is used as the sender identity through
+  // the same trust resolution pipeline that channel ingress uses.
   if (authContext.actorPrincipalId) {
-    const legacyTrustCtx = resolveTrustContext({
-      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+    const trustCtx = resolveTrustContext({
+      assistantId,
       sourceChannel: "vellum",
       conversationExternalId: "local",
       actorExternalId: authContext.actorPrincipalId,
     });
-    trustContext = withSourceChannel(sourceChannel, legacyTrustCtx);
+    session.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
   } else {
-    trustContext = { trustClass: "guardian" as const, sourceChannel };
+    // Service principals (svc_gateway) or tokens without an actor ID
+    // get a minimal guardian context so downstream code has something.
+    session.setTrustContext({ trustClass: "guardian", sourceChannel });
   }
 
+  const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
+  // Route server-authoritative state signals (confirmation_state_changed,
+  // assistant_activity_state) to the SSE hub. Without this, these signals
+  // only travel through session.sendToClient, which is a no-op for
+  // socketless HTTP sessions.
+  session.setStateSignalListener(onEvent);
+
+  const attachments = hasAttachments
+    ? smDeps.resolveAttachments(attachmentIds)
+    : [];
+
+  // Resolve the verified actor's external user ID and principal for inline
+  // approval routing from the session's guardian context.
+  const verifiedActorExternalUserId =
+    session.trustContext?.guardianExternalUserId;
+  const verifiedActorPrincipalId =
+    session.trustContext?.guardianPrincipalId ?? undefined;
+
+  // Try to consume the message as a canonical guardian approval/rejection reply.
+  // On failure, degrade to the existing queue/auto-deny path rather than
+  // surfacing a 500 — mirrors the IPC handler's catch-and-fallback.
   try {
-    const result = await processor(
-      mapping.conversationId,
-      content ?? "",
-      hasAttachments ? attachmentIds : undefined,
-      { trustContext },
+    const inlineReplyResult = await tryConsumeCanonicalGuardianReply({
+      conversationId: mapping.conversationId,
       sourceChannel,
       sourceInterface,
-    );
-    return Response.json(
-      { accepted: true, messageId: result.messageId },
-      { status: 202 },
-    );
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      err.message === "Session is already processing a message"
-    ) {
-      return httpError(
-        "CONFLICT",
-        "Session is busy processing another message. Please retry.",
-        409,
+      content: content ?? "",
+      attachments,
+      session,
+      onEvent,
+      approvalConversationGenerator: deps.approvalConversationGenerator,
+      verifiedActorExternalUserId,
+      verifiedActorPrincipalId,
+    });
+    if (inlineReplyResult.consumed) {
+      return Response.json(
+        {
+          accepted: true,
+          ...(inlineReplyResult.messageId
+            ? { messageId: inlineReplyResult.messageId }
+            : {}),
+        },
+        { status: 202 },
       );
     }
-    throw err;
+  } catch (err) {
+    log.warn(
+      { err, conversationId: mapping.conversationId },
+      "Inline approval consumption failed, falling through to normal send path",
+    );
   }
+
+  if (session.isProcessing()) {
+    // If a tool confirmation is pending, auto-deny it so the agent
+    // can finish the current turn and process this queued message.
+    if (session.hasAnyPendingConfirmation()) {
+      // Emit authoritative denial state for each pending request.
+      // The onStateSignal listener routes these to the SSE hub automatically.
+      for (const interaction of pendingInteractions.getByConversation(
+        mapping.conversationId,
+      )) {
+        if (
+          interaction.session === session &&
+          interaction.kind === "confirmation"
+        ) {
+          session.emitConfirmationStateChanged({
+            sessionId: mapping.conversationId,
+            requestId: interaction.requestId,
+            state: "denied" as const,
+            source: "auto_deny" as const,
+          });
+        }
+      }
+      session.denyAllPendingConfirmations();
+      pendingInteractions.removeBySession(session);
+    }
+
+    // Queue the message so it's processed when the current turn completes
+    const requestId = crypto.randomUUID();
+    const result = session.enqueueMessage(
+      content ?? "",
+      attachments,
+      onEvent,
+      requestId,
+      undefined, // activeSurfaceId
+      undefined, // currentPage
+      {
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      },
+      { isInteractive: false },
+    );
+    if (result.rejected) {
+      return httpError(
+        "RATE_LIMITED",
+        "Message queue is full. Please retry later.",
+        429,
+      );
+    }
+    return Response.json({ accepted: true, queued: true }, { status: 202 });
+  }
+
+  // Session is idle — persist and fire agent loop immediately
+  session.setTurnChannelContext({
+    userMessageChannel: sourceChannel,
+    assistantMessageChannel: sourceChannel,
+  });
+  session.setTurnInterfaceContext({
+    userMessageInterface: sourceInterface,
+    assistantMessageInterface: sourceInterface,
+  });
+  const requestId = crypto.randomUUID();
+  const messageId = await session.persistUserMessage(
+    content ?? "",
+    attachments,
+    requestId,
+  );
+
+  // Fire-and-forget the agent loop; events flow to the hub via onEvent.
+  // Mark non-interactive so conflict clarification doesn't block the turn.
+  session
+    .runAgentLoop(content ?? "", messageId, onEvent, {
+      isInteractive: false,
+      isUserMessage: true,
+    })
+    .catch((err) => {
+      log.error(
+        { err, conversationId: mapping.conversationId },
+        "Agent loop failed (POST /messages)",
+      );
+    });
+
+  return Response.json({ accepted: true, messageId }, { status: 202 });
 }
 
 async function generateLlmSuggestion(
@@ -944,4 +895,51 @@ export function handleSearchConversations(url: URL): Response {
   });
 
   return Response.json({ query, results });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function conversationRouteDefinitions(deps: {
+  interfacesDir: string | null;
+  sendMessageDeps?: SendMessageDeps;
+  approvalConversationGenerator?: ApprovalConversationGenerator;
+  suggestionCache: Map<string, string>;
+  suggestionInFlight: Map<string, Promise<string | null>>;
+}): RouteDefinition[] {
+  return [
+    {
+      endpoint: "messages",
+      method: "GET",
+      handler: ({ url }) => handleListMessages(url, deps.interfacesDir),
+    },
+    {
+      endpoint: "messages",
+      method: "POST",
+      handler: async ({ req, authContext }) =>
+        handleSendMessage(
+          req,
+          {
+            sendMessageDeps: deps.sendMessageDeps,
+            approvalConversationGenerator: deps.approvalConversationGenerator,
+          },
+          authContext,
+        ),
+    },
+    {
+      endpoint: "search",
+      method: "GET",
+      handler: ({ url }) => handleSearchConversations(url),
+    },
+    {
+      endpoint: "suggestion",
+      method: "GET",
+      handler: async ({ url }) =>
+        handleGetSuggestion(url, {
+          suggestionCache: deps.suggestionCache,
+          suggestionInFlight: deps.suggestionInFlight,
+        }),
+    },
+  ];
 }

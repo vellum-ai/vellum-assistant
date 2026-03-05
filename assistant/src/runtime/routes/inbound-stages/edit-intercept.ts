@@ -11,6 +11,7 @@
  * focused on orchestration.
  */
 import type { ChannelId } from "../../../channels/types.js";
+import { touchContactInteraction } from "../../../contacts/contacts-write.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import * as conversationStore from "../../../memory/conversation-store.js";
 import { getLogger } from "../../../util/logger.js";
@@ -29,6 +30,8 @@ export interface EditInterceptParams {
   canonicalAssistantId: string;
   assistantId: string;
   content: string | undefined;
+  /** Contact ID for interaction tracking; omitted when the sender has no resolved member. */
+  contactId?: string;
 }
 
 /**
@@ -49,6 +52,7 @@ export async function handleEditIntercept(
     canonicalAssistantId,
     assistantId,
     content,
+    contactId,
   } = params;
 
   // Dedup the edit event itself (retried edited_message webhooks)
@@ -65,6 +69,12 @@ export async function handleEditIntercept(
       duplicate: true,
       eventId: editResult.eventId,
     });
+  }
+
+  // Track contact interaction only for genuinely new edit events (not webhook
+  // retries), matching the pattern used for the normal message path.
+  if (contactId) {
+    touchContactInteraction(contactId);
   }
 
   // Retry lookup a few times -- the original message may still be processing

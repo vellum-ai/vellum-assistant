@@ -1,8 +1,10 @@
 /**
  * Conflict-gate logic extracted from Session.
  *
- * Decides whether to ask the user about a pending memory conflict (relevant gate)
- * or skip entirely.
+ * Handles pending memory conflicts internally: dismisses non-user-evidenced
+ * and non-actionable conflicts, and attempts resolution when the user's reply
+ * looks like an explicit clarification with topical relevance. Never produces
+ * user-facing clarification text.
  */
 
 import { resolveConflictClarification } from "../memory/clarification-resolver.js";
@@ -14,47 +16,34 @@ import {
 } from "../memory/conflict-intent.js";
 import {
   isConflictKindPairEligible,
+  isConflictUserEvidenced,
   isStatementConflictEligible,
 } from "../memory/conflict-policy.js";
 import type { PendingConflictDetail } from "../memory/conflict-store.js";
 import {
   applyConflictResolution,
   listPendingConflictDetails,
-  markConflictAsked,
   resolveConflict,
 } from "../memory/conflict-store.js";
 
-export interface ConflictGateDecision {
-  question: string;
-  relevant: boolean;
-}
-
 export class ConflictGate {
-  private turnCounter = 0;
-  private lastAskedTurn = new Map<string, number>();
-
   async evaluate(
     userMessage: string,
     conflictConfig: {
       enabled: boolean;
       gateMode: string;
       relevanceThreshold: number;
-      reaskCooldownTurns: number;
       resolverLlmTimeoutMs: number;
-      askOnIrrelevantTurns: boolean;
       conflictableKinds: readonly string[];
     },
     scopeId = "default",
-  ): Promise<ConflictGateDecision | null> {
-    if (!conflictConfig.enabled || conflictConfig.gateMode !== "soft")
-      return null;
+  ): Promise<void> {
+    if (!conflictConfig.enabled || conflictConfig.gateMode !== "soft") return;
 
-    this.turnCounter += 1;
-    const threshold = conflictConfig.relevanceThreshold;
-    const cooldownTurns = Math.max(1, conflictConfig.reaskCooldownTurns);
     const pendingBeforeResolve = listPendingConflictDetails(scopeId, 50);
 
-    // Dismiss non-actionable conflicts (kind/statement policy or incoherent pair)
+    // Dismiss non-actionable conflicts (kind/statement policy, incoherent pair,
+    // or assistant-inferred-only provenance with no user evidence)
     const dismissedIds = new Set<string>();
     for (const conflict of pendingBeforeResolve) {
       const dismissReason = this.getDismissReason(
@@ -73,13 +62,15 @@ export class ConflictGate {
     const actionablePending = pendingBeforeResolve.filter(
       (c) => !dismissedIds.has(c.id),
     );
+
+    // Attempt resolution only for explicit clarification-like replies with
+    // topical relevance to the conflict statements
     const clarificationReply = looksLikeClarificationReply(userMessage);
     const candidatesBeforeResolve = actionablePending.filter((conflict) => {
       const relevance = computeConflictRelevance(userMessage, conflict);
       return shouldAttemptConflictResolution({
         clarificationReply,
         relevance,
-        wasRecentlyAsked: this.wasRecentlyAsked(conflict.id, cooldownTurns),
       });
     });
     await this.resolvePendingConflicts(
@@ -87,45 +78,6 @@ export class ConflictGate {
       conflictConfig.resolverLlmTimeoutMs,
       candidatesBeforeResolve,
     );
-
-    const pending = listPendingConflictDetails(scopeId, 50);
-    if (pending.length === 0) return null;
-
-    const scored = pending.map((conflict) => ({
-      conflict,
-      relevance: computeConflictRelevance(userMessage, conflict),
-    }));
-    // Try relevant conflicts first
-    const askable = scored
-      .filter((entry) => entry.relevance >= threshold)
-      .find((entry) => this.shouldAsk(entry.conflict.id, cooldownTurns));
-
-    // If no relevant conflict to ask and askOnIrrelevantTurns is enabled, try ones
-    // below the threshold (including zero-relevance). Zero-relevance conflicts are
-    // surfaced but not tracked as asked, preventing wasRecentlyAsked from triggering
-    // heuristic resolution on subsequent unrelated turns.
-    const candidateToAsk =
-      askable ??
-      (conflictConfig.askOnIrrelevantTurns
-        ? scored.find(
-            (entry) =>
-              entry.relevance < threshold &&
-              this.shouldAsk(entry.conflict.id, cooldownTurns),
-          )
-        : undefined);
-
-    if (!candidateToAsk) return null;
-
-    if (askable || candidateToAsk.relevance > 0) {
-      this.lastAskedTurn.set(candidateToAsk.conflict.id, this.turnCounter);
-      markConflictAsked(candidateToAsk.conflict.id);
-    }
-    return {
-      question:
-        candidateToAsk.conflict.clarificationQuestion ??
-        buildFallbackConflictQuestion(candidateToAsk.conflict),
-      relevant: candidateToAsk.relevance >= threshold,
-    };
   }
 
   private async resolvePendingConflicts(
@@ -154,18 +106,6 @@ export class ConflictGate {
         resolutionNote: resolution.explanation,
       });
     }
-  }
-
-  private shouldAsk(conflictId: string, cooldownTurns: number): boolean {
-    const lastAsked = this.lastAskedTurn.get(conflictId);
-    if (lastAsked === undefined) return true;
-    return this.turnCounter - lastAsked >= cooldownTurns;
-  }
-
-  private wasRecentlyAsked(conflictId: string, cooldownTurns: number): boolean {
-    const lastAsked = this.lastAskedTurn.get(conflictId);
-    if (lastAsked === undefined) return false;
-    return this.turnCounter - lastAsked <= cooldownTurns;
   }
 
   /**
@@ -211,18 +151,17 @@ export class ConflictGate {
     ) {
       return "Dismissed by conflict policy (incoherent — zero statement overlap).";
     }
+    // Dismiss conflicts where neither side has user-evidenced provenance
+    if (
+      !isConflictUserEvidenced(
+        conflict.existingVerificationState,
+        conflict.candidateVerificationState,
+      )
+    ) {
+      return "Dismissed by conflict policy (no user-evidenced provenance).";
+    }
     return null;
   }
 }
 
-export function buildFallbackConflictQuestion(
-  conflict: PendingConflictDetail,
-): string {
-  return [
-    "I have two conflicting notes and need your confirmation.",
-    `A) ${conflict.existingStatement}`,
-    `B) ${conflict.candidateStatement}`,
-    "Which one should I keep?",
-  ].join("\n");
-}
 export { computeConflictRelevance, looksLikeClarificationReply };

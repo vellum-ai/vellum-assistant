@@ -55,11 +55,11 @@ struct ToolPermissionTesterView: View {
 
             // Toggles
             HStack(spacing: VSpacing.xl) {
-                VToggle(isOn: $model.isInteractive, label: "Interactive", size: .medium)
+                VToggle(isOn: $model.isInteractive, label: "Interactive")
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
 
-                VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat", size: .medium)
+                VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat")
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
             }
@@ -91,7 +91,7 @@ struct ToolPermissionTesterView: View {
             } else {
                 // Optional fields have a checkbox
                 HStack(spacing: VSpacing.xs) {
-                    VToggle(isOn: fieldEnabledBinding(for: field.id), size: .medium)
+                    VToggle(isOn: fieldEnabledBinding(for: field.id))
                     fieldNameLabel(field)
                 }
 
@@ -139,7 +139,7 @@ struct ToolPermissionTesterView: View {
                 .font(VFont.mono)
 
         case .boolean:
-            VToggle(isOn: fieldBoolBinding(for: field.id), size: .medium)
+            VToggle(isOn: fieldBoolBinding(for: field.id))
 
         case .enumeration(let values):
             VDropdown(
@@ -193,7 +193,7 @@ struct ToolPermissionTesterView: View {
     @ViewBuilder
     private var simulateButton: some View {
         HStack(spacing: VSpacing.sm) {
-            VButton(label: model.isSimulating ? "Simulating\u{2026}" : "Simulate", style: .primary, size: .medium) {
+            VButton(label: model.isSimulating ? "Simulating\u{2026}" : "Simulate", style: .primary) {
                 model.simulate()
             }
             .disabled(!model.canSimulate)

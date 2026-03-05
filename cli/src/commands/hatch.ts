@@ -39,7 +39,6 @@ import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import {
   startLocalDaemon,
   startGateway,
-  startOutboundProxy,
   stopLocalProcesses,
 } from "../lib/local";
 import { probePort } from "../lib/port-probe";
@@ -201,13 +200,13 @@ function parseArgs(): HatchArgs {
         "  --remote <host>           Remote host (local, gcp, aws, custom)",
       );
       console.log(
-        "  --daemon-only             Start daemon only, skip gateway",
+        "  --daemon-only             Start assistant only, skip gateway",
       );
       console.log(
         "  --restart                 Restart processes without onboarding side effects",
       );
       console.log(
-        "  --watch                   Run daemon and gateway in watch mode (hot reload on source changes)",
+        "  --watch                   Run assistant and gateway in watch mode (hot reload on source changes)",
       );
       process.exit(0);
     } else if (arg === "-d") {
@@ -596,7 +595,7 @@ async function displayPairingQRCode(
     const daemonReady = await waitForDaemonReady(runtimeUrl, bearerToken);
     if (!daemonReady) {
       console.warn(
-        "⚠ Daemon health check did not pass within 15s. Run `vellum pair` to try again.\n",
+        "⚠ Assistant health check did not pass within 15s. Run `vellum pair` to try again.\n",
       );
       return;
     }
@@ -751,13 +750,11 @@ async function hatchLocal(
     // Gateway failed — stop the daemon we just started so we don't leave
     // orphaned processes with no lock file entry.
     console.error(
-      `\n❌ Gateway startup failed — stopping daemon to avoid orphaned processes.`,
+      `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
     );
     await stopLocalProcesses();
     throw error;
   }
-
-  await startOutboundProxy(watch);
 
   // Read the bearer token written by the daemon so the client can authenticate
   // with the gateway (which requires auth by default).

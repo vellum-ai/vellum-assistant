@@ -12,6 +12,12 @@ import type {
   ToolDefinition,
 } from "../types.js";
 
+export interface GeminiProviderOptions {
+  streamTimeoutMs?: number;
+  /** When set, routes requests through the managed proxy at this base URL. */
+  managedBaseUrl?: string;
+}
+
 export class GeminiProvider implements Provider {
   public readonly name = "gemini";
   private client: GoogleGenAI;
@@ -21,9 +27,14 @@ export class GeminiProvider implements Provider {
   constructor(
     apiKey: string,
     model: string,
-    options: { streamTimeoutMs?: number } = {},
+    options: GeminiProviderOptions = {},
   ) {
-    this.client = new GoogleGenAI({ apiKey });
+    this.client = new GoogleGenAI({
+      apiKey,
+      ...(options.managedBaseUrl
+        ? { httpOptions: { baseUrl: options.managedBaseUrl } }
+        : {}),
+    });
     this.model = model;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 300_000;
   }

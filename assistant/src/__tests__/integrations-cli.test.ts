@@ -108,7 +108,6 @@ describe("vellum integrations CLI", () => {
 
   afterEach(() => {
     delete process.env.GATEWAY_AUTH_TOKEN;
-    delete process.env.INTERNAL_GATEWAY_BASE_URL;
     process.exitCode = 0;
   });
 
@@ -141,8 +140,8 @@ describe("vellum integrations CLI", () => {
     expect(mintCalls).toBe(1);
   });
 
-  test("prefers INTERNAL_GATEWAY_BASE_URL when it is injected", async () => {
-    process.env.INTERNAL_GATEWAY_BASE_URL = "http://gateway.internal:9900/";
+  test("uses configured gateway base for requests", async () => {
+    gatewayBase = "http://gateway.internal:9900";
     const result = await runCli(["--json", "twilio", "config"], {
       success: true,
     });
@@ -163,28 +162,6 @@ describe("vellum integrations CLI", () => {
     );
   });
 
-  test("passes filters for ingress members (now calls /v1/contacts)", async () => {
-    const result = await runCli(
-      ["--json", "ingress", "members", "--role", "contact", "--limit", "20"],
-      { ok: true, contacts: [] },
-    );
-    expect(result.exitCode).toBe(0);
-    expect(result.fetchCalls[0]?.url).toBe(
-      "http://gateway.test/v1/contacts?role=contact&limit=20",
-    );
-  });
-
-  test("ingress members defaults role to contact", async () => {
-    const result = await runCli(["--json", "ingress", "members"], {
-      ok: true,
-      contacts: [],
-    });
-    expect(result.exitCode).toBe(0);
-    expect(result.fetchCalls[0]?.url).toBe(
-      "http://gateway.test/v1/contacts?role=contact",
-    );
-  });
-
   test("reads ingress config without gateway fetch", async () => {
     rawConfig = {
       ingress: {
@@ -192,7 +169,6 @@ describe("vellum integrations CLI", () => {
         publicBaseUrl: "https://public.example.com",
       },
     };
-    process.env.INTERNAL_GATEWAY_BASE_URL = "http://gateway.internal:9900/";
     const result = await runCli(["--json", "ingress", "config"], { ok: true });
 
     expect(result.exitCode).toBe(0);
@@ -201,7 +177,7 @@ describe("vellum integrations CLI", () => {
       success: true,
       enabled: true,
       publicBaseUrl: "https://public.example.com",
-      localGatewayTarget: "http://gateway.internal:9900",
+      localGatewayTarget: "http://gateway.test",
     });
   });
 

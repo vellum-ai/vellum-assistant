@@ -116,6 +116,70 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/brain-graph": {
+        get: {
+          summary: "Brain graph data",
+          description:
+            "Authenticated gateway endpoint that retrieves the brain graph data structure from the assistant runtime.",
+          operationId: "brainGraph",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Brain graph data returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/brain-graph-ui": {
+        get: {
+          summary: "Brain graph UI",
+          description:
+            "Authenticated gateway endpoint that serves the brain graph visualization UI from the assistant runtime.",
+          operationId: "brainGraphUI",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Brain graph UI HTML returned",
+              content: {
+                "text/html": { schema: { type: "string" } },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/home-base-ui": {
+        get: {
+          summary: "Home base UI",
+          description:
+            "Authenticated gateway endpoint that serves the home base dashboard UI from the assistant runtime.",
+          operationId: "homeBaseUI",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Home base UI HTML returned",
+              content: {
+                "text/html": { schema: { type: "string" } },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/webhooks/telegram": {
         post: {
           summary: "Telegram webhook",
@@ -794,6 +858,68 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/pairing/register": {
+        post: {
+          summary: "Register pairing code",
+          description:
+            "Authenticated gateway endpoint that registers a new pairing code for device linking via the assistant runtime.",
+          operationId: "pairingRegister",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Pairing code registered" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "502": { description: "Failed to reach assistant runtime" },
+          },
+        },
+      },
+      "/pairing/request": {
+        post: {
+          summary: "Request pairing",
+          description:
+            "Initiates a pairing request using a pairing code. Auth failures are tracked for rate limiting.",
+          operationId: "pairingRequest",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Pairing request accepted" },
+            "400": { description: "Invalid request payload" },
+            "401": { description: "Unauthorized" },
+            "403": { description: "Pairing code expired or invalid" },
+            "502": { description: "Failed to reach assistant runtime" },
+          },
+        },
+      },
+      "/pairing/status": {
+        get: {
+          summary: "Check pairing status",
+          description:
+            "Checks the current status of a pairing request. Auth failures are tracked for rate limiting.",
+          operationId: "pairingStatus",
+          responses: {
+            "200": { description: "Pairing status returned" },
+            "401": { description: "Unauthorized" },
+            "403": { description: "Pairing session not found" },
+            "502": { description: "Failed to reach assistant runtime" },
+          },
+        },
+      },
       "/v1/integrations/telegram/config": {
         get: {
           summary: "Get Telegram integration config",
@@ -907,15 +1033,15 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/ingress/members": {
+      "/v1/contacts": {
         get: {
-          summary: "List ingress members",
+          summary: "List or search contacts",
           description:
-            "Authenticated gateway endpoint that lists ingress members via the assistant runtime.",
-          operationId: "ingressMembersGet",
+            "Authenticated gateway endpoint that lists or searches contacts via the assistant runtime.",
+          operationId: "contactsGet",
           security: [{ BearerAuth: [] }],
           responses: {
-            "200": { description: "Ingress members returned" },
+            "200": { description: "Contacts returned" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
@@ -925,10 +1051,10 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
         post: {
-          summary: "Upsert ingress member",
+          summary: "Create or update a contact",
           description:
-            "Authenticated gateway endpoint that creates or updates an ingress member via the assistant runtime.",
-          operationId: "ingressMembersPost",
+            "Authenticated gateway endpoint that creates or updates a contact via the assistant runtime.",
+          operationId: "contactsPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -939,7 +1065,8 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Ingress member upserted" },
+            "200": { description: "Contact updated" },
+            "201": { description: "Contact created" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
@@ -950,90 +1077,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/ingress/members/{memberId}": {
-        delete: {
-          summary: "Revoke ingress member",
-          description:
-            "Authenticated gateway endpoint that revokes an ingress member via the assistant runtime.",
-          operationId: "ingressMemberDelete",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "memberId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          responses: {
-            "200": { description: "Ingress member revoked" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Member not found" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/ingress/members/{memberId}/block": {
+      "/v1/contacts/merge": {
         post: {
-          summary: "Block ingress member",
+          summary: "Merge two contacts",
           description:
-            "Authenticated gateway endpoint that blocks an ingress member via the assistant runtime.",
-          operationId: "ingressMemberBlockPost",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "memberId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          requestBody: {
-            required: false,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": { description: "Ingress member blocked" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Member not found or already blocked" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
-      "/v1/ingress/invites": {
-        get: {
-          summary: "List ingress invites",
-          description:
-            "Authenticated gateway endpoint that lists ingress invites via the assistant runtime.",
-          operationId: "ingressInvitesGet",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": { description: "Ingress invites returned" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-        post: {
-          summary: "Create ingress invite",
-          description:
-            "Authenticated gateway endpoint that creates an ingress invite via the assistant runtime.",
-          operationId: "ingressInvitesPost",
+            "Authenticated gateway endpoint that merges two contacts via the assistant runtime.",
+          operationId: "contactsMergePost",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1044,7 +1093,7 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Ingress invite created" },
+            "200": { description: "Contacts merged" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
@@ -1055,12 +1104,139 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/ingress/invites/redeem": {
-        post: {
-          summary: "Redeem ingress invite",
+      "/v1/contacts/channels/{channelId}": {
+        patch: {
+          summary: "Update a contact channel",
           description:
-            "Authenticated gateway endpoint that redeems an ingress invite via the assistant runtime.",
-          operationId: "ingressInvitesRedeemPost",
+            "Authenticated gateway endpoint that updates a contact channel's status or policy via the assistant runtime.",
+          operationId: "contactsChannelPatch",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "channelId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Contact channel updated" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Channel not found" },
+            "409": {
+              description:
+                "Invalid state transition (e.g. revoking a blocked channel)",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/{contactId}": {
+        get: {
+          summary: "Get a contact by ID",
+          description:
+            "Authenticated gateway endpoint that retrieves a contact by ID via the assistant runtime.",
+          operationId: "contactsGetById",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "contactId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "Contact returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Contact not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/{contactId}/channels/{channelId}/verify": {
+        post: {
+          summary: "Verify a contact channel",
+          description:
+            "Authenticated gateway endpoint that initiates or completes verification of a contact's communication channel via the assistant runtime.",
+          operationId: "contactsChannelVerify",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "contactId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+            {
+              name: "channelId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Channel verification initiated or completed",
+            },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "Contact or channel not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/invites": {
+        get: {
+          summary: "List contacts invites",
+          description:
+            "Authenticated gateway endpoint that lists contacts invites via the assistant runtime.",
+          operationId: "contactsInvitesGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Contacts invites returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+        post: {
+          summary: "Create contacts invite",
+          description:
+            "Authenticated gateway endpoint that creates a contacts invite via the assistant runtime.",
+          operationId: "contactsInvitesPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1071,7 +1247,34 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Ingress invite redeemed" },
+            "200": { description: "Contacts invite created" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contacts/invites/redeem": {
+        post: {
+          summary: "Redeem contacts invite",
+          description:
+            "Authenticated gateway endpoint that redeems a contacts invite via the assistant runtime.",
+          operationId: "contactsInvitesRedeemPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Contacts invite redeemed" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
@@ -1083,12 +1286,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/ingress/invites/{inviteId}": {
+      "/v1/contacts/invites/{inviteId}": {
         delete: {
-          summary: "Revoke ingress invite",
+          summary: "Revoke contacts invite",
           description:
-            "Authenticated gateway endpoint that revokes an ingress invite via the assistant runtime.",
-          operationId: "ingressInvitesDelete",
+            "Authenticated gateway endpoint that revokes a contacts invite via the assistant runtime.",
+          operationId: "contactsInvitesDelete",
           security: [{ BearerAuth: [] }],
           parameters: [
             {
@@ -1099,7 +1302,7 @@ export function buildSchema(): Record<string, unknown> {
             },
           ],
           responses: {
-            "200": { description: "Ingress invite revoked" },
+            "200": { description: "Contacts invite revoked" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
@@ -1244,6 +1447,82 @@ export function buildSchema(): Record<string, unknown> {
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/guardian/vellum/bootstrap": {
+        post: {
+          summary: "Bootstrap Vellum guardian",
+          description:
+            "Authenticated gateway endpoint that bootstraps the Vellum guardian identity and binds it to the assistant runtime.",
+          operationId: "guardianVellumBootstrap",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Guardian bootstrapped" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/guardian/revoke": {
+        post: {
+          summary: "Revoke guardian binding",
+          description:
+            "Authenticated gateway endpoint that revokes an existing guardian binding via the assistant runtime.",
+          operationId: "guardianRevoke",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Guardian binding revoked" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/integrations/guardian/vellum/refresh": {
+        post: {
+          summary: "Refresh guardian access token",
+          description:
+            "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed).",
+          operationId: "guardianVellumRefresh",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "New access token returned" },
+            "401": { description: "Unauthorized — invalid token" },
+            "502": { description: "Failed to reach assistant runtime" },
           },
         },
       },
@@ -1607,6 +1886,56 @@ export function buildSchema(): Record<string, unknown> {
             "503": { description: "Bearer token not configured" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/feature-flags": {
+        get: {
+          summary: "List feature flags",
+          description:
+            "Scope-protected gateway endpoint that lists current feature flag values. Requires a bearer token with `feature_flags.read` scope.",
+          operationId: "featureFlagsGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Feature flags returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
+          },
+        },
+      },
+      "/v1/feature-flags/{flagKey}": {
+        patch: {
+          summary: "Update a feature flag",
+          description:
+            "Scope-protected gateway endpoint that updates a single feature flag value. Requires a bearer token with `feature_flags.write` scope.",
+          operationId: "featureFlagsPatch",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "flagKey",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "The feature flag key to update.",
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Feature flag updated" },
+            "400": { description: "Invalid flag key encoding" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Insufficient scope" },
           },
         },
       },

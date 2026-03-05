@@ -42,8 +42,8 @@ AI-powered assistant platform by Vellum.
 
 The platform has three main domains:
 
-- **Assistant runtime** (`assistant/`): Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
-- **Native clients** (`clients/`): Swift Package with macOS and iOS apps sharing ~45-50% of code via `VellumAssistantShared`. The macOS app is a menu bar assistant with computer-use (accessibility + CGEvent). The iOS app is a chat client supporting standalone mode (direct Anthropic API) and connected-to-Mac mode (TCP proxy through the daemon).
+- **Assistant runtime** (`assistant/`): Bun + TypeScript assistant runtime that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
+- **Native clients** (`clients/`): Swift Package with macOS and iOS apps sharing ~45-50% of code via `VellumAssistantShared`. The macOS app is a menu bar assistant with computer-use (accessibility + CGEvent). The iOS app is a chat client supporting standalone mode (direct Anthropic API) and connected-to-Mac mode (TCP proxy through the assistant).
 - **Gateway** (`gateway/`): Standalone Bun + TypeScript service that serves as the public ingress boundary for all external webhooks and callbacks. Owns Telegram integration end-to-end (receives webhooks, routes to assistants, delivers replies). Routes Twilio voice and SMS webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime API (client → gateway → runtime).
 
 Architecture docs are split by ownership domain: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md), [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md), and [`clients/ARCHITECTURE.md`](clients/ARCHITECTURE.md).
@@ -55,7 +55,7 @@ Architecture docs are split by ownership domain: [`ARCHITECTURE.md`](ARCHITECTUR
 
 ```
 /
-├── assistant/         # Bun-based assistant runtime (daemon, CLI, HTTP API)
+├── assistant/         # Bun-based assistant runtime (runtime, CLI, HTTP API)
 ├── clients/           # Native clients (macOS menu bar app + iOS chat app)
 ├── gateway/           # Telegram gateway service
 ├── benchmarking/      # Load testing scripts (gateway webhook/proxy benchmarks)
@@ -71,7 +71,7 @@ Architecture docs are split by ownership domain: [`ARCHITECTURE.md`](ARCHITECTUR
 <details>
 <summary><b>Prerequisites</b></summary>
 
-- **Docker** is required. The sandbox uses Docker as its default backend for container-level isolation. Install [Docker Desktop](https://docs.docker.com/get-docker/) (macOS/Windows) or Docker Engine (Linux) and ensure the daemon is running before starting the assistant.
+- **Docker** is required. The sandbox uses Docker as its default backend for container-level isolation. Install [Docker Desktop](https://docs.docker.com/get-docker/) (macOS/Windows) or Docker Engine (Linux) and ensure Docker is running before starting the assistant.
 
 </details>
 
@@ -95,17 +95,17 @@ See [.githooks/README.md](./.githooks/README.md) for more details about availabl
 The assistant runtime lives in `/assistant`. The recommended way to start it is via the `vellum` CLI:
 
 ```bash
-vellum wake    # starts daemon + gateway from current checkout
+vellum wake    # starts assistant + gateway from current checkout
 vellum ps      # check process status
-vellum sleep   # stop daemon + gateway
+vellum sleep   # stop assistant + gateway
 ```
 
-> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically. Alternatively, the macOS app supports **managed sign-in** during onboarding — authenticating via the platform and connecting to a platform-hosted assistant without running a local daemon.
+> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically. Alternatively, the macOS app supports **managed sign-in** during onboarding — authenticating via the platform and connecting to a platform-hosted assistant without running a local assistant.
 
 <details>
 <summary>Development: raw bun commands</summary>
 
-For low-level development (e.g., working on the daemon itself):
+For low-level development (e.g., working on the assistant runtime itself):
 
 ```bash
 cd assistant
@@ -128,7 +128,7 @@ bun run src/index.ts daemon start
 - Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
 - Explicit host tools: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` (absolute host paths only for host file tools).
 - Host/computer-use prompts: `host_*` and `computer_use_*` (including `computer_use_request_control`) default to `ask` unless allowlisted/denylisted in trust rules.
-- Runtime override removal: CLI `--no-sandbox` is removed; legacy `sandbox_set` IPC messages are accepted but ignored (deprecated no-op).
+- Runtime override removal: CLI `--no-sandbox` is removed; the sandbox mode is always active.
 
 ### Sandbox Backend
 
@@ -321,7 +321,7 @@ Twitter integration supports two operation paths: **OAuth** (X API v2) and **Bro
 
 - **Strategy selection**: `vellum x strategy set <oauth|browser|auto>` controls which path is used. Default is `auto`, which prefers OAuth when credentials are available and the operation is supported, then falls back to browser. The strategy is persisted in config as `twitterOperationStrategy`.
 
-**OAuth2 PKCE setup** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The daemon runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. The flow verifies the user's identity (`GET /2/users/me`) and stores tokens in the vault for use by both identity verification and the OAuth operation path. Connect via the Settings UI or `twitter_auth_start` IPC message.
+**OAuth2 PKCE setup** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The assistant runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. The flow verifies the user's identity (`GET /2/users/me`) and stores tokens in the vault for use by both identity verification and the OAuth operation path. Connect via the Settings UI or `twitter_auth_start` IPC message.
 
 **Available tools**: `twitter_post` — posts a tweet via the strategy router (OAuth or CDP depending on configuration). Read operations (timeline, search, etc.) use the browser path.
 
@@ -500,7 +500,7 @@ The runtime HTTP server exposes a Server-Sent Events (SSE) endpoint that streams
 GET /v1/events?conversationKey=<key>
 ```
 
-**Auth**: JWT bearer token (same rules as other runtime HTTP endpoints). The SSE endpoint requires a valid JWT with the `chat.read` scope, passed as `Authorization: Bearer <jwt>`. JWTs are issued by the daemon's auth system (see Vellum Guardian Identity for the bootstrap flow). The route policy in `route-policy.ts` enforces scope requirements per endpoint.
+**Auth**: JWT bearer token (same rules as other runtime HTTP endpoints). The SSE endpoint requires a valid JWT with the `chat.read` scope, passed as `Authorization: Bearer <jwt>`. JWTs are issued by the assistant's auth system (see Vellum Guardian Identity for the bootstrap flow). The route policy in `route-policy.ts` enforces scope requirements per endpoint.
 
 **Query params**:
 
@@ -568,7 +568,7 @@ The `message` field is the unchanged IPC `ServerMessage` payload — the same ty
 The standard browser `EventSource` API does not support custom request headers, so authenticated connections require `fetch()` with manual SSE stream parsing:
 
 ```js
-const TOKEN = '<jwt>'; // JWT obtained via the guardian bootstrap flow or daemon auth system
+const TOKEN = '<jwt>'; // JWT obtained via the guardian bootstrap flow or assistant auth system
 const res = await fetch(
   'http://localhost:3001/v1/events?conversationKey=my-conversation',
   { headers: { Authorization: `Bearer ${TOKEN}` } },
@@ -601,7 +601,7 @@ while (true) {
 <details>
 <summary><b>Remote Access</b></summary>
 
-Access a remote assistant daemon from your local machine via SSH.
+Access a remote assistant from your local machine via SSH.
 
 ### CLI (socket forwarding)
 
@@ -625,7 +625,7 @@ VELLUM_DAEMON_SOCKET=~/.vellum/remote.sock open -a Vellum
 
 ### Blob Transport Behavior
 
-When the macOS client connects to a local daemon, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/workspace/data/ipc-blobs/` instead of being embedded inline in IPC JSON. On connect, the client probes whether client and daemon share the same blob directory. If the probe succeeds, large payloads are written as blob files and only lightweight references travel over the socket.
+When the macOS client connects to a local assistant, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/workspace/data/ipc-blobs/` instead of being embedded inline in IPC JSON. On connect, the client probes whether client and assistant share the same blob directory. If the probe succeeds, large payloads are written as blob files and only lightweight references travel over the socket.
 
 Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't overlap), so the client falls back to inline base64/text payloads transparently. On iOS (TCP connections), the probe is skipped entirely and inline payloads are always used. No configuration is needed.
 
@@ -633,10 +633,10 @@ Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't
 
 | Symptom | Check |
 |---|---|
-| CLI: "could not connect to daemon socket" | Is the SSH socket tunnel active? Check `VELLUM_DAEMON_SOCKET` path |
-| CLI: daemon starts locally despite socket override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
+| CLI: "could not connect to assistant socket" | Is the SSH socket tunnel active? Check `VELLUM_DAEMON_SOCKET` path |
+| CLI: assistant starts locally despite socket override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
 | macOS: not connecting | Verify socket path in `VELLUM_DAEMON_SOCKET` exists and is writable |
-| Any: "connection refused" | Is the remote daemon running? (`vellum ps` on remote) |
+| Any: "connection refused" | Is the remote assistant running? (`vellum ps` on remote) |
 
 Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
 
@@ -697,7 +697,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
 | `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
-| `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own daemon and gateway lifecycle (hatching on first launch). Prints a startup summary. |
+| `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
 
 
 ### Review
@@ -741,7 +741,7 @@ Run `/release [version]` in Claude Code. If no version is provided, the patch ve
 
 Creating the GitHub Release triggers three workflows in parallel:
 
-- **Build and Release macOS App** (`build-and-release-macos.yml`): Builds the macOS `.app` from source, compiles the Bun daemon binary, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes both the DMG and a Sparkle-compatible ZIP + `appcast.xml` to the public updates repo ([vellum-ai/velly](https://github.com/vellum-ai/velly)). This takes ~15-20 minutes.
+- **Build and Release macOS App** (`build-and-release-macos.yml`): Builds the macOS `.app` from source, compiles the Bun assistant binary, code-signs it with a Developer ID certificate, notarizes it with Apple, creates a DMG installer, and publishes both the DMG and a Sparkle-compatible ZIP + `appcast.xml` to the public updates repo ([vellum-ai/velly](https://github.com/vellum-ai/velly)). This takes ~15-20 minutes.
 - **Publish velly to npm** (`publish-velly.yml`): Publishes the `velly` CLI package to npm with provenance.
 - **Slack Release Notification** (`slack-release-notification.yml`): Posts a summary message to the releases Slack channel with a threaded changelog.
 

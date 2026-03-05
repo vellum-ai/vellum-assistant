@@ -5,6 +5,7 @@ public enum SessionErrorCategory: Equatable, Sendable {
     case providerNetwork
     case rateLimit
     case providerApi
+    case providerBilling
     case contextTooLarge
     case queueFull
     case sessionAborted
@@ -21,6 +22,8 @@ public enum SessionErrorCategory: Equatable, Sendable {
             self = .rateLimit
         case .providerApi:
             self = .providerApi
+        case .providerBilling:
+            self = .providerBilling
         case .contextTooLarge:
             self = .contextTooLarge
         case .queueFull:
@@ -47,6 +50,8 @@ public enum SessionErrorCategory: Equatable, Sendable {
             return "Wait 30–60 seconds, then click Retry."
         case .providerApi:
             return "This is usually temporary — click Retry, or check your API key in Settings if it persists."
+        case .providerBilling:
+            return "Please add credits to your account or update your API key in Settings."
         case .contextTooLarge:
             return "Start a new thread to reset context, or try a shorter message."
         case .queueFull:

@@ -30,12 +30,14 @@ import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
 } from "../http-types.js";
+import { parseApprovalIntent } from "../nl-approval-parser.js";
 import { handleGuardianCallbackDecision } from "./approval-strategies/guardian-callback-strategy.js";
 import { handleGuardianLegacyFallback } from "./approval-strategies/guardian-legacy-fallback-strategy.js";
 import { handleGuardianTextEngineDecision } from "./approval-strategies/guardian-text-engine-strategy.js";
 import {
   buildGuardianDenyContext,
   parseCallbackData,
+  parseReactionCallbackData,
 } from "./channel-route-shared.js";
 import { deliverStaleApprovalReply } from "./guardian-approval-reply-helpers.js";
 
@@ -113,6 +115,33 @@ export async function handleApprovalInterception(
     if (guardianResult) {
       return guardianResult;
     }
+  }
+
+  // ── Slack reaction path ──
+  // Reactions produce `callbackData` of the form `reaction:<emoji_name>`.
+  // Handled before the pendingPrompt guard because guardian reactions arrive
+  // on the guardian's chat (guardianChatId), not the requester's conversation,
+  // so getChannelApprovalPrompt(conversationId) would return null.
+  // Only guardians can approve via reaction — non-guardian reactions are
+  // silently ignored to prevent self-approval.
+  if (callbackData?.startsWith("reaction:")) {
+    if (trustCtx.trustClass !== "guardian") {
+      return { handled: true, type: "stale_ignored" };
+    }
+    const reactionDecision = parseReactionCallbackData(callbackData);
+    if (!reactionDecision) {
+      // Unknown emoji — ignore silently
+      return { handled: true, type: "stale_ignored" };
+    }
+    const pending = getApprovalInfoByConversation(conversationId);
+    if (pending.length === 0) {
+      return { handled: true, type: "stale_ignored" };
+    }
+    const result = handleChannelDecision(conversationId, reactionDecision);
+    if (result.applied) {
+      return { handled: true, type: "decision_applied" };
+    }
+    return { handled: true, type: "stale_ignored" };
   }
 
   // ── Standard approval interception (existing flow) ──
@@ -203,7 +232,8 @@ export async function handleApprovalInterception(
             const cancelApplyResult = applyGuardianDecision({
               approval: guardianApprovalForRequest,
               decision: rejectDecision,
-              actorExternalUserId: actorExternalId,
+              actorPrincipalId: undefined, // Interception path — principal not available
+              actorExternalUserId: actorExternalId, // Channel-native ID
               actorChannel: sourceChannel,
             });
             if (cancelApplyResult.applied) {
@@ -394,6 +424,30 @@ export async function handleApprovalInterception(
     }
   }
 
+  // ── Slack reaction path ──
+  // Reactions produce `callbackData` of the form `reaction:<emoji_name>`.
+  // Only guardians can approve via reaction — non-guardian reactions are
+  // silently ignored to prevent self-approval.
+  if (callbackData?.startsWith("reaction:")) {
+    if (trustCtx.trustClass !== "guardian") {
+      return { handled: true, type: "stale_ignored" };
+    }
+    const reactionDecision = parseReactionCallbackData(callbackData);
+    if (!reactionDecision) {
+      // Unknown emoji — ignore silently
+      return { handled: true, type: "stale_ignored" };
+    }
+    const pending = getApprovalInfoByConversation(conversationId);
+    if (pending.length === 0) {
+      return { handled: true, type: "stale_ignored" };
+    }
+    const result = handleChannelDecision(conversationId, reactionDecision);
+    if (result.applied) {
+      return { handled: true, type: "decision_applied" };
+    }
+    return { handled: true, type: "stale_ignored" };
+  }
+
   // Try to extract a decision from callback data (button press) first.
   // Callback/button path remains deterministic and takes priority.
   if (callbackData) {
@@ -449,6 +503,29 @@ export async function handleApprovalInterception(
       pending,
       allowedActions,
     });
+  }
+
+  // ── Natural language approval intent parser ──
+  // Covers a broad set of colloquial approval/rejection phrases, emoji, and
+  // timed-approval variants. Runs before the legacy parser to provide wider
+  // coverage for channels (like Slack) that rely on plain-text responses.
+  if (pending.length > 0 && content) {
+    const nlIntent = parseApprovalIntent(content);
+    if (nlIntent && nlIntent.confidence >= 0.9) {
+      const nlDecision: ApprovalDecisionResult = {
+        action:
+          nlIntent.decision === "approve"
+            ? "approve_once"
+            : nlIntent.decision === "approve_10m"
+              ? "approve_10m"
+              : "reject",
+        source: "plain_text",
+      };
+      const nlResult = handleChannelDecision(conversationId, nlDecision);
+      if (nlResult.applied) {
+        return { handled: true, type: "decision_applied" };
+      }
+    }
   }
 
   // ── Legacy deterministic fallback ──

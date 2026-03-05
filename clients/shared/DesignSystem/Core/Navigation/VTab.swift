@@ -28,11 +28,12 @@ public struct VTab: View {
     }
 
     private var background: Color {
-        switch style {
-        case .pill, .rectangular:
-            return isSelected ? VColor.surfaceBorder : (isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
-        case .flat:
-            return isHovered ? VColor.ghostHover : .clear
+        if isSelected {
+            return VColor.navActive
+        } else if isHovered {
+            return VColor.navHover
+        } else {
+            return .clear
         }
     }
 
@@ -77,9 +78,10 @@ public struct VTab: View {
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius)
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
-                .opacity((style == .pill || style == .rectangular) && isSelected ? 1 : 0)
+                .opacity(isSelected ? 1 : 0)
         )
         .onHover { hovering in isHovered = hovering }
+        .pointerCursor()
     }
 }
 

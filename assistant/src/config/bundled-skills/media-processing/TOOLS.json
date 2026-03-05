@@ -20,6 +20,10 @@
           "metadata": {
             "type": "object",
             "description": "Optional JSON metadata to attach to the asset (e.g., pipeline config, source info)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["file_path"]
@@ -47,6 +51,10 @@
             "type": "string",
             "enum": ["registered", "processing", "indexed", "failed"],
             "description": "Filter assets by processing status"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -97,6 +105,10 @@
             "type": "string",
             "enum": ["api", "local"],
             "description": "Transcription backend: 'api' (OpenAI Whisper cloud) or 'local' (whisper.cpp). Default: 'local'."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["asset_id"]
@@ -146,6 +158,10 @@
             "type": "number",
             "minimum": 0,
             "description": "Maximum retry attempts per segment on failure. Default: 3"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["asset_id", "system_prompt", "output_schema"]
@@ -176,6 +192,10 @@
           "model": {
             "type": "string",
             "description": "LLM model to use for analysis. Default: 'claude-sonnet-4-6'"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["asset_id", "query"]
@@ -219,6 +239,10 @@
           "title": {
             "type": "string",
             "description": "Short descriptive title for the clip (e.g. 'snow-dive-closeup', 'goal-celebration'). Used as the filename. If omitted, falls back to timestamp-based naming."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["asset_id", "start_time", "end_time"]
@@ -237,6 +261,10 @@
           "asset_id": {
             "type": "string",
             "description": "ID of the media asset to diagnose"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["asset_id"]

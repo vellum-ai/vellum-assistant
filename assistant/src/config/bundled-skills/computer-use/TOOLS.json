@@ -24,6 +24,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you see and why you are clicking here"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["reasoning"]
@@ -54,6 +58,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you see and why you are double-clicking here"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["reasoning"]
@@ -84,6 +92,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you see and why you are right-clicking here"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["reasoning"]
@@ -106,6 +118,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are typing and why"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["text", "reasoning"]
@@ -128,6 +144,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are pressing this key"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["key", "reasoning"]
@@ -167,6 +187,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you are scrolling"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["direction", "amount", "reasoning"]
@@ -209,6 +233,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are dragging and why"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["reasoning"]
@@ -231,6 +259,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what you are waiting for"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["duration_ms", "reasoning"]
@@ -240,7 +272,7 @@
     },
     {
       "name": "computer_use_open_app",
-      "description": "Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps — more reliable and explicit.",
+      "description": "Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps \u2014 more reliable and explicit.",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
@@ -253,6 +285,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of why you need to open or switch to this app"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_name", "reasoning"]
@@ -262,7 +298,7 @@
     },
     {
       "name": "computer_use_run_applescript",
-      "description": "Execute an AppleScript to control applications via Apple's scripting bridge. Use this for operations that are more reliable through scripting than UI interaction: setting a browser URL directly, navigating Finder to a path, querying app state (tab count, window titles, document status), or clicking deeply nested menu items. The script's return value (if any) will be reported back. NEVER use \"do shell script\" — it is blocked for security. Keep scripts short and targeted to a single operation.",
+      "description": "Execute an AppleScript to control applications via Apple's scripting bridge. Use this for operations that are more reliable through scripting than UI interaction: setting a browser URL directly, navigating Finder to a path, querying app state (tab count, window titles, document status), or clicking deeply nested menu items. The script's return value (if any) will be reported back. NEVER use \"do shell script\" \u2014 it is blocked for security. Keep scripts short and targeted to a single operation.",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
@@ -275,6 +311,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of what this script does and why AppleScript is better than UI interaction for this step"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["script", "reasoning"]
@@ -293,6 +333,10 @@
           "summary": {
             "type": "string",
             "description": "Human-readable summary of what was accomplished"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["summary"]
@@ -315,6 +359,10 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of how you determined the answer"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["answer", "reasoning"]

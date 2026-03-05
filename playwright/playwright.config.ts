@@ -7,10 +7,9 @@ import { defineConfig } from "@playwright/test";
  *
  * Desktop-app tests interact with native macOS UI via AppleScript/System Events
  * and have constraints that prevent safe parallel execution on a single runner.
- * Workers default to 1 for safety — each runner executes tests sequentially.
+ * Workers is fixed at 1 — each runner executes tests sequentially.
  *
- * To run in parallel, use CI sharding (--shard) across multiple runners, or
- * set PW_WORKERS=N for local experimentation with non-desktop tests.
+ * To run in parallel, use CI sharding (--shard) across multiple runners.
  *
  * `fullyParallel` is enabled so that Playwright's --shard flag distributes
  * individual tests (not just files) across shards. This is critical because
@@ -18,13 +17,12 @@ import { defineConfig } from "@playwright/test";
  * without fullyParallel, all of those tests would land on one shard.
  * With workers=1 per runner, tests still execute sequentially within each shard.
  */
-const workers = parseInt(process.env.PW_WORKERS ?? "1", 10);
 
 export default defineConfig({
   testDir: "./tests",
   timeout: 10 * 60_000, // 10 minutes — agent tests can be long-running
   retries: 0,
-  workers,
+  workers: 1,
   fullyParallel: true,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {

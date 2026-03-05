@@ -2,7 +2,7 @@
 name: "Configure Settings"
 description: "Read, update, or reset assistant configuration values using the vellum config CLI"
 user-invocable: true
-metadata: {"vellum": {"emoji": "⚙️"}}
+metadata: { "vellum": { "emoji": "⚙️" } }
 ---
 
 You are helping the user view or change assistant configuration through the `vellum` CLI. Treat CLI commands as the canonical interface. Do **not** read or edit config files directly.
@@ -27,6 +27,7 @@ vellum config get <key>
 ```
 
 Examples:
+
 ```bash
 vellum config get platform.baseUrl
 vellum config get memory.qdrant.url
@@ -42,6 +43,7 @@ vellum config set <key> <value>
 ```
 
 Examples:
+
 ```bash
 vellum config set platform.baseUrl "https://platform.vellum.ai"
 vellum config set provider "openai"
@@ -65,20 +67,20 @@ vellum config list
 
 ## Common configuration keys
 
-| Key | Description |
-|-----|-------------|
-| `platform.baseUrl` | Vellum platform URL for auth and API calls |
-| `provider` | Default LLM provider (anthropic, openai, etc.) |
-| `model` | Default model name |
-| `memory.enabled` | Enable/disable memory system |
-| `memory.qdrant.url` | Qdrant vector store URL |
-| `calls.enabled` | Enable/disable phone call support |
-| `sandbox.enabled` | Enable/disable sandbox for tool execution |
-| `ingress.publicBaseUrl` | Public ingress URL for webhooks |
+| Key                     | Description                                    |
+| ----------------------- | ---------------------------------------------- |
+| `platform.baseUrl`      | Vellum platform URL for auth and API calls     |
+| `provider`              | Default LLM provider (anthropic, openai, etc.) |
+| `model`                 | Default model name                             |
+| `memory.enabled`        | Enable/disable memory system                   |
+| `memory.qdrant.url`     | Qdrant vector store URL                        |
+| `calls.enabled`         | Enable/disable phone call support              |
+| `sandbox.enabled`       | Enable/disable sandbox for tool execution      |
+| `ingress.publicBaseUrl` | Public ingress URL for webhooks                |
 
 ## Notes
 
-- Changes to most settings take effect after the daemon restarts or reconnects
+- Changes to most settings take effect after the assistant restarts or reconnects
 - Platform URL changes take effect after the macOS app reconnects (Settings > Connect)
 - Boolean values should be `true` or `false`; numeric values are bare numbers
 - The full config schema is defined in `assistant/src/config/core-schema.ts`

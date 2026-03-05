@@ -79,7 +79,11 @@ export class HeartbeatService {
 
     // Active hours guard — only applied when both bounds are set.
     // The schema rejects configs where only one bound is provided.
-    if (!force && config.activeHoursStart != null && config.activeHoursEnd != null) {
+    if (
+      !force &&
+      config.activeHoursStart != null &&
+      config.activeHoursEnd != null
+    ) {
       const hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
       if (
         !isWithinActiveHours(

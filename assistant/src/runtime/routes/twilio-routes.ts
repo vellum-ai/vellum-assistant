@@ -46,6 +46,7 @@ import {
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { mintDaemonDeliveryToken } from "../auth/token-service.js";
+import type { RouteDefinition } from "../http-router.js";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -1125,4 +1126,82 @@ export async function handleSmsDoctor(): Promise<Response> {
       actionItems,
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function twilioRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "integrations/twilio/config",
+      method: "GET",
+      handler: () => handleGetTwilioConfig(),
+    },
+    {
+      endpoint: "integrations/twilio/credentials",
+      method: "POST",
+      handler: async ({ req }) => handleSetTwilioCredentials(req),
+    },
+    {
+      endpoint: "integrations/twilio/credentials",
+      method: "DELETE",
+      handler: () => handleClearTwilioCredentials(),
+    },
+    {
+      endpoint: "integrations/twilio/numbers",
+      method: "GET",
+      handler: async () => handleListTwilioNumbers(),
+    },
+    {
+      endpoint: "integrations/twilio/numbers/provision",
+      method: "POST",
+      handler: async ({ req }) => handleProvisionTwilioNumber(req),
+    },
+    {
+      endpoint: "integrations/twilio/numbers/assign",
+      method: "POST",
+      handler: async ({ req }) => handleAssignTwilioNumber(req),
+    },
+    {
+      endpoint: "integrations/twilio/numbers/release",
+      method: "POST",
+      handler: async ({ req }) => handleReleaseTwilioNumber(req),
+    },
+    {
+      endpoint: "integrations/twilio/sms/compliance",
+      method: "GET",
+      handler: async () => handleGetSmsCompliance(),
+    },
+    {
+      endpoint: "integrations/twilio/sms/compliance/tollfree",
+      method: "POST",
+      handler: async ({ req }) => handleSubmitTollfreeVerification(req),
+    },
+    {
+      endpoint: "integrations/twilio/sms/compliance/tollfree/:sid",
+      method: "PATCH",
+      policyKey: "integrations/twilio/sms/compliance/tollfree",
+      handler: async ({ req, params }) =>
+        handleUpdateTollfreeVerification(req, params.sid),
+    },
+    {
+      endpoint: "integrations/twilio/sms/compliance/tollfree/:sid",
+      method: "DELETE",
+      policyKey: "integrations/twilio/sms/compliance/tollfree",
+      handler: async ({ params }) =>
+        handleDeleteTollfreeVerification(params.sid),
+    },
+    {
+      endpoint: "integrations/twilio/sms/test",
+      method: "POST",
+      handler: async ({ req }) => handleSmsSendTest(req),
+    },
+    {
+      endpoint: "integrations/twilio/sms/doctor",
+      method: "POST",
+      handler: async () => handleSmsDoctor(),
+    },
+  ];
 }

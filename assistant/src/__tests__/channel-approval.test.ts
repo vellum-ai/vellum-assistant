@@ -229,6 +229,14 @@ describe("parseCallbackData", () => {
     expect(result!.source).toBe("whatsapp_button");
   });
 
+  test("parses slack source channel", () => {
+    const result = parseCallbackData("apr:req-789:approve_once", "slack");
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe("approve_once");
+    expect(result!.requestId).toBe("req-789");
+    expect(result!.source).toBe("slack_button");
+  });
+
   test("returns null for unknown action", () => {
     expect(parseCallbackData("apr:req-123:unknown_action")).toBeNull();
   });

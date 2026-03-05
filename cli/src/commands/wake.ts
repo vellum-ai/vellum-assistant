@@ -3,21 +3,24 @@ import { homedir } from "os";
 import { join } from "path";
 
 import { loadAllAssistants } from "../lib/assistant-config";
-import { isProcessAlive } from "../lib/process";
-import {
-  startLocalDaemon,
-  startGateway,
-  startOutboundProxy,
-} from "../lib/local";
+import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
+import { startLocalDaemon, startGateway } from "../lib/local";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum wake");
+    console.log("Usage: vellum wake [options]");
     console.log("");
-    console.log("Start the daemon and gateway processes.");
+    console.log("Start the assistant and gateway processes.");
+    console.log("");
+    console.log("Options:");
+    console.log(
+      "  --watch    Run assistant and gateway in watch mode (hot reload on source changes)",
+    );
     process.exit(0);
   }
+
+  const watch = args.includes("--watch");
 
   const assistants = loadAllAssistants();
   const hasLocal = assistants.some((a) => a.cloud === "local");
@@ -30,6 +33,7 @@ export async function wake(): Promise<void> {
 
   const vellumDir = join(homedir(), ".vellum");
   const pidFile = join(vellumDir, "vellum.pid");
+  const socketFile = join(vellumDir, "vellum.sock");
 
   // Check if daemon is already running
   let daemonRunning = false;
@@ -40,7 +44,16 @@ export async function wake(): Promise<void> {
       try {
         process.kill(pid, 0);
         daemonRunning = true;
-        console.log(`Daemon already running (pid ${pid}).`);
+        if (watch) {
+          // Restart in watch mode
+          console.log(
+            `Assistant running (pid ${pid}) — restarting in watch mode...`,
+          );
+          await stopProcessByPidFile(pidFile, "assistant", [socketFile]);
+          daemonRunning = false;
+        } else {
+          console.log(`Assistant already running (pid ${pid}).`);
+        }
       } catch {
         // Process not alive, will start below
       }
@@ -48,7 +61,7 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
-    await startLocalDaemon();
+    await startLocalDaemon(watch);
   }
 
   // Start gateway (non-desktop only)
@@ -56,14 +69,20 @@ export async function wake(): Promise<void> {
     const gatewayPidFile = join(vellumDir, "gateway.pid");
     const { alive, pid } = isProcessAlive(gatewayPidFile);
     if (alive) {
-      console.log(`Gateway already running (pid ${pid}).`);
+      if (watch) {
+        // Restart in watch mode
+        console.log(
+          `Gateway running (pid ${pid}) — restarting in watch mode...`,
+        );
+        await stopProcessByPidFile(gatewayPidFile, "gateway");
+        await startGateway(undefined, watch);
+      } else {
+        console.log(`Gateway already running (pid ${pid}).`);
+      }
     } else {
-      await startGateway();
+      await startGateway(undefined, watch);
     }
   }
-
-  // Start outbound proxy
-  await startOutboundProxy();
 
   console.log("✅ Wake complete.");
 }

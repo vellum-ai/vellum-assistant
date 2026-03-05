@@ -15,7 +15,6 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
-import { getLogger } from "../util/logger.js";
 import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
@@ -67,14 +66,6 @@ export function clearRiskCache(): void {
 // Invalidate risk cache whenever trust rules change so that risk decisions
 // referencing config-dependent checks (e.g. skill source paths) stay fresh.
 onRulesChanged(clearRiskCache);
-
-// Ensures the legacy mode deprecation warning fires at most once per process.
-let _legacyDeprecationWarned = false;
-
-/** @internal — exposed only for tests to reset the one-time warning flag. */
-export function _resetLegacyDeprecationWarning(): void {
-  _legacyDeprecationWarned = false;
-}
 
 // Low-risk shell programs that are read-only / informational
 const LOW_RISK_PROGRAMS = new Set([
@@ -788,13 +779,6 @@ export async function check(
   // skill load via an exact-version or wildcard trust rule.
   const permissionsMode = getConfig().permissions.mode;
 
-  if (permissionsMode === "legacy" && !_legacyDeprecationWarned) {
-    _legacyDeprecationWarned = true;
-    getLogger("checker").warn(
-      'Permissions mode "legacy" is deprecated and will be removed in a future release. Switch to "workspace" (default) or "strict".',
-    );
-  }
-
   if (permissionsMode === "strict" && !matchedRule) {
     return {
       decision: "prompt",
@@ -804,7 +788,12 @@ export async function check(
 
   // Workspace mode: auto-allow workspace-scoped operations that don't have
   // an explicit rule. Non-workspace operations fall through to risk-based policy.
-  if (permissionsMode === "workspace" && !matchedRule) {
+  // High-risk operations always require approval regardless of scope.
+  if (
+    permissionsMode === "workspace" &&
+    !matchedRule &&
+    risk !== RiskLevel.High
+  ) {
     // When sandbox is disabled, bash runs on the host — don't auto-allow
     const sandboxEnabled = getConfig().sandbox.enabled;
     if (toolName === "bash" && !sandboxEnabled) {

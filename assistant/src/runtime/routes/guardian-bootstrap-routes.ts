@@ -13,12 +13,14 @@ import { createHash } from "node:crypto";
 
 import { v4 as uuid } from "uuid";
 
+import { resolveUserReference } from "../../config/user-reference.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import { createGuardianBinding } from "../../contacts/contacts-write.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { mintCredentialPair } from "../auth/credential-service.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 /** Bun server shape needed for requestIP -- avoids importing the full Bun type. */
 type ServerWithRequestIP = {
@@ -54,6 +56,7 @@ function ensureGuardianPrincipal(assistantId: string): {
 
   // Mint a new principal ID for the vellum channel
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
+  const guardianDisplayName = resolveUserReference();
 
   createGuardianBinding({
     assistantId,
@@ -62,7 +65,10 @@ function ensureGuardianPrincipal(assistantId: string): {
     guardianDeliveryChatId: "local",
     guardianPrincipalId,
     verifiedVia: "bootstrap",
-    metadataJson: JSON.stringify({ bootstrappedAt: Date.now() }),
+    metadataJson: JSON.stringify({
+      bootstrappedAt: Date.now(),
+      displayName: guardianDisplayName,
+    }),
   });
 
   log.info(
@@ -153,4 +159,23 @@ export async function handleGuardianBootstrap(
     log.error({ err }, "Guardian bootstrap failed");
     return httpError("INTERNAL_ERROR", "Internal server error", 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+/**
+ * Guardian bootstrap is a pre-auth endpoint (handled before JWT auth in
+ * http-server.ts), so these definitions are exported for completeness but
+ * are not added to the authenticated route table.
+ */
+export function guardianBootstrapRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "integrations/guardian/vellum/bootstrap",
+      method: "POST",
+      handler: async ({ req, server }) => handleGuardianBootstrap(req, server),
+    },
+  ];
 }

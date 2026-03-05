@@ -128,7 +128,7 @@ export function handleAppOpenRequest(
         surfaceId,
         surfaceType: "dynamic_page",
         title: app.name,
-        data: { html: app.htmlDefinition, appId: app.id, appType: app.appType },
+        data: { html: app.htmlDefinition, appId: app.id },
         display: "panel",
       } as UiSurfaceShow);
       return;
@@ -233,7 +233,6 @@ export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
           createdAt: a.createdAt,
           version,
           contentId,
-          appType: a.appType,
         };
       }),
     });

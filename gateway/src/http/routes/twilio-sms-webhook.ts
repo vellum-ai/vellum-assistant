@@ -10,13 +10,16 @@ import {
   isRejection,
 } from "../../routing/resolve-assistant.js";
 import type { RouteResult } from "../../routing/types.js";
-import {
-  CircuitBreakerOpenError,
-  resetConversation,
-} from "../../runtime/client.js";
 import { sendSmsReply } from "../../twilio/send-sms.js";
 import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
 import type { GatewayInboundEvent } from "../../types.js";
+import { ROUTING_REJECTION_NOTICE } from "../../webhook-copy.js";
+import {
+  handleCircuitBreakerError,
+  handleNewCommand,
+  isNewCommand,
+  processInboundResult,
+} from "../../webhook-pipeline.js";
 
 const log = getLogger("twilio-sms-webhook");
 
@@ -138,48 +141,29 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
     const normalized = normalizeSmsPayload(params);
 
     // --- /new intercept: reset conversation before it reaches the runtime ---
-    if (normalized.message.content.trim().toLowerCase() === "/new") {
+    if (isNewCommand(normalized.message.content)) {
       if (isRejection(routing)) {
         tlog.warn(
           { from: params.From, reason: routing.reason },
           "Routing rejected /new command",
         );
-        sendSmsReply(
-          config,
-          params.From,
-          "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-        ).catch((err) => {
-          tlog.error(
-            { err, to: params.From },
-            "Failed to send /new routing rejection notice",
-          );
-        });
+        sendSmsReply(config, params.From, ROUTING_REJECTION_NOTICE).catch(
+          (err) => {
+            tlog.error(
+              { err, to: params.From },
+              "Failed to send /new routing rejection notice",
+            );
+          },
+        );
       } else {
-        try {
-          await resetConversation(
-            config,
-            normalized.sourceChannel,
-            normalized.message.conversationExternalId,
-          );
-          sendSmsReply(
-            config,
-            params.From,
-            "Starting a new conversation!",
-            routing.assistantId,
-          ).catch((err) => {
-            tlog.error({ err }, "Failed to send /new confirmation");
-          });
-        } catch (err) {
-          tlog.error({ err }, "Failed to reset conversation");
-          sendSmsReply(
-            config,
-            params.From,
-            "Failed to reset conversation. Please try again.",
-            routing.assistantId,
-          ).catch((replyErr) => {
-            tlog.error({ err: replyErr }, "Failed to send /new error reply");
-          });
-        }
+        await handleNewCommand(
+          config,
+          normalized.sourceChannel,
+          normalized.message.conversationExternalId,
+          (text) =>
+            sendSmsReply(config, params.From, text, routing.assistantId),
+          tlog,
+        );
       }
 
       dedupCache.mark(messageSid);
@@ -192,16 +176,14 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         "Routing rejected inbound SMS",
       );
       if (rejectionLimiter.shouldSend(params.From)) {
-        sendSmsReply(
-          config,
-          params.From,
-          "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-        ).catch((err) => {
-          tlog.error(
-            { err, to: params.From },
-            "Failed to send routing rejection notice",
-          );
-        });
+        sendSmsReply(config, params.From, ROUTING_REJECTION_NOTICE).catch(
+          (err) => {
+            tlog.error(
+              { err, to: params.From },
+              "Failed to send routing rejection notice",
+            );
+          },
+        );
       }
       dedupCache.mark(messageSid);
       return Response.json({ ok: true });
@@ -215,54 +197,52 @@ export function createTwilioSmsWebhookHandler(config: GatewayConfig) {
         routingOverride: routing as RouteResult,
       });
 
-      if (result.rejected) {
-        tlog.warn(
-          { from: params.From, reason: result.rejectionReason },
-          "Routing rejected inbound SMS",
-        );
-        if (rejectionLimiter.shouldSend(params.From)) {
-          sendSmsReply(
-            config,
-            params.From,
-            "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-          ).catch((err) => {
-            tlog.error(
-              { err, to: params.From },
-              "Failed to send routing rejection notice",
+      const outcome = processInboundResult(
+        result,
+        dedupCache,
+        messageSid,
+        () => {
+          tlog.warn(
+            { from: params.From, reason: result.rejectionReason },
+            "Routing rejected inbound SMS",
+          );
+          if (rejectionLimiter.shouldSend(params.From)) {
+            sendSmsReply(config, params.From, ROUTING_REJECTION_NOTICE).catch(
+              (err) => {
+                tlog.error(
+                  { err, to: params.From },
+                  "Failed to send routing rejection notice",
+                );
+              },
             );
-          });
-        }
-        dedupCache.mark(messageSid);
-        return Response.json({ ok: true });
-      }
-
-      if (!result.forwarded) {
-        tlog.error({ messageSid }, "Failed to forward SMS to runtime");
-        dedupCache.unreserve(messageSid);
-        return Response.json({ error: "Internal error" }, { status: 500 });
-      }
-
-      // Mark as seen only after successful forwarding
-      dedupCache.mark(messageSid);
-      tlog.info(
-        { status: "forwarded", messageSid },
-        "SMS forwarded to runtime",
+          }
+        },
+        tlog,
       );
-    } catch (err) {
-      if (err instanceof CircuitBreakerOpenError) {
-        tlog.warn(
-          { retryAfterSecs: err.retryAfterSecs },
-          "Circuit breaker open — returning 503",
-        );
-        dedupCache.unreserve(messageSid);
+
+      if (!outcome.ok) {
         return Response.json(
-          { error: "Service temporarily unavailable" },
-          {
-            status: 503,
-            headers: { "Retry-After": String(err.retryAfterSecs) },
-          },
+          { error: "Internal error" },
+          { status: outcome.status },
         );
       }
+
+      dedupCache.mark(messageSid);
+      if (!outcome.rejected) {
+        tlog.info(
+          { status: "forwarded", messageSid },
+          "SMS forwarded to runtime",
+        );
+      }
+    } catch (err) {
+      const cbResponse = handleCircuitBreakerError(
+        err,
+        dedupCache,
+        messageSid,
+        tlog,
+      );
+      if (cbResponse) return cbResponse;
+
       tlog.error({ err, messageSid }, "Failed to process inbound SMS");
       dedupCache.unreserve(messageSid);
       return Response.json({ error: "Internal error" }, { status: 500 });

@@ -21,6 +21,8 @@ export interface FixtureContext {
 export interface FixtureOptions {
   /** Playwright parallel worker index (0-based). Used to isolate app instances, defaults domains, etc. */
   workerIndex?: number;
+  /** Test case name (e.g. "hello-world"). Used to create an isolated BASE_DATA_DIR per test. */
+  testName?: string;
 }
 
 // ── Fixture Registry ────────────────────────────────────────────────
@@ -55,6 +57,8 @@ async function createDesktopAppFixture(options: FixtureOptions): Promise<Fixture
   const workerIndex = options.workerIndex ?? 0;
   const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Vellum";
 
+  const baseDataDir = setupTestDataDir(options.testName);
+
   verifyAppExists(appDisplayName);
   preApproveScreenCapture();
   logVellumPs();
@@ -74,6 +78,7 @@ async function createDesktopAppFixture(options: FixtureOptions): Promise<Fixture
     teardown: async () => {
       retireAssistant();
       quitApp(appDisplayName);
+      cleanupTestDataDir(baseDataDir);
     },
   };
 }
@@ -88,6 +93,8 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   const _workerIndex = options.workerIndex ?? 0;
   const appDisplayName = process.env.APP_DISPLAY_NAME ?? "Vellum";
 
+  const baseDataDir = setupTestDataDir(options.testName);
+
   verifyAppExists(appDisplayName);
   preApproveScreenCapture();
   ensureVellumInPath(appDisplayName);
@@ -99,6 +106,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
     teardown: async () => {
       retireAssistant();
       quitApp(appDisplayName);
+      cleanupTestDataDir(baseDataDir);
     },
   };
 }
@@ -108,6 +116,34 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
 /** Resolves the base data directory, respecting the BASE_DATA_DIR env var. */
 function getBaseDir(): string {
   return process.env.BASE_DATA_DIR?.trim() || os.homedir();
+}
+
+/**
+ * Creates an isolated BASE_DATA_DIR for a test and sets it in the environment.
+ * Returns the directory path so teardown can clean it up.
+ */
+function setupTestDataDir(testName?: string): string | undefined {
+  if (!testName) return undefined;
+
+  const slug = testName.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const dir = path.join(os.tmpdir(), `pw-test-${slug}`);
+  mkdirSync(dir, { recursive: true });
+  process.env.BASE_DATA_DIR = dir;
+  return dir;
+}
+
+/**
+ * Removes the per-test BASE_DATA_DIR created by setupTestDataDir and
+ * restores the environment variable to its previous state.
+ */
+function cleanupTestDataDir(dir: string | undefined): void {
+  if (!dir) return;
+  delete process.env.BASE_DATA_DIR;
+  try {
+    execSync(`rm -rf ${JSON.stringify(dir)}`, { timeout: 10_000 });
+  } catch {
+    // Best-effort cleanup
+  }
 }
 
 // ── Shared Helpers ──────────────────────────────────────────────────
@@ -209,10 +245,7 @@ function ensureVellumInPath(appDisplayName: string): void {
   for (const [target, link] of symlinks) {
     if (!existsSync(target)) continue;
     try {
-      if (existsSync(link)) {
-        execSync(`rm -f ${JSON.stringify(link)}`);
-      }
-      execSync(`ln -s ${JSON.stringify(target)} ${JSON.stringify(link)}`);
+      execSync(`ln -sf ${JSON.stringify(target)} ${JSON.stringify(link)}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to create symlink ${link}: ${message}`);
@@ -478,7 +511,11 @@ function retireAssistant(): void {
     const lines = psOutput
       .split("\n")
       .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
-    const assistantName = lines[0]?.trim().split(/\s{2,}/)[0];
+    const firstLine = lines[0]?.trim();
+    const columns = firstLine?.split(/\s{2,}/);
+    // A valid assistant row has multiple columns (NAME, STATUS, …).
+    // Messages like "No running assistants" are a single column — skip them.
+    const assistantName = columns && columns.length >= 2 ? columns[0] : undefined;
     if (assistantName) {
       execSync(`vellum retire ${assistantName}`, {
         timeout: 30_000,

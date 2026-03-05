@@ -92,6 +92,7 @@ struct ChatView: View {
     @State private var isDropTargeted = false
     @State private var editorContentHeight: CGFloat = 20
     @State private var isComposerExpanded = false
+    @State private var containerWidth: CGFloat = 0
 
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
@@ -152,6 +153,7 @@ struct ChatView: View {
                             onRemoveAttachment: onRemoveAttachment,
                             onPaste: onPaste,
                             onFileDrop: onDropFiles,
+                            onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
                             onDismissError: onDismissError,
                             editorContentHeight: $editorContentHeight,
@@ -174,6 +176,7 @@ struct ChatView: View {
                             onRemoveAttachment: onRemoveAttachment,
                             onPaste: onPaste,
                             onFileDrop: onDropFiles,
+                            onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
                             onDismissError: onDismissError,
                             editorContentHeight: $editorContentHeight,
@@ -215,7 +218,8 @@ struct ChatView: View {
                             loadPreviousMessagePage: loadPreviousMessagePage,
                             threadId: threadId,
                             anchorMessageId: $anchorMessageId,
-                            isNearBottom: $isNearBottom
+                            isNearBottom: $isNearBottom,
+                            containerWidth: containerWidth
                         )
                         .safeAreaInset(edge: .bottom) {
                             Color.clear.frame(height: composerReservedHeight)
@@ -258,6 +262,7 @@ struct ChatView: View {
                             onRemoveAttachment: onRemoveAttachment,
                             onPaste: onPaste,
                             onFileDrop: onDropFiles,
+                            onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
                             onDismissError: onDismissError,
                             onRetrySessionError: onRetry,
@@ -281,6 +286,12 @@ struct ChatView: View {
                 chatBackground
             }
             .background(VColor.chatBackground)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: ChatContainerWidthKey.self, value: geo.size.width)
+                }
+            )
+            .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
 
             // Drop target overlay
             if isDropTargeted {
@@ -658,3 +669,12 @@ private struct ChatViewPreviewWrapper: View {
     }
 }
 #endif
+
+/// Propagates the chat container's measured width up to ChatView so it can
+/// forward it to MessageListView for resize-aware scroll stabilization.
+private struct ChatContainerWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}

@@ -16,13 +16,13 @@ bun run ./src/index.ts <command> [options]
 
 ### Lifecycle: `ps`, `sleep`, `wake`
 
-Day-to-day process management for the daemon and gateway.
+Day-to-day process management for the assistant and gateway.
 
-| Command | Description |
-|---------|-------------|
-| `vellum ps` | List assistants and per-assistant process status (daemon, gateway PIDs and health). |
-| `vellum sleep` | Stop daemon and gateway processes. Directory-agnostic — works from anywhere. |
-| `vellum wake` | Start the daemon and gateway from the current checkout. |
+| Command        | Description                                                                            |
+| -------------- | -------------------------------------------------------------------------------------- |
+| `vellum ps`    | List assistants and per-assistant process status (assistant, gateway PIDs and health). |
+| `vellum sleep` | Stop assistant and gateway processes. Directory-agnostic — works from anywhere.        |
+| `vellum wake`  | Start the assistant and gateway from the current checkout.                             |
 
 ```bash
 # Start everything
@@ -47,36 +47,36 @@ vellum hatch [species] [options]
 
 #### Species
 
-| Species    | Description                                 |
-| ---------- | ------------------------------------------- |
+| Species    | Description                                       |
+| ---------- | ------------------------------------------------- |
 | `vellum`   | Default. Provisions the Vellum assistant runtime. |
-| `openclaw` | Provisions the OpenClaw runtime with gateway. |
+| `openclaw` | Provisions the OpenClaw runtime with gateway.     |
 
 #### Options
 
-| Option              | Description |
-| ------------------- | ----------- |
-| `-d`                | Detached mode. Start the instance in the background without watching startup progress. |
-| `--name <name>`     | Use a specific instance name instead of an auto-generated one. |
+| Option              | Description                                                                                    |
+| ------------------- | ---------------------------------------------------------------------------------------------- |
+| `-d`                | Detached mode. Start the instance in the background without watching startup progress.         |
+| `--name <name>`     | Use a specific instance name instead of an auto-generated one.                                 |
 | `--remote <target>` | Where to provision the instance. One of: `local`, `gcp`, `aws`, `custom`. Defaults to `local`. |
 
 #### Remote Targets
 
-- **`local`** -- Starts the local daemon and local gateway. Gateway source resolution order is: `VELLUM_GATEWAY_DIR` override, repo source tree, then installed `@vellumai/vellum-gateway` package.
+- **`local`** -- Starts the local assistant and local gateway. Gateway source resolution order is: `VELLUM_GATEWAY_DIR` override, repo source tree, then installed `@vellumai/vellum-gateway` package.
 - **`gcp`** -- Creates a GCP Compute Engine VM (`e2-standard-4`: 4 vCPUs, 16 GB) with a startup script that bootstraps the assistant. Requires `gcloud` authentication and `GCP_PROJECT` / `GCP_DEFAULT_ZONE` environment variables.
 - **`aws`** -- Provisions an AWS instance.
 - **`custom`** -- Provisions on an arbitrary SSH host. Set `VELLUM_CUSTOM_HOST` (e.g. `user@hostname`) to specify the target.
 
 #### Environment Variables
 
-| Variable              | Required For | Description |
-| --------------------- | ------------ | ----------- |
-| `ANTHROPIC_API_KEY`   | All             | Anthropic API key passed to the assistant runtime. |
-| `GCP_PROJECT`         | `gcp`        | GCP project ID. Falls back to the active `gcloud` project. |
-| `GCP_DEFAULT_ZONE`    | `gcp`        | GCP zone for the compute instance. |
-| `VELLUM_CUSTOM_HOST`  | `custom`     | SSH host in `user@hostname` format. |
-| `VELLUM_GATEWAY_DIR`  | `local`      | Optional absolute path to a local gateway source directory to run instead of the packaged gateway. |
-| `INGRESS_PUBLIC_BASE_URL` | `local` | Optional fallback public ingress URL when `ingress.publicBaseUrl` is not set in workspace config. |
+| Variable                  | Required For | Description                                                                                        |
+| ------------------------- | ------------ | -------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`       | All          | Anthropic API key passed to the assistant runtime.                                                 |
+| `GCP_PROJECT`             | `gcp`        | GCP project ID. Falls back to the active `gcloud` project.                                         |
+| `GCP_DEFAULT_ZONE`        | `gcp`        | GCP zone for the compute instance.                                                                 |
+| `VELLUM_CUSTOM_HOST`      | `custom`     | SSH host in `user@hostname` format.                                                                |
+| `VELLUM_GATEWAY_DIR`      | `local`      | Optional absolute path to a local gateway source directory to run instead of the packaged gateway. |
+| `INGRESS_PUBLIC_BASE_URL` | `local`      | Optional fallback public ingress URL when `ingress.publicBaseUrl` is not set in workspace config.  |
 
 #### Examples
 
@@ -111,8 +111,8 @@ The CLI looks up the instance by name in `~/.vellum.lock.json` and determines ho
 
 - **`gcp`** -- Deletes the GCP Compute Engine instance via `gcloud compute instances delete`.
 - **`aws`** -- Terminates the AWS EC2 instance by looking up the instance ID from its Name tag.
-- **`local`** -- Stops the local daemon (`vellum sleep`) and removes the `~/.vellum` directory.
-- **`custom`** -- SSHs to the remote host to stop the daemon/gateway and remove the `~/.vellum` directory.
+- **`local`** -- Stops the local assistant (`vellum sleep`) and removes the `~/.vellum` directory.
+- **`custom`** -- SSHs to the remote host to stop the assistant/gateway and remove the `~/.vellum` directory.
 
 #### Examples
 

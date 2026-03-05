@@ -29,9 +29,9 @@
             "type": "string",
             "description": "Optional recurrence schedule ID to fire a reminder when overdue"
           },
-          "reminder_cron_id": {
+          "reason": {
             "type": "string",
-            "description": "Deprecated alias for reminder_schedule_id. Use reminder_schedule_id instead."
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["channel", "thread_id"]
@@ -63,6 +63,10 @@
           "overdue_only": {
             "type": "boolean",
             "description": "When true, return only pending follow-ups past their expected response deadline"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -89,6 +93,10 @@
           "thread_id": {
             "type": "string",
             "description": "Thread ID to match (used with channel for auto-resolution)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []

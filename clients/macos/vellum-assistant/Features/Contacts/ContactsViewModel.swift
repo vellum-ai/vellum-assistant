@@ -11,11 +11,16 @@ final class ContactsViewModel: ObservableObject {
 
     @Published var contacts: [ContactPayload] = []
     @Published var isLoading = false
+    @Published var isCreatingContact = false
     @Published var searchQuery = ""
 
     // MARK: - Dependencies
 
     private let daemonClient: DaemonClient?
+
+    /// Debounce task for contacts_changed events, avoiding races with
+    /// in-progress channel update response handling in ContactDetailView.
+    private var contactsChangedTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -52,6 +57,13 @@ final class ContactsViewModel: ObservableObject {
         filteredContacts.filter { $0.role != "guardian" }
     }
 
+    /// Whether any non-guardian contacts exist in the unfiltered list.
+    /// Used for empty-state checks so search filtering doesn't
+    /// incorrectly trigger the "No contacts yet" message.
+    var hasNonGuardianContacts: Bool {
+        contacts.contains { $0.role != "guardian" }
+    }
+
     // MARK: - Actions
 
     /// Request the list of contacts from the daemon.
@@ -70,7 +82,16 @@ final class ContactsViewModel: ObservableObject {
         }
 
         daemonClient.onContactsChanged = { [weak self] _ in
-            self?.loadContacts()
+            guard let self else { return }
+            // Debounce to let in-flight channel update responses
+            // (consumed by ContactDetailView.updateChannelStatus) settle
+            // before we fire a new list request.
+            self.contactsChangedTask?.cancel()
+            self.contactsChangedTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
+                self?.loadContacts()
+            }
         }
 
         do {

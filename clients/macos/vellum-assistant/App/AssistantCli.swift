@@ -796,6 +796,14 @@ final class AssistantCli {
             if let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
                 env["RUNTIME_HTTP_PORT"] = port
             }
+            // Fall back to UserDefaults for the Anthropic API key when
+            // it's not in the process environment (e.g. app launched from
+            // Finder, not a terminal with ANTHROPIC_API_KEY set).
+            if env["ANTHROPIC_API_KEY"] == nil,
+               let storedKey = UserDefaults.standard.string(forKey: "vellum_provider_anthropic"),
+               !storedKey.isEmpty {
+                env["ANTHROPIC_API_KEY"] = storedKey
+            }
             proc.environment = env
 
             try proc.run()

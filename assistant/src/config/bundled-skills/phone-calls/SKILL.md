@@ -102,28 +102,28 @@ Present these voices grouped by category:
 
 #### Female voices
 
-| Voice     | Style                          | Voice ID                       |
-| --------- | ------------------------------ | ------------------------------ |
-| Rachel    | Calm, warm, conversational     | `21m00Tcm4TlvDq8ikWAM`        |
-| Sarah     | Soft, young, approachable      | `EXAVITQu4vr4xnSDxMaL`        |
-| Charlotte | Warm, Swedish-accented         | `XB0fDUnXU5powFXDhCwa`        |
-| Alice     | Confident, British             | `Xb7hH8MSUJpSbSDYk0k2`        |
-| Matilda   | Warm, friendly, young          | `XrExE9yKIg1WjnnlVkGX`        |
-| Lily      | Warm, British                  | `pFZP5JQG7iQjIQuC4Bku`        |
+| Voice     | Style                      | Voice ID               |
+| --------- | -------------------------- | ---------------------- |
+| Rachel    | Calm, warm, conversational | `21m00Tcm4TlvDq8ikWAM` |
+| Sarah     | Soft, young, approachable  | `EXAVITQu4vr4xnSDxMaL` |
+| Charlotte | Warm, Swedish-accented     | `XB0fDUnXU5powFXDhCwa` |
+| Alice     | Confident, British         | `Xb7hH8MSUJpSbSDYk0k2` |
+| Matilda   | Warm, friendly, young      | `XrExE9yKIg1WjnnlVkGX` |
+| Lily      | Warm, British              | `pFZP5JQG7iQjIQuC4Bku` |
 
 #### Male voices
 
-| Voice   | Style                            | Voice ID                       |
-| ------- | -------------------------------- | ------------------------------ |
-| Antoni  | Warm, well-rounded               | `ErXwobaYiN019PkySvjV`        |
-| Josh    | Deep, young, clear               | `TxGEqnHWrfWFTfGW9XjX`       |
-| Arnold  | Crisp, narrative                  | `VR6AewLTigWG4xSOukaG`        |
-| Adam    | Deep, middle-aged, professional  | `pNInz6obpgDQGcFmaJgB`        |
-| Bill    | Trustworthy, American            | `pqHfZKP75CvOlQylNhV4`        |
-| George  | Warm, British, distinguished     | `JBFqnCBsd6RMkjVDRZzb`        |
-| Daniel  | Authoritative, British           | `onwK4e9ZLuTAKqWW03F9`        |
-| Charlie | Casual, Australian               | `IKne3meq5aSn9XLyUdCD`        |
-| Liam    | Young, articulate                | `TX3LPaxmHKxFdv7VOQHJ`        |
+| Voice   | Style                           | Voice ID               |
+| ------- | ------------------------------- | ---------------------- |
+| Antoni  | Warm, well-rounded              | `ErXwobaYiN019PkySvjV` |
+| Josh    | Deep, young, clear              | `TxGEqnHWrfWFTfGW9XjX` |
+| Arnold  | Crisp, narrative                | `VR6AewLTigWG4xSOukaG` |
+| Adam    | Deep, middle-aged, professional | `pNInz6obpgDQGcFmaJgB` |
+| Bill    | Trustworthy, American           | `pqHfZKP75CvOlQylNhV4` |
+| George  | Warm, British, distinguished    | `JBFqnCBsd6RMkjVDRZzb` |
+| Daniel  | Authoritative, British          | `onwK4e9ZLuTAKqWW03F9` |
+| Charlie | Casual, Australian              | `IKne3meq5aSn9XLyUdCD` |
+| Liam    | Young, articulate               | `TX3LPaxmHKxFdv7VOQHJ` |
 
 After the user picks a voice, use `voice_config_update` to set the shared voice ID. This writes to the config file (`elevenlabs.voiceId`) for phone calls **and** pushes to the macOS app via IPC (`ttsVoiceId`) for in-app TTS in one call:
 
@@ -478,13 +478,13 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 
 ### Key paths
 
-| Resource                                   | Path                                       |
-| ------------------------------------------ | ------------------------------------------ |
-| Daemon logs (caller-side transcripts only) | `~/.vellum/workspace/data/logs/vellum.log` |
-| Full conversation database                 | `~/.vellum/workspace/data/db/assistant.db` |
-| Messages table                             | `messages` (keyed by `conversation_id`)    |
-| Call sessions table                        | `call_sessions`                            |
-| Call events table                          | `call_events`                              |
+| Resource                                      | Path                                       |
+| --------------------------------------------- | ------------------------------------------ |
+| Assistant logs (caller-side transcripts only) | `~/.vellum/workspace/data/logs/vellum.log` |
+| Full conversation database                    | `~/.vellum/workspace/data/db/assistant.db` |
+| Messages table                                | `messages` (keyed by `conversation_id`)    |
+| Call sessions table                           | `call_sessions`                            |
+| Call events table                             | `call_events`                              |
 
 ### Important
 
@@ -539,24 +539,24 @@ The `context` field is powerful — use it to give the agent background that hel
 
 All call-related settings can be managed via `vellum config`:
 
-| Setting                                     | Description                                                                                                | Default                                                                                                  |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `calls.enabled`                             | Master switch for the calling feature                                                                      | `false`                                                                                                  |
-| `calls.provider`                            | Voice provider (currently only `twilio`)                                                                   | `twilio`                                                                                                 |
-| `calls.maxDurationSeconds`                  | Maximum call length in seconds                                                                             | `3600` (1 hour)                                                                                          |
-| `calls.userConsultTimeoutSeconds`           | How long to wait for user answers                                                                          | `120` (2 min)                                                                                            |
-| `calls.disclosure.enabled`                  | Whether the AI announces itself at call start                                                              | `true`                                                                                                   |
-| `calls.disclosure.text`                     | The disclosure message spoken at call start                                                                | `"At the very beginning of the call, introduce yourself as an assistant calling on behalf of my human."` |
-| `calls.model`                               | Override LLM model for call orchestration                                                                  | _(uses default model)_                                                                                   |
-| `calls.callerIdentity.allowPerCallOverride` | Allow per-call caller identity selection                                                                   | `true`                                                                                                   |
-| `calls.callerIdentity.userNumber`           | E.164 phone number for user-number mode                                                                    | _(empty)_                                                                                                |
-| `calls.voice.language`                      | Language code for TTS and transcription                                                                    | `en-US`                                                                                                  |
-| `calls.voice.transcriptionProvider`         | Speech-to-text provider (`Deepgram`, `Google`)                                                             | `Deepgram`                                                                                               |
-| `elevenlabs.voiceId`                        | ElevenLabs voice ID used by both in-app TTS and phone calls. Set during setup from the curated voice list. Defaults to Rachel  | `21m00Tcm4TlvDq8ikWAM`                                                                                  |
-| `elevenlabs.voiceModelId`                   | Optional Twilio ConversationRelay model suffix. Leave empty to send bare `voiceId`                         | _(empty)_                                                                                                |
-| `elevenlabs.speed`                          | Playback speed (`0.7` – `1.2`)                                                                             | `1.0`                                                                                                    |
-| `elevenlabs.stability`                      | Voice stability (`0.0` – `1.0`)                                                                            | `0.5`                                                                                                    |
-| `elevenlabs.similarityBoost`                | Voice similarity boost (`0.0` – `1.0`)                                                                     | `0.75`                                                                                                   |
+| Setting                                     | Description                                                                                                                   | Default                                                                                                  |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `calls.enabled`                             | Master switch for the calling feature                                                                                         | `false`                                                                                                  |
+| `calls.provider`                            | Voice provider (currently only `twilio`)                                                                                      | `twilio`                                                                                                 |
+| `calls.maxDurationSeconds`                  | Maximum call length in seconds                                                                                                | `3600` (1 hour)                                                                                          |
+| `calls.userConsultTimeoutSeconds`           | How long to wait for user answers                                                                                             | `120` (2 min)                                                                                            |
+| `calls.disclosure.enabled`                  | Whether the AI announces itself at call start                                                                                 | `true`                                                                                                   |
+| `calls.disclosure.text`                     | The disclosure message spoken at call start                                                                                   | `"At the very beginning of the call, introduce yourself as an assistant calling on behalf of my human."` |
+| `calls.model`                               | Override LLM model for call orchestration                                                                                     | _(uses default model)_                                                                                   |
+| `calls.callerIdentity.allowPerCallOverride` | Allow per-call caller identity selection                                                                                      | `true`                                                                                                   |
+| `calls.callerIdentity.userNumber`           | E.164 phone number for user-number mode                                                                                       | _(empty)_                                                                                                |
+| `calls.voice.language`                      | Language code for TTS and transcription                                                                                       | `en-US`                                                                                                  |
+| `calls.voice.transcriptionProvider`         | Speech-to-text provider (`Deepgram`, `Google`)                                                                                | `Deepgram`                                                                                               |
+| `elevenlabs.voiceId`                        | ElevenLabs voice ID used by both in-app TTS and phone calls. Set during setup from the curated voice list. Defaults to Rachel | `21m00Tcm4TlvDq8ikWAM`                                                                                   |
+| `elevenlabs.voiceModelId`                   | Optional Twilio ConversationRelay model suffix. Leave empty to send bare `voiceId`                                            | _(empty)_                                                                                                |
+| `elevenlabs.speed`                          | Playback speed (`0.7` – `1.2`)                                                                                                | `1.0`                                                                                                    |
+| `elevenlabs.stability`                      | Voice stability (`0.0` – `1.0`)                                                                                               | `0.5`                                                                                                    |
+| `elevenlabs.similarityBoost`                | Voice similarity boost (`0.0` – `1.0`)                                                                                        | `0.75`                                                                                                   |
 
 ### Adjusting settings
 

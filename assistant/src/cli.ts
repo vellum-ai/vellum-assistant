@@ -914,7 +914,9 @@ export async function startCli(): Promise<void> {
             resolve();
             return;
           }
-          reject(new Error("Session token not found — is the daemon running?"));
+          reject(
+            new Error("Session token not found — is the assistant running?"),
+          );
           newSocket.destroy();
           return;
         }

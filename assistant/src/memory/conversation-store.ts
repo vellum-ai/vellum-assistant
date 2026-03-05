@@ -54,27 +54,6 @@ export { ensureDisplayOrderMigration as ensureColumns } from "./conversation-dis
 // CRUD functions for display_order and is_pinned
 // ---------------------------------------------------------------------------
 
-export function getDisplayOrder(conversationId: string): number | null {
-  ensureDisplayOrderMigration();
-  const row = rawGet<{ display_order: number | null }>(
-    "SELECT display_order FROM conversations WHERE id = ?",
-    conversationId,
-  );
-  return row?.display_order ?? null;
-}
-
-export function setDisplayOrder(
-  conversationId: string,
-  order: number | null,
-): void {
-  ensureDisplayOrderMigration();
-  rawRun(
-    "UPDATE conversations SET display_order = ? WHERE id = ?",
-    order,
-    conversationId,
-  );
-}
-
 export function batchSetDisplayOrders(
   updates: Array<{
     id: string;
@@ -98,36 +77,6 @@ export function batchSetDisplayOrders(
     rawExec("ROLLBACK");
     throw err;
   }
-}
-
-export function setConversationPinned(
-  conversationId: string,
-  isPinned: boolean,
-): void {
-  ensureDisplayOrderMigration();
-  rawRun(
-    "UPDATE conversations SET is_pinned = ? WHERE id = ?",
-    isPinned ? 1 : 0,
-    conversationId,
-  );
-}
-
-export function getConversationDisplayMeta(conversationId: string): {
-  displayOrder: number | null;
-  isPinned: boolean;
-} {
-  ensureDisplayOrderMigration();
-  const row = rawGet<{
-    display_order: number | null;
-    is_pinned: number | null;
-  }>(
-    "SELECT display_order, is_pinned FROM conversations WHERE id = ?",
-    conversationId,
-  );
-  return {
-    displayOrder: row?.display_order ?? null,
-    isPinned: (row?.is_pinned ?? 0) === 1,
-  };
 }
 
 export function getDisplayMetaForConversations(

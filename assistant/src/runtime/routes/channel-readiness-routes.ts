@@ -7,6 +7,7 @@
 
 import type { ChannelId } from "../../channels/types.js";
 import { getReadinessService } from "../../daemon/handlers/config-channels.js";
+import type { RouteDefinition } from "../http-router.js";
 
 /**
  * GET /v1/channels/readiness
@@ -74,4 +75,23 @@ export async function handleRefreshChannelReadiness(
       remoteChecks: s.remoteChecks,
     })),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function channelReadinessRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "channels/readiness",
+      method: "GET",
+      handler: async ({ url }) => handleGetChannelReadiness(url),
+    },
+    {
+      endpoint: "channels/readiness/refresh",
+      method: "POST",
+      handler: async ({ req }) => handleRefreshChannelReadiness(req),
+    },
+  ];
 }

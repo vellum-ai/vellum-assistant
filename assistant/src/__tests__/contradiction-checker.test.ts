@@ -201,7 +201,11 @@ describe("checkContradictions", () => {
     expect(conflicts[0].existingItemId).toBe("item-existing-ambiguous");
     expect(conflicts[0].candidateItemId).toBe("item-candidate-ambiguous");
     expect(conflicts[0].relationship).toBe("ambiguous_contradiction");
-    expect(conflicts[0].clarificationQuestion).toContain(
+    expect(conflicts[0].clarificationQuestion).toContain("Pending conflict:");
+    expect(conflicts[0].clarificationQuestion).not.toContain(
+      "I have conflicting notes",
+    );
+    expect(conflicts[0].clarificationQuestion).not.toContain(
       "Which one is correct?",
     );
   });

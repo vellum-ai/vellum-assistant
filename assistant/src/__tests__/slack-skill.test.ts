@@ -64,10 +64,11 @@ describe("slack skill TOOLS.json", () => {
     expect(names).toContain("slack_edit_message");
     expect(names).toContain("slack_delete_message");
     expect(names).toContain("slack_leave_channel");
+    expect(names).toContain("slack_channel_permissions");
   });
 
-  test("has 7 tools total", () => {
-    expect(toolsJson.tools.length).toBe(7);
+  test("has 8 tools total", () => {
+    expect(toolsJson.tools.length).toBe(8);
   });
 
   test("all tools have required fields", () => {

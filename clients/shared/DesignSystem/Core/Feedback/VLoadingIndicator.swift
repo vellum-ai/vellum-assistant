@@ -17,12 +17,10 @@ public struct VLoadingIndicator: View {
             .stroke(color, lineWidth: 2)
             .frame(width: size, height: size)
             .rotationEffect(Angle(degrees: isAnimating ? 360 : 0))
-            .animation(
-                .linear(duration: 0.8).repeatForever(autoreverses: false),
-                value: isAnimating
-            )
             .onAppear {
-                isAnimating = true
+                withAnimation(.linear(duration: 0.8).repeatForever(autoreverses: false)) {
+                    isAnimating = true
+                }
             }
             .onDisappear {
                 isAnimating = false

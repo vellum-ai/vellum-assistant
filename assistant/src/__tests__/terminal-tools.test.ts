@@ -711,10 +711,13 @@ describe("formatShellOutput", () => {
     expect(result.isError).toBe(false);
   });
 
-  test("failed command with no output shows exit code tag", () => {
+  test("failed command with no output shows exit code tag and descriptive message", () => {
     const result = formatShellOutput("", "", 1, false, 120);
-    expect(result.content).toBe('<command_exit code="1" />');
+    expect(result.content).toContain('<command_exit code="1" />');
+    expect(result.content).toContain("Command failed with exit code 1");
+    expect(result.content).toContain("No stdout or stderr output was produced");
     expect(result.isError).toBe(true);
+    expect(result.status).toContain('<command_exit code="1" />');
   });
 
   test("failed command with output includes exit code in status", () => {

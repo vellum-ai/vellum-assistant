@@ -298,8 +298,8 @@ struct SettingsPanel: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Clear", style: .danger) {
                             store.clearAPIKey()
                             apiKeyText = ""
                             anthropicSetupExpanded = false
@@ -329,20 +329,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
+                            VButton(label: "Save", style: .secondary) {
                                 store.saveAPIKey(apiKeyText)
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
                             .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            VButton(label: "Cancel", style: .tertiary) {
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         anthropicSetupExpanded = true
                     }
                 }
@@ -364,8 +364,8 @@ struct SettingsPanel: View {
 
                 if store.hasPerplexityKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Clear", style: .danger) {
                             store.clearPerplexityKey()
                             perplexityKeyText = ""
                             perplexitySetupExpanded = false
@@ -395,20 +395,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
+                            VButton(label: "Save", style: .secondary) {
                                 store.savePerplexityKey(perplexityKeyText)
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
                             .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            VButton(label: "Cancel", style: .tertiary) {
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         perplexitySetupExpanded = true
                     }
                 }
@@ -430,8 +430,8 @@ struct SettingsPanel: View {
 
                 if store.hasBraveKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Clear", style: .danger) {
                             store.clearBraveKey()
                             braveKeyText = ""
                             braveSetupExpanded = false
@@ -461,20 +461,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
+                            VButton(label: "Save", style: .secondary) {
                                 store.saveBraveKey(braveKeyText)
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
                             .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            VButton(label: "Cancel", style: .tertiary) {
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         braveSetupExpanded = true
                     }
                 }
@@ -496,8 +496,8 @@ struct SettingsPanel: View {
 
                 if store.hasImageGenKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Clear", style: .danger) {
                             store.clearImageGenKey()
                             imageGenKeyText = ""
                             imageGenSetupExpanded = false
@@ -548,20 +548,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
+                            VButton(label: "Save", style: .secondary) {
                                 store.saveImageGenKey(imageGenKeyText)
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }
                             .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            VButton(label: "Cancel", style: .tertiary) {
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         imageGenSetupExpanded = true
                     }
                 }
@@ -641,8 +641,8 @@ struct SettingsPanel: View {
                 if store.twitterConnected {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                            VButton(label: "Disconnect", style: .danger, size: .medium) {
+                            VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                            VButton(label: "Disconnect", style: .danger) {
                                 store.disconnectTwitter()
                             }
                         }
@@ -656,7 +656,7 @@ struct SettingsPanel: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         if store.twitterAuthInProgress {
                             HStack(spacing: VSpacing.sm) {
-                                VButton(label: "Connect", style: .primary, size: .medium) {}
+                                VButton(label: "Connect", style: .primary) {}
                                     .disabled(true)
                                 ProgressView()
                                     .controlSize(.small)
@@ -666,10 +666,10 @@ struct SettingsPanel: View {
                             }
                         } else {
                             HStack(spacing: VSpacing.sm) {
-                                VButton(label: "Connect", style: .primary, size: .medium) {
+                                VButton(label: "Connect", style: .primary) {
                                     store.connectTwitter()
                                 }
-                                VButton(label: "Reconfigure", style: .secondary, size: .medium) {
+                                VButton(label: "Reconfigure", style: .secondary) {
                                     store.clearTwitterLocalClient()
                                     twitterClientId = ""
                                     twitterClientSecret = ""
@@ -717,7 +717,7 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
+                            VButton(label: "Save", style: .secondary) {
                                 store.saveTwitterLocalClient(
                                     clientId: twitterClientId,
                                     clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
@@ -727,7 +727,7 @@ struct SettingsPanel: View {
                                 twitterSetupExpanded = false
                             }
                             .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            VButton(label: "Cancel", style: .tertiary) {
                                 twitterSetupExpanded = false
                                 twitterClientId = ""
                                 twitterClientSecret = ""
@@ -735,7 +735,7 @@ struct SettingsPanel: View {
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         twitterSetupExpanded = true
                     }
                 }
@@ -830,7 +830,7 @@ struct SettingsPanel: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        VButton(label: "Manage...", style: .secondary, size: .medium) {
+                        VButton(label: "Manage...", style: .secondary) {
                             daemonClient?.isTrustRulesSheetOpen = true
                             showingTrustRules = true
                         }
@@ -1024,7 +1024,7 @@ struct SettingsPanel: View {
 
                 Spacer()
 
-                VToggle(isOn: .constant(granted), size: .medium).allowsHitTesting(false)
+                VToggle(isOn: .constant(granted)).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -1083,7 +1083,7 @@ private struct SettingsNavRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
-                .background(isSelected ? VColor.hoverOverlay.opacity(0.08) : (isHovered ? VColor.hoverOverlay.opacity(0.04) : Color.clear))
+                .background(isSelected ? VColor.navActive : (isHovered ? VColor.navHover : Color.clear))
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .contentShape(Rectangle())
         }

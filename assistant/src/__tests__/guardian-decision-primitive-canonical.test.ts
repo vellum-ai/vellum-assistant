@@ -71,7 +71,8 @@ const TEST_PRINCIPAL_ID = "test-principal-id";
 
 function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
-    externalUserId: "guardian-1",
+    actorPrincipalId: TEST_PRINCIPAL_ID,
+    actorExternalUserId: "guardian-1",
     channel: "telegram",
     guardianPrincipalId: TEST_PRINCIPAL_ID,
     ...overrides,
@@ -80,7 +81,8 @@ function guardianActor(overrides: Partial<ActorContext> = {}): ActorContext {
 
 function trustedActor(overrides: Partial<ActorContext> = {}): ActorContext {
   return {
-    externalUserId: undefined,
+    actorPrincipalId: TEST_PRINCIPAL_ID,
+    actorExternalUserId: undefined,
     channel: "desktop",
     guardianPrincipalId: TEST_PRINCIPAL_ID,
     ...overrides,
@@ -254,7 +256,7 @@ describe("applyCanonicalGuardianDecision", () => {
 
     expect(result.applied).toBe(true);
     if (!result.applied) return;
-    // No grant minted because trusted actor has no externalUserId
+    // No grant minted because trusted actor has no actorExternalUserId
     expect(result.grantMinted).toBe(false);
   });
 

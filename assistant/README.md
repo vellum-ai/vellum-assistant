@@ -1,6 +1,6 @@
 # Vellum Assistant Runtime
 
-Bun + TypeScript daemon that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
+Bun + TypeScript assistant runtime that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
 
 ## Architecture
 
@@ -47,11 +47,11 @@ cp .env.example .env
 | `OLLAMA_API_KEY`       | No       | —                           | API key for authenticated Ollama deployments      |
 | `OLLAMA_BASE_URL`      | No       | `http://127.0.0.1:11434/v1` | Ollama base URL                                   |
 | `RUNTIME_HTTP_PORT`    | No       | —                           | Enable the HTTP server (required for gateway/web) |
-| `VELLUM_DAEMON_SOCKET` | No       | `~/.vellum/vellum.sock`     | Override the daemon socket path                   |
+| `VELLUM_DAEMON_SOCKET` | No       | `~/.vellum/vellum.sock`     | Override the assistant socket path                |
 
 ## Update Bulletin
 
-When a release includes relevant updates, the daemon materializes release notes from the bundled `src/config/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
+When a release includes relevant updates, the assistant materializes release notes from the bundled `src/config/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
 
 **For release maintainers:** Update `assistant/src/config/templates/UPDATES.md` with release notes before each relevant release. Leave the template empty (or comment-only) for releases with no user/assistant-facing changes.
 
@@ -59,19 +59,19 @@ When a release includes relevant updates, the daemon materializes release notes 
 
 ### Lifecycle management (recommended)
 
-Use the `vellum` CLI to manage daemon and gateway processes:
+Use the `vellum` CLI to manage assistant and gateway processes:
 
 ```bash
-vellum wake    # start daemon + gateway from current checkout
+vellum wake    # start assistant + gateway from current checkout
 vellum ps      # list assistants and per-assistant process status
-vellum sleep   # stop daemon + gateway (directory-agnostic)
+vellum sleep   # stop assistant + gateway (directory-agnostic)
 ```
 
 > **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically.
 
 ### Development: raw bun commands
 
-For low-level development (e.g., working on the daemon itself):
+For low-level development (e.g., working on the assistant runtime itself):
 
 ```bash
 bun run src/index.ts daemon start   # start daemon only
@@ -83,11 +83,11 @@ bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 
 | Command                                    | Description                                      |
 | ------------------------------------------ | ------------------------------------------------ |
-| `vellum wake`                              | Start daemon + gateway from current checkout     |
-| `vellum sleep`                             | Stop daemon + gateway processes                  |
+| `vellum wake`                              | Start assistant + gateway from current checkout  |
+| `vellum sleep`                             | Stop assistant + gateway processes               |
 | `vellum ps`                                | List assistants and per-assistant process status |
 | `vellum`                                   | Launch interactive CLI session                   |
-| `vellum dev`                               | Run daemon with auto-restart on file changes     |
+| `vellum dev`                               | Run assistant with auto-restart on file changes  |
 | `vellum sessions list\|new\|export\|clear` | Manage conversation sessions                     |
 | `vellum config set\|get\|list`             | Manage configuration                             |
 | `vellum keys set\|list\|delete`            | Manage API keys in secure storage                |
@@ -230,7 +230,7 @@ All endpoints are JWT-authenticated (require a valid JWT with appropriate scopes
 
 ### Ingress Webhook Reconciliation
 
-When the public ingress URL is changed via the Settings UI (`ingress_config` set action), the daemon automatically reconciles Twilio webhooks in addition to triggering a Telegram webhook reconcile on the gateway. If all of the following conditions are met, the daemon pushes updated webhook URLs (voice, status callback, SMS) to Twilio:
+When the public ingress URL is changed via the Settings UI (`ingress_config` set action), the assistant automatically reconciles Twilio webhooks in addition to triggering a Telegram webhook reconcile on the gateway. If all of the following conditions are met, the assistant pushes updated webhook URLs (voice, status callback, SMS) to Twilio:
 
 1. Ingress is being **enabled** (not disabled)
 2. Twilio **credentials** are configured (Account SID + Auth Token in secure storage)
@@ -271,7 +271,7 @@ The channel guardian service generates verification challenge instructions with 
 ### Operator Notes
 
 - **Verification input format:** Channel verification accepts a bare code reply only (6-digit numeric for identity-bound sessions; 64-char hex for unbound inbound/bootstrap compatibility).
-- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the daemon returns `already_bound`. This prevents accidental guardian replacement.
+- **Rebind requirement:** Creating a new guardian challenge when a binding already exists requires `rebind: true` in the IPC request. Without it, the assistant returns `already_bound`. This prevents accidental guardian replacement.
 - **Takeover prevention:** Verification is rejected when an active binding exists for a different external user. Same-user re-verification is allowed.
 
 ### Vellum Guardian Identity (Actor Tokens)
@@ -282,7 +282,7 @@ The vellum channel (macOS, iOS, CLI) uses JWTs to bind guardian identity to HTTP
 - **iOS pairing**: The pairing response includes `accessToken` and `refreshToken` credentials automatically when a vellum guardian binding exists.
 - **IPC fallback**: Local IPC (Unix socket) connections resolve identity server-side via `resolveLocalIpcGuardianContext()` without requiring a JWT.
 - **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.
-- **Startup migration**: On daemon start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
+- **Startup migration**: On assistant start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
 
 ## Guardian Verification and Ingress ACL
 
@@ -292,7 +292,7 @@ This section documents the end-to-end flow from guardian verification through in
 
 Guardian verification establishes a cryptographic trust binding between a human identity and an `(assistantId, channel)` pair. The flow is:
 
-1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the daemon. The daemon generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
+1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
 2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram or SMS).
 3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided code, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
 4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `actorExternalId` and `chatId` (DB columns: `externalUserId`, `chatId`). The verifier receives a confirmation message.
@@ -337,7 +337,7 @@ Guardian verification and ingress contact management are complementary but indep
 | `src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel                                               |
 | `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation                                             |
 | `src/contacts/contact-store.ts`                 | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                |
-| `src/memory/ingress-invite-store.ts`            | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                   |
+| `src/memory/invite-store.ts`                    | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                   |
 | `src/memory/channel-guardian-store.ts`          | Persistence for guardian bindings, verification challenges, and approval requests                                     |
 | `src/runtime/guardian-outbound-actions.ts`      | Shared business logic for outbound verification (start/resend/cancel)                                                 |
 | `src/runtime/routes/integration-routes.ts`      | HTTP route handlers for outbound guardian verification endpoints                                                      |
@@ -432,7 +432,7 @@ Redemption auto-creates a **member** record with an access policy:
 - **`deny`** — Messages are rejected with a refusal notice.
 - **`escalate`** — Messages are held for guardian (owner) approval before processing.
 
-Non-members (senders with no invite redemption) are denied by default. Members can be listed, updated, revoked, or blocked via the `ingress_member` IPC contract.
+Non-members (senders with no invite redemption) are denied by default. Contacts can be listed, updated, revoked, or blocked via the HTTP API (`/v1/contacts` and `/v1/contacts/channels`).
 
 ### Escalation Flow
 
@@ -447,15 +447,14 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | Message Type     | Actions                      | Description                                                              |
 | ---------------- | ---------------------------- | ------------------------------------------------------------------------ |
 | `ingress_invite` | create, list, revoke, redeem | Manage invite tokens (SHA-256 hashed, raw token returned once on create) |
-| `ingress_member` | list, upsert, revoke, block  | Manage member records and access policies                                |
 
 ### Key Modules
 
 | File                                                | Purpose                                                                                                          |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `src/memory/ingress-invite-store.ts`                | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
+| `src/memory/invite-store.ts`                        | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
 | `src/contacts/contact-store.ts`                     | Contact + channel CRUD with policy enforcement                                                                   |
-| `src/daemon/handlers/config-inbox.ts`               | IPC handlers for ingress invite and member contracts                                                             |
+| `src/daemon/handlers/config-inbox.ts`               | IPC handlers for invite contract                                                                                 |
 | `src/daemon/ipc-contract/inbox.ts`                  | TypeScript type definitions for ingress IPC messages                                                             |
 | `src/runtime/routes/channel-routes.ts`              | ACL enforcement point — member lookup, policy check, escalation creation                                         |
 | `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, member creation, discriminated-union outcomes                         |
@@ -463,7 +462,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel                          |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes guardian invite management requests into the `contacts` skill                          |
-| `src/runtime/ingress-service.ts`                    | Shared business logic for invite/member operations (HTTP + IPC)                                                  |
+| `src/runtime/invite-service.ts`                     | Shared business logic for invite and contact operations (HTTP + IPC)                                             |
 
 ## Database
 
@@ -482,7 +481,7 @@ bun run db:push       # Apply migrations
 
 ```bash
 # Build production image
-docker build -t vellum-assistant:local assistant
+docker build -f assistant/Dockerfile -t vellum-assistant:local .
 
 # Run
 docker run --rm -p 3001:3001 \
@@ -490,7 +489,7 @@ docker run --rm -p 3001:3001 \
   vellum-assistant:local
 ```
 
-The image runs as non-root user `assistant` (uid 1001) and exposes port `3001`.
+The image exposes port `3001` and bundles the `vellum` CLI binary.
 
 ## Troubleshooting
 

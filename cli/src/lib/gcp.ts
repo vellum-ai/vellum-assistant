@@ -198,58 +198,6 @@ export async function syncFirewallRules(
   }
 }
 
-export async function fetchFirewallRules(
-  project: string,
-  tag: string,
-): Promise<string> {
-  const output = await execOutput("gcloud", [
-    "compute",
-    "firewall-rules",
-    "list",
-    `--project=${project}`,
-    "--format=json",
-  ]);
-  const rules = JSON.parse(output) as Array<{ targetTags?: string[] }>;
-  const filtered = rules.filter((r) => r.targetTags?.includes(tag));
-  return JSON.stringify(filtered, null, 2);
-}
-
-export interface GcpInstance {
-  name: string;
-  zone: string;
-  externalIp: string | null;
-  species: string | null;
-}
-
-export async function listAssistantInstances(
-  project: string,
-): Promise<GcpInstance[]> {
-  const output = await execOutput("gcloud", [
-    "compute",
-    "instances",
-    "list",
-    `--project=${project}`,
-    "--filter=labels.vellum-assistant=true",
-    "--format=json(name,zone,networkInterfaces[0].accessConfigs[0].natIP,labels)",
-  ]);
-  const parsed = JSON.parse(output) as Array<{
-    name: string;
-    zone: string;
-    networkInterfaces?: Array<{ accessConfigs?: Array<{ natIP?: string }> }>;
-    labels?: Record<string, string>;
-  }>;
-  return parsed.map((inst) => {
-    const zoneParts = (inst.zone ?? "").split("/");
-    return {
-      name: inst.name,
-      zone: zoneParts[zoneParts.length - 1] || "",
-      externalIp:
-        inst.networkInterfaces?.[0]?.accessConfigs?.[0]?.natIP ?? null,
-      species: inst.labels?.species ?? null,
-    };
-  });
-}
-
 export async function instanceExists(
   instanceName: string,
   project: string,
@@ -279,27 +227,6 @@ export async function instanceExists(
     }
     throw error;
   }
-}
-
-export async function sshCommand(
-  instanceName: string,
-  project: string,
-  zone: string,
-  command: string,
-): Promise<string> {
-  return execOutput("gcloud", [
-    "compute",
-    "ssh",
-    instanceName,
-    `--project=${project}`,
-    `--zone=${zone}`,
-    "--quiet",
-    "--ssh-flag=-o StrictHostKeyChecking=no",
-    "--ssh-flag=-o UserKnownHostsFile=/dev/null",
-    "--ssh-flag=-o ConnectTimeout=5",
-    "--ssh-flag=-o LogLevel=ERROR",
-    `--command=${command}`,
-  ]);
 }
 
 export async function fetchAndDisplayStartupLogs(

@@ -502,7 +502,7 @@ function buildClarificationQuestion(
 ): string {
   const normalize = (input: string): string =>
     truncate(input.replace(/\s+/g, " ").trim(), 180, "");
-  return `I have conflicting notes: "${normalize(
+  return `Pending conflict: "${normalize(
     existingStatement,
-  )}" vs "${normalize(candidateStatement)}". Which one is correct?`;
+  )}" vs "${normalize(candidateStatement)}"`;
 }

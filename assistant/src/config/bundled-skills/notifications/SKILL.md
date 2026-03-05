@@ -2,7 +2,7 @@
 name: "Notifications"
 description: "Send notifications through the unified notification router"
 user-invocable: true
-metadata: {"vellum": {"emoji": "\ud83d\udd14"}}
+metadata: { "vellum": { "emoji": "\ud83d\udd14" } }
 ---
 
 Use `send_notification` for user-facing alerts and notifications. This tool routes through the unified notification pipeline, which handles channel selection, delivery, deduplication, and audit logging.
@@ -27,10 +27,11 @@ Thread grouping is handled by the LLM-powered decision engine, not by any parame
 **`source_event_name` is the primary grouping signal.** Use a stable event name for notifications that belong to the same logical stream (e.g. `dog.news.thread.reply` for all replies in a thread). Use a distinct event name when the notification represents a genuinely different kind of event.
 
 **Practical constraints:**
+
 - Thread candidates are scoped to the **last 24 hours** (max 5 per channel). You cannot reuse an old thread from days ago.
 - The engine will only reuse conversations originally created by the notification system (`source === 'notification'`). It will never append to a user-initiated conversation, even if it looks related.
 
 ## Important
 
 - Do **NOT** use AppleScript `display notification` or other OS-level notification commands for assistant-managed alerts. Always use `send_notification`.
-- For sending messages into a specific chat, email, or SMS destination, use the messaging skill's `messaging_send` instead.
+- For sending rich content (digests, summaries, reports) to a specific chat, email, or SMS destination, use the messaging skill's `messaging_send` instead. The decision engine rewrites `send_notification` content into short alerts, which strips rich formatting.

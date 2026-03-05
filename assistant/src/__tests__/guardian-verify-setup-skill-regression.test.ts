@@ -107,14 +107,12 @@ describe("guardian-verify-setup skill — voice auto-followup", () => {
         ?.split("## Step 6")[0] ?? "";
     // Must mention rebind guard concept
     expect(pollingSection).toContain("Rebind guard");
-    // Must instruct not to trust the first bound: true in a rebind flow
+    // Must instruct not to trust bound: true alone in a rebind flow
     expect(pollingSection).toContain(
-      "do NOT treat the first `bound: true` poll result as success",
+      "do NOT treat `bound: true` alone as success",
     );
-    // Must reference bound_at timestamp comparison as the primary mechanism
-    expect(pollingSection).toContain("bound_at");
-    // Must have a fallback for when bound_at is unavailable
-    expect(pollingSection).toContain("second poll onward");
+    // Must reference verificationSessionId as the mechanism to detect fresh binding
+    expect(pollingSection).toContain("verificationSessionId");
     // Must clarify non-rebind flows are unaffected
     expect(pollingSection).toContain("Non-rebind flows");
   });

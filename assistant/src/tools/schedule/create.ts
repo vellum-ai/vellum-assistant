@@ -31,16 +31,14 @@ export async function executeScheduleCreate(
     };
   }
 
-  // Resolve syntax and expression from new or legacy fields
   const resolved = normalizeScheduleSyntax({
     syntax: input.syntax as "cron" | "rrule" | undefined,
     expression: input.expression as string | undefined,
-    legacyCronExpression: input.cron_expression as string | undefined,
   });
 
   if (!resolved) {
     return {
-      content: "Error: expression (or cron_expression) is required",
+      content: "Error: expression is required",
       isError: true,
     };
   }

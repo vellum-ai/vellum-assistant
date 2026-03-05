@@ -201,7 +201,7 @@ export const AssistantConfigSchema = z
         z.string(),
         z.string({ error: "Each apiKeys value must be a string" }),
       )
-      .default({} as any),
+      .default({} as Record<string, string>),
     webSearchProvider: z
       .enum(VALID_WEB_SEARCH_PROVIDERS, {
         error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(
@@ -273,7 +273,7 @@ export const AssistantConfigSchema = z
         z.string(),
         z.boolean({ error: "featureFlags values must be booleans" }),
       )
-      .default({} as any),
+      .default({} as Record<string, boolean>),
     assistantFeatureFlagValues: z
       .record(
         z.string(),

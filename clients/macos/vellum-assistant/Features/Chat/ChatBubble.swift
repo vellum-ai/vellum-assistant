@@ -27,14 +27,12 @@ struct ChatBubble: View {
     var isProcessingAfterTools: Bool = false
     /// Status text from the assistant activity state, forwarded for inline display.
     var processingStatusText: String?
-
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
 
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
-    @State var stepsExpanded = false
     /// Injected from the parent instead of observing the shared singleton directly.
     /// This avoids every ChatBubble in the list re-rendering whenever the overlay
     /// manager publishes any change (the "thundering herd" problem).
@@ -346,8 +344,9 @@ struct ChatBubble: View {
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
                             .selectableText(!message.isStreaming)
-                            // Frame before fixedSize to bound horizontal measurement.
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            // For assistant messages, fill available width for readability.
+                            // For user messages, let the bubble shrink-wrap to text width.
+                            .frame(maxWidth: isUser ? nil : .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if !message.attachments.isEmpty {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const VALID_SECRET_ACTIONS = ["redact", "warn", "block", "prompt"] as const;
-const VALID_PERMISSIONS_MODES = ["legacy", "strict", "workspace"] as const;
+const VALID_PERMISSIONS_MODES = ["strict", "workspace"] as const;
 const VALID_SMS_PROVIDERS = ["twilio"] as const;
 
 export const TimeoutConfigSchema = z.object({

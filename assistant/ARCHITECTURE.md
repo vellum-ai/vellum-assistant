@@ -433,31 +433,33 @@ External users who are not the guardian can gain access to the assistant through
 
 **Notification signals:** The flow emits signals at each lifecycle transition via `emitNotificationSignal()`:
 
-- `ingress.access_request` — non-member denied, guardian notified
+- `ingress.access_request` — unknown contact denied, guardian notified
 - `ingress.trusted_contact.guardian_decision` — guardian approved or denied
 - `ingress.trusted_contact.verification_sent` — code created and delivered
-- `ingress.trusted_contact.activated` — requester verified, member active
+- `ingress.trusted_contact.activated` — requester verified, contact active
 - `ingress.trusted_contact.denied` — guardian explicitly denied
 
 **HTTP API (for management):**
 
-| Endpoint                        | Method | Description                                                   |
-| ------------------------------- | ------ | ------------------------------------------------------------- |
-| `/v1/ingress/members`           | GET    | List trusted contacts (filterable by channel, status, policy) |
-| `/v1/ingress/members`           | POST   | Upsert a member (add/update trusted contact)                  |
-| `/v1/ingress/members/:id`       | DELETE | Revoke a trusted contact                                      |
-| `/v1/ingress/members/:id/block` | POST   | Block a member                                                |
+| Endpoint                    | Method | Description                                                      |
+| --------------------------- | ------ | ---------------------------------------------------------------- |
+| `/v1/contacts`              | GET    | List contacts (filterable by role, search by query/channel/etc.) |
+| `/v1/contacts`              | POST   | Create or update a contact                                       |
+| `/v1/contacts/:id`          | GET    | Get a contact by ID                                              |
+| `/v1/contacts/merge`        | POST   | Merge two contacts                                               |
+| `/v1/contacts/channels/:id` | PATCH  | Update a contact channel's status/policy                         |
 
 **Key source files:**
 
 | File                                                   | Purpose                                                                       |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, non-member rejection, verification code interception             |
+| `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, unknown-contact rejection, verification code interception        |
 | `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                             |
 | `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
 | `src/runtime/channel-guardian-service.ts`              | Verification challenge lifecycle, identity binding, rate limiting             |
-| `src/runtime/routes/ingress-routes.ts`                 | HTTP API handlers for member/invite management                                |
-| `src/runtime/ingress-service.ts`                       | Business logic for member CRUD                                                |
+| `src/runtime/routes/contact-routes.ts`                 | HTTP API handlers for contact and channel management                          |
+| `src/runtime/routes/invite-routes.ts`                  | HTTP API handlers for invite management                                       |
+| `src/runtime/invite-service.ts`                        | Business logic for invite operations                                          |
 | `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
 | `src/memory/channel-guardian-store.ts`                 | Approval request and verification challenge persistence                       |
 | `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links        |
@@ -482,7 +484,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 ├─────────────────────────────────────────────────────────────┤
 │  Core Redemption Engine (invite-redemption-service.ts)       │
 │  Channel-agnostic token validation, expiry, use-count,       │
-│  channel-match enforcement, member creation/reactivation     │
+│  channel-match enforcement, contact activation/reactivation  │
 │  Returns: InviteRedemptionOutcome (discriminated union)      │
 │  Reply templates: invite-redemption-templates.ts             │
 └─────────────────────────────────────────────────────────────┘
@@ -496,12 +498,12 @@ A complementary access-granting flow where the guardian proactively creates a sh
 4. Guardian shares the link with the invitee out-of-band.
 5. Invitee clicks the link, opening Telegram which sends `/start iv_<token>` to the bot.
 6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getTransport('telegram').extractInboundToken()` to parse the `iv_` token.
-7. The token is redeemed via `invite-redemption-service.ts`, which validates, creates an active member record, and returns a `redeemed` outcome.
+7. The token is redeemed via `invite-redemption-service.ts`, which validates, activates the contact, and returns a `redeemed` outcome.
 8. A deterministic welcome message is delivered to the invitee (bypasses the LLM pipeline).
 
 **Token prefix convention:** The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) tokens. Both use the same Telegram `/start` deep-link mechanism but are routed to different handlers.
 
-**Inbound intercept points:** Invite token extraction runs early in the inbound handler, before ACL denial, so valid invites short-circuit the membership check. Two intercept branches handle: (a) non-members — the invite creates their first member record; (b) inactive members (revoked/pending) — the invite reactivates them.
+**Inbound intercept points:** Invite token extraction runs early in the inbound handler, before ACL denial, so valid invites short-circuit the contact check. Two intercept branches handle: (a) unknown contacts — the invite creates their first contact record; (b) inactive contacts (revoked/pending) — the invite reactivates them.
 
 **Channel adapter status:**
 
@@ -518,8 +520,8 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 
 **Creation flow:**
 
-1. Guardian creates a voice invite via `POST /v1/ingress/invites` with `sourceChannel: "voice"` and `expectedExternalUserId` (E.164 phone).
-2. `ingress-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
+1. Guardian creates a voice invite via `POST /v1/contacts/invites` with `sourceChannel: "voice"` and `expectedExternalUserId` (E.164 phone).
+2. `invite-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
 3. The one-time plaintext `voiceCode` is returned in the creation response. The raw token is NOT returned for voice invites — redemption uses the identity-bound code flow exclusively.
 4. Guardian communicates the code to the invitee out-of-band.
 
@@ -528,7 +530,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 1. Unknown caller dials in. `relay-server.ts` resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
 2. The relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
 3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
-4. `redeemVoiceInviteCode` validates: identity match, code hash match, expiry, use count. On success, an active member record is upserted and the call transitions to the normal call flow.
+4. `redeemVoiceInviteCode` validates: identity match, code hash match, expiry, use count. On success, the contact is activated and the call transitions to the normal call flow.
 5. On invalid/expired code, the caller hears deterministic failure copy: `Sorry, the code you provided is incorrect or has since expired. Please ask <guardian-name> for a new code. Goodbye.` and the call ends immediately.
 
 **Security invariants:**
@@ -536,24 +538,24 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 - The plaintext voice code is returned exactly once at creation time and never stored.
 - Voice invites are identity-bound: `expectedExternalUserId` must match the caller's E.164 number. An attacker with the code but the wrong phone number cannot redeem.
 - Failure responses are intentionally generic (`invalid_or_expired`) to prevent oracle attacks.
-- Blocked members cannot bypass the guardian's explicit block via invite redemption.
+- Blocked contacts cannot bypass the guardian's explicit block via invite redemption.
 
 **Key source files:**
 
-| File                                                | Purpose                                                                                                         |
-| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, voice code redemption, member creation, discriminated-union outcomes |
-| `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                       |
-| `src/runtime/channel-invite-transport.ts`           | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                        |
-| `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                     |
-| `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                        |
-| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                   |
-| `src/runtime/ingress-service.ts`                    | Shared business logic for invite/member operations (used by both HTTP routes and IPC)                           |
-| `src/runtime/routes/ingress-routes.ts`              | HTTP API handlers for member/invite management including voice invite creation and redemption                   |
-| `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (non-member and inactive-member branches)                            |
-| `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                  |
-| `src/util/voice-code.ts`                            | Cryptographic voice code generation and SHA-256 hashing                                                         |
-| `src/memory/ingress-invite-store.ts`                | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup                                 |
+| File                                                | Purpose                                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, voice code redemption, contact activation, discriminated-union outcomes |
+| `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                          |
+| `src/runtime/channel-invite-transport.ts`           | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                           |
+| `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                        |
+| `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |
+| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                      |
+| `src/runtime/invite-service.ts`                     | Shared business logic for invite operations (used by both HTTP routes and IPC)                                     |
+| `src/runtime/routes/invite-routes.ts`               | HTTP API handlers for invite management including voice invite creation and redemption                             |
+| `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (unknown-contact and inactive-contact branches)                         |
+| `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                     |
+| `src/util/voice-code.ts`                            | Cryptographic voice code generation and SHA-256 hashing                                                            |
+| `src/memory/invite-store.ts`                        | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup                                    |
 
 ### Voice Inbound Security Model (Canonical)
 
@@ -595,7 +597,7 @@ When no invite exists and no pending guardian challenge is active, the relay ent
 2. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian via the notification pipeline.
 3. The relay transitions to `awaiting_guardian_decision` and plays hold music/messaging while polling the canonical request status.
 4. The guardian approves or denies via any channel (Telegram, SMS, desktop). All decisions route through `applyCanonicalGuardianDecision`, which dispatches to the `access_request` resolver in `guardian-request-resolvers.ts`.
-5. On approval: the resolver directly activates the caller as a trusted contact (upserts member with `status: 'active'`, `policy: 'allow'`), the poll detects the approved status, the relay transitions to the normal call flow with the caller's guardian context updated.
+5. On approval: the resolver directly activates the caller as a trusted contact (sets channel `status: 'active'`, `policy: 'allow'`), the poll detects the approved status, the relay transitions to the normal call flow with the caller's guardian context updated.
 6. On denial or timeout: the caller hears a denial message and the call ends.
 
 **Path 3: Inbound guardian verification (pending challenge)**
@@ -881,14 +883,14 @@ graph LR
         C5["user_message<br/>text, attachments"]
         C6["confirmation_response<br/>decision"]
         C7["cancel / undo"]
-        C8["model_get / model_set<br/>sandbox_set (deprecated no-op)"]
+        C8["model_get / model_set"]
         C9["ping"]
         C10["ipc_blob_probe<br/>probeId, nonceSha256"]
         C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
         C12["tool_permission_simulate<br/>toolName, input, workingDir?,<br/>isInteractive?, forcePromptSideEffects?,<br/>executionTarget?"]
         C13["conversation_search<br/>query, limit?,<br/>maxMessagesPerConversation?"]
         C14["ingress_invite<br/>create / list / revoke / redeem"]
-        C15["ingress_member<br/>list / upsert / revoke / block"]
+        C15["contacts<br/>list / get / update_channel"]
     end
 
     SOCKET["Unix Socket<br/>~/.vellum/vellum.sock<br/>───────────────<br/>Newline-delimited JSON<br/>Max 96MB per message<br/>Ping/pong every 30s<br/>Auto-reconnect<br/>1s → 30s backoff"]
@@ -920,7 +922,7 @@ graph LR
         S22["tool_permission_simulate_response<br/>decision, riskLevel, reason?,<br/>promptPayload?, matchedRuleId?"]
         S23["conversation_search_response<br/>query, results[]: conversationId,<br/>title, updatedAt, matchingMessages[]"]
         S24["ingress_invite_response<br/>invite / invites"]
-        S25["ingress_member_response<br/>member / members"]
+        S25["contacts_response<br/>contact / contacts"]
     end
 
     C0 --> SOCKET
@@ -2204,8 +2206,8 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | Guardian bindings                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                       |
 | Guardian verification challenges             | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired challenges retained            |
 | Guardian approval requests                   | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                       |
-| Ingress invites                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted    |
-| Ingress members                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked members retained                |
+| Contact invites                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted    |
+| Contacts & channels                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked contacts retained               |
 | Notification events                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; deduplicated by dedupeKey                       |
 | Notification decisions                       | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_events                       |
 | Notification deliveries                      | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_decisions                    |

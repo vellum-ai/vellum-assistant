@@ -107,7 +107,7 @@ for (const file of caseFiles) {
     try {
       // Setup fixture if needed
       if (fixture) {
-        fixtureCtx = await setupFixture(fixture, { workerIndex: testInfo.workerIndex });
+        fixtureCtx = await setupFixture(fixture, { workerIndex: testInfo.workerIndex, testName });
       }
 
       // Start macOS screen recording (captures the desktop for native app tests)

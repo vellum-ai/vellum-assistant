@@ -333,13 +333,12 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
     };
 
     const result = applyRuntimeInjections(baseMessages, {
-      softConflictInstruction: "What is your name?",
       channelCapabilities: caps,
     });
 
     expect(result.length).toBe(1);
-    // softConflictInstruction appends, channelCapabilities prepends
-    expect(result[0].content.length).toBe(3);
+    // channelCapabilities prepends
+    expect(result[0].content.length).toBe(2);
   });
 });
 

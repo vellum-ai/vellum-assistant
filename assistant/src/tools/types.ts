@@ -1,4 +1,3 @@
-import type { ProxyApprovalCallback } from "../outbound-proxy/index.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type {
   AllowlistOption,
@@ -166,6 +165,8 @@ export interface ToolContext {
   requesterExternalUserId?: string;
   /** Chat ID of the requester (non-guardian actor). Used for tool grant request escalation notifications. */
   requesterChatId?: string;
+  /** Slack channel ID for channel-scoped permission enforcement. When set, tools are checked against the channel's permission profile. */
+  channelPermissionChannelId?: string;
 }
 
 export interface DiffInfo {
@@ -198,6 +199,42 @@ export interface ToolExecutionResult {
    * the "wait for user action" instruction.
    */
   yieldToUser?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Proxy approval types — local definitions for the outbound-proxy contract.
+// The proxy service owns the canonical shapes; these are the assistant's
+// minimal view of the approval callback interface.
+// ---------------------------------------------------------------------------
+
+/** Approval request from the outbound proxy when a policy decision requires user confirmation. */
+export interface ProxyApprovalRequest {
+  decision: {
+    kind: "ask_missing_credential" | "ask_unauthenticated";
+    target: {
+      hostname: string;
+      port: number | null;
+      path: string;
+      scheme: "http" | "https";
+    };
+    /** Present when kind is "ask_missing_credential". */
+    matchingPatterns?: string[];
+  };
+  sessionId: string;
+}
+
+/** Callback for proxy policy decisions requiring user confirmation. Returns true if approved. */
+export type ProxyApprovalCallback = (
+  request: ProxyApprovalRequest,
+) => Promise<boolean>;
+
+/** Env vars a proxy session injects into child processes. */
+export interface ProxyEnvVars {
+  HTTP_PROXY: string;
+  HTTPS_PROXY: string;
+  NO_PROXY: string;
+  NODE_EXTRA_CA_CERTS?: string;
+  SSL_CERT_FILE?: string;
 }
 
 export interface Tool {

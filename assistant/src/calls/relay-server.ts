@@ -10,61 +10,60 @@ import { randomInt } from "node:crypto";
 
 import type { ServerWebSocket } from "bun";
 
-import { getConfig } from "../config/loader.js";
 import { resolveUserReference } from "../config/user-reference.js";
 import {
-  findContactChannel,
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
-import { upsertMember } from "../contacts/contacts-write.js";
+import {
+  createGuardianBinding,
+  revokeGuardianBinding,
+  touchContactInteraction,
+  upsertMember,
+} from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
-import { findActiveVoiceInvites } from "../memory/ingress-invite-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import {
   resolveActorTrust,
   toTrustContext,
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import {
-  getGuardianBinding,
-  getPendingChallenge,
-  validateAndConsumeChallenge,
-} from "../runtime/channel-guardian-service.js";
+import { getGuardianBinding } from "../runtime/channel-guardian-service.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/guardian-verification-templates.js";
-import { redeemVoiceInviteCode } from "../runtime/ingress-service.js";
 import { parseJsonSafe } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import {
   getAccessRequestPollIntervalMs,
-  getGuardianWaitUpdateInitialIntervalMs,
-  getGuardianWaitUpdateInitialWindowMs,
-  getGuardianWaitUpdateSteadyMaxIntervalMs,
-  getGuardianWaitUpdateSteadyMinIntervalMs,
   getTtsPlaybackDelayMs,
   getUserConsultationTimeoutMs,
 } from "./call-constants.js";
 import { CallController } from "./call-controller.js";
-import { persistCallCompletionMessage } from "./call-conversation-messages.js";
 import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
-import {
-  fireCallCompletionNotifier,
-  fireCallTranscriptNotifier,
-} from "./call-state.js";
+import { fireCallTranscriptNotifier } from "./call-state.js";
 import { isTerminalState } from "./call-state-machine.js";
 import {
-  expirePendingQuestions,
   getCallSession,
   recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
+import { finalizeCall } from "./finalize-call.js";
+import {
+  classifyWaitUtterance,
+  emitAccessRequestCallbackHandoff,
+  scheduleNextHeartbeat,
+} from "./relay-access-wait.js";
+import { routeSetup } from "./relay-setup-router.js";
+import {
+  attemptGuardianCodeVerification,
+  attemptInviteCodeRedemption,
+  parseDigitsFromSpeech,
+} from "./relay-verification.js";
 import {
   extractPromptSpeakerMetadata,
   type PromptSpeakerContext,
@@ -422,7 +421,7 @@ export class RelayConnection {
     // If the call was still in guardian-wait with callback opt-in, emit the
     // handoff notification before cleaning up wait state.
     if (this.accessRequestWaitActive && this.callbackOptIn) {
-      this.emitAccessRequestCallbackHandoff("transport_closed");
+      this.emitAccessRequestCallbackHandoffForReason("transport_closed");
     }
 
     // Clean up access request wait state on disconnect to stop polling
@@ -497,8 +496,6 @@ export class RelayConnection {
       }
     }
 
-    expirePendingQuestions(this.callSessionId);
-
     // Revoke any scoped approval grants bound to this call session.
     // Revoke by both callSessionId and conversationId because the
     // guardian-approval-interception minting path sets callSessionId: null
@@ -517,20 +514,7 @@ export class RelayConnection {
       );
     }
 
-    persistCallCompletionMessage(
-      session.conversationId,
-      this.callSessionId,
-    ).catch((err) => {
-      log.error(
-        {
-          err,
-          conversationId: session.conversationId,
-          callSessionId: this.callSessionId,
-        },
-        "Failed to persist call completion message",
-      );
-    });
-    fireCallCompletionNotifier(session.conversationId, this.callSessionId);
+    finalizeCall(this.callSessionId, session.conversationId);
   }
 
   // ── Private handlers ─────────────────────────────────────────────
@@ -546,8 +530,111 @@ export class RelayConnection {
       "ConversationRelay setup received",
     );
 
-    // Store the callSid association on the call session
     const session = getCallSession(this.callSessionId);
+    this.recordSetupBookkeeping(session, msg);
+
+    const { outcome, resolved } = routeSetup({
+      callSessionId: this.callSessionId,
+      session,
+      from: msg.from,
+      to: msg.to,
+      customParameters: msg.customParameters,
+    });
+
+    const initialTrustContext = toTrustContext(
+      resolved.actorTrust,
+      resolved.otherPartyNumber,
+    );
+    const controller = new CallController(
+      this.callSessionId,
+      this,
+      session?.task ?? null,
+      {
+        broadcast: globalBroadcast,
+        assistantId: resolved.assistantId,
+        trustContext: initialTrustContext,
+      },
+    );
+    this.setController(controller);
+
+    switch (outcome.action) {
+      case "outbound_guardian_verification":
+        this.startOutboundGuardianVerification(
+          outcome.assistantId,
+          outcome.sessionId,
+          outcome.toNumber,
+        );
+        return;
+      case "callee_verification":
+        await this.startVerification(session, outcome.verificationConfig);
+        return;
+      case "deny":
+        this.denyInboundCall(msg.from, resolved, outcome);
+        return;
+      case "invite_redemption":
+        this.startInviteRedemption(
+          outcome.assistantId,
+          outcome.fromNumber,
+          outcome.friendName,
+          outcome.guardianName,
+        );
+        return;
+      case "name_capture":
+        recordCallEvent(
+          this.callSessionId,
+          "inbound_acl_name_capture_started",
+          {
+            from: msg.from,
+            trustClass: resolved.actorTrust.trustClass,
+          },
+        );
+        this.startNameCapture(outcome.assistantId, outcome.fromNumber);
+        return;
+      case "guardian_verification":
+        if (
+          resolved.actorTrust.memberRecord &&
+          (resolved.actorTrust.trustClass === "guardian" ||
+            resolved.actorTrust.trustClass === "trusted_contact")
+        ) {
+          touchContactInteraction(resolved.actorTrust.memberRecord.contact.id);
+        }
+        if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
+          this.controller.setTrustContext(
+            toTrustContext(resolved.actorTrust, msg.from),
+          );
+        }
+        this.startInboundGuardianVerification(
+          outcome.assistantId,
+          outcome.fromNumber,
+        );
+        return;
+      case "normal_call":
+        if (outcome.isInbound) {
+          if (
+            resolved.actorTrust.memberRecord &&
+            (resolved.actorTrust.trustClass === "guardian" ||
+              resolved.actorTrust.trustClass === "trusted_contact")
+          ) {
+            touchContactInteraction(
+              resolved.actorTrust.memberRecord.contact.id,
+            );
+          }
+          if (this.controller && resolved.actorTrust.trustClass !== "unknown") {
+            this.controller.setTrustContext(
+              toTrustContext(resolved.actorTrust, msg.from),
+            );
+          }
+        }
+        this.startNormalCallFlow(controller, outcome.isInbound);
+        return;
+    }
+  }
+
+  /** Bookkeeping side-effects that run on every setup regardless of routing outcome. */
+  private recordSetupBookkeeping(
+    session: ReturnType<typeof getCallSession>,
+    msg: RelaySetupMessage,
+  ): void {
     if (session) {
       const updates: Parameters<typeof updateCallSession>[1] = {
         providerCallSid: msg.callSid,
@@ -558,15 +645,11 @@ export class RelayConnection {
         session.status !== "waiting_on_user"
       ) {
         updates.status = "in_progress";
-        if (!session.startedAt) {
-          updates.startedAt = Date.now();
-        }
+        if (!session.startedAt) updates.startedAt = Date.now();
       }
       updateCallSession(this.callSessionId, updates);
     }
 
-    // Omit potentially sensitive keys from customParameters before persisting
-    // to the call_events table. Only allow known-safe keys through.
     const safeCustomParameters = msg.customParameters
       ? Object.fromEntries(
           Object.entries(msg.customParameters).filter(
@@ -581,310 +664,31 @@ export class RelayConnection {
       to: msg.to,
       customParameters: safeCustomParameters,
     });
+  }
 
-    // Inbound calls skip callee verification — verification is an
-    // outbound-call concern where we need to confirm the callee's identity.
-    // We use initiatedFromConversationId rather than task == null because
-    // outbound calls always have an initiating conversation, while inbound
-    // calls (created via createInboundVoiceSession) never do. Relying on
-    // task == null is unreliable: task-less outbound sessions would
-    // incorrectly bypass outbound verification.
-    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-    const isInbound = session?.initiatedFromConversationId == null;
-
-    // Create and attach the session-backed voice controller. Seed guardian
-    // actor context from the other party's identity + active binding so
-    // first-turn behavior matches channel ingress semantics. For inbound
-    // calls msg.from is the caller; for outbound calls msg.to is the
-    // recipient (msg.from is the assistant's Twilio number).
-    const otherPartyNumber = isInbound ? msg.from : msg.to;
-    const initialActorTrust = resolveActorTrust({
-      assistantId,
-      sourceChannel: "voice",
-      conversationExternalId: otherPartyNumber,
-      actorExternalId: otherPartyNumber || undefined,
+  /** Deny an inbound call with a TTS message and schedule disconnect. */
+  private denyInboundCall(
+    from: string,
+    resolved: import("./relay-setup-router.js").SetupResolved,
+    outcome: { message: string; logReason: string },
+  ): void {
+    recordCallEvent(this.callSessionId, "inbound_acl_denied", {
+      from,
+      trustClass: resolved.actorTrust.trustClass,
+      denialReason: resolved.actorTrust.denialReason,
+      channelId: resolved.actorTrust.memberRecord?.channel.id,
+      memberPolicy: resolved.actorTrust.memberRecord?.channel.policy,
     });
-    const initialTrustContext = toTrustContext(
-      initialActorTrust,
-      otherPartyNumber,
-    );
-
-    const controller = new CallController(
-      this.callSessionId,
-      this,
-      session?.task ?? null,
-      {
-        broadcast: globalBroadcast,
-        assistantId,
-        trustContext: initialTrustContext,
-      },
-    );
-    this.setController(controller);
-
-    // Detect outbound guardian verification call from persisted call session
-    // mode first (deterministic source of truth), with setup custom parameter
-    // as secondary signal for backward compatibility and observability.
-    const persistedMode = session?.callMode;
-    const persistedGvSessionId = session?.guardianVerificationSessionId;
-    const customParamGvSessionId =
-      msg.customParameters?.guardianVerificationSessionId;
-    const guardianVerificationSessionId =
-      persistedGvSessionId ?? customParamGvSessionId;
-
-    if (
-      persistedMode === "guardian_verification" &&
-      guardianVerificationSessionId
-    ) {
-      this.startOutboundGuardianVerification(
-        assistantId,
-        guardianVerificationSessionId,
-        msg.to,
-      );
-      return;
-    }
-
-    // Secondary signal: custom parameter without persisted mode (pre-migration sessions)
-    if (!persistedMode && customParamGvSessionId) {
-      log.warn(
-        {
-          callSessionId: this.callSessionId,
-          guardianVerificationSessionId: customParamGvSessionId,
-        },
-        "Guardian verification detected via setup custom parameter (no persisted call_mode) — entering verification path",
-      );
-      this.startOutboundGuardianVerification(
-        assistantId,
-        customParamGvSessionId,
-        msg.to,
-      );
-      return;
-    }
-
-    const config = getConfig();
-    const verificationConfig = config.calls.verification;
-    if (!isInbound && verificationConfig.enabled) {
-      await this.startVerification(session, verificationConfig);
-    } else if (isInbound) {
-      // ── Trusted-contact ACL enforcement for inbound voice ──
-      // Resolve the caller's trust classification before allowing the call
-      // to proceed. Guardian and trusted-contact callers pass through;
-      // unknown callers are denied with deterministic voice copy and an
-      // access request is created for the guardian — unless there is a
-      // pending voice guardian challenge, in which case the caller is
-      // expected to be unknown (no binding yet) and should enter the
-      // verification flow.
-      const actorTrust = resolveActorTrust({
-        assistantId,
-        sourceChannel: "voice",
-        conversationExternalId: msg.from,
-        actorExternalId: msg.from || undefined,
-      });
-
-      // Check for a pending voice guardian challenge before the ACL deny
-      // gate. An unknown caller with a pending challenge is expected —
-      // they need to complete verification to establish a binding.
-      const pendingChallenge = getPendingChallenge(assistantId, "voice");
-
-      if (actorTrust.trustClass === "unknown" && !pendingChallenge) {
-        // Before entering the name capture flow, check if there is an
-        // active voice invite bound to the caller's phone number. If so,
-        // enter the invite redemption subflow instead.
-        let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
-        try {
-          voiceInvites = findActiveVoiceInvites({
-            assistantId,
-            expectedExternalUserId: msg.from,
-          });
-        } catch (err) {
-          log.warn(
-            { err, callSessionId: this.callSessionId },
-            "Failed to check voice invites for unknown caller",
-          );
-        }
-
-        // Exclude invites that are past their expiresAt even if the DB
-        // status hasn't been lazily flipped to 'expired' yet.
-        const now = Date.now();
-        const nonExpiredInvites = voiceInvites.filter(
-          (i) => !i.expiresAt || i.expiresAt > now,
-        );
-
-        // Blocked members get immediate denial — the guardian already made
-        // an explicit decision to block them. This must be checked before
-        // invite redemption so a blocked caller cannot bypass the block by
-        // redeeming an active invite.
-        if (actorTrust.memberRecord?.channel.status === "blocked") {
-          log.info(
-            {
-              callSessionId: this.callSessionId,
-              from: msg.from,
-              trustClass: actorTrust.trustClass,
-            },
-            "Inbound voice ACL: blocked caller denied",
-          );
-
-          recordCallEvent(this.callSessionId, "inbound_acl_denied", {
-            from: msg.from,
-            trustClass: actorTrust.trustClass,
-            denialReason: actorTrust.denialReason,
-          });
-
-          this.sendTextToken(
-            "This number is not authorized to use this assistant.",
-            true,
-          );
-
-          this.connectionState = "disconnecting";
-
-          updateCallSession(this.callSessionId, {
-            status: "failed",
-            endedAt: Date.now(),
-            lastError: "Inbound voice ACL: caller blocked",
-          });
-
-          setTimeout(() => {
-            this.endSession("Inbound voice ACL denied — blocked");
-          }, getTtsPlaybackDelayMs());
-          return;
-        }
-
-        if (nonExpiredInvites.length > 0) {
-          // Use the first matching invite's metadata for personalized prompts
-          const matchedInvite = nonExpiredInvites[0];
-          log.info(
-            { callSessionId: this.callSessionId, from: msg.from },
-            "Inbound voice ACL: unknown caller has active voice invite — entering redemption flow",
-          );
-          this.startInviteRedemption(
-            assistantId,
-            msg.from,
-            matchedInvite.friendName,
-            matchedInvite.guardianName,
-          );
-          return;
-        }
-
-        // Unknown/revoked/pending callers enter the name capture + guardian
-        // approval wait flow instead of being hard-rejected.
-        log.info(
-          {
-            callSessionId: this.callSessionId,
-            from: msg.from,
-            trustClass: actorTrust.trustClass,
-          },
-          "Inbound voice ACL: unknown caller — entering name capture flow",
-        );
-
-        recordCallEvent(
-          this.callSessionId,
-          "inbound_acl_name_capture_started",
-          {
-            from: msg.from,
-            trustClass: actorTrust.trustClass,
-          },
-        );
-
-        this.startNameCapture(assistantId, msg.from);
-        return;
-      }
-
-      // Members with policy: 'deny' have status: 'active' so resolveActorTrust
-      // classifies them as trusted_contact, but the guardian has explicitly
-      // denied their access. Block them the same way the text-channel path does.
-      if (actorTrust.memberRecord?.channel.policy === "deny") {
-        log.info(
-          {
-            callSessionId: this.callSessionId,
-            from: msg.from,
-            channelId: actorTrust.memberRecord.channel.id,
-            trustClass: actorTrust.trustClass,
-          },
-          "Inbound voice ACL: member policy deny",
-        );
-
-        recordCallEvent(this.callSessionId, "inbound_acl_denied", {
-          from: msg.from,
-          trustClass: actorTrust.trustClass,
-          channelId: actorTrust.memberRecord.channel.id,
-          memberPolicy: actorTrust.memberRecord.channel.policy,
-        });
-
-        this.sendTextToken(
-          "This number is not authorized to use this assistant.",
-          true,
-        );
-
-        this.connectionState = "disconnecting";
-
-        updateCallSession(this.callSessionId, {
-          status: "failed",
-          endedAt: Date.now(),
-          lastError: "Inbound voice ACL: member policy deny",
-        });
-
-        setTimeout(() => {
-          this.endSession("Inbound voice ACL: member policy deny");
-        }, getTtsPlaybackDelayMs());
-        return;
-      }
-
-      // Members with policy: 'escalate' require guardian approval, but a live
-      // voice call cannot be paused for async approval. Fail-closed by denying
-      // the call with an appropriate message — mirrors the deny block above.
-      if (actorTrust.memberRecord?.channel.policy === "escalate") {
-        log.info(
-          {
-            callSessionId: this.callSessionId,
-            from: msg.from,
-            channelId: actorTrust.memberRecord.channel.id,
-            trustClass: actorTrust.trustClass,
-          },
-          "Inbound voice ACL: member policy escalate — cannot hold live call for guardian approval",
-        );
-
-        recordCallEvent(this.callSessionId, "inbound_acl_denied", {
-          from: msg.from,
-          trustClass: actorTrust.trustClass,
-          channelId: actorTrust.memberRecord.channel.id,
-          memberPolicy: actorTrust.memberRecord.channel.policy,
-        });
-
-        this.sendTextToken(
-          "This number requires guardian approval for calls. Please have the account guardian update your permissions.",
-          true,
-        );
-
-        this.connectionState = "disconnecting";
-
-        updateCallSession(this.callSessionId, {
-          status: "failed",
-          endedAt: Date.now(),
-          lastError:
-            "Inbound voice ACL: member policy escalate — voice calls cannot await guardian approval",
-        });
-
-        setTimeout(() => {
-          this.endSession("Inbound voice ACL: member policy escalate");
-        }, getTtsPlaybackDelayMs());
-        return;
-      }
-
-      // Guardian and trusted-contact callers proceed normally.
-      // Update the controller's guardian context with the trust-resolved
-      // context so downstream policy gates have accurate actor metadata.
-      if (this.controller && actorTrust.trustClass !== "unknown") {
-        const resolvedTrustContext = toTrustContext(actorTrust, msg.from);
-        this.controller.setTrustContext(resolvedTrustContext);
-      }
-
-      if (pendingChallenge) {
-        this.startInboundGuardianVerification(assistantId, msg.from);
-      } else {
-        this.startNormalCallFlow(controller, true);
-      }
-    } else {
-      this.startNormalCallFlow(controller, false);
-    }
+    this.sendTextToken(outcome.message, true);
+    this.connectionState = "disconnecting";
+    updateCallSession(this.callSessionId, {
+      status: "failed",
+      endedAt: Date.now(),
+      lastError: outcome.logReason,
+    });
+    setTimeout(() => {
+      this.endSession(outcome.logReason);
+    }, getTtsPlaybackDelayMs());
   }
 
   /**
@@ -1118,59 +922,11 @@ export class RelayConnection {
   }
 
   /**
-   * Extract digit characters from a speech transcript. Recognizes both
-   * raw digit characters ("1 2 3") and spoken number words ("one two three").
+   * Validate an entered code against the pending voice guardian challenge.
+   * Delegates to the extracted attemptGuardianCodeVerification() and
+   * interprets the structured result to drive side-effects.
    */
-  private static parseDigitsFromSpeech(transcript: string): string {
-    const wordToDigit: Record<string, string> = {
-      zero: "0",
-      oh: "0",
-      o: "0",
-      one: "1",
-      won: "1",
-      two: "2",
-      too: "2",
-      to: "2",
-      three: "3",
-      four: "4",
-      for: "4",
-      fore: "4",
-      five: "5",
-      six: "6",
-      seven: "7",
-      eight: "8",
-      ate: "8",
-      nine: "9",
-    };
-
-    const digits: string[] = [];
-    const lower = transcript.toLowerCase();
-
-    // Split on whitespace and non-alphanumeric boundaries
-    const tokens = lower.split(/[\s,.\-;:!?]+/);
-    for (const token of tokens) {
-      if (/^\d$/.test(token)) {
-        digits.push(token);
-      } else if (wordToDigit[token]) {
-        digits.push(wordToDigit[token]);
-      } else if (/^\d+$/.test(token)) {
-        // Multi-digit number like "123456" — split into individual digits
-        digits.push(...token.split(""));
-      }
-    }
-
-    return digits.join("");
-  }
-
-  /**
-   * Attempt to validate an entered code against the pending voice guardian
-   * challenge via validateAndConsumeChallenge. On success, binds the
-   * guardian and transitions appropriately:
-   *   - Inbound: transitions to normal call flow
-   *   - Outbound: plays success template and ends the call
-   * On failure, enforces max attempts and terminates the call if exhausted.
-   */
-  private attemptGuardianCodeVerification(enteredCode: string): void {
+  private handleGuardianCodeVerificationResult(enteredCode: string): void {
     if (
       !this.guardianChallengeAssistantId ||
       !this.guardianVerificationFromNumber
@@ -1179,55 +935,65 @@ export class RelayConnection {
     }
 
     const isOutbound = this.outboundGuardianVerificationSessionId != null;
-    const codeDigits = this.verificationCodeLength;
+    const assistantId = this.guardianChallengeAssistantId;
+    const fromNumber = this.guardianVerificationFromNumber;
 
-    const result = validateAndConsumeChallenge(
-      this.guardianChallengeAssistantId,
-      "voice",
+    const result = attemptGuardianCodeVerification({
+      guardianChallengeAssistantId: assistantId,
+      guardianVerificationFromNumber: fromNumber,
       enteredCode,
-      this.guardianVerificationFromNumber,
-      this.guardianVerificationFromNumber,
-    );
+      isOutbound,
+      codeDigits: this.verificationCodeLength,
+      verificationAttempts: this.verificationAttempts,
+      verificationMaxAttempts: this.verificationMaxAttempts,
+    });
 
-    if (result.success) {
-      // Guardian binding was created by validateAndConsumeChallenge
+    if (result.outcome === "success") {
       this.connectionState = "connected";
       this.guardianVerificationActive = false;
       this.verificationAttempts = 0;
       this.dtmfBuffer = "";
 
-      const eventName = isOutbound
-        ? "outbound_guardian_voice_verification_succeeded"
-        : "guardian_voice_verification_succeeded";
-
-      recordCallEvent(this.callSessionId, eventName, {
-        bindingId: "bindingId" in result ? result.bindingId : undefined,
+      recordCallEvent(this.callSessionId, result.eventName, {
+        verificationType: result.verificationType,
       });
       log.info(
         { callSessionId: this.callSessionId, isOutbound },
         "Guardian voice verification succeeded",
       );
 
-      if (isOutbound) {
-        // Outbound guardian verification: play success and hang up.
-        // There is no normal conversation to transition to.
-        // Set disconnecting to ignore any further DTMF/speech input
-        // during the brief delay before the session ends.
-        this.connectionState = "disconnecting";
+      // Create the guardian binding now that verification succeeded.
+      if (result.verificationType === "guardian") {
+        if (result.bindingConflict) {
+          log.warn(
+            {
+              callSessionId: this.callSessionId,
+              existingGuardian: result.bindingConflict.existingGuardian,
+            },
+            "Guardian binding conflict: another user already holds the voice binding",
+          );
+        } else {
+          revokeGuardianBinding(assistantId, "voice");
+          createGuardianBinding({
+            assistantId,
+            channel: "voice",
+            guardianExternalUserId: fromNumber,
+            guardianDeliveryChatId: fromNumber,
+            guardianPrincipalId: result.canonicalPrincipal!,
+            verifiedVia: "challenge",
+          });
+        }
+      }
 
-        const successText = composeVerificationVoice(
-          GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_SUCCESS,
-          { codeDigits },
-        );
-        this.sendTextToken(successText, true);
+      if (isOutbound) {
+        this.connectionState = "disconnecting";
+        this.sendTextToken(result.ttsMessage!, true);
 
         updateCallSession(this.callSessionId, {
           status: "completed",
           endedAt: Date.now(),
         });
 
-        // Emit a pointer message to the origin conversation so the
-        // requesting chat sees a deterministic completion notice.
         const successSession = getCallSession(this.callSessionId);
         if (successSession?.initiatedFromConversationId) {
           addPointerMessage(
@@ -1250,135 +1016,92 @@ export class RelayConnection {
           this.endSession("Verified — guardian challenge passed");
         }, getTtsPlaybackDelayMs());
       } else if (result.verificationType === "trusted_contact") {
-        // Inbound trusted-contact verification: activate and continue
-        // the live call with the shared handoff primitive.
         this.continueCallAfterTrustedContactActivation({
-          assistantId: this.guardianChallengeAssistantId,
-          fromNumber: this.guardianVerificationFromNumber,
+          assistantId,
+          fromNumber,
         });
       } else {
-        // Inbound guardian verification: proceed to normal call flow
+        // Inbound guardian verification: binding already handled above,
+        // proceed to normal call flow.
         if (this.controller) {
           const verifiedActorTrust = resolveActorTrust({
-            assistantId: this.guardianChallengeAssistantId,
+            assistantId,
             sourceChannel: "voice",
-            conversationExternalId: this.guardianVerificationFromNumber,
-            actorExternalId: this.guardianVerificationFromNumber,
+            conversationExternalId: fromNumber,
+            actorExternalId: fromNumber,
           });
           this.controller.setTrustContext(
-            toTrustContext(
-              verifiedActorTrust,
-              this.guardianVerificationFromNumber,
-            ),
+            toTrustContext(verifiedActorTrust, fromNumber),
           );
           this.startNormalCallFlow(this.controller, true);
         }
       }
-    } else {
-      this.verificationAttempts++;
+    } else if (result.outcome === "failure") {
+      this.guardianVerificationActive = false;
+      this.verificationAttempts = result.attempts;
 
-      if (this.verificationAttempts >= this.verificationMaxAttempts) {
-        // Immediately deactivate verification so DTMF/speech input during
-        // the goodbye window doesn't trigger more verification attempts.
-        this.guardianVerificationActive = false;
+      recordCallEvent(this.callSessionId, result.eventName, {
+        attempts: result.attempts,
+      });
+      log.warn(
+        {
+          callSessionId: this.callSessionId,
+          attempts: result.attempts,
+          isOutbound,
+        },
+        "Guardian voice verification failed — max attempts reached",
+      );
 
-        const failEventName = isOutbound
-          ? "outbound_guardian_voice_verification_failed"
-          : "guardian_voice_verification_failed";
+      this.sendTextToken(result.ttsMessage, true);
 
-        recordCallEvent(this.callSessionId, failEventName, {
-          attempts: this.verificationAttempts,
-        });
-        log.warn(
-          {
-            callSessionId: this.callSessionId,
-            attempts: this.verificationAttempts,
-            isOutbound,
-          },
-          "Guardian voice verification failed — max attempts reached",
-        );
+      updateCallSession(this.callSessionId, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: "Guardian voice verification failed — max attempts exceeded",
+      });
 
-        const failureText = isOutbound
-          ? composeVerificationVoice(
-              GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_FAILURE,
-              { codeDigits },
-            )
-          : "Verification failed. Goodbye.";
-        this.sendTextToken(failureText, true);
+      const failSession = getCallSession(this.callSessionId);
+      if (failSession) {
+        finalizeCall(this.callSessionId, failSession.conversationId);
 
-        updateCallSession(this.callSessionId, {
-          status: "failed",
-          endedAt: Date.now(),
-          lastError:
-            "Guardian voice verification failed — max attempts exceeded",
-        });
-
-        const failSession = getCallSession(this.callSessionId);
-        if (failSession) {
-          expirePendingQuestions(this.callSessionId);
-          persistCallCompletionMessage(
-            failSession.conversationId,
-            this.callSessionId,
+        if (isOutbound && failSession.initiatedFromConversationId) {
+          addPointerMessage(
+            failSession.initiatedFromConversationId,
+            "guardian_verification_failed",
+            failSession.toNumber,
+            {
+              channel: "voice",
+              reason: "Max verification attempts exceeded",
+            },
           ).catch((err) => {
-            log.error(
+            log.warn(
               {
+                conversationId: failSession.initiatedFromConversationId,
                 err,
-                conversationId: failSession.conversationId,
-                callSessionId: this.callSessionId,
               },
-              "Failed to persist call completion message",
+              "Skipping pointer write — origin conversation may no longer exist",
             );
           });
-          fireCallCompletionNotifier(
-            failSession.conversationId,
-            this.callSessionId,
-          );
-
-          // Emit a pointer message to the origin conversation so the
-          // requesting chat sees a deterministic failure notice.
-          if (isOutbound && failSession.initiatedFromConversationId) {
-            addPointerMessage(
-              failSession.initiatedFromConversationId,
-              "guardian_verification_failed",
-              failSession.toNumber,
-              {
-                channel: "voice",
-                reason: "Max verification attempts exceeded",
-              },
-            ).catch((err) => {
-              log.warn(
-                {
-                  conversationId: failSession.initiatedFromConversationId,
-                  err,
-                },
-                "Skipping pointer write — origin conversation may no longer exist",
-              );
-            });
-          }
         }
-
-        setTimeout(() => {
-          this.endSession("Verification failed — challenge rejected");
-        }, getTtsPlaybackDelayMs());
-      } else {
-        const retryText = isOutbound
-          ? composeVerificationVoice(
-              GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_RETRY,
-              { codeDigits },
-            )
-          : "That code was incorrect. Please try again.";
-
-        log.info(
-          {
-            callSessionId: this.callSessionId,
-            attempt: this.verificationAttempts,
-            maxAttempts: this.verificationMaxAttempts,
-            isOutbound,
-          },
-          "Guardian voice verification attempt failed — retrying",
-        );
-        this.sendTextToken(retryText, true);
       }
+
+      setTimeout(() => {
+        this.endSession("Verification failed — challenge rejected");
+      }, getTtsPlaybackDelayMs());
+    } else {
+      // retry
+      this.verificationAttempts = result.attempt;
+
+      log.info(
+        {
+          callSessionId: this.callSessionId,
+          attempt: result.attempt,
+          maxAttempts: result.maxAttempts,
+          isOutbound,
+        },
+        "Guardian voice verification attempt failed — retrying",
+      );
+      this.sendTextToken(result.ttsMessage, true);
     }
   }
 
@@ -1557,6 +1280,11 @@ export class RelayConnection {
     // Delay the first heartbeat by the estimated TTS playback duration so
     // the initial hold message finishes before any heartbeat fires.
     this.heartbeatSequence = 0;
+    // Set the wait start time now so scheduleNextHeartbeat() always has a
+    // valid reference point — even if the TTS delay timer is cancelled early
+    // (e.g. by handleWaitStatePrompt when the caller speaks during playback).
+    // The callback below re-stamps it to exclude the TTS delay if it fires.
+    this.accessRequestWaitStartedAt = Date.now();
     this.accessRequestHeartbeatTimer = setTimeout(() => {
       this.accessRequestWaitStartedAt = Date.now();
       this.scheduleNextHeartbeat();
@@ -1701,7 +1429,7 @@ export class RelayConnection {
    */
   private handleAccessRequestTimeout(): void {
     // Emit callback handoff notification before clearing wait state
-    this.emitAccessRequestCallbackHandoff("timeout");
+    this.emitAccessRequestCallbackHandoffForReason("timeout");
 
     this.clearAccessRequestWait();
 
@@ -1739,118 +1467,20 @@ export class RelayConnection {
     }, getTtsPlaybackDelayMs());
   }
 
-  /**
-   * Emit a callback handoff notification to the guardian when the caller
-   * opted into a callback during guardian wait but the wait ended without
-   * resolution (timeout or transport close).
-   *
-   * Idempotent: uses callbackHandoffNotified guard + deterministic dedupeKey
-   * to ensure at most one notification per call/request.
-   */
-  private emitAccessRequestCallbackHandoff(
+  private emitAccessRequestCallbackHandoffForReason(
     reason: "timeout" | "transport_closed",
   ): void {
-    if (!this.callbackOptIn) return;
-    if (!this.accessRequestId) return;
-    if (this.callbackHandoffNotified) return;
-
-    this.callbackHandoffNotified = true;
-
-    const assistantId =
-      this.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
-    const fromNumber = this.accessRequestFromNumber ?? null;
-
-    // Resolve canonical request for requestCode and conversationId
-    const canonicalRequest = this.accessRequestId
-      ? getCanonicalGuardianRequest(this.accessRequestId)
-      : null;
-
-    // Resolve trusted-contact member reference when possible
-    let requesterMemberId: string | null = null;
-    if (fromNumber) {
-      try {
-        const contactResult = findContactChannel({
-          channelType: "voice",
-          externalUserId: fromNumber,
-          externalChatId: fromNumber,
-        });
-        if (
-          contactResult &&
-          contactResult.channel.status === "active" &&
-          contactResult.channel.policy === "allow"
-        ) {
-          requesterMemberId = contactResult.channel.id;
-        }
-      } catch (err) {
-        log.warn(
-          { err, callSessionId: this.callSessionId },
-          "Failed to resolve member for callback handoff",
-        );
-      }
-    }
-
-    const dedupeKey = `access-request-callback-handoff:${this.accessRequestId}`;
-    const sourceSessionId =
-      canonicalRequest?.conversationId ??
-      `access-req-callback-${this.accessRequestId}`;
-
-    void emitNotificationSignal({
-      sourceEventName: "ingress.access_request.callback_handoff",
-      sourceChannel: "voice",
-      sourceSessionId,
-      assistantId,
-      attentionHints: {
-        requiresAction: false,
-        urgency: "medium",
-        isAsyncBackground: true,
-        visibleInSourceNow: false,
-      },
-      contextPayload: {
-        requestId: this.accessRequestId,
-        requestCode: canonicalRequest?.requestCode ?? null,
-        callSessionId: this.callSessionId,
-        sourceChannel: "voice",
-        reason,
-        callbackOptIn: true,
-        callerPhoneNumber: fromNumber,
-        callerName: this.accessRequestCallerName ?? null,
-        requesterExternalUserId: fromNumber,
-        requesterChatId: fromNumber,
-        requesterMemberId,
-        requesterMemberSourceChannel: requesterMemberId ? "voice" : null,
-      },
-      dedupeKey,
-    })
-      .then(() => {
-        recordCallEvent(this.callSessionId, "callback_handoff_notified", {
-          requestId: this.accessRequestId,
-          reason,
-          requesterMemberId,
-        });
-        log.info(
-          {
-            callSessionId: this.callSessionId,
-            requestId: this.accessRequestId,
-            reason,
-          },
-          "Callback handoff notification emitted",
-        );
-      })
-      .catch((err) => {
-        recordCallEvent(this.callSessionId, "callback_handoff_failed", {
-          requestId: this.accessRequestId,
-          reason,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        log.error(
-          {
-            err,
-            callSessionId: this.callSessionId,
-            requestId: this.accessRequestId,
-          },
-          "Failed to emit callback handoff notification",
-        );
-      });
+    const result = emitAccessRequestCallbackHandoff({
+      reason,
+      callbackOptIn: this.callbackOptIn,
+      accessRequestId: this.accessRequestId,
+      callbackHandoffNotified: this.callbackHandoffNotified,
+      accessRequestAssistantId: this.accessRequestAssistantId,
+      accessRequestFromNumber: this.accessRequestFromNumber,
+      accessRequestCallerName: this.accessRequestCallerName,
+      callSessionId: this.callSessionId,
+    });
+    this.callbackHandoffNotified = result.callbackHandoffNotified;
   }
 
   /**
@@ -1891,30 +1521,30 @@ export class RelayConnection {
   }
 
   /**
-   * Validate an entered invite code against active voice invites for the
-   * caller. On success, create/activate the contact and transition
-   * to the normal call flow. On failure, allow retries up to max attempts.
+   * Validate an entered invite code against active voice invites.
+   * Delegates to the extracted attemptInviteCodeRedemption() and
+   * interprets the structured result to drive side-effects.
    */
-  private attemptInviteCodeRedemption(enteredCode: string): void {
+  private handleInviteCodeRedemptionResult(enteredCode: string): void {
     if (!this.inviteRedemptionAssistantId || !this.inviteRedemptionFromNumber) {
       return;
     }
 
-    const result = redeemVoiceInviteCode({
-      assistantId: this.inviteRedemptionAssistantId,
-      callerExternalUserId: this.inviteRedemptionFromNumber,
-      sourceChannel: "voice",
-      code: enteredCode,
+    const result = attemptInviteCodeRedemption({
+      inviteRedemptionAssistantId: this.inviteRedemptionAssistantId,
+      inviteRedemptionFromNumber: this.inviteRedemptionFromNumber,
+      enteredCode,
+      inviteRedemptionGuardianName: this.inviteRedemptionGuardianName,
     });
 
-    if (result.ok) {
+    if (result.outcome === "success") {
       this.inviteRedemptionActive = false;
       this.verificationAttempts = 0;
       this.dtmfBuffer = "";
 
       recordCallEvent(this.callSessionId, "invite_redemption_succeeded", {
         memberId: result.memberId,
-        ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
+        ...(result.inviteId ? { inviteId: result.inviteId } : {}),
       });
       log.info(
         {
@@ -1932,7 +1562,6 @@ export class RelayConnection {
         skipMemberActivation: true,
       });
     } else {
-      // On any invalid/expired code, emit exact deterministic failure copy and end call immediately.
       this.inviteRedemptionActive = false;
 
       recordCallEvent(this.callSessionId, "invite_redemption_failed", {
@@ -1943,12 +1572,7 @@ export class RelayConnection {
         "Voice invite redemption failed — invalid or expired code",
       );
 
-      const displayGuardian =
-        this.inviteRedemptionGuardianName ?? "your contact";
-      this.sendTextToken(
-        `Sorry, the code you provided is incorrect or has since expired. Please ask ${displayGuardian} for a new code. Goodbye.`,
-        true,
-      );
+      this.sendTextToken(result.ttsMessage, true);
 
       this.connectionState = "disconnecting";
 
@@ -1960,24 +1584,7 @@ export class RelayConnection {
 
       const failSession = getCallSession(this.callSessionId);
       if (failSession) {
-        expirePendingQuestions(this.callSessionId);
-        persistCallCompletionMessage(
-          failSession.conversationId,
-          this.callSessionId,
-        ).catch((err) => {
-          log.error(
-            {
-              err,
-              conversationId: failSession.conversationId,
-              callSessionId: this.callSessionId,
-            },
-            "Failed to persist call completion message",
-          );
-        });
-        fireCallCompletionNotifier(
-          failSession.conversationId,
-          this.callSessionId,
-        );
+        finalizeCall(this.callSessionId, failSession.conversationId);
       }
 
       setTimeout(() => {
@@ -2069,148 +1676,20 @@ export class RelayConnection {
     }
   }
 
-  /**
-   * Generate a non-repetitive heartbeat message for the caller based
-   * on the current sequence counter and guardian label.
-   */
-  private getHeartbeatMessage(): string {
-    const guardianLabel = this.resolveGuardianLabel();
-    const seq = this.heartbeatSequence++;
-    const messages = [
-      `Still waiting to hear back from ${guardianLabel}. Thank you for your patience.`,
-      `I'm still trying to reach ${guardianLabel}. One moment please.`,
-      `Hang tight, still waiting on ${guardianLabel}.`,
-      `Still checking with ${guardianLabel}. I appreciate you waiting.`,
-      `I haven't heard back from ${guardianLabel} yet. Thanks for holding.`,
-    ];
-    return messages[seq % messages.length];
-  }
-
-  /**
-   * Schedule the next heartbeat update. Uses the initial fixed interval
-   * during the initial window, then jitters between steady min/max.
-   */
   private scheduleNextHeartbeat(): void {
-    if (!this.accessRequestWaitActive) return;
-
-    const elapsed = Date.now() - this.accessRequestWaitStartedAt;
-    const initialWindow = getGuardianWaitUpdateInitialWindowMs();
-    const intervalMs =
-      elapsed < initialWindow
-        ? getGuardianWaitUpdateInitialIntervalMs()
-        : getGuardianWaitUpdateSteadyMinIntervalMs() +
-          Math.floor(
-            Math.random() *
-              Math.max(
-                0,
-                getGuardianWaitUpdateSteadyMaxIntervalMs() -
-                  getGuardianWaitUpdateSteadyMinIntervalMs(),
-              ),
-          );
-
-    this.accessRequestHeartbeatTimer = setTimeout(() => {
-      if (!this.accessRequestWaitActive) return;
-
-      const message = this.getHeartbeatMessage();
-      this.sendTextToken(message, true);
-
-      recordCallEvent(
-        this.callSessionId,
-        "voice_guardian_wait_heartbeat_sent",
-        {
-          sequence: this.heartbeatSequence - 1,
-          message,
-        },
-      );
-
-      log.debug(
-        {
-          callSessionId: this.callSessionId,
-          sequence: this.heartbeatSequence - 1,
-        },
-        "Guardian wait heartbeat sent",
-      );
-
-      // Schedule the next heartbeat
-      this.scheduleNextHeartbeat();
-    }, intervalMs);
+    this.accessRequestHeartbeatTimer = scheduleNextHeartbeat({
+      isWaitActive: () => this.accessRequestWaitActive,
+      accessRequestWaitStartedAt: this.accessRequestWaitStartedAt,
+      callSessionId: this.callSessionId,
+      consumeSequence: () => this.heartbeatSequence++,
+      resolveGuardianLabel: () => this.resolveGuardianLabel(),
+      sendTextToken: (text, last) => this.sendTextToken(text, last),
+      scheduleNext: () => this.scheduleNextHeartbeat(),
+    });
   }
 
-  /**
-   * Classify a caller utterance during guardian wait into one of:
-   * - 'empty': whitespace or noise
-   * - 'patience_check': asking for status or checking in
-   * - 'impatient': expressing frustration or wanting to end
-   * - 'callback_opt_in': explicitly agreeing to a callback
-   * - 'callback_decline': explicitly declining a callback
-   * - 'neutral': anything else
-   */
-  private classifyWaitUtterance(
-    text: string,
-  ):
-    | "empty"
-    | "patience_check"
-    | "impatient"
-    | "callback_opt_in"
-    | "callback_decline"
-    | "neutral" {
-    const lower = text.toLowerCase().trim();
-    if (lower.length === 0) return "empty";
-
-    // Callback opt-in patterns (check before impatience to catch "yes call me back")
-    if (this.callbackOfferMade) {
-      if (
-        /\b(yes|yeah|yep|sure|okay|ok|please)\b.*\b(call\s*(me\s*)?back|callback)\b/.test(
-          lower,
-        ) ||
-        /\b(call\s*(me\s*)?back|callback)\b.*\b(yes|yeah|please|sure)\b/.test(
-          lower,
-        ) ||
-        /^(yes|yeah|yep|sure|okay|ok|please)\s*[.,!]?\s*$/.test(lower) ||
-        /\bcall\s*(me\s*)?back\b/.test(lower) ||
-        /\bplease\s+do\b/.test(lower)
-      ) {
-        return "callback_opt_in";
-      }
-      if (
-        /\b(no|nah|nope)\b/.test(lower) ||
-        /\bi('?ll| will)\s+hold\b/.test(lower) ||
-        /\bi('?ll| will)\s+wait\b/.test(lower)
-      ) {
-        return "callback_decline";
-      }
-    }
-
-    // Impatience patterns
-    if (
-      /\bhurry\s*(up)?\b/.test(lower) ||
-      /\btaking\s+(too\s+|so\s+)?long\b/.test(lower) ||
-      /\bforget\s+it\b/.test(lower) ||
-      /\bnever\s*mind\b/.test(lower) ||
-      /\bdon'?t\s+have\s+time\b/.test(lower) ||
-      /\bhow\s+much\s+longer\b/.test(lower) ||
-      /\bi('?m| am)\s+(getting\s+)?impatient\b/.test(lower) ||
-      /\bthis\s+is\s+(ridiculous|absurd|crazy)\b/.test(lower) ||
-      /\bcome\s+on\b/.test(lower) ||
-      /\bi\s+(gotta|have\s+to|need\s+to)\s+go\b/.test(lower)
-    ) {
-      return "impatient";
-    }
-
-    // Patience check / status inquiry patterns
-    if (
-      /\bhello\??\s*$/.test(lower) ||
-      /\bstill\s+there\b/.test(lower) ||
-      /\bany\s+(update|news)\b/.test(lower) ||
-      /\bwhat('?s| is)\s+(happening|going\s+on)\b/.test(lower) ||
-      /\bare\s+you\s+still\b/.test(lower) ||
-      /\bhow\s+(long|much\s+longer)\b/.test(lower) ||
-      /\banyone\s+there\b/.test(lower)
-    ) {
-      return "patience_check";
-    }
-
-    return "neutral";
+  private classifyWaitUtterance(text: string) {
+    return classifyWaitUtterance(text, this.callbackOfferMade);
   }
 
   /**
@@ -2390,9 +1869,7 @@ export class RelayConnection {
       this.connectionState === "verification_pending" &&
       this.guardianVerificationActive
     ) {
-      const spokenDigits = RelayConnection.parseDigitsFromSpeech(
-        msg.voicePrompt,
-      );
+      const spokenDigits = parseDigitsFromSpeech(msg.voicePrompt);
       log.info(
         {
           callSessionId: this.callSessionId,
@@ -2403,7 +1880,7 @@ export class RelayConnection {
       );
       if (spokenDigits.length >= this.verificationCodeLength) {
         const enteredCode = spokenDigits.slice(0, this.verificationCodeLength);
-        this.attemptGuardianCodeVerification(enteredCode);
+        this.handleGuardianCodeVerificationResult(enteredCode);
       } else if (spokenDigits.length > 0) {
         this.sendTextToken(
           `I heard ${spokenDigits.length} digits. Please enter all ${this.verificationCodeLength} digits of your code.`,
@@ -2419,9 +1896,7 @@ export class RelayConnection {
       this.connectionState === "verification_pending" &&
       this.inviteRedemptionActive
     ) {
-      const spokenDigits = RelayConnection.parseDigitsFromSpeech(
-        msg.voicePrompt,
-      );
+      const spokenDigits = parseDigitsFromSpeech(msg.voicePrompt);
       log.info(
         {
           callSessionId: this.callSessionId,
@@ -2435,7 +1910,7 @@ export class RelayConnection {
           0,
           this.inviteRedemptionCodeLength,
         );
-        this.attemptInviteCodeRedemption(enteredCode);
+        this.handleInviteCodeRedemptionResult(enteredCode);
       } else if (spokenDigits.length > 0) {
         this.sendTextToken(
           `I heard ${spokenDigits.length} digits. Please enter all ${this.inviteRedemptionCodeLength} digits of your code.`,
@@ -2590,7 +2065,7 @@ export class RelayConnection {
           this.verificationCodeLength,
         );
         this.dtmfBuffer = "";
-        this.attemptGuardianCodeVerification(enteredCode);
+        this.handleGuardianCodeVerificationResult(enteredCode);
       }
       return;
     }
@@ -2609,7 +2084,7 @@ export class RelayConnection {
           this.inviteRedemptionCodeLength,
         );
         this.dtmfBuffer = "";
-        this.attemptInviteCodeRedemption(enteredCode);
+        this.handleInviteCodeRedemptionResult(enteredCode);
       }
       return;
     }
@@ -2684,24 +2159,7 @@ export class RelayConnection {
 
             const session = getCallSession(this.callSessionId);
             if (session) {
-              expirePendingQuestions(this.callSessionId);
-              persistCallCompletionMessage(
-                session.conversationId,
-                this.callSessionId,
-              ).catch((err) => {
-                log.error(
-                  {
-                    err,
-                    conversationId: session.conversationId,
-                    callSessionId: this.callSessionId,
-                  },
-                  "Failed to persist call completion message",
-                );
-              });
-              fireCallCompletionNotifier(
-                session.conversationId,
-                this.callSessionId,
-              );
+              finalizeCall(this.callSessionId, session.conversationId);
               if (session.initiatedFromConversationId) {
                 addPointerMessage(
                   session.initiatedFromConversationId,

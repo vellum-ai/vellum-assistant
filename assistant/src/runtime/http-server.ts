@@ -86,141 +86,49 @@ import {
   TWILIO_WEBHOOK_RE,
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
-import {
-  handleDeleteSharedApp,
-  handleDownloadSharedApp,
-  handleGetSharedAppMetadata,
-  handleServePage,
-  handleShareApp,
-} from "./routes/app-routes.js";
-import {
-  handleConfirm,
-  handleListPendingInteractions,
-  handleSecret,
-  handleTrustRule,
-} from "./routes/approval-routes.js";
-import {
-  handleDeleteAttachment,
-  handleGetAttachment,
-  handleGetAttachmentContent,
-  handleUploadAttachment,
-} from "./routes/attachment-routes.js";
-import {
-  handleGetBrainGraph,
-  handleServeBrainGraphUI,
-  handleServeHomeBaseUI,
-} from "./routes/brain-graph-routes.js";
-import {
-  handleAnswerCall,
-  handleCancelCall,
-  handleGetCallStatus,
-  handleInstructionCall,
-  handleStartCall,
-} from "./routes/call-routes.js";
+import { handleServePage } from "./routes/app-routes.js";
+import { appRouteDefinitions } from "./routes/app-routes.js";
+import { approvalRouteDefinitions } from "./routes/approval-routes.js";
+import { attachmentRouteDefinitions } from "./routes/attachment-routes.js";
+import { brainGraphRouteDefinitions } from "./routes/brain-graph-routes.js";
+import { callRouteDefinitions } from "./routes/call-routes.js";
 import {
   startCanonicalGuardianExpirySweep,
   stopCanonicalGuardianExpirySweep,
 } from "./routes/canonical-guardian-expiry-sweep.js";
+import { channelReadinessRouteDefinitions } from "./routes/channel-readiness-routes.js";
 import {
-  handleGetChannelReadiness,
-  handleRefreshChannelReadiness,
-} from "./routes/channel-readiness-routes.js";
-import {
-  handleChannelDeliveryAck,
-  handleChannelInbound,
-  handleDeleteConversation,
-  handleListDeadLetters,
-  handleReplayDeadLetters,
+  channelRouteDefinitions,
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
 import {
-  handleGetContact,
-  handleListContacts,
-  handleMergeContacts,
-  handleUpdateContactChannel,
-  handleUpsertContact,
+  contactCatchAllRouteDefinitions,
+  contactRouteDefinitions,
 } from "./routes/contact-routes.js";
-import { handleListConversationAttention } from "./routes/conversation-attention-routes.js";
-// Route handlers — grouped by domain
-import {
-  handleGetSuggestion,
-  handleListMessages,
-  handleSearchConversations,
-  handleSendMessage,
-} from "./routes/conversation-routes.js";
-import { handleDebug } from "./routes/debug-routes.js";
-import { handleSubscribeAssistantEvents } from "./routes/events-routes.js";
-import { handleGlobalSearch } from "./routes/global-search-routes.js";
-import {
-  handleGuardianActionDecision,
-  handleGuardianActionsPending,
-} from "./routes/guardian-action-routes.js";
+import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
+import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
+import { debugRouteDefinitions } from "./routes/debug-routes.js";
+import { eventsRouteDefinitions } from "./routes/events-routes.js";
+import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
+import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
-import { handleGetIdentity, handleHealth } from "./routes/identity-routes.js";
-import {
-  handleBlockMember,
-  handleCreateInvite,
-  handleListInvites,
-  handleListMembers,
-  handleRedeemInvite,
-  handleRevokeInvite,
-  handleRevokeMember,
-  handleUpsertMember,
-} from "./routes/ingress-routes.js";
-import {
-  handleCancelOutbound,
-  handleClearSlackChannelConfig,
-  handleClearTelegramConfig,
-  handleCreateGuardianChallenge,
-  handleGetGuardianStatus,
-  handleGetSlackChannelConfig,
-  handleGetTelegramConfig,
-  handleResendOutbound,
-  handleRevokeGuardian,
-  handleSetSlackChannelConfig,
-  handleSetTelegramCommands,
-  handleSetTelegramConfig,
-  handleSetupTelegram,
-  handleStartOutbound,
-} from "./routes/integration-routes.js";
-import {
-  handleMigrationExport,
-  handleMigrationImport,
-  handleMigrationImportPreflight,
-  handleMigrationValidate,
-} from "./routes/migration-routes.js";
+import { handleHealth } from "./routes/identity-routes.js";
+import { identityRouteDefinitions } from "./routes/identity-routes.js";
+import { integrationRouteDefinitions } from "./routes/integration-routes.js";
+import { inviteRouteDefinitions } from "./routes/invite-routes.js";
+import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
-// Extracted route handlers
 import {
-  handlePairingRegister,
   handlePairingRequest,
   handlePairingStatus,
+  pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
-import { handleAddSecret, handleDeleteSecret } from "./routes/secret-routes.js";
-import { handleSurfaceAction } from "./routes/surface-action-routes.js";
-import {
-  handleAddTrustRuleManage,
-  handleListTrustRules,
-  handleRemoveTrustRuleManage,
-  handleUpdateTrustRuleManage,
-} from "./routes/trust-rules-routes.js";
-import {
-  handleAssignTwilioNumber,
-  handleClearTwilioCredentials,
-  handleDeleteTollfreeVerification,
-  handleGetSmsCompliance,
-  handleGetTwilioConfig,
-  handleListTwilioNumbers,
-  handleProvisionTwilioNumber,
-  handleReleaseTwilioNumber,
-  handleSetTwilioCredentials,
-  handleSmsDoctor,
-  handleSmsSendTest,
-  handleSubmitTollfreeVerification,
-  handleUpdateTollfreeVerification,
-} from "./routes/twilio-routes.js";
+import { secretRouteDefinitions } from "./routes/secret-routes.js";
+import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
+import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
+import { twilioRouteDefinitions } from "./routes/twilio-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -232,7 +140,6 @@ export type {
   GuardianActionCopyGenerator,
   GuardianFollowUpConversationGenerator,
   MessageProcessor,
-  NonBlockingMessageProcessor,
   RuntimeAttachmentMetadata,
   RuntimeHttpServerOptions,
   RuntimeMessageSessionOptions,
@@ -245,7 +152,6 @@ import type {
   GuardianActionCopyGenerator,
   GuardianFollowUpConversationGenerator,
   MessageProcessor,
-  NonBlockingMessageProcessor,
   RuntimeHttpServerOptions,
   SendMessageDeps,
 } from "./http-types.js";
@@ -265,7 +171,6 @@ export class RuntimeHttpServer {
   /** Legacy shared secret for pairing routes (not used for delivery or auth). */
   private bearerToken: string | undefined;
   private processMessage?: MessageProcessor;
-  private persistAndProcessMessage?: NonBlockingMessageProcessor;
   private approvalCopyGenerator?: ApprovalCopyGenerator;
   private approvalConversationGenerator?: ApprovalConversationGenerator;
   private guardianActionCopyGenerator?: GuardianActionCopyGenerator;
@@ -294,7 +199,6 @@ export class RuntimeHttpServer {
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
     this.bearerToken = options.bearerToken;
     this.processMessage = options.processMessage;
-    this.persistAndProcessMessage = options.persistAndProcessMessage;
     this.approvalCopyGenerator = options.approvalCopyGenerator;
     this.approvalConversationGenerator = options.approvalConversationGenerator;
     this.guardianActionCopyGenerator = options.guardianActionCopyGenerator;
@@ -771,75 +675,26 @@ export class RuntimeHttpServer {
    * Build the full set of route definitions. Routes are matched in order,
    * so more specific patterns (e.g. `calls/:id/cancel`) must precede
    * more general ones (e.g. `calls/:id`).
+   *
+   * Each domain's routes are defined in their own module under
+   * `./routes/` and composed here via spread. The composition order
+   * preserves the original top-to-bottom matching semantics.
    */
   private buildRouteTable(): RouteDefinition[] {
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
 
     return [
-      // ------------------------------------------------------------------
-      // Pairing (authenticated)
-      // ------------------------------------------------------------------
-      {
-        endpoint: "pairing/register",
-        method: "POST",
-        handler: async ({ req }) =>
-          handlePairingRegister(req, this.pairingContext),
-      },
+      ...pairingRouteDefinitions({
+        getPairingContext: () => this.pairingContext,
+      }),
+      ...appRouteDefinitions(),
+      ...secretRouteDefinitions(),
+      ...identityRouteDefinitions(),
+      ...debugRouteDefinitions(),
 
-      // ------------------------------------------------------------------
-      // Apps — cloud sharing
-      // ------------------------------------------------------------------
-      {
-        endpoint: "apps/share",
-        method: "POST",
-        handler: async ({ req }) => handleShareApp(req),
-      },
-      {
-        endpoint: "apps/shared/:token/metadata",
-        method: "GET",
-        policyKey: "apps/shared/metadata",
-        handler: ({ params }) => handleGetSharedAppMetadata(params.token),
-      },
-      {
-        endpoint: "apps/shared/:token",
-        method: "GET",
-        policyKey: "apps/shared",
-        handler: ({ params }) => handleDownloadSharedApp(params.token),
-      },
-      {
-        endpoint: "apps/shared/:token",
-        method: "DELETE",
-        policyKey: "apps/shared",
-        handler: ({ params }) => handleDeleteSharedApp(params.token),
-      },
-
-      // ------------------------------------------------------------------
-      // Secrets
-      // ------------------------------------------------------------------
-      {
-        endpoint: "secrets",
-        method: "POST",
-        handler: async ({ req }) => handleAddSecret(req),
-      },
-      {
-        endpoint: "secrets",
-        method: "DELETE",
-        handler: async ({ req }) => handleDeleteSecret(req),
-      },
-
-      // ------------------------------------------------------------------
-      // Health / debug / browser relay
-      // ------------------------------------------------------------------
-      {
-        endpoint: "health",
-        method: "GET",
-        handler: () => handleHealth(),
-      },
-      {
-        endpoint: "debug",
-        method: "GET",
-        handler: () => handleDebug(),
-      },
+      // Browser relay — not extracted into a domain module because
+      // these two routes depend on the in-process extensionRelayServer
+      // singleton which is only available here.
       {
         endpoint: "browser-relay/status",
         method: "GET",
@@ -860,9 +715,9 @@ export class RuntimeHttpServer {
         },
       },
 
-      // ------------------------------------------------------------------
-      // Conversations
-      // ------------------------------------------------------------------
+      // Conversation list and seen signal — kept inline because they
+      // depend on multiple cross-cutting stores that aren't grouped
+      // into a single domain module.
       {
         endpoint: "conversations",
         method: "GET",
@@ -942,11 +797,9 @@ export class RuntimeHttpServer {
           });
         },
       },
-      {
-        endpoint: "conversations/attention",
-        method: "GET",
-        handler: ({ url }) => handleListConversationAttention(url),
-      },
+
+      ...conversationAttentionRouteDefinitions(),
+
       {
         endpoint: "conversations/seen",
         method: "POST",
@@ -984,425 +837,29 @@ export class RuntimeHttpServer {
         },
       },
 
-      // ------------------------------------------------------------------
-      // Messages / search
-      // ------------------------------------------------------------------
-      {
-        endpoint: "messages",
-        method: "GET",
-        handler: ({ url }) => handleListMessages(url, this.interfacesDir),
-      },
-      {
-        endpoint: "messages",
-        method: "POST",
-        handler: async ({ req, authContext }) =>
-          handleSendMessage(
-            req,
-            {
-              processMessage: this.processMessage,
-              persistAndProcessMessage: this.persistAndProcessMessage,
-              sendMessageDeps: this.sendMessageDeps,
-              approvalConversationGenerator: this.approvalConversationGenerator,
-            },
-            authContext,
-          ),
-      },
-      {
-        endpoint: "search",
-        method: "GET",
-        handler: ({ url }) => handleSearchConversations(url),
-      },
-      {
-        endpoint: "search/global",
-        method: "GET",
-        handler: async ({ url }) => handleGlobalSearch(url),
-      },
+      ...conversationRouteDefinitions({
+        interfacesDir: this.interfacesDir,
+        sendMessageDeps: this.sendMessageDeps,
+        approvalConversationGenerator: this.approvalConversationGenerator,
+        suggestionCache: this.suggestionCache,
+        suggestionInFlight: this.suggestionInFlight,
+      }),
+      ...globalSearchRouteDefinitions(),
+      ...approvalRouteDefinitions(),
+      ...trustRulesRouteDefinitions(),
+      ...surfaceActionRouteDefinitions({ findSession: this.findSession }),
+      ...guardianActionRouteDefinitions(),
 
-      // ------------------------------------------------------------------
-      // Approvals
-      // ------------------------------------------------------------------
-      {
-        endpoint: "confirm",
-        method: "POST",
-        handler: async ({ req, authContext }) =>
-          handleConfirm(req, authContext),
-      },
-      {
-        endpoint: "secret",
-        method: "POST",
-        handler: async ({ req, authContext }) => handleSecret(req, authContext),
-      },
-      {
-        endpoint: "trust-rules",
-        method: "POST",
-        handler: async ({ req, authContext }) =>
-          handleTrustRule(req, authContext),
-      },
-      {
-        endpoint: "pending-interactions",
-        method: "GET",
-        handler: ({ url, authContext }) =>
-          handleListPendingInteractions(url, authContext),
-      },
+      ...contactRouteDefinitions(),
+      ...inviteRouteDefinitions(),
+      // contacts/:id catch-all must follow invite routes to avoid shadowing
+      ...contactCatchAllRouteDefinitions(),
 
-      // ------------------------------------------------------------------
-      // Trust rule CRUD management
-      // ------------------------------------------------------------------
-      {
-        endpoint: "trust-rules/manage",
-        method: "GET",
-        handler: () => handleListTrustRules(),
-      },
-      {
-        endpoint: "trust-rules/manage",
-        method: "POST",
-        handler: async ({ req }) => handleAddTrustRuleManage(req),
-      },
-      {
-        endpoint: "trust-rules/manage/:id",
-        method: "DELETE",
-        handler: ({ params }) => handleRemoveTrustRuleManage(params.id),
-      },
-      {
-        endpoint: "trust-rules/manage/:id",
-        method: "PATCH",
-        handler: async ({ req, params }) =>
-          handleUpdateTrustRuleManage(req, params.id),
-      },
+      ...integrationRouteDefinitions(),
+      ...twilioRouteDefinitions(),
+      ...channelReadinessRouteDefinitions(),
+      ...attachmentRouteDefinitions(),
 
-      // ------------------------------------------------------------------
-      // Surface actions
-      // ------------------------------------------------------------------
-      {
-        endpoint: "surface-actions",
-        method: "POST",
-        handler: async ({ req }) => {
-          if (!this.findSession) {
-            return httpError(
-              "NOT_IMPLEMENTED",
-              "Surface actions not available",
-              501,
-            );
-          }
-          return handleSurfaceAction(req, this.findSession);
-        },
-      },
-
-      // ------------------------------------------------------------------
-      // Guardian actions
-      // ------------------------------------------------------------------
-      {
-        endpoint: "guardian-actions/pending",
-        method: "GET",
-        handler: ({ url, authContext }) =>
-          handleGuardianActionsPending(url, authContext),
-      },
-      {
-        endpoint: "guardian-actions/decision",
-        method: "POST",
-        handler: async ({ req, authContext }) =>
-          handleGuardianActionDecision(req, authContext),
-      },
-
-      // ------------------------------------------------------------------
-      // Contacts
-      // ------------------------------------------------------------------
-      {
-        endpoint: "contacts",
-        method: "GET",
-        handler: ({ url, authContext }) =>
-          handleListContacts(url, authContext.assistantId),
-      },
-      {
-        endpoint: "contacts",
-        method: "POST",
-        handler: async ({ req, authContext }) =>
-          handleUpsertContact(req, authContext.assistantId),
-      },
-      {
-        endpoint: "contacts/merge",
-        method: "POST",
-        handler: async ({ req, authContext }) =>
-          handleMergeContacts(req, authContext.assistantId),
-      },
-      {
-        endpoint: "contacts/channels/:id",
-        method: "PATCH",
-        policyKey: "contacts/channels",
-        handler: async ({ req, params, authContext }) =>
-          handleUpdateContactChannel(req, params.id, authContext.assistantId),
-      },
-      {
-        endpoint: "contacts/:id",
-        method: "GET",
-        policyKey: "contacts",
-        handler: ({ params, authContext }) =>
-          handleGetContact(params.id, authContext.assistantId),
-      },
-
-      // ------------------------------------------------------------------
-      // Ingress contacts
-      // ------------------------------------------------------------------
-      {
-        endpoint: "ingress/members",
-        method: "GET",
-        handler: ({ url }) => handleListMembers(url),
-      },
-      {
-        endpoint: "ingress/members",
-        method: "POST",
-        handler: async ({ req }) => handleUpsertMember(req),
-      },
-      {
-        endpoint: "ingress/members/:id/block",
-        method: "POST",
-        policyKey: "ingress/members/block",
-        handler: async ({ req, params }) => handleBlockMember(req, params.id),
-      },
-      {
-        endpoint: "ingress/members/:id",
-        method: "DELETE",
-        policyKey: "ingress/members",
-        handler: async ({ req, params }) => handleRevokeMember(req, params.id),
-      },
-
-      // ------------------------------------------------------------------
-      // Ingress invites
-      // ------------------------------------------------------------------
-      {
-        endpoint: "ingress/invites",
-        method: "GET",
-        handler: ({ url }) => handleListInvites(url),
-      },
-      {
-        endpoint: "ingress/invites",
-        method: "POST",
-        handler: async ({ req }) => handleCreateInvite(req),
-      },
-      {
-        endpoint: "ingress/invites/redeem",
-        method: "POST",
-        handler: async ({ req }) => handleRedeemInvite(req),
-      },
-      {
-        endpoint: "ingress/invites/:id",
-        method: "DELETE",
-        policyKey: "ingress/invites",
-        handler: ({ params }) => handleRevokeInvite(params.id),
-      },
-
-      // ------------------------------------------------------------------
-      // Integrations — Telegram
-      // ------------------------------------------------------------------
-      {
-        endpoint: "integrations/telegram/config",
-        method: "GET",
-        handler: () => handleGetTelegramConfig(),
-      },
-      {
-        endpoint: "integrations/telegram/config",
-        method: "POST",
-        handler: async ({ req }) => handleSetTelegramConfig(req),
-      },
-      {
-        endpoint: "integrations/telegram/config",
-        method: "DELETE",
-        handler: async () => handleClearTelegramConfig(),
-      },
-      {
-        endpoint: "integrations/telegram/commands",
-        method: "POST",
-        handler: async ({ req }) => handleSetTelegramCommands(req),
-      },
-      {
-        endpoint: "integrations/telegram/setup",
-        method: "POST",
-        handler: async ({ req }) => handleSetupTelegram(req),
-      },
-
-      // ------------------------------------------------------------------
-      // Integrations — Slack
-      // ------------------------------------------------------------------
-      {
-        endpoint: "integrations/slack/channel/config",
-        method: "GET",
-        handler: () => handleGetSlackChannelConfig(),
-      },
-      {
-        endpoint: "integrations/slack/channel/config",
-        method: "POST",
-        handler: async ({ req }) => handleSetSlackChannelConfig(req),
-      },
-      {
-        endpoint: "integrations/slack/channel/config",
-        method: "DELETE",
-        handler: () => handleClearSlackChannelConfig(),
-      },
-
-      // ------------------------------------------------------------------
-      // Integrations — Guardian
-      // ------------------------------------------------------------------
-      {
-        endpoint: "integrations/guardian/challenge",
-        method: "POST",
-        handler: async ({ req }) => handleCreateGuardianChallenge(req),
-      },
-      {
-        endpoint: "integrations/guardian/status",
-        method: "GET",
-        handler: ({ url }) => handleGetGuardianStatus(url),
-      },
-      {
-        endpoint: "integrations/guardian/revoke",
-        method: "POST",
-        handler: async ({ req }) => handleRevokeGuardian(req),
-      },
-      {
-        endpoint: "integrations/guardian/outbound/start",
-        method: "POST",
-        handler: async ({ req }) => handleStartOutbound(req),
-      },
-      {
-        endpoint: "integrations/guardian/outbound/resend",
-        method: "POST",
-        handler: async ({ req }) => handleResendOutbound(req),
-      },
-      {
-        endpoint: "integrations/guardian/outbound/cancel",
-        method: "POST",
-        handler: async ({ req }) => handleCancelOutbound(req),
-      },
-
-      // ------------------------------------------------------------------
-      // Integrations — Twilio
-      // ------------------------------------------------------------------
-      {
-        endpoint: "integrations/twilio/config",
-        method: "GET",
-        handler: () => handleGetTwilioConfig(),
-      },
-      {
-        endpoint: "integrations/twilio/credentials",
-        method: "POST",
-        handler: async ({ req }) => handleSetTwilioCredentials(req),
-      },
-      {
-        endpoint: "integrations/twilio/credentials",
-        method: "DELETE",
-        handler: () => handleClearTwilioCredentials(),
-      },
-      {
-        endpoint: "integrations/twilio/numbers",
-        method: "GET",
-        handler: async () => handleListTwilioNumbers(),
-      },
-      {
-        endpoint: "integrations/twilio/numbers/provision",
-        method: "POST",
-        handler: async ({ req }) => handleProvisionTwilioNumber(req),
-      },
-      {
-        endpoint: "integrations/twilio/numbers/assign",
-        method: "POST",
-        handler: async ({ req }) => handleAssignTwilioNumber(req),
-      },
-      {
-        endpoint: "integrations/twilio/numbers/release",
-        method: "POST",
-        handler: async ({ req }) => handleReleaseTwilioNumber(req),
-      },
-      {
-        endpoint: "integrations/twilio/sms/compliance",
-        method: "GET",
-        handler: async () => handleGetSmsCompliance(),
-      },
-      {
-        endpoint: "integrations/twilio/sms/compliance/tollfree",
-        method: "POST",
-        handler: async ({ req }) => handleSubmitTollfreeVerification(req),
-      },
-      {
-        endpoint: "integrations/twilio/sms/compliance/tollfree/:sid",
-        method: "PATCH",
-        policyKey: "integrations/twilio/sms/compliance/tollfree",
-        handler: async ({ req, params }) =>
-          handleUpdateTollfreeVerification(req, params.sid),
-      },
-      {
-        endpoint: "integrations/twilio/sms/compliance/tollfree/:sid",
-        method: "DELETE",
-        policyKey: "integrations/twilio/sms/compliance/tollfree",
-        handler: async ({ params }) =>
-          handleDeleteTollfreeVerification(params.sid),
-      },
-      {
-        endpoint: "integrations/twilio/sms/test",
-        method: "POST",
-        handler: async ({ req }) => handleSmsSendTest(req),
-      },
-      {
-        endpoint: "integrations/twilio/sms/doctor",
-        method: "POST",
-        handler: async () => handleSmsDoctor(),
-      },
-
-      // ------------------------------------------------------------------
-      // Channel readiness
-      // ------------------------------------------------------------------
-      {
-        endpoint: "channels/readiness",
-        method: "GET",
-        handler: async ({ url }) => handleGetChannelReadiness(url),
-      },
-      {
-        endpoint: "channels/readiness/refresh",
-        method: "POST",
-        handler: async ({ req }) => handleRefreshChannelReadiness(req),
-      },
-
-      // ------------------------------------------------------------------
-      // Attachments — specific sub-resource routes before generic ones
-      // ------------------------------------------------------------------
-      {
-        endpoint: "attachments",
-        method: "POST",
-        handler: async ({ req }) => handleUploadAttachment(req),
-      },
-      {
-        endpoint: "attachments",
-        method: "DELETE",
-        handler: async ({ req }) => handleDeleteAttachment(req),
-      },
-      {
-        endpoint: "attachments/:id/content",
-        method: "GET",
-        policyKey: "attachments/content",
-        handler: ({ req, params }) =>
-          handleGetAttachmentContent(params.id, req),
-      },
-      {
-        endpoint: "attachments/:id",
-        method: "GET",
-        policyKey: "attachments",
-        handler: ({ params }) => handleGetAttachment(params.id),
-      },
-
-      // ------------------------------------------------------------------
-      // Suggestion
-      // ------------------------------------------------------------------
-      {
-        endpoint: "suggestion",
-        method: "GET",
-        handler: async ({ url }) =>
-          handleGetSuggestion(url, {
-            suggestionCache: this.suggestionCache,
-            suggestionInFlight: this.suggestionInFlight,
-          }),
-      },
-
-      // ------------------------------------------------------------------
-      // Interfaces
-      // ------------------------------------------------------------------
       {
         endpoint: "interfaces/:path*",
         method: "GET",
@@ -1410,81 +867,20 @@ export class RuntimeHttpServer {
         handler: ({ params }) => this.handleGetInterface(params.path),
       },
 
-      // ------------------------------------------------------------------
-      // Channel operations
-      // ------------------------------------------------------------------
-      {
-        endpoint: "channels/conversation",
-        method: "DELETE",
-        handler: async ({ req }) => handleDeleteConversation(req, assistantId),
-      },
-      {
-        endpoint: "channels/inbound",
-        method: "POST",
-        handler: async ({ req }) =>
-          handleChannelInbound(
-            req,
-            this.processMessage,
-            assistantId,
-            this.approvalCopyGenerator,
-            this.approvalConversationGenerator,
-            this.guardianActionCopyGenerator,
-            this.guardianFollowUpConversationGenerator,
-          ),
-      },
-      {
-        endpoint: "channels/delivery-ack",
-        method: "POST",
-        handler: async ({ req }) => handleChannelDeliveryAck(req),
-      },
-      {
-        endpoint: "channels/dead-letters",
-        method: "GET",
-        handler: () => handleListDeadLetters(),
-      },
-      {
-        endpoint: "channels/replay",
-        method: "POST",
-        handler: async ({ req }) => handleReplayDeadLetters(req),
-      },
+      ...channelRouteDefinitions({
+        assistantId,
+        processMessage: this.processMessage,
+        approvalCopyGenerator: this.approvalCopyGenerator,
+        approvalConversationGenerator: this.approvalConversationGenerator,
+        guardianActionCopyGenerator: this.guardianActionCopyGenerator,
+        guardianFollowUpConversationGenerator:
+          this.guardianFollowUpConversationGenerator,
+      }),
+      ...callRouteDefinitions({ assistantId }),
 
-      // ------------------------------------------------------------------
-      // Calls — specific sub-actions before the generic calls/:id route
-      // ------------------------------------------------------------------
-      {
-        endpoint: "calls/start",
-        method: "POST",
-        handler: async ({ req }) => handleStartCall(req, assistantId),
-      },
-      {
-        endpoint: "calls/:id/cancel",
-        method: "POST",
-        policyKey: "calls/cancel",
-        handler: async ({ req, params }) => handleCancelCall(req, params.id),
-      },
-      {
-        endpoint: "calls/:id/answer",
-        method: "POST",
-        policyKey: "calls/answer",
-        handler: async ({ req, params }) => handleAnswerCall(req, params.id),
-      },
-      {
-        endpoint: "calls/:id/instruction",
-        method: "POST",
-        policyKey: "calls/instruction",
-        handler: async ({ req, params }) =>
-          handleInstructionCall(req, params.id),
-      },
-      {
-        endpoint: "calls/:id",
-        method: "GET",
-        policyKey: "calls",
-        handler: ({ params }) => handleGetCallStatus(params.id),
-      },
-
-      // ------------------------------------------------------------------
-      // Internal Twilio forwarding (gateway -> runtime)
-      // ------------------------------------------------------------------
+      // Internal Twilio forwarding (gateway -> runtime) — kept inline
+      // because these reconstruct fake form-encoded requests from JSON,
+      // a pattern specific to the gateway-to-daemon bridge.
       {
         endpoint: "internal/twilio/voice-webhook",
         method: "POST",
@@ -1536,63 +932,11 @@ export class RuntimeHttpServer {
         },
       },
 
-      // ------------------------------------------------------------------
-      // Identity / brain graph / UIs / events
-      // ------------------------------------------------------------------
-      {
-        endpoint: "identity",
-        method: "GET",
-        handler: () => handleGetIdentity(),
-      },
-      {
-        endpoint: "brain-graph",
-        method: "GET",
-        handler: () => handleGetBrainGraph(),
-      },
-      {
-        endpoint: "brain-graph-ui",
-        method: "GET",
-        handler: () => handleServeBrainGraphUI(mintUiPageToken()),
-      },
-      {
-        endpoint: "home-base-ui",
-        method: "GET",
-        handler: () => handleServeHomeBaseUI(mintUiPageToken()),
-      },
-      {
-        endpoint: "events",
-        method: "GET",
-        handler: ({ req, url, authContext }) =>
-          handleSubscribeAssistantEvents(req, url, { authContext }),
-      },
+      ...brainGraphRouteDefinitions({ mintUiPageToken }),
+      ...eventsRouteDefinitions(),
+      ...migrationRouteDefinitions(),
 
-      // ------------------------------------------------------------------
-      // Migrations
-      // ------------------------------------------------------------------
-      {
-        endpoint: "migrations/validate",
-        method: "POST",
-        handler: async ({ req }) => handleMigrationValidate(req),
-      },
-      {
-        endpoint: "migrations/export",
-        method: "POST",
-        handler: async ({ req }) => handleMigrationExport(req),
-      },
-      {
-        endpoint: "migrations/import-preflight",
-        method: "POST",
-        handler: async ({ req }) => handleMigrationImportPreflight(req),
-      },
-      {
-        endpoint: "migrations/import",
-        method: "POST",
-        handler: async ({ req }) => handleMigrationImport(req),
-      },
-
-      // ------------------------------------------------------------------
       // Internal OAuth callback (gateway -> runtime)
-      // ------------------------------------------------------------------
       {
         endpoint: "internal/oauth/callback",
         method: "POST",

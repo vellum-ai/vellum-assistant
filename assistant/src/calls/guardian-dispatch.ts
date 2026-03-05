@@ -114,7 +114,14 @@ async function dispatchGuardianQuestionInner(
         { callSessionId, assistantId },
         "No guardian principal from contacts — self-healing for voice dispatch",
       );
-      guardianPrincipalId = ensureVellumGuardianBinding(assistantId);
+      try {
+        guardianPrincipalId = ensureVellumGuardianBinding(assistantId);
+      } catch (err) {
+        log.warn(
+          { err, callSessionId, assistantId },
+          "ensureVellumGuardianBinding failed during voice dispatch self-heal",
+        );
+      }
     }
 
     if (!guardianPrincipalId) {

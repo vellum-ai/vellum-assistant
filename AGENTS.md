@@ -14,7 +14,7 @@ Bun + TypeScript monorepo with multiple packages:
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: All imports use `.js` extensions (NodeNext module resolution).
-- **Package manager**: Use `bun install` for dependencies, `bun test` for tests, `bunx tsc --noEmit` for type-checking.
+- **Package manager**: Use `bun install` for dependencies, `bun test <file>` for tests (always scope to specific files), `bunx tsc --noEmit` for type-checking.
 - **Install dependencies**: `cd assistant && bun install` (each package has its own `bun.lock`).
 
 ## Development
@@ -26,12 +26,21 @@ cd assistant && bun install
 # Type-check
 cd assistant && bunx tsc --noEmit
 
-# Run tests
-cd assistant && bun test
+# Run tests (always scope to specific files)
+cd assistant && bun test src/path/to/changed.test.ts
 
 # Lint
 cd assistant && bun run lint
 ```
+
+## Testing
+
+The full test suite is large and will hang or timeout if run unscoped. **Never run `bun test` without specifying file paths.**
+
+- After making changes, run only the tests relevant to what you changed:
+  `cd assistant && bun test src/path/to/file.test.ts`
+- To run tests matching a pattern: `cd assistant && bun test src/path/to/file.test.ts --grep "pattern"`
+- Use `bunx tsc --noEmit` for full-project type-checking instead of running all tests.
 
 ## Keep the README up to date
 
@@ -51,7 +60,7 @@ When your PR establishes a new mandatory pattern, convention, or architectural c
 
 ## Slash Commands
 
-Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/`. See `.claude/README.md` for the full list. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage daemon and gateway lifecycle.
+Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/`. See `.claude/README.md` for the full list. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage assistant and gateway lifecycle.
 
 ## Linear Ticket Hygiene
 
@@ -142,6 +151,14 @@ Skills must be self-contained and portable — no coupling to daemon tools, inte
 ## Assistant-Driven Judgement
 
 Judgement calls affecting user experience should be made by the assistant through the daemon — not hardcoded heuristics. Reserve deterministic logic for mechanical operations (parsing, validation, access control). If you're writing string matches or scoring functions to approximate what the model would decide, route it through the daemon instead.
+
+## User-Facing Terminology: "daemon" vs "assistant"
+
+"Daemon" is an internal implementation detail. In all user-facing text — CLI output, error messages, help strings, SKILL.md instructions that would be relayed to users, README documentation, and UI strings — use **"assistant"** instead of "daemon". Internal code (variable names, class names, file paths, log messages, comments explaining architecture) may continue using "daemon" since users don't see those. When in doubt, ask: "Would a user ever read this?" If yes, say "assistant".
+
+## Memory Conflict Handling — Internal Only
+
+Memory conflicts must never surface as user-facing clarification prompts. The conflict gate evaluates and resolves conflicts internally without producing any user-visible output — no injected instructions, no clarification questions, no blocking the user's request. The response path always continues answering the user. If you add or modify conflict-related code, verify that `ConflictGate.evaluate()` returns `void` (not a user-facing string), that no conflict text is emitted into the agent loop's message stream, and that `session-runtime-assembly.ts` does not inject conflict instructions. Guard tests: `session-conflict-gate.test.ts`, `session-agent-loop.test.ts`, `memory-lifecycle-e2e.test.ts`.
 
 ## Release Update Hygiene
 

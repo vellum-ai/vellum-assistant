@@ -59,9 +59,9 @@ function makeSkill(
 // ---------------------------------------------------------------------------
 
 describe("isSkillFeatureEnabled", () => {
-  test("returns true when no flag overrides", () => {
+  test("returns false when no flag overrides (registry default is false)", () => {
     const config = makeConfig();
-    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(true);
+    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
   });
 
   test("returns true when skill key is explicitly true", () => {
@@ -103,8 +103,10 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("falls back to registry default when no override", () => {
     const config = makeConfig();
-    // hatch-new-assistant defaults to true in the registry
-    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(true);
+    // hatch-new-assistant defaults to false in the registry
+    expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
+      false,
+    );
   });
 
   test("respects persisted overrides for undeclared keys", () => {
@@ -116,8 +118,9 @@ describe("isAssistantFeatureFlagEnabled", () => {
     ).toBe(false);
   });
 
-  test("undeclared keys with no persisted override default to enabled", () => {
+  test("declared keys with no persisted override use registry default", () => {
     const config = makeConfig();
+    // browser is declared in the registry with defaultEnabled: true
     expect(
       isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config),
     ).toBe(true);
@@ -132,7 +135,10 @@ describe("resolveSkillStates with feature flags", () => {
   test("flag OFF skill does not appear in resolved list", () => {
     const catalog = [makeSkill(DECLARED_SKILL_ID), makeSkill("twitter")];
     const config = makeConfig({
-      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
+      assistantFeatureFlagValues: {
+        [DECLARED_FLAG_KEY]: false,
+        "feature_flags.twitter.enabled": true,
+      },
     });
 
     const resolved = resolveSkillStates(catalog, config);
@@ -158,13 +164,13 @@ describe("resolveSkillStates with feature flags", () => {
     expect(ids).toContain("twitter");
   });
 
-  test("missing flag key defaults to enabled", () => {
+  test("declared flag key defaults to registry value (false)", () => {
     const catalog = [makeSkill(DECLARED_SKILL_ID)];
     const config = makeConfig();
 
     const resolved = resolveSkillStates(catalog, config);
-    expect(resolved.length).toBe(1);
-    expect(resolved[0].summary.id).toBe(DECLARED_SKILL_ID);
+    // hatch-new-assistant registry default is false, so it's filtered out
+    expect(resolved.length).toBe(0);
   });
 
   test("feature flag OFF takes precedence over user-enabled config entry", () => {
@@ -202,6 +208,7 @@ describe("resolveSkillStates with feature flags", () => {
     const config = makeConfig({
       assistantFeatureFlagValues: {
         [DECLARED_FLAG_KEY]: false,
+        "feature_flags.twitter.enabled": true,
         "feature_flags.deploy.enabled": false,
       },
     });
@@ -209,8 +216,7 @@ describe("resolveSkillStates with feature flags", () => {
     const resolved = resolveSkillStates(catalog, config);
     const ids = resolved.map((r) => r.summary.id);
 
-    // Both declared (hatch-new-assistant) and undeclared (deploy) skills with
-    // persisted false overrides are filtered out; only twitter remains.
+    // hatch-new-assistant and deploy explicitly false; twitter explicitly true
     expect(ids).toEqual(["twitter"]);
   });
 });

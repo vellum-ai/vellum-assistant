@@ -189,9 +189,7 @@ mock.module("../daemon/session-memory.js", () => ({
       latencyMs: 0,
     },
     dynamicProfile: { text: "" },
-    softConflictInstruction: null,
     recallInjectionStrategy: "prepend_user_block" as const,
-    conflictClarification: null,
   }),
 }));
 

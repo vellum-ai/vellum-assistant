@@ -23,7 +23,7 @@ export function sendOneMessage(msg: ClientMessage): Promise<ServerMessage> {
       if (!token) {
         resolved = true;
         reject(
-          new IpcError("Session token not found — is the daemon running?"),
+          new IpcError("Session token not found — is the assistant running?"),
         );
         socket.destroy();
         return;

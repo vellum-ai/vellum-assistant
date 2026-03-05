@@ -76,10 +76,3 @@ export function setHomeBaseAppLink(
     updatedAt: now,
   };
 }
-
-export function clearHomeBaseAppLink(): void {
-  const db = getDb();
-  db.delete(homeBaseAppLinks)
-    .where(eq(homeBaseAppLinks.id, HOME_BASE_LINK_ID))
-    .run();
-}

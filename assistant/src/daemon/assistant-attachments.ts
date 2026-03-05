@@ -606,24 +606,44 @@ interface FileBlock {
 }
 
 /**
+ * Derive a human-friendly filename from the tool name that produced the
+ * content block. Falls back to "tool-output" for unknown tools.
+ */
+function toolNameToFilePrefix(toolName?: string): string {
+  if (!toolName) return "tool-output";
+  // Convert snake_case / camelCase tool names to kebab-case labels
+  return toolName
+    .replace(/([a-z])([A-Z])/g, "$1-$2")
+    .replace(/_/g, "-")
+    .toLowerCase();
+}
+
+/**
  * Convert tool content blocks (images/files from tool results) into
  * attachment drafts. Blocks that aren't image or file types are skipped.
+ *
+ * An optional `toolNames` map (index → tool name) produces friendlier
+ * filenames than the default "tool-output".
  */
 export function contentBlocksToDrafts(
   blocks: readonly unknown[],
+  toolNames?: ReadonlyMap<number, string>,
 ): AssistantAttachmentDraft[] {
   const drafts: AssistantAttachmentDraft[] = [];
 
-  for (const block of blocks) {
-    const b = block as Record<string, unknown>;
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i] as Record<string, unknown>;
+    const toolName = toolNames?.get(i);
     if (b.type === "image") {
       const src = b.source as ImageBlock["source"];
       const data = src.data;
       const mimeType = src.media_type;
       const ext = mimeType.split("/")[1] ?? "png";
+      const title = typeof b._title === "string" ? b._title : undefined;
+      const prefix = title || toolNameToFilePrefix(toolName);
       drafts.push({
         sourceType: "tool_block",
-        filename: `tool-output.${ext}`,
+        filename: `${prefix}.${ext}`,
         mimeType,
         dataBase64: data,
         sizeBytes: estimateBase64Bytes(data),

@@ -26,10 +26,10 @@ public struct VListRow<Content: View>: View {
 
     private var rowContent: some View {
         content()
-            .padding(.vertical, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
             .padding(.horizontal, VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isHovered ? VColor.surfaceBorder.opacity(0.5) : .clear)
+            .background(isHovered ? VColor.navHover : .clear)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
             .onHover { hovering in
                 isHovered = hovering

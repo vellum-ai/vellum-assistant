@@ -55,6 +55,9 @@ struct MessageListView: View {
     /// Used by notification deep links to anchor the view to a specific message.
     @Binding var anchorMessageId: UUID?
     @Binding var isNearBottom: Bool
+    /// Measured width of the chat container, used to detect sidebar/split resizes
+    /// and stabilize scroll position during layout width changes.
+    var containerWidth: CGFloat = 0
     @Environment(\.conversationZoomScale) private var conversationZoomScale
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
@@ -86,6 +89,11 @@ struct MessageListView: View {
     /// visible viewport. Used alongside `isNearBottom` to suppress the "Scroll
     /// to latest" button when all content fits on screen.
     @State private var anchorIsVisible: Bool = true
+    /// Whether a physical scroll event (wheel/trackpad) has been received since
+    /// the current thread loaded. Before any scroll event, `isNearBottom`
+    /// (which defaults to `true`) is not trusted; the button relies solely on
+    /// `anchorIsVisible` to decide visibility.
+    @State private var hasReceivedScrollEvent: Bool = false
     /// The scroll view's viewport height, captured via preference key. Used by
     /// the anchor GeometryReader to determine if the anchor is within bounds.
     @State private var scrollViewportHeight: CGFloat = .infinity
@@ -99,6 +107,11 @@ struct MessageListView: View {
     /// regardless of whether messages.count changes. This covers the edge
     /// case where pagination stalls without adding/removing messages.
     @State private var anchorTimeoutTask: Task<Void, Never>?
+    /// Last container width that triggered a resize scroll handler, used to
+    /// detect meaningful width changes (>20pt) and avoid sub-pixel jitter.
+    @State private var lastHandledContainerWidth: CGFloat = 0
+    /// In-flight resize scroll stabilization task; cancelled on each new resize.
+    @State private var resizeScrollTask: Task<Void, Never>?
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -461,7 +474,14 @@ struct MessageListView: View {
                     Color.clear.frame(height: 1)
                         .id("scroll-bottom-anchor")
                         .onAppear {
-                            isNearBottom = true
+                            // Only auto-tether on initial load (before any scroll events).
+                            // After the user has scrolled, rely on ScrollWheelDetector and
+                            // anchorIsVisible preference tracking to manage isNearBottom —
+                            // LazyVStack fires onAppear in the prefetch zone (several screens
+                            // ahead) which would prematurely re-tether during normal scrolling.
+                            if !hasReceivedScrollEvent {
+                                isNearBottom = true
+                            }
                         }
                         .background {
                             GeometryReader { geo in
@@ -493,8 +513,12 @@ struct MessageListView: View {
                         scrollDebounceTask?.cancel()
                         scrollDebounceTask = nil
                         isNearBottom = false
+                        hasReceivedScrollEvent = true
                     },
-                    onScrollToBottom: { isNearBottom = true }
+                    onScrollToBottom: {
+                        isNearBottom = true
+                        hasReceivedScrollEvent = true
+                    }
                 )
                 ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
@@ -507,8 +531,9 @@ struct MessageListView: View {
                 anchorIsVisible = minY >= -20 && minY <= scrollViewportHeight + 20
             }
             .overlay(alignment: .bottom) {
-                if !isNearBottom && !anchorIsVisible {
+                if (!isNearBottom || !hasReceivedScrollEvent) && !anchorIsVisible {
                     Button(action: {
+                        hasReceivedScrollEvent = true
                         isNearBottom = true
                         withAnimation(VAnimation.fast) {
                             proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
@@ -579,11 +604,15 @@ struct MessageListView: View {
                 hoverExitDebounceTask = nil
                 threadSwitchSuppressionTask?.cancel()
                 threadSwitchSuppressionTask = nil
+                suppressScrollbarDuringThreadSwitch = false
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
+                resizeScrollTask?.cancel()
+                resizeScrollTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
+                    hasReceivedScrollEvent = true
                     isNearBottom = true
                     withAnimation(VAnimation.standard) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
@@ -673,16 +702,53 @@ struct MessageListView: View {
                 }
                 // When mid-scroll, do nothing — let SwiftUI handle the text reflow naturally.
             }
+            .onChange(of: containerWidth) {
+                // Ignore sub-pixel jitter and initial zero value
+                guard containerWidth > 0, abs(containerWidth - lastHandledContainerWidth) > 20 else { return }
+                lastHandledContainerWidth = containerWidth
+
+                // Cancel competing scroll tasks to prevent jitter during resize
+                scrollDebounceTask?.cancel()
+                scrollDebounceTask = nil
+                resizeScrollTask?.cancel()
+
+                resizeScrollTask = Task { @MainActor in
+                    // Temporarily suppress bottom auto-scroll so streaming/message-count
+                    // handlers don't fight with the resize stabilization.
+                    isSuppressingBottomScroll = true
+                    defer {
+                        if !Task.isCancelled {
+                            isSuppressingBottomScroll = false
+                            resizeScrollTask = nil
+                        }
+                    }
+                    // Wait for layout to settle (~100ms ≈ 6 frames)
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    guard !Task.isCancelled else { return }
+
+                    if isNearBottom && anchorMessageId == nil {
+                        // Pin to bottom without animation to avoid visual bounce.
+                        // Skip when an anchor is pending (deep-link / notification)
+                        // to avoid yanking the viewport away from the target message.
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
+                    // If not near bottom or anchor is set, preserve viewport.
+                }
+            }
             .onChange(of: threadId) {
                 // Keep the underlying NSScrollView instance stable across thread
                 // switches (prevents default-scroller flash), and reset view-local
                 // scroll state explicitly instead of remounting the whole view.
                 scrollDebounceTask?.cancel()
                 scrollDebounceTask = nil
+                resizeScrollTask?.cancel()
+                resizeScrollTask = nil
                 isPaginationInFlight = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true
                 anchorIsVisible = true
+                hasReceivedScrollEvent = false
+                lastHandledContainerWidth = containerWidth
                 hoverExitDebounceTask?.cancel()
                 hoverExitDebounceTask = nil
                 anchorTimeoutTask?.cancel()

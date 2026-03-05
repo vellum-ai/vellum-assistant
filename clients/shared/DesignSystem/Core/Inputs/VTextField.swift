@@ -9,7 +9,9 @@ public struct VInputStyleModifier: ViewModifier {
     public func body(content: Content) -> some View {
         content
             .textFieldStyle(.plain)
-            .padding(VSpacing.md)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs)
+            .frame(height: 28)
             .background(VColor.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(
@@ -47,7 +49,7 @@ public struct VTextField: View {
             if let leadingIcon = leadingIcon {
                 Image(systemName: leadingIcon)
                     .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .accessibilityHidden(true)
             }
 
@@ -63,11 +65,13 @@ public struct VTextField: View {
             if let trailingIcon = trailingIcon {
                 Image(systemName: trailingIcon)
                     .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .accessibilityHidden(true)
             }
         }
-        .padding(VSpacing.md)
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.xs)
+        .frame(height: 28)
         .background(VColor.inputBackground)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .overlay(

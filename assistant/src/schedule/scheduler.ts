@@ -23,9 +23,14 @@ import {
 
 const log = getLogger("scheduler");
 
+export interface ScheduleMessageOptions {
+  trustClass?: "guardian" | "trusted_contact" | "unknown";
+}
+
 export type ScheduleMessageProcessor = (
   conversationId: string,
   message: string,
+  options?: ScheduleMessageOptions,
 ) => Promise<unknown>;
 
 export type ReminderNotifier = (reminder: {
@@ -218,7 +223,9 @@ async function runScheduleOnce(
         },
         "Executing schedule",
       );
-      await processMessage(conversation.id, job.message);
+      await processMessage(conversation.id, job.message, {
+        trustClass: "guardian",
+      });
       completeScheduleRun(runId, { status: "ok" });
       notifySchedule({ id: job.id, name: job.name });
       processed += 1;
@@ -267,7 +274,9 @@ async function runScheduleOnce(
           },
           "Executing reminder",
         );
-        await processMessage(conversation.id, reminder.message);
+        await processMessage(conversation.id, reminder.message, {
+          trustClass: "guardian",
+        });
         completeReminder(reminder.id);
       } catch (err) {
         log.warn(

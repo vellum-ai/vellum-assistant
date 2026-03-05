@@ -47,10 +47,12 @@ public struct VDropdown<T: Hashable>: View {
 
                 Image(systemName: "chevron.down")
                     .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .accessibilityHidden(true)
             }
-            .padding(VSpacing.md)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.xs)
+            .frame(height: 28)
             .background(VColor.inputBackground)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .overlay(

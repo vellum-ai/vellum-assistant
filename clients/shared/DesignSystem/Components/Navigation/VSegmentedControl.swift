@@ -121,14 +121,14 @@ private struct PillSegment: View {
     }
 
     private var selectedTextColor: Color {
-        .white
+        VColor.textPrimary
     }
 
     private var segmentBackground: Color {
         if isSelected {
-            return Forest._600
+            return VColor.navActive
         } else if isHovered {
-            return VColor.ghostHover
+            return VColor.navHover
         } else {
             return .clear
         }

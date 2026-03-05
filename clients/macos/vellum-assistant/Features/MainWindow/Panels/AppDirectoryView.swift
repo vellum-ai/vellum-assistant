@@ -147,9 +147,7 @@ struct AppDirectoryView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Preview thumbnail or placeholder
                 Group {
-                    if let preview,
-                       let data = Data(base64Encoded: preview),
-                       let nsImage = NSImage(data: data) {
+                    if let nsImage = AppPreviewImageStore.image(appId: item.id, base64: preview) {
                         Image(nsImage: nsImage)
                             .resizable()
                             .aspectRatio(contentMode: .fill)
@@ -378,7 +376,7 @@ struct AppDirectoryView: View {
                 preview: nil,
                 dateLabel: formatDate(app.createdAt),
                 isShared: false,
-                appType: app.appType,
+                appType: nil,
                 localAppId: app.id,
                 sharedUUID: nil
             ))

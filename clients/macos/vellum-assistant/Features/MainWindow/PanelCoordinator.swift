@@ -169,6 +169,44 @@ extension MainWindowView {
         }
     }
 
+    // MARK: - Split-Width Helpers
+
+    /// Computes a clamped panel-width binding for split layouts, accounting for
+    /// sidebar consumption and enforcing min main/panel constraints on both
+    /// get and set paths so persisted values stay valid across resizes.
+    func clampedPanelWidth(geometry: GeometryProxy) -> Binding<Double> {
+        // Sidebar sits in the HStack and consumes real width.
+        // When settings is open the sidebar is hidden.
+        let settingsOpen: Bool = {
+            if case .panel(.settings) = windowState.selection { return true }
+            return false
+        }()
+        let sidebarWidth: CGFloat = settingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth)
+        let hstackSpacing: CGFloat = 16
+        let outerPadding: CGFloat = 32 // 16 left + 16 right
+        let windowWidth: Double = Double(geometry.size.width) / zoomManager.zoomLevel
+        let availableWidth: Double = windowWidth - Double(sidebarWidth) - Double(hstackSpacing) - Double(outerPadding)
+
+        let preferredMinPanel: Double = 300
+        let preferredMinMain: Double = 300
+        // VSplitView internals: leading padding (xs=4) + divider (8) = 12
+        let dividerBudget: Double = Double(VSpacing.xs) + 12
+        let maxPanel: Double = availableWidth - preferredMinMain - dividerBudget
+        // When the window is too narrow, allow the panel to shrink below the
+        // preferred minimum so the main pane isn't crushed below its minimum.
+        let effectiveMinPanel: Double = min(preferredMinPanel, max(maxPanel, 100))
+
+        return Binding<Double>(
+            get: {
+                let raw = appPanelWidth > 0 ? appPanelWidth : availableWidth * 0.7
+                return min(max(raw, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
+            },
+            set: {
+                appPanelWidth = min(max($0, effectiveMinPanel), max(maxPanel, effectiveMinPanel))
+            }
+        )
+    }
+
     @ViewBuilder
     func chatContentView(geometry: GeometryProxy) -> some View {
         switch windowState.selection {
@@ -206,14 +244,8 @@ extension MainWindowView {
             // VSplitView: ChatView (left) + workspace (right)
             if let surface = windowState.activeDynamicParsedSurface,
                case .dynamicPage(let dpData) = surface.data {
-                // Compute content area width (sidebar is an overlay, doesn't reduce content width)
-                let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
-                let effectiveWidth = Binding<Double>(
-                    get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
-                    set: { appPanelWidth = $0 }
-                )
                 VSplitView(
-                    panelWidth: effectiveWidth,
+                    panelWidth: clampedPanelWidth(geometry: geometry),
                     showPanel: true,
                     main: {
                         chatView
@@ -230,13 +262,8 @@ extension MainWindowView {
             if panelType == .directory {
                 if isAppChatOpen {
                     // VSplitView: ChatView (left) + Home Base (right)
-                    let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
-                    let effectiveWidth = Binding<Double>(
-                        get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
-                        set: { appPanelWidth = $0 }
-                    )
                     VSplitView(
-                        panelWidth: effectiveWidth,
+                        panelWidth: clampedPanelWidth(geometry: geometry),
                         showPanel: true,
                         main: {
                             chatView
@@ -331,13 +358,8 @@ extension MainWindowView {
                 )
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
-                let contentWidth = Double(geometry.size.width) / zoomManager.zoomLevel - Double(VSpacing.sm)
-                let effectiveWidth = Binding<Double>(
-                    get: { appPanelWidth > 0 ? appPanelWidth : contentWidth * 0.7 },
-                    set: { appPanelWidth = $0 }
-                )
                 VSplitView(
-                    panelWidth: effectiveWidth,
+                    panelWidth: clampedPanelWidth(geometry: geometry),
                     showPanel: true,
                     main: {
                         chatView
@@ -802,157 +824,150 @@ struct DynamicWorkspaceWrapper: View {
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
 
-    /// Corner radius for the WKWebView clipping container, matched to the SwiftUI clipShape.
-    private var webViewCornerRadius: CGFloat { VRadius.lg }
+    /// Corner radius for the WKWebView clipping container — no rounding needed since the
+    /// outer page container handles corner rounding.
+    private var webViewCornerRadius: CGFloat { 0 }
 
-    /// Which corners to round — all corners for both standalone and split editing
-    /// since each panel is individually rounded in its own container.
-    private var webViewMaskedCorners: CACornerMask {
-        [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-    }
+    private var webViewMaskedCorners: CACornerMask { [] }
 
     var body: some View {
-        ZStack {
-            if showVersionHistory, let appId = data.appId {
-                AppVersionHistoryPanel(
-                    daemonClient: daemonClient,
-                    appId: appId,
-                    appName: data.preview?.title ?? "App",
-                    onClose: { showVersionHistory = false }
-                )
-            } else {
-
-            DynamicPageSurfaceView(
-                data: data,
-                onAction: { actionId, actionData in
-                    if !isChatDockOpen {
+        VStack(spacing: 0) {
+            HStack {
+                // Left: Close Chat primary CTA in edit mode, Edit primary button otherwise
+                if case .appEditing = windowState.selection {
+                    VButton(label: "Close chat", icon: "xmark", style: .primary, size: .medium) {
                         onToggleChatDock()
                     }
-                    // Route relay_prompt actions directly as chat messages so they
-                    // reach the active session instead of being lost when the surface
-                    // was opened outside a session context (e.g. home base via app_open).
-                    if actionId == "relay_prompt" || actionId == "agent_prompt",
-                       let dataDict = actionData as? [String: Any],
-                       let prompt = dataDict["prompt"] as? String,
-                       !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        // Eagerly sync dock state so sendMessage() sees the
-                        // up-to-date value instead of the stale pre-toggle state
-                        // (onChange(of: windowState.selection) runs asynchronously).
-                        viewModel.isChatDockedToSide = true
-                        viewModel.inputText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                        viewModel.sendMessage()
-                        return
+                } else {
+                    VButton(label: "Edit", icon: "pencil", style: .primary, size: .medium) {
+                        if !isChatDockOpen {
+                            windowState.workspaceComposerExpanded = false
+                        }
+                        onToggleChatDock()
                     }
-                    surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
-                },
-                appId: data.appId,
-                onDataRequest: data.appId != nil ? { callId, method, recordId, requestData in
-                    guard let appId = surfaceManager.surfaceAppIds[surface.id] else { return }
-                    surfaceManager.onDataRequest?(surface.id, callId, method, appId, recordId, requestData)
-                } : nil,
-                onCoordinatorReady: data.appId != nil ? { coordinator in
-                    surfaceManager.surfaceCoordinators[surface.id] = coordinator
-                } : nil,
-                onPageChanged: { [weak viewModel] page in
-                    viewModel?.currentPage = page
-                },
-                onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
-                    guard let appId = data.appId else { return }
-                    try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
-                    NotificationCenter.default.post(
-                        name: .appPreviewImageCaptured,
-                        object: nil,
-                        userInfo: ["appId": appId, "previewImage": base64]
-                    )
-                } : nil,
-                onLinkOpen: { url, metadata in
-                    surfaceManager.onLinkOpen?(url, metadata)
-                },
-                topContentInset: 56,
-                bottomContentInset: 0,
-                cornerRadius: webViewCornerRadius,
-                maskedCorners: webViewMaskedCorners
+                    .accessibilityLabel("Edit app")
+                }
+
+                Spacer(minLength: 0)
+
+                Text(surface.title ?? data.preview?.title ?? "App")
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(adaptiveColor(light: VColor.textPrimary, dark: VColor.textSecondary))
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                // Right: History + Share + Close outlined icon buttons
+                HStack(spacing: VSpacing.sm) {
+                    if data.appId != nil {
+                        VIconButton(label: "Version history", icon: "clock.arrow.circlepath", iconOnly: true, variant: .outlined, size: 28, tooltip: "Version history") {
+                            showVersionHistory = true
+                        }
+                    }
+
+                    if sharing.isPublishing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(height: 28)
+                    } else if let url = sharing.publishedUrl {
+                        PublishedButton(url: url, copied: $publishUrlCopied)
+                    } else {
+                        VIconButton(label: "Publish", icon: "arrow.up.right", iconOnly: true, variant: .outlined, size: 28, tooltip: "Publish") {
+                            onPublishPage(data.html, data.preview?.title, data.appId)
+                        }
+                    }
+
+                    VIconButton(label: "Close workspace", icon: "xmark", iconOnly: true, variant: .outlined, size: 28, tooltip: "Close workspace") {
+                        sharing.showSharePicker = false
+                        windowState.activeDynamicSurface = nil
+                        windowState.activeDynamicParsedSurface = nil
+                        windowState.dismissOverlay()
+                    }
+                }
+            }
+            .padding(.leading, VSpacing.md)
+            .padding(.trailing, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                adaptiveColor(light: Moss._50, dark: Moss._950)
             )
 
-            VStack(spacing: 0) {
+            if let error = sharing.publishError {
                 HStack {
-                    // Left: Done Editing primary CTA in edit mode, Edit primary button otherwise
-                    if case .appEditing = windowState.selection {
-                        VButton(label: "Done Editing", style: .primary) {
-                            onToggleChatDock()
-                        }
-                        .controlSize(.small)
-                    } else {
-                        VButton(label: "Edit", icon: "pencil", style: .primary) {
-                            if !isChatDockOpen {
-                                windowState.workspaceComposerExpanded = false
-                            }
-                            onToggleChatDock()
-                        }
-                        .controlSize(.small)
-                        .accessibilityLabel("Edit app")
-                    }
-
-                    Spacer(minLength: 0)
-
-                    // Right: History + Share + Close tertiary buttons
-                    HStack(spacing: VSpacing.sm) {
-                        if data.appId != nil {
-                            VButton(label: "History", icon: "clock.arrow.circlepath", style: .tertiary) {
-                                showVersionHistory = true
-                            }
-                            .controlSize(.small)
-                            .accessibilityLabel("Version history")
-                        }
-
-                        if sharing.isPublishing {
-                            ProgressView()
-                                .controlSize(.small)
-                                .frame(height: 24)
-                        } else if let url = sharing.publishedUrl {
-                            PublishedButton(url: url, copied: $publishUrlCopied)
-                        } else {
-                            VButton(label: "Publish", icon: "arrow.up.right", style: .tertiary) {
-                                onPublishPage(data.html, data.preview?.title, data.appId)
-                            }
-                            .controlSize(.small)
-                        }
-
-                        VButton(label: "X", style: .tertiary) {
-                            sharing.showSharePicker = false
-                            windowState.activeDynamicSurface = nil
-                            windowState.activeDynamicParsedSurface = nil
-                            windowState.dismissOverlay()
-                        }
-                        .controlSize(.small)
-                        .accessibilityLabel("Close workspace")
-                    }
+                    Spacer()
+                    Text(error)
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.error)
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.xs)
+                        .background(Danger._900.opacity(0.8))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                        .padding(.trailing, VSpacing.xl)
                 }
-                .padding(.leading, VSpacing.md)
-                .padding(.trailing, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-                .background(
-                    adaptiveColor(light: Moss._50, dark: Moss._950)
-                        .clipShape(UnevenRoundedRectangle(topLeadingRadius: VRadius.lg, topTrailingRadius: VRadius.lg))
-                )
-
-                if let error = sharing.publishError {
-                    HStack {
-                        Spacer()
-                        Text(error)
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.error)
-                            .padding(.horizontal, VSpacing.md)
-                            .padding(.vertical, VSpacing.xs)
-                            .background(Danger._900.opacity(0.8))
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                            .padding(.trailing, VSpacing.xl)
-                    }
-                }
-
-                Spacer()
             }
-            } // else (not showing version history)
+
+            ZStack {
+                if showVersionHistory, let appId = data.appId {
+                    AppVersionHistoryPanel(
+                        daemonClient: daemonClient,
+                        appId: appId,
+                        appName: data.preview?.title ?? "App",
+                        onClose: { showVersionHistory = false }
+                    )
+                } else {
+                    DynamicPageSurfaceView(
+                        data: data,
+                        onAction: { actionId, actionData in
+                            if !isChatDockOpen {
+                                onToggleChatDock()
+                            }
+                            // Route relay_prompt actions directly as chat messages so they
+                            // reach the active session instead of being lost when the surface
+                            // was opened outside a session context (e.g. home base via app_open).
+                            if actionId == "relay_prompt" || actionId == "agent_prompt",
+                               let dataDict = actionData as? [String: Any],
+                               let prompt = dataDict["prompt"] as? String,
+                               !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                // Eagerly sync dock state so sendMessage() sees the
+                                // up-to-date value instead of the stale pre-toggle state
+                                // (onChange(of: windowState.selection) runs asynchronously).
+                                viewModel.isChatDockedToSide = true
+                                viewModel.inputText = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                                viewModel.sendMessage()
+                                return
+                            }
+                            surfaceManager.onAction?(surface.sessionId, surface.id, actionId, actionData as? [String: Any])
+                        },
+                        appId: data.appId,
+                        onDataRequest: data.appId != nil ? { callId, method, recordId, requestData in
+                            guard let appId = surfaceManager.surfaceAppIds[surface.id] else { return }
+                            surfaceManager.onDataRequest?(surface.id, callId, method, appId, recordId, requestData)
+                        } : nil,
+                        onCoordinatorReady: data.appId != nil ? { coordinator in
+                            surfaceManager.surfaceCoordinators[surface.id] = coordinator
+                        } : nil,
+                        onPageChanged: { [weak viewModel] page in
+                            viewModel?.currentPage = page
+                        },
+                        onSnapshotCaptured: data.appId != nil ? { [weak daemonClient] base64 in
+                            guard let appId = data.appId else { return }
+                            try? daemonClient?.sendAppUpdatePreview(appId: appId, preview: base64)
+                            NotificationCenter.default.post(
+                                name: .appPreviewImageCaptured,
+                                object: nil,
+                                userInfo: ["appId": appId, "previewImage": base64]
+                            )
+                        } : nil,
+                        onLinkOpen: { url, metadata in
+                            surfaceManager.onLinkOpen?(url, metadata)
+                        },
+                        topContentInset: 0,
+                        bottomContentInset: 0,
+                        cornerRadius: webViewCornerRadius,
+                        maskedCorners: webViewMaskedCorners
+                    )
+                }
+            }
         }
     }
 }

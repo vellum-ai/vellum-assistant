@@ -42,11 +42,11 @@ public final class ChatErrorManager: ObservableObject {
             case .posix(let code):
                 switch code {
                 case .ECONNREFUSED:
-                    return "Daemon is not accepting connections — it may still be starting."
+                    return "Assistant is not accepting connections — it may still be starting."
                 case .ENOENT:
-                    return "Daemon socket not found — the daemon may not be running."
+                    return "Assistant socket not found — the assistant may not be running."
                 case .ETIMEDOUT:
-                    return "Connection timed out — the daemon may be unresponsive or the socket path may be wrong."
+                    return "Connection timed out — the assistant may be unresponsive or the socket path may be wrong."
                 default:
                     return "POSIX error \(code.rawValue): \(nwErr.localizedDescription)"
                 }
@@ -57,11 +57,11 @@ public final class ChatErrorManager: ObservableObject {
         if let authErr = error as? DaemonClient.AuthError {
             switch authErr {
             case .missingToken:
-                return "Session token not found — try restarting the daemon."
+                return "Session token not found — try restarting the assistant."
             case .timeout:
-                return "Authentication timed out — daemon may be overloaded."
+                return "Authentication timed out — assistant may be overloaded."
             case .rejected:
-                return "Session token rejected — token may have changed; try restarting the daemon."
+                return "Session token rejected — token may have changed; try restarting the assistant."
             }
         }
         #endif
@@ -73,7 +73,7 @@ public final class ChatErrorManager: ObservableObject {
             case .timedOut:
                 return "Gateway request timed out — check your host and port."
             case .cannotConnectToHost:
-                return "Cannot connect to gateway host — verify the address and that the daemon is running."
+                return "Cannot connect to gateway host — verify the address and that the assistant is running."
             case .networkConnectionLost:
                 return "Network connection lost."
             default:

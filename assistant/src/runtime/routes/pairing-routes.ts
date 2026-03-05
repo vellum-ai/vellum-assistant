@@ -14,6 +14,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { mintCredentialPair } from "../auth/credential-service.js";
 import { ensureVellumGuardianBinding } from "../guardian-vellum-migration.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("runtime-http");
 
@@ -403,4 +404,21 @@ export function handlePairingStatus(
   }
 
   return Response.json({ status: entry.status });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function pairingRouteDefinitions(deps: {
+  getPairingContext: () => PairingHandlerContext;
+}): RouteDefinition[] {
+  return [
+    {
+      endpoint: "pairing/register",
+      method: "POST",
+      handler: async ({ req }) =>
+        handlePairingRegister(req, deps.getPairingContext()),
+    },
+  ];
 }

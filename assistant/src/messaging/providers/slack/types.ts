@@ -133,3 +133,7 @@ export interface SlackChatUpdateResponse extends SlackApiResponse {
 }
 
 export type SlackConversationMarkResponse = SlackApiResponse;
+
+export interface SlackPostEphemeralResponse extends SlackApiResponse {
+  message_ts: string;
+}

@@ -23,7 +23,9 @@ export type SignalType =
   | "macos_notification_view"
   | "macos_conversation_opened"
   | "telegram_inbound_message"
-  | "telegram_callback";
+  | "telegram_callback"
+  | "slack_inbound_message"
+  | "slack_callback";
 
 export type Confidence = "explicit" | "inferred";
 
@@ -437,7 +439,7 @@ export function listConversationAttention(
     })
     .from(conversationAssistantAttentionState);
 
-  // Join with conversations table when filtering by source or sourceChannel
+  // Only join conversations table when filtering by source or sourceChannel
   if (source || sourceChannel) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     query = (query as any).innerJoin(

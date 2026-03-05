@@ -19,6 +19,7 @@ import {
   getContactInternal,
   updateChannelLastSeenById,
   updateChannelStatus,
+  updateContactInteraction,
   upsertContact,
 } from "./contact-store.js";
 import type {
@@ -78,6 +79,7 @@ export function createGuardianBinding(params: {
   upsertContact({
     displayName,
     role: "guardian",
+    notes: "guardian",
     principalId: params.guardianPrincipalId,
     assistantId: params.assistantId,
     channels: [
@@ -109,7 +111,6 @@ export function createGuardianBinding(params: {
     updatedAt: now,
   };
 
-  emitContactChange();
   return result;
 }
 
@@ -204,8 +205,6 @@ export function upsertMember(params: {
     externalChatId: params.externalChatId,
   });
 
-  emitContactChange();
-
   if (contactResult) {
     return { contact: contactResult.contact, channel: contactResult.channel };
   }
@@ -283,5 +282,17 @@ export function touchChannelLastSeen(channelId: string): void {
     updateChannelLastSeenById(channelId);
   } catch (err) {
     log.warn({ err }, "Failed to update channel lastSeenAt");
+  }
+}
+
+/**
+ * Increment the interaction count and update lastInteraction on a contact.
+ * Expects a plain contact UUID (Contact.id).
+ */
+export function touchContactInteraction(contactId: string): void {
+  try {
+    updateContactInteraction(contactId);
+  } catch (err) {
+    log.warn({ err }, "Failed to update contact interaction stats");
   }
 }

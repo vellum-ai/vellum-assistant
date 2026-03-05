@@ -64,7 +64,8 @@ export function resolveDestinations(
         break;
       }
       case "telegram":
-      case "sms": {
+      case "sms":
+      case "slack": {
         const guardianResult = findGuardianForChannel(channel, assistantId);
         if (guardianResult && guardianResult.channel.externalChatId) {
           result.set(channel as NotificationChannel, {
@@ -85,6 +86,36 @@ export function resolveDestinations(
         );
         break;
       }
+      case "slack": {
+        const guardianResult = findGuardianForChannel("slack", assistantId);
+        const chatId = guardianResult?.channel.externalChatId;
+        // Slack bindings can originate from app_mention in shared channels.
+        // Only route notifications to DM channels (IDs starting with "D")
+        // to prevent leaking notifications into shared workspaces.
+        if (guardianResult && chatId && isSlackDmChannel(chatId)) {
+          result.set("slack", {
+            channel: "slack",
+            endpoint: chatId,
+            metadata: {
+              externalUserId: guardianResult.channel.externalUserId,
+            },
+          });
+        } else if (guardianResult && chatId) {
+          log.warn(
+            { channel: "slack", chatId },
+            "skipping non-DM Slack channel for notification delivery",
+          );
+        }
+        log.debug(
+          {
+            channel: "slack",
+            source: "contacts",
+            hasEndpoint: !!(chatId && isSlackDmChannel(chatId)),
+          },
+          "destination resolved",
+        );
+        break;
+      }
       default: {
         // Future deliverable channels without a resolver — skip silently.
         break;
@@ -93,4 +124,14 @@ export function resolveDestinations(
   }
 
   return result;
+}
+
+/**
+ * Slack DM channel IDs start with "D". Channels starting with "C" are
+ * public/shared channels, "G" are legacy group DMs. We restrict proactive
+ * notification delivery to "D"-prefixed IDs to avoid leaking into shared
+ * channels where app_mention bindings may have been created.
+ */
+function isSlackDmChannel(channelId: string): boolean {
+  return channelId.startsWith("D");
 }

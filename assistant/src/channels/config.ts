@@ -47,7 +47,7 @@ const CHANNEL_POLICIES = {
   },
   slack: {
     notification: {
-      deliveryEnabled: false,
+      deliveryEnabled: true,
       conversationStrategy: "continue_existing_conversation",
     },
   },

@@ -52,10 +52,8 @@ struct ContactsListView: View {
                 guardianSection(guardian)
             }
 
-            // Other contacts section
-            if !viewModel.otherContacts.isEmpty {
-                otherContactsSection
-            }
+            // Other contacts section (always show header + "+" button)
+            otherContactsSection
 
             // Filtered-empty state (contacts exist but search yields nothing)
             if viewModel.filteredContacts.isEmpty && !viewModel.contacts.isEmpty {
@@ -130,19 +128,38 @@ struct ContactsListView: View {
 
     private var otherContactsSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Contacts")
-                .font(VFont.sectionTitle)
-                .foregroundColor(VColor.textPrimary)
-
-            VStack(spacing: 0) {
-                ForEach(Array(viewModel.otherContacts.enumerated()), id: \.element.id) { index, contact in
-                    if index > 0 {
-                        Divider().background(VColor.surfaceBorder)
-                    }
-                    contactRow(contact)
+            HStack {
+                Text("Contacts")
+                    .font(VFont.sectionTitle)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+                Button { viewModel.isCreatingContact = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(VColor.accent)
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Add contact")
             }
-            .vCard(background: VColor.surfaceSubtle)
+
+            if !viewModel.hasNonGuardianContacts {
+                Text("No contacts yet. Tap + to add one.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .padding(VSpacing.lg)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .vCard(background: VColor.surfaceSubtle)
+            } else if !viewModel.otherContacts.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(viewModel.otherContacts.enumerated()), id: \.element.id) { index, contact in
+                        if index > 0 {
+                            Divider().background(VColor.surfaceBorder)
+                        }
+                        contactRow(contact)
+                    }
+                }
+                .vCard(background: VColor.surfaceSubtle)
+            }
         }
     }
 
@@ -159,8 +176,8 @@ struct ContactsListView: View {
                         .foregroundColor(VColor.textPrimary)
                         .lineLimit(1)
 
-                    if let relationship = contact.relationship, !relationship.isEmpty {
-                        Text(relationship)
+                    if let notes = contact.notes, !notes.isEmpty {
+                        Text(notes.components(separatedBy: .newlines).first ?? notes)
                             .font(VFont.caption)
                             .foregroundColor(VColor.textSecondary)
                             .lineLimit(1)
@@ -234,11 +251,14 @@ struct ContactsListView: View {
             Text("No contacts yet")
                 .font(VFont.headline)
                 .foregroundColor(VColor.textPrimary)
-            Text("Contacts are created automatically when people interact with your assistant through messaging channels.")
+            Text("Contacts are created automatically when people interact with your assistant, or you can add one manually.")
                 .font(VFont.caption)
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 300)
+            VButton(label: "Add Contact", leftIcon: "plus", style: .primary, size: .medium) {
+                viewModel.isCreatingContact = true
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, VSpacing.xxxl)
@@ -308,8 +328,6 @@ struct ContactsListView: View {
                 id: "guardian-1",
                 displayName: "Noah",
                 role: "guardian",
-                relationship: nil,
-                importance: 1.0,
                 lastInteraction: Date().timeIntervalSince1970 * 1000,
                 interactionCount: 42,
                 channels: [
@@ -331,8 +349,7 @@ struct ContactsListView: View {
                 id: "contact-2",
                 displayName: "Alice Chen",
                 role: "contact",
-                relationship: "Colleague",
-                importance: 0.8,
+                notes: "Colleague",
                 lastInteraction: Date().timeIntervalSince1970 * 1000 - 86400000,
                 interactionCount: 15,
                 channels: [
@@ -346,8 +363,7 @@ struct ContactsListView: View {
                 id: "contact-3",
                 displayName: "Bob Williams",
                 role: "contact",
-                relationship: "Friend",
-                importance: 0.6,
+                notes: "Friend",
                 lastInteraction: nil,
                 interactionCount: 3,
                 channels: [

@@ -1,9 +1,9 @@
-// Ingress access control: invite management, member management, and escalation decisions.
+// Contacts access control: invite management, member management, and escalation decisions.
 
 // === Client → Server ===
 
-export interface IngressInviteRequest {
-  type: "ingress_invite";
+export interface ContactsInviteRequest {
+  type: "contacts_invite";
   action: "create" | "list" | "revoke" | "redeem";
   /** Source channel for the invite (required for create and redeem). */
   sourceChannel?: string;
@@ -29,31 +29,6 @@ export interface IngressInviteRequest {
   guardianName?: string;
 }
 
-export interface IngressContactRequest {
-  type: "ingress_member"; // Legacy discriminator — kept for client compatibility
-  action: "list" | "upsert" | "revoke" | "block";
-  /** Assistant ID for scoping member operations (defaults to 'self'). */
-  assistantId?: string;
-  /** Source channel (required for upsert, optional filter for list). */
-  sourceChannel?: string;
-  /** External user ID (upsert only). */
-  externalUserId?: string;
-  /** External chat ID (upsert only). */
-  externalChatId?: string;
-  /** Display name (upsert only). */
-  displayName?: string;
-  /** Username (upsert only). */
-  username?: string;
-  /** Access policy (upsert only). */
-  policy?: "allow" | "deny" | "escalate";
-  /** Member status (upsert only for setting, list only for filtering). */
-  status?: "pending" | "active";
-  /** Member ID (revoke and block only). */
-  memberId?: string;
-  /** Reason for revoke or block (revoke and block only). */
-  reason?: string;
-}
-
 export interface AssistantInboxEscalationRequest {
   type: "assistant_inbox_escalation";
   action: "list" | "decide";
@@ -71,8 +46,8 @@ export interface AssistantInboxEscalationRequest {
 
 // === Server → Client ===
 
-export interface IngressInviteResponse {
-  type: "ingress_invite_response";
+export interface ContactsInviteResponse {
+  type: "contacts_invite_response";
   success: boolean;
   error?: string;
   /** Single invite (returned on create/revoke). Token field is only present on create. */
@@ -98,38 +73,6 @@ export interface IngressInviteResponse {
     expiresAt: number | null;
     status: string;
     note?: string;
-    createdAt: number;
-  }>;
-}
-
-export interface IngressContactResponse {
-  type: "ingress_member_response"; // Legacy discriminator — kept for client compatibility
-  success: boolean;
-  error?: string;
-  /** Single member (returned on upsert/revoke/block). */
-  member?: {
-    id: string;
-    sourceChannel: string;
-    externalUserId?: string;
-    externalChatId?: string;
-    displayName?: string;
-    username?: string;
-    status: string;
-    policy: string;
-    lastSeenAt?: number;
-    createdAt: number;
-  };
-  /** List of members (returned on list). */
-  members?: Array<{
-    id: string;
-    sourceChannel: string;
-    externalUserId?: string;
-    externalChatId?: string;
-    displayName?: string;
-    username?: string;
-    status: string;
-    policy: string;
-    lastSeenAt?: number;
     createdAt: number;
   }>;
 }
@@ -161,11 +104,9 @@ export interface AssistantInboxEscalationResponse {
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _InboxClientMessages =
-  | IngressInviteRequest
-  | IngressContactRequest
+  | ContactsInviteRequest
   | AssistantInboxEscalationRequest;
 
 export type _InboxServerMessages =
-  | IngressInviteResponse
-  | IngressContactResponse
+  | ContactsInviteResponse
   | AssistantInboxEscalationResponse;

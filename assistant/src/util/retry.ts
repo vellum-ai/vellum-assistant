@@ -125,4 +125,25 @@ export function abortableSleep(
   });
 }
 
+/**
+ * Extract retry-after milliseconds from an SDK error's headers object.
+ * Handles both Map-like (OpenAI: Headers with .get()) and plain-object
+ * (Anthropic: Record<string, string>) header shapes.
+ */
+export function extractRetryAfterMs(headers: unknown): number | undefined {
+  if (!headers) return undefined;
+
+  let raw: string | null | undefined;
+  if (typeof (headers as { get?: unknown }).get === "function") {
+    raw = (headers as { get(k: string): string | null }).get("retry-after");
+  } else if (typeof headers === "object") {
+    raw = (headers as Record<string, string>)["retry-after"];
+  }
+
+  if (typeof raw === "string") {
+    return parseRetryAfterMs(raw);
+  }
+  return undefined;
+}
+
 export { DEFAULT_BASE_DELAY_MS, DEFAULT_MAX_RETRIES };

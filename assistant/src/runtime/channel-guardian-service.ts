@@ -10,10 +10,7 @@ import { createHash, randomBytes } from "crypto";
 import { v4 as uuid } from "uuid";
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import {
-  createGuardianBinding,
-  revokeGuardianBinding,
-} from "../contacts/contacts-write.js";
+import { revokeGuardianBinding } from "../contacts/contacts-write.js";
 import type {
   GuardianBinding,
   IdentityBindingStatus,
@@ -70,8 +67,7 @@ export interface CreateChallengeResult {
 }
 
 export type ValidateChallengeResult =
-  | { success: true; bindingId: string; verificationType: "guardian" }
-  | { success: true; verificationType: "trusted_contact" }
+  | { success: true; verificationType: "guardian" | "trusted_contact" }
   | { success: false; reason: string };
 
 // ---------------------------------------------------------------------------
@@ -153,10 +149,13 @@ export function createVerificationChallenge(
 /**
  * Validate and consume a verification challenge.
  *
- * Checks per-actor/per-channel rate limits before attempting validation.
- * Hashes the provided secret, looks up a matching pending challenge,
- * validates it has not expired, consumes it, revokes any existing
- * active binding, and creates a new guardian binding.
+ * This function is a pure challenge validator: it checks rate limits,
+ * validates the secret against pending challenges, verifies identity
+ * binding, and consumes the challenge. It returns the verification type
+ * (guardian or trusted_contact) but does NOT create bindings or apply
+ * role-specific side effects — those are handled by callers:
+ * verification-intercept.ts (channel verification) and
+ * relay-server.ts (voice verification).
  *
  * On failure the invalid-attempt counter is incremented; after
  * exceeding the threshold the actor is locked out for a cooldown
@@ -168,8 +167,8 @@ export function validateAndConsumeChallenge(
   secret: string,
   actorExternalUserId: string,
   actorChatId: string,
-  actorUsername?: string,
-  actorDisplayName?: string,
+  _actorUsername?: string,
+  _actorDisplayName?: string,
 ): ValidateChallengeResult {
   // ── Rate-limit check ──
   const existing = getRateLimit(
@@ -322,58 +321,16 @@ export function validateAndConsumeChallenge(
   // Reset the rate-limit counter on success
   resetRateLimit(assistantId, channel, actorExternalUserId, actorChatId);
 
-  // Trusted contact verification sessions (created by the access request
-  // approval flow) should NOT create a guardian binding — the requester is
-  // becoming a trusted contact, not a guardian. The explicit verificationPurpose
-  // field distinguishes this from guardian outbound verification which also uses
-  // identity-bound sessions.
-  if (challenge.verificationPurpose === "trusted_contact") {
-    return { success: true, verificationType: "trusted_contact" };
-  }
-
-  // Reject if a different user already holds the guardian binding
-  const existingBinding = getGuardianBinding(assistantId, channel);
-  if (
-    existingBinding &&
-    existingBinding.guardianExternalUserId !== actorExternalUserId
-  ) {
-    return {
-      success: false,
-      reason:
-        "A guardian is already bound for this channel. The existing guardian must be revoked before a new one can be verified.",
-    };
-  }
-
-  // Revoke any existing active binding before creating a new one (same-user re-verification)
-  revokeGuardianBinding(assistantId, channel);
-
-  const metadata: Record<string, string> = {};
-  if (actorUsername && actorUsername.trim().length > 0) {
-    metadata.username = actorUsername.trim();
-  }
-  if (actorDisplayName && actorDisplayName.trim().length > 0) {
-    metadata.displayName = actorDisplayName.trim();
-  }
-
-  // Unify all channel bindings onto the canonical (vellum) principal so that
-  // cross-channel authorization reduces to strict principal equality.
-  const vellumBinding = getGuardianBinding(assistantId, "vellum");
-  const canonicalPrincipal =
-    vellumBinding?.guardianPrincipalId ?? actorExternalUserId;
-
-  // Create the new guardian binding
-  const binding = createGuardianBinding({
-    assistantId,
-    channel,
-    guardianExternalUserId: actorExternalUserId,
-    guardianDeliveryChatId: actorChatId,
-    guardianPrincipalId: canonicalPrincipal,
-    verifiedVia: "challenge",
-    metadataJson:
-      Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
-  });
-
-  return { success: true, bindingId: binding.id, verificationType: "guardian" };
+  // Return the verification type — role-specific side effects are
+  // handled by callers: verification-intercept (channel) and
+  // relay-server (voice).
+  return {
+    success: true,
+    verificationType:
+      challenge.verificationPurpose === "trusted_contact"
+        ? "trusted_contact"
+        : "guardian",
+  };
 }
 
 /**

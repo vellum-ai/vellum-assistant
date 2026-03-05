@@ -10,7 +10,7 @@ Manage the user's contacts, relationship graph, access control (trusted contacts
 ## Prerequisites
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
-- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/ingress/*`, and `/v1/integrations/telegram/config` on the gateway, never the daemon runtime port directly.
+- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/contacts/channels`, `/v1/contacts/invites`, and `/v1/integrations/telegram/config` on the gateway, never the assistant runtime port directly.
 - The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable for control-plane `curl` requests.
 
 ## Contact Management
@@ -25,10 +25,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
     "displayName": "<name>",
-    "relationship": "<relationship>",
-    "importance": 0.5,
-    "responseExpectation": "<speed>",
-    "preferredTone": "<tone>",
+    "notes": "<free-text notes about this contact>",
     "channels": [
       {
         "type": "<channel_type>",
@@ -48,15 +45,12 @@ Required fields:
 Optional fields:
 
 - `id` -- contact ID to update (omit to create new, or auto-match by channel address)
-- `relationship` -- e.g. colleague, friend, manager, client, family
-- `importance` -- score from 0 to 1 (default 0.5), higher means more important
-- `responseExpectation` -- expected response speed: immediate, within_hours, within_day, casual
-- `preferredTone` -- communication tone: formal, casual, friendly, professional
+- `notes` -- free-text notes about this contact (e.g. relationship, communication preferences, response expectations)
 - `channels` -- list of communication channels
 
 ### Search contacts
 
-Search for contacts by name, channel address, relationship type, or other criteria using the gateway API.
+Search for contacts by name, channel address, or other criteria using the gateway API.
 
 ```bash
 curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/contacts?query=<search_term>" \
@@ -68,7 +62,6 @@ Optional query parameters:
 - `query` -- search by display name (partial match)
 - `channelAddress` -- search by channel address (email, phone, handle)
 - `channelType` -- filter by channel type when searching by address
-- `relationship` -- filter by relationship type (exact match)
 - `limit` -- maximum results to return (default 50, max 100)
 
 ### Merge contacts
@@ -76,7 +69,7 @@ Optional query parameters:
 When you discover two contacts are the same person (e.g. same person on email and Slack), merge them to consolidate. Merging:
 
 - Combines all channels from both contacts
-- Keeps the higher importance score
+- Merges notes from both contacts
 - Sums interaction counts
 - Deletes the donor contact
 
@@ -96,10 +89,10 @@ Trusted contacts control who is allowed to send messages to the assistant throug
 
 ### Concepts
 
-- **Member**: A user identity (external user ID or chat ID) from a specific channel that has been registered with a policy.
-- **Policy**: Controls what the member can do -- `allow` (can message freely) or `deny` (blocked from messaging).
-- **Status**: The member's lifecycle state -- `active` (currently effective), `revoked` (access removed), or `blocked` (explicitly denied).
-- **Source channel**: The messaging platform the contact uses (e.g., `telegram`, `sms`, `voice`).
+- **Contact channel**: A user identity (external user ID or chat ID) on a specific messaging platform, stored as an entry in a contact's `channels` array. Each channel entry has its own `status` and `policy`.
+- **Policy**: Controls what the contact channel can do -- `allow` (can message freely) or `deny` (blocked from messaging).
+- **Status**: The channel's lifecycle state -- `active` (currently effective), `revoked` (access removed), or `blocked` (explicitly denied).
+- **Channel type**: The messaging platform (e.g., `telegram`, `sms`, `voice`).
 
 ### List trusted contacts
 
@@ -146,27 +139,30 @@ Use this when the user wants to grant someone access to message the assistant. *
 Ask the user: _"I'll add [name/identifier] on [channel] as an allowed contact. Should I proceed?"_
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
-    "sourceChannel": "<channel>",
-    "externalUserId": "<user_id>",
     "displayName": "<display_name>",
-    "policy": "allow",
-    "status": "active"
+    "channels": [{
+      "type": "<channel>",
+      "address": "<user_id>",
+      "externalUserId": "<user_id>",
+      "status": "active",
+      "policy": "allow"
+    }]
   }'
 ```
 
 Required fields:
 
-- `sourceChannel` -- the channel (e.g., `telegram`, `sms`)
-- At least one of `externalUserId` or `externalChatId`
-
-Optional fields:
-
 - `displayName` -- human-readable name for the contact
-- `username` -- channel-specific handle (e.g., Telegram @username)
+- `channels` -- at least one channel entry with:
+  - `type` -- the channel type (e.g., `telegram`, `sms`)
+  - `address` -- the channel-specific identifier
+  - `externalUserId` -- the user's ID on that channel (or `externalChatId` for chat-based channels)
+  - `status` -- set to `"active"` for immediate access
+  - `policy` -- set to `"allow"` to grant messaging access
 
 If the user provides a name but not an external ID, explain that you need the channel-specific user ID or chat ID to create the contact entry. For Telegram, this is a numeric user ID; for SMS, this is the phone number in E.164 format.
 
@@ -176,16 +172,18 @@ Use this when the user wants to remove someone's access. **Always confirm with t
 
 Ask the user: _"I'll revoke access for [name/identifier]. They will no longer be able to message the assistant. Should I proceed?"_
 
-First, list members to find the member's `id`, then revoke:
+First, list contacts to find the channel's `id` (each entry in a contact's `channels` array has an `id` field -- visible in `GET /v1/contacts` or `vellum contacts list --json` output), then revoke:
+
+**Important**: Before revoking, check the channel's current `status`. If the channel is **blocked**, do not attempt to revoke it -- blocking is stronger than revoking. Inform the user that the contact is already blocked and revoking is not applicable. Only channels with `active` or `pending` status can be revoked.
 
 ```bash
-curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members/<member_id>" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
+curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/channels/<channel_id>" \
   -H "Content-Type: application/json" \
-  -d '{"reason": "<optional reason>"}'
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
+  -d '{"status": "revoked", "reason": "<optional reason>"}'
 ```
 
-Replace `<member_id>` with the member's `id` from the list response.
+Replace `<channel_id>` with the channel's `id` from the contact's `channels` array. The API will return a `409 Conflict` error if the channel is currently blocked.
 
 ### Block a user
 
@@ -194,11 +192,13 @@ Use this when the user wants to explicitly block someone. Blocking is stronger t
 Ask the user: _"I'll block [name/identifier]. They will be permanently denied from messaging the assistant. Should I proceed?"_
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members/<member_id>/block" \
+curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/channels/<channel_id>" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
-  -d '{"reason": "<optional reason>"}'
+  -d '{"status": "blocked", "reason": "<optional reason>"}'
 ```
+
+Replace `<channel_id>` with the channel's `id` from the contact's `channels` array (visible in `GET /v1/contacts` or `vellum contacts list --json` output).
 
 ## Invite Links
 
@@ -211,7 +211,7 @@ Use this when the guardian wants to invite someone to message the assistant on T
 **Important**: The shell snippet below emits a `<vellum-sensitive-output>` directive containing the raw invite token. The tool executor automatically strips this directive and replaces the raw token with a placeholder so the LLM never sees it. The placeholder is resolved back to the real token in the final assistant reply.
 
 ```bash
-INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
+INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
@@ -286,7 +286,7 @@ Use this when the guardian wants to authorize a specific phone number to call th
 **Important**: The response includes a `voiceCode` field that is only returned at creation time and cannot be retrieved later. Extract and present it clearly.
 
 ```bash
-INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites" \
+INVITE_JSON=$(curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{
@@ -388,7 +388,7 @@ Ask the user: _"I'll revoke the invite [note or ID]. It will no longer be usable
 First, list invites to find the invite's `id`, then revoke:
 
 ```bash
-curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/invites/<invite_id>" \
+curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/invites/<invite_id>" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
 ```
 
@@ -397,10 +397,7 @@ Replace `<invite_id>` with the invite's `id` from the list response. The same re
 ## Contact Fields
 
 - **displayName** -- the contact's name (required)
-- **relationship** -- e.g. colleague, friend, manager, client, family
-- **importance** -- score from 0 to 1 (default 0.5), higher means more important
-- **responseExpectation** -- expected response speed: immediate, within_hours, within_day, casual
-- **preferredTone** -- communication tone: formal, casual, friendly, professional
+- **notes** -- free-text notes about this contact (e.g. relationship, communication preferences, response expectations)
 - **channels** -- list of communication channels (email, slack, whatsapp, phone, telegram, discord, other)
 
 ### Channel Types
@@ -425,10 +422,10 @@ Each channel has:
 
 - If a request returns `{ ok: false, error: "..." }`, report the error message to the user.
 - Common errors:
-  - `sourceChannel is required` -- ask the user which channel the contact is on.
-  - `At least one of externalUserId or externalChatId is required` -- ask the user for the contact's channel-specific identifier.
-  - `Member not found or cannot be revoked` -- the member ID may be invalid or the member is already revoked.
-  - `Member not found or already blocked` -- the member ID may be invalid or the member is already blocked.
+  - `Channel not found` -- the channel ID may be invalid; list contacts to find the correct channel ID.
+  - `Channel already revoked` -- the channel has already been revoked.
+  - `Channel already blocked` -- the channel has already been blocked.
+  - `Cannot revoke a blocked channel` -- the channel is blocked; blocking is stronger than revoking. Tell the user the contact is already blocked.
   - `sourceChannel is required for create` -- when creating an invite, always pass `"sourceChannel": "telegram"` for Telegram or `"sourceChannel": "voice"` for voice invites.
   - `expectedExternalUserId is required for voice invites` -- voice invites must include the invitee's phone number.
   - `expectedExternalUserId must be in E.164 format` -- the phone number must start with `+` followed by country code and number (e.g., `+15551234567`).
@@ -439,21 +436,20 @@ Each channel has:
 ## Tips
 
 - Use contact search with `channelAddress` to find contacts by their email, phone, or handle.
-- When creating follow-ups, provide a `contactId` to link the follow-up to a specific contact for grace period calculations.
-- Contacts with higher importance scores get shorter default response deadlines.
-- When merging contacts, the surviving contact keeps the higher importance score and gains all channels from the donor.
+- When creating follow-ups, provide a `contact_id` to link the follow-up to a specific contact.
+- When merging contacts, the surviving contact gains all channels and merged notes from the donor.
 
 ## Typical Workflows
 
-**"Who can message me?"** -- List all active members, present as a formatted list.
+**"Who can message me?"** -- List all contacts, present active channels as a formatted list.
 
-**"Add my friend to Telegram"** -- Ask for their Telegram user ID (numeric) and optional display name, confirm, then add with `policy: "allow"` and `status: "active"`.
+**"Add my friend to Telegram"** -- Ask for their Telegram user ID (numeric) and display name, confirm, then create a contact with a channel entry with `policy: "allow"` and `status: "active"`.
 
-**"Remove [name]'s access"** -- List members to find them, confirm the revocation, then delete.
+**"Remove [name]'s access"** -- List contacts to find them, identify the channel to revoke, confirm the revocation, then patch the channel status to `"revoked"`.
 
-**"Block [name]"** -- List members to find them, confirm the block, then execute.
+**"Block [name]"** -- List contacts to find them, identify the channel to block, confirm the block, then patch the channel status to `"blocked"`.
 
-**"Show me blocked contacts"** -- List with `status=blocked` filter.
+**"Show me blocked contacts"** -- List contacts and filter for channels with `status: "blocked"`.
 
 **"Create a Telegram invite link"** / **"Invite someone on Telegram"** -- Create an invite with `sourceChannel: "telegram"`, look up the bot username, build the deep link, and present it with sharing instructions.
 
