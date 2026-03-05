@@ -208,6 +208,7 @@ public enum VColor {
     public static let navHover = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Moss._700)
     public static let navActive = adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._600)
     public static let segmentSelected = adaptiveColor(light: .white, dark: Moss._600)
+    public static let segmentHover = adaptiveColor(light: Stone._100, dark: Moss._600)
 
     // Interactive states
     public static let ghostHover = adaptiveColor(light: Stone._100, dark: Moss._700)

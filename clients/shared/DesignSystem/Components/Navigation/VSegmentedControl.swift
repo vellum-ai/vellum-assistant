@@ -127,7 +127,7 @@ private struct PillSegment: View {
         if isSelected {
             return VColor.segmentSelected
         } else if isHovered {
-            return VColor.navHover
+            return VColor.segmentHover
         } else {
             return .clear
         }
