@@ -51,6 +51,7 @@ jobs:
 
       - name: Run performance tests
         run: |
+          set -o pipefail
           mkdir -p .perf-baselines
           swift test --package-path clients --filter MarkdownPerformanceTests 2>&1 | tee .perf-baselines/results.log
 
