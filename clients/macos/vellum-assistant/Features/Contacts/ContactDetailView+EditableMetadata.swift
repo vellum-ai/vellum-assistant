@@ -96,11 +96,16 @@ extension ContactDetailView {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                    .onChange(of: editedResponseExpectation) { _, newValue in
-                        let currentValue = displayContact.responseExpectation ?? ""
-                        guard newValue != currentValue else { return }
-                        Task { await saveResponseExpectation(newValue.isEmpty ? nil : newValue) }
+
+                    Button {
+                        Task { await saveResponseExpectation(editedResponseExpectation.isEmpty ? nil : editedResponseExpectation) }
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .foregroundColor(VColor.success)
+                            .font(.system(size: 12, weight: .semibold))
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Save response expectation")
 
                     Button {
                         isEditingResponseExpectation = false
