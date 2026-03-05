@@ -250,7 +250,7 @@ describe("managed proxy integration — constants integrity", () => {
       expect(meta).toBeDefined();
       expect(meta.managed).toBe(true);
       expect(meta.proxyPath).toBeTruthy();
-      expect(meta.proxyPath).toMatch(/^\/v1\/proxy\//);
+      expect(meta.proxyPath).toMatch(/^\/v1\/runtime-proxy\//);
     }
   });
 
