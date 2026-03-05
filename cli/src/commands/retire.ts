@@ -109,11 +109,10 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
     await stopOrphanedDaemonProcesses();
   }
 
-  // For named instances (instanceDir under ~/.vellum/instances/<name>/),
-  // archive and remove the entire instance directory. For default instances
+  // For named instances (instanceDir differs from homedir), archive and
+  // remove the entire instance directory. For the default instance
   // (instanceDir is homedir), archive only the .vellum subdirectory.
-  const instancesBase = join(homedir(), ".vellum", "instances");
-  const isNamedInstance = resources.instanceDir.startsWith(instancesBase + "/");
+  const isNamedInstance = resources.instanceDir !== homedir();
   const dirToArchive = isNamedInstance ? resources.instanceDir : vellumDir;
 
   // Move the data directory out of the way so the path is immediately available
