@@ -181,7 +181,7 @@ export function bridgeConfirmationRequestToGuardian(
     .then((signalResult) => {
       for (const result of signalResult.deliveryResults) {
         if (result.channel === "vellum") continue; // handled in onThreadCreated
-        if (result.channel !== "telegram" && result.channel !== "sms") continue;
+        if (result.channel !== "telegram") continue;
         createCanonicalGuardianDelivery({
           requestId: canonicalRequest.id,
           destinationChannel: result.channel,
