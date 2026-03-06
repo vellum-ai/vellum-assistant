@@ -132,7 +132,13 @@ export async function generateInviteInstruction(params: {
       "Requirements:",
       '- Write from the assistant\'s perspective using first person ("message me"), NOT third person ("message the assistant").',
       "- Do NOT include the invite code — it is displayed separately in the UI.",
-      "- When a share link is available, mention that the user can share the link.",
+    );
+    if (params.hasShareUrl) {
+      parts.push(
+        "- When a share link is available, mention that the user can share the link.",
+      );
+    }
+    parts.push(
       "- Keep the instruction concise (1–2 sentences, under 500 characters).",
       '- Refer to the invite code as "the code below" since it is shown beneath this instruction.',
       "",
