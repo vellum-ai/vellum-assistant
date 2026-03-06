@@ -427,8 +427,8 @@ struct AssistantProgressView: View {
                     .overlay(
                         Capsule().stroke(VColor.surfaceBorder, lineWidth: 1)
                     )
-                    .onHover { hovering in
-                        isOverflowPopoverShown = hovering
+                    .onTapGesture {
+                        isOverflowPopoverShown.toggle()
                     }
                     .popover(isPresented: $isOverflowPopoverShown, arrowEdge: .bottom) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
