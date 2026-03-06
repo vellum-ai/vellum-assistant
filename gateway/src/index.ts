@@ -545,52 +545,6 @@ async function main() {
       auth: "edge",
       handler: (req) => twilioControlPlaneProxy.handleReleaseTwilioNumber(req),
     },
-    {
-      path: "/v1/integrations/twilio/sms/compliance",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => twilioControlPlaneProxy.handleGetSmsCompliance(req),
-    },
-    {
-      path: "/v1/integrations/twilio/sms/compliance/tollfree",
-      method: "POST",
-      auth: "edge",
-      handler: (req) =>
-        twilioControlPlaneProxy.handleSubmitTollfreeVerification(req),
-    },
-    {
-      path: /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
-      method: "PATCH",
-      auth: "edge",
-      handler: (req, params) =>
-        twilioControlPlaneProxy.handleUpdateTollfreeVerification(
-          req,
-          decodeURIComponent(params[0]),
-        ),
-    },
-    {
-      path: /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (req, params) =>
-        twilioControlPlaneProxy.handleDeleteTollfreeVerification(
-          req,
-          decodeURIComponent(params[0]),
-        ),
-    },
-    {
-      path: "/v1/integrations/twilio/sms/test",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => twilioControlPlaneProxy.handleSmsSendTest(req),
-    },
-    {
-      path: "/v1/integrations/twilio/sms/doctor",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => twilioControlPlaneProxy.handleSmsDoctor(req),
-    },
-
     // ── Slack control plane ──
     {
       path: "/v1/slack/channels",
