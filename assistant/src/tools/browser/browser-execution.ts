@@ -402,7 +402,7 @@ export async function executeBrowserNavigate(
                 "2. Use browser_fill_credential to fill email/password from credential_store",
               );
               lines.push(
-                "3. For SMS/email verification codes, use ui_show with a form to ask the user for the code mid-turn",
+                "3. For email verification codes, use ui_show with a form to ask the user for the code mid-turn",
               );
               lines.push(
                 "4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself",
@@ -433,7 +433,7 @@ export async function executeBrowserNavigate(
             "2. Use browser_fill_credential to fill email/password from credential_store",
           );
           lines.push(
-            "3. For SMS/email verification codes, use ui_show with a form to ask the user for the code mid-turn",
+            "3. For email verification codes, use ui_show with a form to ask the user for the code mid-turn",
           );
           lines.push(
             "4. Do NOT give up or tell the user to sign in manually — handle the login flow yourself",

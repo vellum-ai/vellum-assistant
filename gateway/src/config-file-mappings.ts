@@ -1,37 +1,18 @@
 import type { GatewayConfig } from "./config.js";
 
-type ConfigFileMapping =
-  | {
-      key: string;
-      field: string;
-      configField: keyof GatewayConfig;
-      type: "string";
-    }
-  | {
-      key: string;
-      field: string;
-      configField: keyof GatewayConfig;
-      type: "record";
-    }
-  | {
-      key: string;
-      field: string;
-      configField: keyof GatewayConfig;
-      type: "normalized-record";
-    };
+type ConfigFileMapping = {
+  key: string;
+  field: string;
+  configField: keyof GatewayConfig;
+  type: "string";
+};
 
 export const CONFIG_FILE_MAPPINGS: ConfigFileMapping[] = [
   {
-    key: "sms",
+    key: "twilio",
     field: "phoneNumber",
     configField: "twilioPhoneNumber",
     type: "string",
-  },
-  {
-    key: "sms",
-    field: "assistantPhoneNumbers",
-    configField: "assistantPhoneNumbers",
-    type: "normalized-record",
   },
   {
     key: "email",
@@ -53,28 +34,10 @@ export const CONFIG_FILE_MAPPINGS: ConfigFileMapping[] = [
   },
 ];
 
-/** Iterate entries and keep only those whose value is a non-empty, non-whitespace string. */
-function normalizeRecord(raw: unknown): Record<string, string> | undefined {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const result: Record<string, string> = {};
-  for (const [k, v] of Object.entries(raw)) {
-    if (typeof v === "string" && v.trim() !== "") {
-      result[k] = v;
-    }
-  }
-  return Object.keys(result).length > 0 ? result : undefined;
-}
-
 function resolveRawValue(mapping: ConfigFileMapping, raw: unknown): unknown {
   switch (mapping.type) {
     case "string":
       return typeof raw === "string" ? raw || undefined : undefined;
-    case "record":
-      return raw && typeof raw === "object" && !Array.isArray(raw)
-        ? raw
-        : undefined;
-    case "normalized-record":
-      return normalizeRecord(raw);
   }
 }
 

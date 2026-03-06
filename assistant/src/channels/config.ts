@@ -45,15 +45,6 @@ const CHANNEL_POLICIES = {
       codeRedemptionEnabled: true,
     },
   },
-  sms: {
-    notification: {
-      deliveryEnabled: false,
-      conversationStrategy: "continue_existing_conversation",
-    },
-    invite: {
-      codeRedemptionEnabled: false,
-    },
-  },
   whatsapp: {
     notification: {
       deliveryEnabled: false,

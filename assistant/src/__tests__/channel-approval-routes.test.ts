@@ -217,9 +217,9 @@ function ensureTestContact(): void {
         policy: "allow",
       },
       {
-        type: "sms",
-        address: "sms-user-default",
-        externalUserId: "sms-user-default",
+        type: "telegram",
+        address: "tg-user-default",
+        externalUserId: "tg-user-default",
         status: "active",
         policy: "allow",
       },
@@ -887,27 +887,27 @@ describe("stale callback handling", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 15. SMS channel approval decisions
+// 15. Channel approval decisions
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("SMS channel approval decisions", () => {
+describe("Channel approval decisions", () => {
   beforeEach(() => {
     createGuardianBinding({
-      channel: "sms",
-      guardianExternalUserId: "sms-user-default",
-      guardianDeliveryChatId: "sms-chat-123",
-      guardianPrincipalId: "sms-user-default",
+      channel: "telegram",
+      guardianExternalUserId: "tg-user-default",
+      guardianDeliveryChatId: "tg-chat-123",
+      guardianPrincipalId: "tg-user-default",
     });
   });
 
-  function makeSmsInboundRequest(
+  function makeInboundRequest(
     overrides: Record<string, unknown> = {},
   ): Request {
     const body = {
-      sourceChannel: "sms",
-      interface: "sms",
-      conversationExternalId: "sms-chat-123",
-      actorExternalId: "sms-user-default",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      conversationExternalId: "tg-chat-123",
+      actorExternalId: "tg-user-default",
       externalMessageId: `msg-${Date.now()}-${Math.random()}`,
       content: "hello",
       replyCallbackUrl: "https://gateway.test/deliver",
@@ -922,14 +922,14 @@ describe("SMS channel approval decisions", () => {
     });
   }
 
-  test('plain-text "yes" via SMS triggers approve_once decision', async () => {
+  test('plain-text "yes" via channel triggers approve_once decision', async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
     ).mockResolvedValue({ ok: true });
 
-    // Establish the conversation via SMS
-    const initReq = makeSmsInboundRequest({ content: "init" });
+    // Establish the conversation via channel
+    const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
@@ -940,29 +940,29 @@ describe("SMS channel approval decisions", () => {
     ensureConversation(conversationId!);
 
     const sessionMock = registerPendingInteraction(
-      "req-sms-1",
+      "req-tg-1",
       conversationId!,
       "shell",
     );
 
-    const req = makeSmsInboundRequest({ content: "yes" });
+    const req = makeInboundRequest({ content: "yes" });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-sms-1", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-tg-1", "allow");
 
     deliverSpy.mockRestore();
   });
 
-  test('plain-text "no" via SMS triggers reject decision', async () => {
+  test('plain-text "no" via channel triggers reject decision', async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
     ).mockResolvedValue({ ok: true });
 
-    const initReq = makeSmsInboundRequest({ content: "init" });
+    const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
@@ -973,23 +973,23 @@ describe("SMS channel approval decisions", () => {
     ensureConversation(conversationId!);
 
     const sessionMock = registerPendingInteraction(
-      "req-sms-2",
+      "req-tg-2",
       conversationId!,
       "shell",
     );
 
-    const req = makeSmsInboundRequest({ content: "no" });
+    const req = makeInboundRequest({ content: "no" });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-sms-2", "deny");
+    expect(sessionMock).toHaveBeenCalledWith("req-tg-2", "deny");
 
     deliverSpy.mockRestore();
   });
 
-  test("non-decision SMS message during pending approval sends status reply", async () => {
+  test("non-decision message during pending approval sends status reply", async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
@@ -999,7 +999,7 @@ describe("SMS channel approval decisions", () => {
       "deliverApprovalPrompt",
     ).mockResolvedValue(undefined);
 
-    const initReq = makeSmsInboundRequest({ content: "init" });
+    const initReq = makeInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
@@ -1009,22 +1009,22 @@ describe("SMS channel approval decisions", () => {
     const conversationId = events[events.length - 1]?.conversation_id;
     ensureConversation(conversationId!);
 
-    registerPendingInteraction("req-sms-3", conversationId!, "shell");
+    registerPendingInteraction("req-tg-3", conversationId!, "shell");
 
-    const req = makeSmsInboundRequest({ content: "what is happening?" });
+    const req = makeInboundRequest({ content: "what is happening?" });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("assistant_turn");
 
-    // SMS non-decision: status reply delivered via plain text
+    // Non-decision: status reply delivered via plain text
     expect(deliverSpy).toHaveBeenCalled();
     expect(approvalSpy).not.toHaveBeenCalled();
     const statusCall = deliverSpy.mock.calls.find(
       (call) =>
         typeof call[1] === "object" &&
-        (call[1] as { chatId?: string }).chatId === "sms-chat-123",
+        (call[1] as { chatId?: string }).chatId === "tg-chat-123",
     );
     expect(statusCall).toBeDefined();
     const statusPayload = statusCall![1] as {
@@ -1041,14 +1041,14 @@ describe("SMS channel approval decisions", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 16. SMS guardian verify intercept
+// 16. Guardian verify intercept
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("SMS guardian verify intercept", () => {
-  test("verification code reply works with sourceChannel sms", async () => {
+describe("Guardian verify intercept", () => {
+  test("verification code reply works with sourceChannel telegram", async () => {
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
-    const { secret } = createVerificationChallenge("sms");
+    const { secret } = createVerificationChallenge("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1061,12 +1061,12 @@ describe("SMS guardian verify intercept", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sourceChannel: "sms",
-        interface: "sms",
-        conversationExternalId: "sms-chat-verify",
+        sourceChannel: "telegram",
+        interface: "telegram",
+        conversationExternalId: "tg-chat-verify",
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: secret,
-        actorExternalId: "sms-user-42",
+        actorExternalId: "tg-user-42",
         replyCallbackUrl: "https://gateway.test/deliver",
       }),
     });
@@ -1080,7 +1080,7 @@ describe("SMS guardian verify intercept", () => {
     expect(deliverSpy).toHaveBeenCalled();
     const replyArgs = deliverSpy.mock.calls[0];
     const replyPayload = replyArgs[1] as { chatId: string; text: string };
-    expect(replyPayload.chatId).toBe("sms-chat-verify");
+    expect(replyPayload.chatId).toBe("tg-chat-verify");
     expect(typeof replyPayload.text).toBe("string");
     expect(replyPayload.text.toLowerCase()).toContain("guardian");
     expect(replyPayload.text.toLowerCase()).toContain("verif");
@@ -1088,11 +1088,11 @@ describe("SMS guardian verify intercept", () => {
     deliverSpy.mockRestore();
   });
 
-  test("invalid verification code returns failed via SMS", async () => {
+  test("invalid verification code returns failed via channel", async () => {
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
     // Ensure there is a pending challenge so bare-code verification is intercepted.
-    createVerificationChallenge("sms");
+    createVerificationChallenge("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1105,12 +1105,12 @@ describe("SMS guardian verify intercept", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sourceChannel: "sms",
-        interface: "sms",
-        conversationExternalId: "sms-chat-verify-fail",
+        sourceChannel: "telegram",
+        interface: "telegram",
+        conversationExternalId: "tg-chat-verify-fail",
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: "000000",
-        actorExternalId: "sms-user-43",
+        actorExternalId: "tg-user-43",
         replyCallbackUrl: "https://gateway.test/deliver",
       }),
     });
@@ -1140,7 +1140,7 @@ describe("SMS guardian verify intercept", () => {
     const challengeHash = createHash("sha256").update(secret).digest("hex");
     createChallenge({
       id: `challenge-hex-${Date.now()}`,
-      channel: "sms",
+      channel: "telegram",
       challengeHash,
       expiresAt: Date.now() + 600_000,
     });
@@ -1157,12 +1157,12 @@ describe("SMS guardian verify intercept", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sourceChannel: "sms",
-        interface: "sms",
-        conversationExternalId: "sms-chat-hex-message",
+        sourceChannel: "telegram",
+        interface: "telegram",
+        conversationExternalId: "tg-chat-hex-message",
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: secret,
-        actorExternalId: "sms-user-hex",
+        actorExternalId: "tg-user-hex",
         replyCallbackUrl: "https://gateway.test/deliver",
       }),
     });
@@ -2784,23 +2784,23 @@ describe("non-decision status reply for different channels", () => {
       guardianPrincipalId: "telegram-user-default",
     });
     createGuardianBinding({
-      channel: "sms",
+      channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
       guardianPrincipalId: "telegram-user-default",
     });
   });
 
-  test("non-decision message on non-rich channel (sms) sends status reply", async () => {
+  test("non-decision message on non-rich channel sends status reply", async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
     ).mockResolvedValue({ ok: true });
 
-    // Establish the conversation using sms (non-rich channel)
+    // Establish the conversation using a non-rich channel
     const initReq = makeInboundRequest({
       content: "init",
-      sourceChannel: "sms",
+      sourceChannel: "telegram",
     });
     await handleChannelInbound(initReq, noopProcessMessage);
 
@@ -2811,12 +2811,12 @@ describe("non-decision status reply for different channels", () => {
     const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    registerPendingInteraction("req-status-sms", conversationId!, "shell");
+    registerPendingInteraction("req-status-tg", conversationId!, "shell");
 
     // Send a non-decision message
     const req = makeInboundRequest({
       content: "what is happening?",
-      sourceChannel: "sms",
+      sourceChannel: "telegram",
     });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;

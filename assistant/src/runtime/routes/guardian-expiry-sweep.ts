@@ -31,7 +31,7 @@ let expirySweepTimer: ReturnType<typeof setInterval> | null = null;
  *
  * Accepts a `gatewayBaseUrl` rather than a fixed delivery URL so that
  * each approval's notification is routed to the correct channel-specific
- * endpoint (e.g. `/deliver/telegram`, `/deliver/sms`).
+ * endpoint (e.g. `/deliver/telegram`, `/deliver/whatsapp`).
  */
 export function sweepExpiredGuardianApprovals(
   gatewayBaseUrl: string,

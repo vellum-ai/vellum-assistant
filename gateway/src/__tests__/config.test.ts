@@ -132,7 +132,7 @@ describe("config: twilio assistant phone number mapping", () => {
       writeFileSync(
         join(workspaceDir, "config.json"),
         JSON.stringify({
-          sms: {
+          twilio: {
             phoneNumber: "+15550001111",
             assistantPhoneNumbers: {
               "asst-alpha": "+15550002222",

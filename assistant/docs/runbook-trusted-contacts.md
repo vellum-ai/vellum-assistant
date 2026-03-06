@@ -35,8 +35,8 @@ curl -s "$BASE/v1/contacts?role=contact" \
 curl -s "$BASE/v1/contacts?channelType=telegram" \
   -H "Authorization: Bearer $TOKEN" | jq
 
-# SMS contacts only
-curl -s "$BASE/v1/contacts?channelType=sms" \
+# Voice contacts only
+curl -s "$BASE/v1/contacts?channelType=voice" \
   -H "Authorization: Bearer $TOKEN" | jq
 ```
 
@@ -274,7 +274,7 @@ curl -s -X POST "$BASE/v1/contacts" \
   }' | jq
 ```
 
-For SMS contacts, use the E.164 phone number as the address and external user/chat ID:
+For voice contacts, use the E.164 phone number as the address and external user/chat ID:
 
 ```bash
 curl -s -X POST "$BASE/v1/contacts" \
@@ -284,7 +284,7 @@ curl -s -X POST "$BASE/v1/contacts" \
     "displayName": "Bob",
     "role": "contact",
     "channels": [{
-      "type": "sms",
+      "type": "voice",
       "address": "+15551234567",
       "externalUserId": "+15551234567",
       "externalChatId": "+15551234567",

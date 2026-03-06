@@ -60,7 +60,7 @@ export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
  *   1. `Authorization: Bearer <token>` header (standard clients)
  *   2. `token` query parameter (Twilio ConversationRelay — no custom headers)
  *
- * Fail-closed: rejects all unauthenticated requests unless the SMS deliver
+ * Fail-closed: rejects all unauthenticated requests unless the Telegram deliver
  * auth bypass flag is set (reusing the same local-dev escape hatch).
  */
 function checkRelayAuth(
@@ -68,8 +68,8 @@ function checkRelayAuth(
   url: URL,
   config: GatewayConfig,
 ): Response | null {
-  // Local-dev bypass: allow unauthenticated access when smsDeliverAuthBypass is set
-  if (config.smsDeliverAuthBypass) {
+  // Local-dev bypass: allow unauthenticated access when telegramDeliverAuthBypass is set
+  if (config.telegramDeliverAuthBypass) {
     return null;
   }
 

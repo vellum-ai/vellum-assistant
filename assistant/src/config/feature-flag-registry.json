@@ -2,14 +2,6 @@
   "version": 1,
   "flags": [
     {
-      "id": "sms",
-      "scope": "assistant",
-      "key": "feature_flags.sms.enabled",
-      "label": "SMS",
-      "description": "Show SMS setup in Settings > Connect and enable the SMS setup skill",
-      "defaultEnabled": false
-    },
-    {
       "id": "hatch-new-assistant",
       "scope": "assistant",
       "key": "feature_flags.hatch-new-assistant.enabled",

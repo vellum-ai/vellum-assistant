@@ -384,12 +384,12 @@ describe("duplicate event deduplication", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("non-Telegram channel filtering", () => {
-  test("SMS inbound message does not record a Telegram seen signal", async () => {
-    // Override contact store for SMS channel
+  test("Non-telegram inbound message does not record a Telegram seen signal", async () => {
+    // Override contact store for another channel
     const req = makeInboundRequest({
-      sourceChannel: "sms",
-      interface: "sms",
-      content: "sms message",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      content: "some message",
     });
 
     const res = await handleChannelInbound(

@@ -25,7 +25,7 @@ Approvals are **orthogonal to message sending**. The assistant asks for approval
 
 Do NOT couple approval handling to message sending. Do NOT add run/status tracking to the send path.
 
-### Channel approvals (Telegram, SMS)
+### Channel approvals (Telegram)
 
 Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 

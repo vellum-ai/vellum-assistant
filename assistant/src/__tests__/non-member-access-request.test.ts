@@ -301,12 +301,12 @@ describe("non-member access request notification", () => {
     expect(pending[0].guardianPrincipalId).toBeDefined();
   });
 
-  test("cross-channel fallback: SMS guardian binding resolves for Telegram access request", async () => {
-    // Only an SMS guardian binding exists — no Telegram binding
+  test("cross-channel fallback: Guardian binding resolves for Telegram access request", async () => {
+    // Only an Guardian binding exists — no Telegram binding
     createGuardianBinding({
-      channel: "sms",
-      guardianExternalUserId: "guardian-sms-user",
-      guardianDeliveryChatId: "guardian-sms-chat",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-alt-user",
+      guardianDeliveryChatId: "guardian-alt-chat",
       guardianPrincipalId: "test-principal-id",
       verifiedVia: "test",
     });
@@ -324,9 +324,9 @@ describe("non-member access request notification", () => {
       string,
       unknown
     >;
-    expect(payload.guardianBindingChannel).toBe("sms");
+    expect(payload.guardianBindingChannel).toBe("telegram");
 
-    // Canonical request has the SMS guardian's external user ID
+    // Canonical request has the alternate guardian's external user ID
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
@@ -334,7 +334,7 @@ describe("non-member access request notification", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    expect(pending[0].guardianExternalUserId).toBe("guardian-sms-user");
+    expect(pending[0].guardianExternalUserId).toBe("guardian-alt-user");
   });
 
   test("no notification when actorExternalId is absent", async () => {
@@ -413,11 +413,11 @@ describe("access-request-helper unit tests", () => {
   });
 
   test("notifyGuardianOfAccessRequest uses cross-channel binding when source-channel binding is missing", () => {
-    // Only SMS binding exists
+    // Only Alternate binding exists
     createGuardianBinding({
-      channel: "sms",
-      guardianExternalUserId: "guardian-sms",
-      guardianDeliveryChatId: "sms-chat",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-alt",
+      guardianDeliveryChatId: "alt-chat",
       guardianPrincipalId: "test-principal-id",
       verifiedVia: "test",
     });
@@ -437,18 +437,18 @@ describe("access-request-helper unit tests", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    expect(pending[0].guardianExternalUserId).toBe("guardian-sms");
+    expect(pending[0].guardianExternalUserId).toBe("guardian-alt");
 
     // Signal payload includes fallback channel
     const payload = emitSignalCalls[0].contextPayload as Record<
       string,
       unknown
     >;
-    expect(payload.guardianBindingChannel).toBe("sms");
+    expect(payload.guardianBindingChannel).toBe("telegram");
   });
 
   test("notifyGuardianOfAccessRequest prefers source-channel binding over cross-channel fallback", () => {
-    // Both Telegram and SMS bindings exist
+    // Both Telegram and Alternate bindings exist
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-tg",
@@ -457,10 +457,10 @@ describe("access-request-helper unit tests", () => {
       verifiedVia: "test",
     });
     createGuardianBinding({
-      channel: "sms",
-      guardianExternalUserId: "guardian-sms",
-      guardianDeliveryChatId: "sms-chat",
-      guardianPrincipalId: "test-principal-sms",
+      channel: "telegram",
+      guardianExternalUserId: "guardian-alt",
+      guardianDeliveryChatId: "alt-chat",
+      guardianPrincipalId: "test-principal-alt",
       verifiedVia: "test",
     });
 
@@ -479,7 +479,7 @@ describe("access-request-helper unit tests", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    // Should use the Telegram binding, not SMS fallback
+    // Should use the Telegram binding, not the fallback
     expect(pending[0].guardianExternalUserId).toBe("guardian-tg");
 
     const payload = emitSignalCalls[0].contextPayload as Record<

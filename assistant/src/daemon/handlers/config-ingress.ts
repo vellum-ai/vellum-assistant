@@ -17,7 +17,6 @@ import {
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
 import {
-  getTwilioSmsWebhookUrl,
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
   type IngressConfig,
@@ -95,7 +94,7 @@ export function triggerGatewayReconcile(
 /**
  * Best-effort Twilio webhook sync helper.
  *
- * Computes the voice, status-callback, and SMS webhook URLs from the current
+ * Computes the voice and status-callback webhook URLs from the current
  * ingress config and pushes them to the Twilio IncomingPhoneNumber API.
  *
  * Returns `{ success, warning }`. When the update fails, `success` is false
@@ -120,15 +119,10 @@ export async function syncTwilioWebhooks(
       "webhooks/twilio/status",
       "twilio_status",
     );
-    const smsUrl = await resolveCallbackUrl(
-      () => getTwilioSmsWebhookUrl(ingressConfig),
-      "webhooks/twilio/sms",
-      "twilio_sms",
-    );
     await updatePhoneNumberWebhooks(accountSid, authToken, phoneNumber, {
       voiceUrl,
       statusCallbackUrl,
-      smsUrl,
+      smsUrl: "",
     });
     log.info({ phoneNumber }, "Twilio webhooks configured successfully");
     return { success: true };
@@ -256,15 +250,18 @@ export async function handleIngressConfig(
 
       // Best-effort Twilio webhook reconciliation: when ingress is being
       // enabled/updated and Twilio numbers are assigned with valid credentials,
-      // push the new webhook URLs to Twilio so calls and SMS route correctly.
+      // push the new webhook URLs to Twilio so calls route correctly.
       if (isEnabled && hasTwilioCredentials()) {
         const currentConfig = loadRawConfig();
-        const smsConfig = (currentConfig?.sms ?? {}) as Record<string, unknown>;
+        const twilioConfig = (currentConfig?.twilio ?? {}) as Record<
+          string,
+          unknown
+        >;
         const assignedNumbers = new Set<string>();
-        const legacyNumber = (smsConfig.phoneNumber as string) ?? "";
+        const legacyNumber = (twilioConfig.phoneNumber as string) ?? "";
         if (legacyNumber) assignedNumbers.add(legacyNumber);
 
-        const assistantPhoneNumbers = smsConfig.assistantPhoneNumbers;
+        const assistantPhoneNumbers = twilioConfig.assistantPhoneNumbers;
         if (
           assistantPhoneNumbers &&
           typeof assistantPhoneNumbers === "object" &&
