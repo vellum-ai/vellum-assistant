@@ -29,20 +29,18 @@ baseline_dir     = sys.argv[4]
 update_baseline  = sys.argv[5].lower() == "true"
 
 # Parse XCTest timing lines. Format (macOS XCTest via swift test):
-#   Test Case '-[Suite.ClassName testMethodName]' measured [Clock Monotonic Time, s] average: N.NNN, ...
+#   Test Case '-[Suite.ClassName testMethodName]' measured [CPU Time, s] average: N.NNN, ...
 #
-# The metric type varies across Xcode versions — older: "[Time, seconds]",
-# newer (Xcode 15+): "[Clock Monotonic Time, s]".  After the closing ']' of the
-# test name the output includes a single-quote "'" before the space and "measured".
-# We track "Clock Monotonic Time" (wall clock) and fall back to any "Time, seconds"
-# line.  Multiple metric lines appear per test; the first matching one wins so
-# subsequent CPU-cycles/instructions lines don't overwrite the wall-time result.
+# We track "CPU Time" rather than wall clock ("Clock Monotonic Time") because
+# CPU time is far more stable on shared CI runners, eliminating false regression
+# alerts caused by noisy wall-clock measurements.  Multiple metric lines appear
+# per test; we match only the CPU Time line.
 pattern = re.compile(
     r"(?:"
     r"-\[(?:[^\]]*\s+)?(\w+)\]['\"]?"          # ObjC: -[Suite.Class testMethod]
     r"|Test Case '(?:[^/']+/)?(\w+)'"           # SwiftPM: Test Case 'Module.Class/testMethod'
     r")"
-    r"\s+measured \[(?:Clock Monotonic Time, s|Time, seconds)\] average:\s+([0-9.]+)"
+    r"\s+measured \[CPU Time, s\] average:\s+([0-9.]+)"
 )
 
 results = {}
@@ -51,7 +49,7 @@ with open(results_log) as f:
         m = pattern.search(line)
         if m:
             test_name = m.group(1) or m.group(2)
-            if test_name not in results:  # first match wins (wall-time before CPU-cycles lines)
+            if test_name not in results:  # first match wins (CPU Time appears once per test)
                 results[test_name] = float(m.group(3))
 
 summary_file = os.path.join(baseline_dir, "summary.md")
