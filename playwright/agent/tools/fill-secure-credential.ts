@@ -145,10 +145,14 @@ tell application "System Events"
           -- Clear any existing content
           keystroke "a" using command down
           delay 0.1
-          -- Set clipboard, paste, then immediately clear clipboard
+          -- Set clipboard, paste, then clear clipboard.
+          -- The clear lives outside the try so the clipboard is wiped
+          -- even if the paste keystroke throws an AppleScript error.
           set the clipboard to "${escaped}"
-          keystroke "v" using command down
-          delay 0.1
+          try
+            keystroke "v" using command down
+            delay 0.1
+          end try
           set the clipboard to ""
           delay 0.2
           set foundField to true
@@ -252,5 +256,8 @@ end tell
     };
   } finally {
     try { unlinkSync(scriptPath); } catch {}
+    // Best-effort clipboard clear in case the AppleScript was interrupted
+    // (e.g. execSync timeout or process kill) before it could clear the clipboard itself
+    try { execSync('osascript -e "set the clipboard to \\"\\""', { timeout: 5_000 }); } catch {}
   }
 }
