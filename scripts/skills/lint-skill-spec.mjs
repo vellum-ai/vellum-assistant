@@ -275,10 +275,19 @@ function validateNonStandardFields(frontmatter) {
 function validateSkill(skillName) {
   const skillDir = join(SKILLS_DIR, skillName);
   const skillMdPath = join(skillDir, "SKILL.md");
+  const toolsJsonPath = join(skillDir, "TOOLS.json");
   const errors = [];
 
   if (!statSync(skillDir, { throwIfNoEntry: false })?.isDirectory()) {
     return errors;
+  }
+
+  // 0. TOOLS.json must not exist — skills should rely on CLI tools in scripts/, not custom tool definitions
+  const toolsJsonStat = statSync(toolsJsonPath, { throwIfNoEntry: false });
+  if (toolsJsonStat?.isFile()) {
+    errors.push(
+      `skills/${skillName}/TOOLS.json must not exist. Skills should rely on CLI tools in scripts/, not custom tool definitions.`,
+    );
   }
 
   // 1. SKILL.md must exist
