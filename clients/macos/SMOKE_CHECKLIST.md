@@ -1,13 +1,13 @@
-# AppDelegate Refactor — Smoke Checklist
+# Smoke Checklist
 
-Repeatable manual checklist for verifying AppDelegate behavior after each extraction PR.
-Run through this list after every PR in the refactor series to catch regressions early.
+Repeatable manual checklist for verifying core app behavior after significant changes.
+Run through this list after PRs that touch app lifecycle, auth, bootstrap, hotkeys, or window management.
 
 ## App Launch
 
 - [ ] Cold start: app launches without crash and menu bar icon appears
 - [ ] Relaunch: quit and reopen — app recovers cleanly, no duplicate status items
-- [ ] Daemon connection: status dot reflects connected/disconnected state within a few seconds
+- [ ] Assistant connection: status dot reflects connected/disconnected state within a few seconds
 
 ## Auth Flow
 
@@ -18,8 +18,8 @@ Run through this list after every PR in the refactor series to catch regressions
 ## Bootstrap
 
 - [ ] First-launch interstitial: onboarding flow appears on fresh install (or after clearing state)
-- [ ] Retry on failure: if daemon is unreachable during bootstrap, retry mechanism works
-- [ ] Stale-state recovery: killing the daemon mid-bootstrap and relaunching recovers gracefully
+- [ ] Retry on failure: if assistant is unreachable during bootstrap, retry mechanism works
+- [ ] Stale-state recovery: killing the assistant mid-bootstrap and relaunching recovers gracefully
 
 ## Hotkeys
 
@@ -56,6 +56,6 @@ Run through this list after every PR in the refactor series to catch regressions
 
 ## Retire / Terminate
 
-- [ ] Retire flow: signing out cleans up daemon and local state
+- [ ] Retire flow: signing out cleans up assistant process and local state
 - [ ] Clean termination: Quit from the status menu shuts down gracefully (no orphaned processes)
 - [ ] Restart: Restart from the status menu relaunches the app cleanly

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use. It lives as a sparkles icon in the menu bar — users type a task (or hold Fn for voice), and the agent executes it step-by-step.
+A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by AI language models with tool use. Supports multiple providers (Anthropic, OpenAI, Google, Ollama, Fireworks). It lives as a sparkles icon in the menu bar — users type a task (or hold Fn for voice), and the agent executes it step-by-step.
 
 ## Build & Test
 
@@ -22,7 +22,7 @@ Single build script: `./build.sh` wraps SwiftPM → `.app` bundle → codesign. 
 # Build release
 ./build.sh release
 
-# Run all tests
+# Run macOS-specific tests
 ./build.sh test
 
 # Run a single test
@@ -45,17 +45,18 @@ All UI and feature code lives in `Features/`, organized by domain:
 |--------|---------|
 | `Ambient/` | Background screen monitoring UI |
 | `Avatar/` | Avatar customization |
-| `BrowserPiP/` | Browser picture-in-picture |
 | `Chat/` | ChatView, ChatViewModel (multi-turn messaging), ChatMessage model |
+| `CommandPalette/` | Command palette (search, actions) |
+| `Contacts/` | Contact management |
+| `GuardianVerification/` | Guardian verification flow |
 | `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ThreadManager, side panels |
 | `MainWindow/Panels/` | Side panels including DebugPanel (real-time trace viewer with metrics + timeline) |
-| `MenuBar/` | NSStatusItem and popover lifecycle |
 | `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
+| `QuickInput/` | Quick task input popover and screen selection |
 | `Session/` | Session overlay UI for computer-use task execution |
 | `Settings/` | Tabbed settings panels (Appearance, Advanced, Connect, Trust, Skills, etc.) |
 | `Sharing/` | Content sharing and export |
-| `Surfaces/` | Daemon surface rendering (HTML/JSON overlays) |
-| `TaskInput/` | Quick task input popover |
+| `Surfaces/` | Surface rendering (HTML/JSON overlays) |
 | `Voice/` | Voice input UI (VoiceTranscriptionWindow) |
 
 **Main window layout** (`MainWindowView`):
@@ -89,7 +90,7 @@ Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@Main
 ### IPC Layer (`IPC/`)
 
 All inference (both computer-use sessions and ambient analysis) goes through daemon IPC:
-- `DaemonClient` — `@MainActor`, Unix domain socket (`~/.vellum/vellum.sock`), auto-reconnect, ping/pong keepalive, `AsyncStream<ServerMessage>`
+- `DaemonClient` — `@MainActor`, Unix domain socket (default `~/.vellum/vellum.sock`, resolved dynamically via `resolveSocketPath()`) or HTTP+SSE in managed mode; auto-reconnect, ping/pong keepalive, `AsyncStream<ServerMessage>`
 - `IPCMessages.swift` — Codable structs mirroring `ipc-protocol.ts`: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
 - `IPC/Generated/IPCContractGenerated.swift` — **auto-generated** Swift types from the TypeScript IPC contract. Use these `IPC*` types directly in Swift code instead of hand-writing structs.
 
@@ -125,7 +126,7 @@ The package is split into two targets for Xcode Preview support:
 
 `Features/Onboarding/` — multi-step flow (`OnboardingFlowView` → `OnboardingState`) covering wake-up animation, naming, permissions (screen recording, microphone), Fn key setup, and an alive-check step. Shown on first launch; skip with `--skip-onboarding` in debug.
 
-The onboarding flow includes a **managed sign-in** path: when the user clicks "Sign in", the app authenticates via WorkOS, runs `ManagedAssistantBootstrapService.ensureManagedAssistant()` to discover or create a platform-hosted assistant, persists a managed lockfile entry (`cloud: "vellum"`), and configures HTTP transport in `platformAssistantProxy` mode with session token auth. Managed mode skips local daemon hatching and actor credential bootstrap. If bootstrap fails, the user stays on the onboarding screen with a retry option. See `clients/ARCHITECTURE.md` for the full managed sign-in architecture.
+The onboarding flow includes a **managed sign-in** path: when the user clicks "Sign in", the app authenticates via WorkOS, runs `ManagedAssistantBootstrapService.ensureManagedAssistant()` to discover or create a platform-hosted assistant, persists a managed lockfile entry (`cloud: "vellum"`), and configures HTTP transport in `platformAssistantProxy` mode with session token auth. Managed mode skips local assistant hatching and actor credential bootstrap. If bootstrap fails, the user stays on the onboarding screen with a retry option. See `clients/ARCHITECTURE.md` for the full managed sign-in architecture.
 
 ## Design System (`DesignSystem/`)
 

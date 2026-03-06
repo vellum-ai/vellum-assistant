@@ -1,10 +1,10 @@
 # vellum-assistant
 
-A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use.
+A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by AI language models with tool use. Supports multiple providers (Anthropic, OpenAI, Google, Ollama, Fireworks).
 
 ## iOS Target
 
-This repository also includes an iOS app target (`vellum-assistant-ios`) that shares ~45-50% of code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to the assistant through the HTTP gateway with bearer token authentication.
+This repository also includes an iOS app target (`vellum-assistant-ios`) that shares significant code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to the assistant through cloud login or QR-paired HTTP gateway.
 
 **Status:** Fully functional. Build via Xcode (recommended) or `xcodebuild` from the command line — `swift build` on macOS cannot compile the iOS target due to UIKit dependencies. See [clients/ios/README.md](../ios/README.md) for build instructions.
 
@@ -56,7 +56,7 @@ Requires Apple Developer account + App Store Connect setup.
 
 ## Managed Mode
 
-The app supports a **managed sign-in** flow that connects to a platform-hosted assistant instead of a local daemon.
+The app supports a **managed sign-in** flow that connects to a platform-hosted assistant instead of a local assistant process.
 
 ### Sign-in Flow
 
@@ -75,9 +75,9 @@ The `HTTPTransport` supports two route modes:
 
 ### Key Differences in Managed Mode
 
-- No local daemon process -- the assistant runs on the Vellum platform
+- No local assistant process -- the assistant runs on the Vellum platform
 - No actor credentials or bearer token -- session token auth is used instead (stored in Keychain)
-- Onboarding skips local daemon hatching and Fn key setup
+- Onboarding skips local assistant hatching and Fn key setup
 - If bootstrap fails, the user stays on the onboarding screen with a retry option
 
 ### Where State Lives
@@ -102,7 +102,7 @@ To install the pre-built macOS app, download the signed and notarized DMG:
 
 The app includes **Sparkle auto-update** — after the initial install, updates are downloaded and applied automatically in the background. You'll be prompted to relaunch when a new version is ready.
 
-> **Note (local mode):** You need the daemon running for the app to function in local mode. See the [Local Assistant (Daemon)](#local-assistant-daemon) section below for setup. In managed mode, the assistant runs on the Vellum platform and no local daemon is required.
+> **Note (local mode):** You need the assistant process running for the app to function in local mode. See the [Local Assistant](#local-assistant) section below for setup. In managed mode, the assistant runs on the Vellum platform and no local process is required.
 
 All releases are available at [github.com/vellum-ai/velly/releases](https://github.com/vellum-ai/velly/releases).
 
@@ -111,14 +111,14 @@ All releases are available at [github.com/vellum-ai/velly/releases](https://gith
 ### Local Mode
 - macOS 14.0 (Sonoma) or later
 - Xcode 15+ (for building from source)
-- Anthropic API key
-- Local daemon running (`vellum wake`)
+- API key for at least one supported provider (Anthropic, OpenAI, Google, etc.)
+- Local assistant process running (`vellum wake`)
 
 ### Managed Mode
 - macOS 14.0 (Sonoma) or later
 - Xcode 15+ (for building from source)
 - Internet connection (assistant runs on the Vellum platform)
-- No API key or local daemon required
+- No API key or local assistant process required
 
 ## Quick Run
 
@@ -148,7 +148,7 @@ This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 # Build release
 ./build.sh release
 
-# Run all tests
+# Run macOS-specific tests
 ./build.sh test
 
 # Clean build artifacts
@@ -157,8 +157,8 @@ This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 
 The build script uses incremental compilation and caching:
 
-- Running `./build.sh` again without code changes takes ~1-2s (skips binary copying, still updates Info.plist/assets/codesigning)
-- Small code changes rebuild in ~4 seconds
+- Running `./build.sh` again without code changes is fast (skips binary copying, still updates Info.plist/assets/codesigning)
+- Small code changes rebuild quickly thanks to incremental compilation
 - Use `./build.sh clean` if you encounter build issues, need to force a complete rebuild, or after removing resources/frameworks (incremental builds don't detect deletions)
 
 ### First-Time Setup: Code Signing (Optional but Recommended)
@@ -205,7 +205,7 @@ SIGN_IDENTITY="-" ./build.sh
 1. After the initial build and launch, the script watches for file changes
 2. Edit Swift files or resources (.swift, .xcassets) in your editor
 3. Save (Cmd+S)
-4. App automatically rebuilds and relaunches in ~4 seconds
+4. App automatically rebuilds and relaunches
 5. Watch polls every 2 seconds for changes (no external dependencies required)
 6. Press Ctrl+C to stop watching
 
@@ -237,9 +237,9 @@ To preview the DMG installer layout locally (requires `brew install create-dmg`)
 
 This builds the app (if needed), generates the background image, creates a styled DMG, and opens it in Finder.
 
-## Local Assistant (Daemon)
+## Local Assistant
 
-The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to it via a Unix domain socket at `~/.vellum/vellum.sock`.
+The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process**, a Node/Bun process that manages AI provider calls, conversation state, and tool execution. The app connects to it via a Unix domain socket at `~/.vellum/vellum.sock` by default (the path is resolved dynamically via `resolveSocketPath()`, which honors `BASE_DATA_DIR` and the lockfile for multi-instance setups).
 
 **Local mode: You must start the assistant before using the app.** Without it, the app will connect but get no responses. (In managed mode, the assistant runs on the Vellum platform — no local process needed.)
 
@@ -254,13 +254,15 @@ vellum ps
 vellum sleep
 ```
 
-For low-level development, you can also start the daemon directly:
+For low-level development, you can also start the assistant process directly:
 
 ```bash
 cd assistant && bun run src/index.ts daemon start
 ```
 
 The app will auto-reconnect if the assistant process restarts.
+
+> **Multi-instance note:** The default data directory is `~/.vellum/`. When `BASE_DATA_DIR` is set or multiple instances are configured via the lockfile, paths resolve to the instance-specific directory instead. See `DaemonClient.resolveSocketPath()` for resolution logic.
 
 ## Permissions
 
@@ -275,7 +277,7 @@ Grant these in System Settings → Privacy & Security.
 
 1. Launch the app — an onboarding flow guides you through permissions and setup on first run
 2. The app appears as a sparkles icon in your menu bar
-3. Open Settings (click icon → gear) and enter your Anthropic API key (local mode only)
+3. Open Settings (click icon → gear) and enter your API key for a supported provider (local mode only)
 4. Click the menu bar icon or press `⌘⇧G` to open the task input
 5. Type a task (e.g., "Fill in the name field with John Smith") and press Go
 6. Or hold the Fn key to dictate a task via voice
@@ -346,7 +348,7 @@ The package is split into a library target (`VellumAssistantLib`) and a thin exe
 
 2. **Open a SwiftUI file.** In the left sidebar (file navigator), expand `vellum-assistant` and navigate to any SwiftUI view, for example:
    - `Features/Onboarding/OnboardingFlowView.swift`
-   - `Features/Session/SessionOverlayView.swift`
+   - `Features/Session/SessionOverlayWindow.swift`
    - `Features/Settings/SettingsAppearanceTab.swift`
 
 3. **Show the Canvas.** Go to the menu bar: **Editor → Canvas** (or press `⌥⌘↩` / Option+Command+Return). A preview panel appears on the right side of the editor.
@@ -414,18 +416,21 @@ Ambient/              Background screen-watching agent
 Features/
   Ambient/            Background screen monitoring UI
   Avatar/             Avatar customization
-  BrowserPiP/         Browser picture-in-picture
   Chat/               Chat interface (ChatView, ChatViewModel, ChatMessage)
+  CommandPalette/     Command palette (search, actions)
+  Contacts/           Contact management
+  GuardianVerification/ Guardian verification flow
   MainWindow/         Main window shell, ThreadTabBar, PanelCoordinator, side panels
-  MenuBar/            NSStatusItem and popover lifecycle
   Onboarding/         First-launch setup flow (permissions, naming, Fn key)
+  QuickInput/         Quick task input popover and screen selection
   Session/            Session overlay UI for computer-use task execution
   Settings/           Tabbed settings panels (Appearance, Advanced, Connect, Trust, etc.)
   Sharing/            Content sharing and export
-  Surfaces/           Daemon surface rendering (HTML/JSON overlays)
-  TaskInput/          Quick task input popover
-  Tasks/              Task management UI
+  Surfaces/           Surface rendering (HTML/JSON overlays)
   Voice/              Voice input UI (VoiceTranscriptionWindow)
+Recording/            Screen recording (HUD, capture, thumbnails)
+Telemetry/            Crash reporting, MetricKit, perf signposts
+Security/             Keychain broker
 Logging/
   TraceStore          In-memory trace event store (per-session, dedup, retention cap)
   Session recording   JSON logs to ~/Library/App Support/
@@ -437,7 +442,7 @@ The app supports connecting to a remote assistant process via SSH socket forward
 
 ### Zero-Copy Blob Transport
 
-On local macOS connections, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/workspace/data/ipc-blobs/` instead of inline base64/text. On every macOS socket connect, the client runs a blob probe: writes a random nonce to the blob directory and sends its SHA-256 to the daemon. If the daemon reads the file and the hashes match, `isBlobTransportAvailable` is set to `true` and subsequent observations use blob references. Over SSH-forwarded sockets, the probe fails automatically (no shared filesystem) and the client falls back to inline payloads. On iOS, the probe is compiled out via `#if os(macOS)`.
+On local macOS connections, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at the `workspace/data/ipc-blobs/` directory within the assistant's data directory (default `~/.vellum/`) instead of inline base64/text. On every macOS socket connect, the client runs a blob probe: writes a random nonce to the blob directory and sends its SHA-256 to the daemon. If the daemon reads the file and the hashes match, `isBlobTransportAvailable` is set to `true` and subsequent observations use blob references. Over SSH-forwarded sockets, the probe fails automatically (no shared filesystem) and the client falls back to inline payloads. On iOS, the probe is compiled out via `#if os(macOS)`.
 
 ## Safety
 

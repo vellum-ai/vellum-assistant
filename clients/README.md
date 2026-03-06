@@ -10,7 +10,7 @@ For client architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 clients/
 ├── Package.swift              # Multi-platform Swift Package Manager manifest
 ├── shared/                    # VellumAssistantShared - cross-platform code
-│   ├── IPC/                   # Daemon communication (DaemonClient, DaemonConfig, IPCMessages)
+│   ├── IPC/                   # Assistant communication (DaemonClient, DaemonConfig, IPCMessages)
 │   ├── Features/Chat/         # Shared chat UI (ChatViewModel, MessageBubbleView, InputBarView, etc.)
 │   ├── Features/Surfaces/     # Shared surface rendering (confirmation, form)
 │   ├── DesignSystem/          # Design tokens and components (VColor, VFont, VSpacing, etc.)
@@ -38,7 +38,7 @@ clients/
 
 **Contains**:
 - **IPC layer** (`DaemonClient`, `IPCMessages`, `Generated/IPCContractGenerated`) - Network communication with the assistant
-  - macOS: Unix domain socket (`~/.vellum/vellum.sock`)
+  - macOS: Unix domain socket (default `~/.vellum/vellum.sock`, resolved dynamically via `resolveSocketPath()` which honors `BASE_DATA_DIR` and the lockfile for multi-instance setups) or HTTP+SSE in managed mode
   - iOS: HTTP+SSE through the gateway (no direct TCP or Unix socket connection)
   - Wire types are auto-generated from the TS IPC contract; `IPCMessages.swift` provides
     typealiases, convenience inits, the `ServerMessage` routing enum, and a few hand-maintained
@@ -108,8 +108,8 @@ cd clients/ios
 See [clients/ios/README.md](ios/README.md) for full build, packaging, and configuration instructions.
 
 **Current features:**
-- ✅ Standalone mode — direct Anthropic API connection (no Mac required)
-- ✅ Connected to Mac mode — HTTP+SSE through the gateway with bearer token authentication
+- ✅ Cloud login — sign in with Vellum to connect to a platform-hosted assistant (no Mac required)
+- ✅ Connect to assistant — pair via QR code (HTTP+SSE through the gateway with bearer token authentication)
 - ✅ Chat interface with streaming, markdown, code blocks
 - ✅ Multiple threads with JSON persistence
 - ✅ Onboarding with adaptive steps per connection mode
@@ -127,7 +127,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ## Code Reuse Strategy
 
-**~45-50% code reuse** between macOS and iOS achieved through:
+**Significant code reuse** between macOS and iOS achieved through:
 
 1. **Shared IPC layer** - Both platforms communicate with the assistant (different transport)
 2. **Shared design system** - Tokens and components with conditional compilation
@@ -166,7 +166,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ### iOS Gateway Networking
 - iOS connects to the assistant exclusively via the HTTP gateway
-- Pair via QR code (Settings → Connect on both devices); all pairings require Mac-side approval
+- Pair via QR code (Settings → Connect on both devices); all pairings require host-side approval
 - LAN pairing works automatically when both devices are on the same network
 
 ### iOS Computer-Use
@@ -182,7 +182,7 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ```bash
 cd clients/macos
-./build.sh test     # All SPM tests (shared + macOS-specific)
+./build.sh test     # macOS-specific SPM tests (runs swift test --filter vellum_assistantTests)
 ```
 
 ### iOS Integration Tests

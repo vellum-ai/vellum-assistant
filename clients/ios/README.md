@@ -4,8 +4,8 @@ The iOS app is built via a native Xcode project (`vellum-assistant-ios.xcodeproj
 
 ## Features
 
-- **Standalone mode** — connects directly to Anthropic API using your API key (no Mac required)
-- **Connected to Mac mode** — connects through the HTTP gateway with bearer token authentication
+- **Cloud login** — sign in with Vellum to connect to a platform-hosted assistant (no Mac required)
+- **Connect to assistant** — pair with a local or remote assistant via QR code (HTTP+SSE through the gateway)
 - Chat interface with streaming responses, markdown rendering, and code blocks
 - Multiple threads with persistence, search, rename, timestamps, and archive
 - Assistant-synced threads in Connected mode (shared with macOS)
@@ -65,27 +65,35 @@ cd clients/ios
 
 ## Connection Modes
 
-### Standalone Mode (no Mac required)
+The iOS onboarding flow offers two paths: **cloud login** and **connect to assistant**.
 
-1. Launch the app → complete onboarding → choose **"Standalone"**
-2. Enter your [Anthropic API key](https://console.anthropic.com/) when prompted
-3. Start chatting — the app calls the Anthropic API directly
+### Cloud Login (no Mac required)
 
-**Note for simulator:** Keychain is unavailable for unsigned simulator builds. API keys are stored in `UserDefaults` instead, which works fine for development. On a real device, keys are stored in the Keychain.
+1. Launch the app → complete onboarding → choose **"Log in with Vellum"**
+2. Authenticate via WorkOS in the system browser
+3. The app connects to your platform-hosted assistant automatically
 
-### Connected to Mac Mode
+No API key or local assistant is required — the assistant runs on the Vellum platform. Session tokens are stored in the Keychain and refreshed automatically.
 
-Requires the Vellum assistant running on your Mac (via the macOS desktop app or `vellum wake` from the CLI). The iOS app connects through the HTTP gateway using a bearer token for authentication.
+### Connect to Assistant
+
+Pair with a running assistant (local Mac or remote) via QR code. The iOS app connects through the HTTP gateway using bearer token authentication.
 
 **QR Code Pairing:**
 
-1. On your Mac, open **Settings → Connect → Show QR Code**
+1. On your Mac (or remote host), open **Settings → Connect → Show QR Code**
 2. On your iPhone, go to **Settings → Connect → Scan QR Code**
-3. Scan the QR code — your Mac will show an approval prompt
-4. Tap **Approve Once** or **Always Allow** on your Mac
+3. Scan the QR code — the host will show an approval prompt
+4. Tap **Approve Once** or **Always Allow** on the host
 5. The app auto-configures the gateway URL and bearer token
 
-The QR code uses a v4 payload with a one-time pairing secret (no bearer token in the QR). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings. LAN pairing works automatically when both devices are on the same network — the QR code includes the local gateway URL for direct LAN connections.
+The QR code uses a v4 payload with a one-time pairing secret (no bearer token in the QR). All pairings require host-side approval. Devices approved with "Always Allow" auto-approve on future pairings. LAN pairing works automatically when both devices are on the same network — the QR code includes the local gateway URL for direct LAN connections.
+
+### Legacy: Standalone Anthropic API Key
+
+The Settings screen still includes an Anthropic API key field for direct-to-API usage. This is a legacy fallback not offered during onboarding. If configured, the app can send messages directly to the Anthropic API without a paired assistant.
+
+**Note for simulator:** Keychain is unavailable for unsigned simulator builds. API keys and tokens are stored in `UserDefaults` instead, which works fine for development. On a real device, credentials are stored in the Keychain.
 
 ## Running Tests
 
@@ -129,7 +137,8 @@ swift test --filter VellumAssistantSharedTests
 | Bearer token | Keychain (device) / UserDefaults (sim), provider `"runtime-bearer-token"` | — | Authentication token for gateway requests |
 | Device ID | Keychain (device) / UserDefaults (sim), provider `"pairing-device-id"` | — | Stable UUID for pairing identity (survives reinstalls) |
 | Conversation key | UserDefaults `conversation_key` | — | Auto-generated UUID for session identification |
-| Anthropic API key | Keychain (device) / UserDefaults (sim) | — | For standalone mode (direct API) |
+| Session token | Keychain via `AuthManager` | — | WorkOS session token for cloud login mode |
+| Anthropic API key | Keychain (device) / UserDefaults (sim) | — | Legacy standalone mode (direct Anthropic API) |
 
 ## Dependencies
 
