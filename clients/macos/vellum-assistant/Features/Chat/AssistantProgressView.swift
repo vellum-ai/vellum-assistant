@@ -874,7 +874,12 @@ private struct FlowLayout: Layout {
             let rowHeight = pair.element.map(\.size.height).max() ?? 0
             return total + rowHeight + (pair.offset > 0 ? spacing : 0)
         }
-        return CGSize(width: proposal.width ?? .infinity, height: height)
+        let width: CGFloat = proposal.width ?? rows.map { row in
+            row.enumerated().reduce(CGFloat.zero) { total, pair in
+                total + pair.element.size.width + (pair.offset > 0 ? spacing : 0)
+            }
+        }.max() ?? 0
+        return CGSize(width: width, height: height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
