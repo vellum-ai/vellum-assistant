@@ -25,6 +25,30 @@ function getDownloadsDir(): string {
   return dir;
 }
 
+/** Wraps a promise with a timeout to prevent indefinite hangs. */
+export function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms,
+    );
+    promise.then(
+      (val) => {
+        clearTimeout(timer);
+        resolve(val);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 export type DownloadInfo = { path: string; filename: string };
 
 type BrowserContext = {
@@ -679,7 +703,7 @@ class BrowserManager {
       try {
         const filename = dl.suggestedFilename();
         const destPath = join(getDownloadsDir(), `${Date.now()}-${filename}`);
-        await dl.saveAs(destPath);
+        await withTimeout(dl.saveAs(destPath), 120_000, "Download save");
         const info: DownloadInfo = { path: destPath, filename };
 
         // Resolve a pending waiter if one exists, otherwise store for later retrieval
@@ -696,7 +720,11 @@ class BrowserManager {
 
         log.info({ sessionId, filename, path: destPath }, "Download completed");
       } catch (err) {
-        const failure = await dl.failure();
+        const failure = await withTimeout(
+          dl.failure(),
+          5_000,
+          "Download failure check",
+        ).catch(() => null);
         log.warn({ err, failure, sessionId }, "Download failed");
 
         // Reject any pending waiters
