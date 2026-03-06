@@ -350,7 +350,7 @@ function buildInChatConfigurationSection(): string {
     "",
     "### Avatar Customisation",
     "",
-    'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an avatar image via Gemini and updates all connected clients automatically. Requires a Gemini API key (the same one used for image generation).',
+    'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an avatar image and updates all connected clients automatically. If managed avatar generation is configured, no local API key is needed.',
     "",
     "**After generating a new avatar**, always update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example:",
     "```",

@@ -635,21 +635,16 @@ public final class ChatViewModel: ObservableObject {
     public func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
         guard let idx = messages.firstIndex(where: { $0.daemonMessageId == response.messageId }) else { return }
 
-        // Update text with full content. When collapsing multiple text segments
-        // into one, also update contentOrder so stale .text(N>0) references are
-        // removed — otherwise interleaved content orders become invalid.
+        // Only update text when the message has a single segment (non-interleaved).
+        // Interleaved messages have multiple text segments separated by tool calls;
+        // collapsing them into one destroys the contentOrder interleaving, which
+        // causes separate tool groups to merge into one massive progress view.
+        // Text is already displayed correctly from the original segments — rehydration
+        // is primarily needed for tool call details (inputs, results, images).
         if let fullText = response.text {
-            messages[idx].textSegments = fullText.isEmpty ? [] : [fullText]
-            if !messages[idx].contentOrder.isEmpty {
-                var seenText = false
-                messages[idx].contentOrder = messages[idx].contentOrder.compactMap { entry in
-                    if case .text = entry {
-                        if seenText { return nil }
-                        seenText = true
-                        return .text(0)
-                    }
-                    return entry
-                }
+            let hasInterleavedText = messages[idx].textSegments.count > 1
+            if !hasInterleavedText {
+                messages[idx].textSegments = fullText.isEmpty ? [] : [fullText]
             }
         }
 
@@ -680,6 +675,9 @@ public final class ChatViewModel: ObservableObject {
             }
         }
 
+        // Clear unconditionally — even when text replacement was skipped for
+        // interleaved messages, tool call data has been rehydrated. Leaving
+        // wasTruncated true would cause infinite rehydration requests.
         messages[idx].wasTruncated = false
         messages[idx].isContentStripped = false
     }

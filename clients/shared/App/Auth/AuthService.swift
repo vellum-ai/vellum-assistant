@@ -301,6 +301,130 @@ public final class AuthService {
         }
     }
 
+    // MARK: - Self-Hosted Local Registration
+
+    /// Ensure a self-hosted local assistant registration exists on the platform.
+    public func ensureSelfHostedLocalRegistration(
+        organizationId: String,
+        clientInstallationId: String,
+        runtimeAssistantId: String,
+        clientPlatform: String
+    ) async throws -> EnsureSelfHostedLocalRegistrationResponse {
+        let urlString = "\(baseURL)/v1/assistants/self-hosted-local/ensure-registration/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        let requestBody = EnsureSelfHostedLocalRegistrationRequest(
+            clientInstallationId: clientInstallationId,
+            runtimeAssistantId: runtimeAssistantId,
+            clientPlatform: clientPlatform
+        )
+        let encoder = JSONEncoder()
+        urlRequest.httpBody = try encoder.encode(requestBody)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request POST assistants/self-hosted-local/ensure-registration/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            return try JSONDecoder().decode(EnsureSelfHostedLocalRegistrationResponse.self, from: data)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    /// Reprovision (rotate) the API key for a self-hosted local assistant.
+    public func reprovisionSelfHostedLocalAssistantApiKey(
+        organizationId: String,
+        clientInstallationId: String,
+        runtimeAssistantId: String,
+        clientPlatform: String
+    ) async throws -> ReprovisionSelfHostedLocalApiKeyResponse {
+        let urlString = "\(baseURL)/v1/assistants/self-hosted-local/reprovision-api-key/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        let requestBody = ReprovisionSelfHostedLocalApiKeyRequest(
+            clientInstallationId: clientInstallationId,
+            runtimeAssistantId: runtimeAssistantId,
+            clientPlatform: clientPlatform
+        )
+        let encoder = JSONEncoder()
+        urlRequest.httpBody = try encoder.encode(requestBody)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request POST assistants/self-hosted-local/reprovision-api-key/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            return try JSONDecoder().decode(ReprovisionSelfHostedLocalApiKeyResponse.self, from: data)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
     // MARK: - Allauth Requests
 
     private func request<T: Codable>(

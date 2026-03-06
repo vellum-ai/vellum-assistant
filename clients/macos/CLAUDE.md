@@ -4,9 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > **Also read [`clients/AGENTS.md`](../AGENTS.md)** — it contains cross-cutting client guidance (Apple research protocol, SwiftUI practices, performance rules) that applies to all client code including this macOS app.
 
+---
+
 ## What This Is
 
 A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use. It lives as a sparkles icon in the menu bar — users type a task (or hold Fn for voice), and the agent executes it step-by-step.
+
+---
 
 ## Build & Test
 
@@ -22,7 +26,7 @@ Single build script: `./build.sh` wraps SwiftPM → `.app` bundle → codesign. 
 # Build release
 ./build.sh release
 
-# Run all tests
+# Run macOS-specific tests
 ./build.sh test
 
 # Run a single test
@@ -35,6 +39,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter Ses
 log stream --predicate 'subsystem == "com.vellum.vellum-assistant"' --level debug
 ```
 
+---
+
 ## Architecture
 
 ### Feature Modules (`Features/`)
@@ -45,17 +51,18 @@ All UI and feature code lives in `Features/`, organized by domain:
 |--------|---------|
 | `Ambient/` | Background screen monitoring UI |
 | `Avatar/` | Avatar customization |
-| `BrowserPiP/` | Browser picture-in-picture |
 | `Chat/` | ChatView, ChatViewModel (multi-turn messaging), ChatMessage model |
+| `CommandPalette/` | Command palette (search, actions) |
+| `Contacts/` | Contact management |
+| `GuardianVerification/` | Guardian verification flow |
 | `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ThreadManager, side panels |
 | `MainWindow/Panels/` | Side panels including DebugPanel (real-time trace viewer with metrics + timeline) |
-| `MenuBar/` | NSStatusItem and popover lifecycle |
 | `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
+| `QuickInput/` | Quick task input popover and screen selection |
 | `Session/` | Session overlay UI for computer-use task execution |
 | `Settings/` | Tabbed settings panels (Appearance, Advanced, Connect, Trust, Skills, etc.) |
 | `Sharing/` | Content sharing and export |
 | `Surfaces/` | Daemon surface rendering (HTML/JSON overlays) |
-| `TaskInput/` | Quick task input popover |
 | `Voice/` | Voice input UI (VoiceTranscriptionWindow) |
 
 **Main window layout** (`MainWindowView`):
@@ -66,6 +73,8 @@ VSplitView            (row 3 — ChatView + optional side panel)
 ```
 
 **Data flow**: `ThreadManager` (`@MainActor ObservableObject`) owns `[ThreadModel]` and a dictionary of `ChatViewModel` instances keyed by thread ID. `MainWindowView` binds to the active `ChatViewModel` via `threadManager.activeViewModel`. ThreadManager subscribes to each nested ChatViewModel's `objectWillChange` and forwards it via Combine so SwiftUI picks up changes.
+
+---
 
 ### Session Loop (`Session.swift`)
 
@@ -79,6 +88,9 @@ The core orchestration cycle runs per-task in `ComputerUseSession` (`@MainActor`
 
 ### Dependency Injection
 
+<details>
+<summary><strong>Protocol-based dependency injection</strong></summary>
+
 All session dependencies are protocol-based for testability:
 - `AccessibilityTreeProviding` — AX enumeration (impl: `AccessibilityTreeEnumerator`)
 - `ScreenCaptureProviding` — screenshots (impl: `ScreenCapture`)
@@ -86,10 +98,12 @@ All session dependencies are protocol-based for testability:
 
 Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@MainActor func testX() async`.
 
+</details>
+
 ### IPC Layer (`IPC/`)
 
 All inference (both computer-use sessions and ambient analysis) goes through daemon IPC:
-- `DaemonClient` — `@MainActor`, Unix domain socket (`~/.vellum/vellum.sock`), auto-reconnect, ping/pong keepalive, `AsyncStream<ServerMessage>`
+- `DaemonClient` — `@MainActor`, Unix domain socket (default `~/.vellum/vellum.sock`, resolved dynamically via `resolveSocketPath()`) or HTTP+SSE in managed mode; auto-reconnect, ping/pong keepalive, `AsyncStream<ServerMessage>`
 - `IPCMessages.swift` — Codable structs mirroring `ipc-protocol.ts`: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
 - `IPC/Generated/IPCContractGenerated.swift` — **auto-generated** Swift types from the TypeScript IPC contract. Use these `IPC*` types directly in Swift code instead of hand-writing structs.
 
@@ -119,13 +133,15 @@ The package is split into two targets for Xcode Preview support:
 - **`VellumAssistantLib`** (library) — all app code, resources, and linker settings. Previews work on any SwiftUI view here.
 - **`vellum-assistant`** (executable) — thin `@main` entry point in `vellum-assistant-app/` that imports `VellumAssistantLib`.
 
-`AppDelegate` sets up: NSStatusItem with NSPopover, global hotkey (Cmd+Shift+G via HotKey package), global Escape monitor, voice input, ambient agent, and onboarding flow. `VellumAssistantApp` is the `@main` entry point with `@NSApplicationDelegateAdaptor`.
+`AppDelegate` sets up: NSStatusItem with NSPopover, global hotkey (Cmd+Shift+G via Carbon `RegisterEventHotKey`), global Escape monitor, voice input, ambient agent, and onboarding flow. `VellumAssistantApp` is the `@main` entry point with `@NSApplicationDelegateAdaptor`.
 
 ### Onboarding
 
 `Features/Onboarding/` — multi-step flow (`OnboardingFlowView` → `OnboardingState`) covering wake-up animation, naming, permissions (screen recording, microphone), Fn key setup, and an alive-check step. Shown on first launch; skip with `--skip-onboarding` in debug.
 
 The onboarding flow includes a **managed sign-in** path: when the user clicks "Sign in", the app authenticates via WorkOS, runs `ManagedAssistantBootstrapService.ensureManagedAssistant()` to discover or create a platform-hosted assistant, persists a managed lockfile entry (`cloud: "vellum"`), and configures HTTP transport in `platformAssistantProxy` mode with session token auth. Managed mode skips local daemon hatching and actor credential bootstrap. If bootstrap fails, the user stays on the onboarding screen with a retry option. See `clients/ARCHITECTURE.md` for the full managed sign-in architecture.
+
+---
 
 ## Design System (`DesignSystem/`)
 
@@ -155,7 +171,8 @@ DesignSystem/
 
 All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Always use design tokens instead of raw values — `VFont.body` not `Font.system(size: 13)`, `VColor.accent` not `Color.purple`.
 
-### Token Reference
+<details>
+<summary><strong>Token reference</strong></summary>
 
 **VColor** — Semantic color tokens mapped to Tailwind-style scales (Slate, Violet, Emerald, Rose, Amber, Indigo):
 - Backgrounds: `background` (Slate._950), `backgroundSubtle` (Slate._800), `surface` (Slate._800), `surfaceBorder` (Slate._700)
@@ -179,6 +196,10 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 **VAnimation** — `fast` (0.15s easeOut), `standard` (0.25s easeInOut), `slow` (0.4s easeInOut), `spring`, `panel` (gentle spring for panels), `bouncy` (celebratory spring).
 
 **VShadow** — `sm`, `md`, `lg`, `glow` (Amber), `accentGlow` (Violet). Applied via `.vShadow()` modifier.
+
+</details>
+
+---
 
 ## SwiftUI & Swift Conventions
 
@@ -213,6 +234,8 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - Panel views: Place in `Features/MainWindow/Panels/` and add a case to `SidePanelType`.
 - **File size target**: ~500-600 lines max. If a file exceeds this, split using extensions or standalone views.
 
+---
+
 ## Key Constraints
 
 - **LSUIElement app** — no dock icon; uses `.accessory` activation policy. Must temporarily switch to `.regular` when showing Settings window.
@@ -223,9 +246,13 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - **SessionState enum** must stay in sync with `SessionOverlayView` pattern matching.
 - **SourceKit false positives** — SourceKit may report "Cannot find X in scope" for design system types (VColor, VFont, etc.) due to SPM module resolution. These are false positives — `swift build` succeeds. Do not "fix" these by adding imports or changing code.
 
+---
+
 ## Permissions
 
 Requires Accessibility, Screen Recording, and Microphone permissions (System Settings > Privacy & Security). `PermissionManager` handles checking/prompting. API key stored in Keychain via `APIKeyManager`.
+
+---
 
 ## iOS Pairing
 
@@ -236,6 +263,8 @@ The macOS app pairs with iOS devices via QR code with Mac-side approval. The Con
 - **LAN pairing:** Works automatically. The QR payload includes `localLanUrl` (the gateway's LAN address). iOS tries LAN first, falls back to cloud gateway. HTTP is permitted for local/private addresses via `LocalAddressValidator.isLocalAddress()`.
 - **Connect Tab Layout:** Pairing hero (QR + status) → Approved Devices list → Gateway (URL config, collapsed if set) → Advanced (bearer token, URL/token overrides) → Diagnostics (test connection) → Channels (Telegram, SMS, Voice).
 - **Bearer Token:** Managed via JWT authentication. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
+
+---
 
 ## Data Storage
 

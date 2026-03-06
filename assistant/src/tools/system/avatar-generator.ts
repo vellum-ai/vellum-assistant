@@ -1,11 +1,10 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { getConfig } from "../../config/loader.js";
-import {
-  generateImage,
-  mapGeminiError,
-} from "../../media/gemini-image-service.js";
+import { routedGenerateAvatar } from "../../media/avatar-router.js";
+import { ManagedAvatarError } from "../../media/avatar-types.js";
+import { mapGeminiError } from "../../media/gemini-image-service.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -66,21 +65,8 @@ export const setAvatarTool: Tool = {
       };
     }
 
-    const config = getConfig();
-    const apiKey = config.apiKeys.gemini ?? process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return {
-        content:
-          "No Gemini API key configured. Please add your Gemini API key in Settings → Models & Services, or set the GEMINI_API_KEY environment variable.",
-        isError: true,
-      };
-    }
-
     try {
-      log.info(
-        { description: description.trim() },
-        "Generating avatar via Gemini",
-      );
+      log.info({ description: description.trim() }, "Generating avatar");
 
       const prompt =
         `Create an avatar image based on this description: ${description.trim()}\n\n` +
@@ -89,29 +75,31 @@ export const setAvatarTool: Tool = {
         "Circular or rounded composition filling the canvas. " +
         "Subtle background color (not white or transparent).";
 
-      const result = await generateImage(apiKey, {
-        prompt,
-        mode: "generate",
-        model: config.imageGenModel,
-      });
-
-      if (result.images.length === 0) {
+      const result = await routedGenerateAvatar(prompt);
+      if (!result.imageBase64) {
         return {
-          content: "Error: Gemini returned no image data. Please try again.",
+          content: "Error: No image data returned. Please try again.",
           isError: true,
         };
       }
-
-      const image = result.images[0];
-      const pngBuffer = Buffer.from(image.dataBase64, "base64");
+      const pngBuffer = Buffer.from(result.imageBase64, "base64");
 
       const avatarPath = getAvatarPath();
       const avatarDir = dirname(avatarPath);
 
+      const tmpPath = `${avatarPath}.${randomUUID()}.tmp`;
       mkdirSync(avatarDir, { recursive: true });
-      writeFileSync(avatarPath, pngBuffer);
+      writeFileSync(tmpPath, pngBuffer);
+      renameSync(tmpPath, avatarPath);
 
-      log.info({ avatarPath }, "Avatar saved successfully");
+      log.info(
+        {
+          avatarPath,
+          pathUsed: result.pathUsed,
+          correlationId: result.correlationId,
+        },
+        "Avatar saved successfully",
+      );
 
       // Side-effect hook in tool-side-effects.ts broadcasts avatar_updated to all clients.
 
@@ -120,9 +108,42 @@ export const setAvatarTool: Tool = {
         isError: false,
       };
     } catch (error) {
+      if (error instanceof ManagedAvatarError) {
+        if (error.statusCode === 429) {
+          log.warn(
+            { correlationId: error.correlationId },
+            "Avatar generation rate limited",
+          );
+          return {
+            content:
+              "Avatar generation is rate limited. Please wait and try again.",
+            isError: true,
+          };
+        }
+        if (error.statusCode === 503) {
+          log.warn(
+            { correlationId: error.correlationId },
+            "Avatar generation service unavailable",
+          );
+          return {
+            content: "Avatar generation service is temporarily unavailable.",
+            isError: true,
+          };
+        }
+        const detail =
+          error.message || "Avatar generation failed. Please try again.";
+        log.error(
+          { error: detail, correlationId: error.correlationId },
+          "Managed avatar generation failed",
+        );
+        return {
+          content: `Avatar generation failed: ${detail}`,
+          isError: true,
+        };
+      }
+
       const message = mapGeminiError(error);
       log.error({ error: message }, "Avatar generation failed");
-
       return {
         content: `Avatar generation failed: ${message}`,
         isError: true,

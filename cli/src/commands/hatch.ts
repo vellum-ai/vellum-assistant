@@ -201,7 +201,7 @@ function parseArgs(): HatchArgs {
       console.log("  -d                        Run in detached mode");
       console.log("  --name <name>             Custom instance name");
       console.log(
-        "  --remote <host>           Remote host (local, gcp, aws, custom)",
+        "  --remote <host>           Remote host (local, gcp, aws, docker, custom)",
       );
       console.log(
         "  --daemon-only             Start assistant only, skip gateway",
@@ -828,6 +828,11 @@ export async function hatch(): Promise<void> {
   if (remote === "aws") {
     await hatchAws(species, detached, name);
     return;
+  }
+
+  if (remote === "docker") {
+    console.error("Error: Docker remote host is not yet implemented.");
+    process.exit(1);
   }
 
   console.error(`Error: Remote host '${remote}' is not yet supported.`);

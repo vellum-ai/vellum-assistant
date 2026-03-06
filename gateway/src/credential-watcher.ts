@@ -43,16 +43,7 @@ export class CredentialWatcher {
   private watcher: FSWatcher | null = null;
   private watchingDirectory = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastBotToken: string | undefined;
-  private lastWebhookSecret: string | undefined;
-  private lastTwilioAccountSid: string | undefined;
-  private lastTwilioAuthToken: string | undefined;
-  private lastWhatsAppPhoneNumberId: string | undefined;
-  private lastWhatsAppAccessToken: string | undefined;
-  private lastWhatsAppAppSecret: string | undefined;
-  private lastWhatsAppWebhookVerifyToken: string | undefined;
-  private lastSlackChannelBotToken: string | undefined;
-  private lastSlackChannelAppToken: string | undefined;
+  private lastSerialized: Map<string, string> = new Map();
   private polling = false;
   private pendingPoll = false;
   private callback: CredentialChangeCallback;
@@ -157,90 +148,38 @@ export class CredentialWatcher {
       const whatsappCredentials = await readWhatsAppCredentials();
       const slackChannelCredentials = await readSlackChannelCredentials();
 
-      const newBotToken = telegramCredentials?.botToken;
-      const newWebhookSecret = telegramCredentials?.webhookSecret;
-      const newTwilioAccountSid = twilioCredentials?.accountSid;
-      const newTwilioAuthToken = twilioCredentials?.authToken;
-      const newWhatsAppPhoneNumberId = whatsappCredentials?.phoneNumberId;
-      const newWhatsAppAccessToken = whatsappCredentials?.accessToken;
-      const newWhatsAppAppSecret = whatsappCredentials?.appSecret;
-      const newWhatsAppWebhookVerifyToken =
-        whatsappCredentials?.webhookVerifyToken;
-      const newSlackChannelBotToken = slackChannelCredentials?.botToken;
-      const newSlackChannelAppToken = slackChannelCredentials?.appToken;
+      const services = {
+        telegram: { creds: telegramCredentials, key: "telegram" },
+        twilio: { creds: twilioCredentials, key: "twilio" },
+        whatsapp: { creds: whatsappCredentials, key: "whatsapp" },
+        slackChannel: { creds: slackChannelCredentials, key: "slackChannel" },
+      };
 
-      const telegramChanged =
-        newBotToken !== this.lastBotToken ||
-        newWebhookSecret !== this.lastWebhookSecret;
-
-      const twilioChanged =
-        newTwilioAccountSid !== this.lastTwilioAccountSid ||
-        newTwilioAuthToken !== this.lastTwilioAuthToken;
-
-      const whatsappChanged =
-        newWhatsAppPhoneNumberId !== this.lastWhatsAppPhoneNumberId ||
-        newWhatsAppAccessToken !== this.lastWhatsAppAccessToken ||
-        newWhatsAppAppSecret !== this.lastWhatsAppAppSecret ||
-        newWhatsAppWebhookVerifyToken !== this.lastWhatsAppWebhookVerifyToken;
-
-      const slackChannelChanged =
-        newSlackChannelBotToken !== this.lastSlackChannelBotToken ||
-        newSlackChannelAppToken !== this.lastSlackChannelAppToken;
-
-      if (
-        !telegramChanged &&
-        !twilioChanged &&
-        !whatsappChanged &&
-        !slackChannelChanged
-      ) {
-        return;
+      const changedServices = new Set<string>();
+      for (const [name, { creds }] of Object.entries(services)) {
+        const newVal = creds ? JSON.stringify(creds) : undefined;
+        const oldVal = this.lastSerialized.get(name);
+        if (newVal !== oldVal) {
+          changedServices.add(name);
+          if (newVal !== undefined) {
+            this.lastSerialized.set(name, newVal);
+          } else {
+            this.lastSerialized.delete(name);
+          }
+        }
       }
 
-      this.lastBotToken = newBotToken;
-      this.lastWebhookSecret = newWebhookSecret;
-      this.lastTwilioAccountSid = newTwilioAccountSid;
-      this.lastTwilioAuthToken = newTwilioAuthToken;
-      this.lastWhatsAppPhoneNumberId = newWhatsAppPhoneNumberId;
-      this.lastWhatsAppAccessToken = newWhatsAppAccessToken;
-      this.lastWhatsAppAppSecret = newWhatsAppAppSecret;
-      this.lastWhatsAppWebhookVerifyToken = newWhatsAppWebhookVerifyToken;
-      this.lastSlackChannelBotToken = newSlackChannelBotToken;
-      this.lastSlackChannelAppToken = newSlackChannelAppToken;
-
-      if (telegramChanged) {
-        log.info(
-          { hasCredentials: !!telegramCredentials },
-          "Telegram credentials changed",
-        );
-      }
-      if (twilioChanged) {
-        log.info(
-          { hasCredentials: !!twilioCredentials },
-          "Twilio credentials changed",
-        );
-      }
-      if (whatsappChanged) {
-        log.info(
-          { hasCredentials: !!whatsappCredentials },
-          "WhatsApp credentials changed",
-        );
-      }
-      if (slackChannelChanged) {
-        log.info(
-          { hasCredentials: !!slackChannelCredentials },
-          "Slack channel credentials changed",
-        );
-      }
+      if (changedServices.size === 0) return;
 
       this.callback({
         telegramCredentials,
-        telegramChanged,
+        telegramChanged: changedServices.has("telegram"),
         twilioCredentials,
-        twilioChanged,
+        twilioChanged: changedServices.has("twilio"),
         whatsappCredentials,
-        whatsappChanged,
+        whatsappChanged: changedServices.has("whatsapp"),
         slackChannelCredentials,
-        slackChannelChanged,
+        slackChannelChanged: changedServices.has("slackChannel"),
       });
     } finally {
       this.polling = false;

@@ -12,6 +12,10 @@ import {
 } from "./auth/token-exchange.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig, isSlackChannelConfigured } from "./config.js";
+import {
+  buildCredentialServiceMappings,
+  applyCredentialChanges,
+} from "./credential-mappings.js";
 import { CredentialWatcher } from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import {
@@ -63,6 +67,7 @@ import {
   type RouteDefinition,
   type GetClientIp,
 } from "./http/router.js";
+import { applyConfigFileMappings } from "./config-file-mappings.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 
@@ -872,65 +877,30 @@ async function main() {
     process.env.SLACK_CHANNEL_BOT_TOKEN && process.env.SLACK_CHANNEL_APP_TOKEN
   );
 
+  const credentialMappings = buildCredentialServiceMappings({
+    telegramFromEnv,
+    slackFromEnv,
+  });
+
   const credentialWatcher = new CredentialWatcher((event) => {
-    if (event.telegramChanged && !telegramFromEnv) {
-      if (event.telegramCredentials) {
-        config.telegramBotToken = event.telegramCredentials.botToken;
-        config.telegramWebhookSecret = event.telegramCredentials.webhookSecret;
-        log.info("Telegram credentials loaded from credential vault");
-        registerTelegramCommands();
-        reconcileTelegramWebhook(config).catch((err) => {
-          log.error(
-            { err },
-            "Failed to reconcile Telegram webhook after credential change",
-          );
-        });
-      } else {
-        config.telegramBotToken = undefined;
-        config.telegramWebhookSecret = undefined;
-        log.info("Telegram credentials cleared");
-      }
-    }
+    const changed = applyCredentialChanges(
+      event,
+      config,
+      credentialMappings,
+      log,
+    );
 
-    if (event.twilioChanged) {
-      if (event.twilioCredentials) {
-        config.twilioAccountSid = event.twilioCredentials.accountSid;
-        config.twilioAuthToken = event.twilioCredentials.authToken;
-        log.info("Twilio credentials loaded from credential vault");
-      } else {
-        config.twilioAccountSid = undefined;
-        config.twilioAuthToken = undefined;
-        log.info("Twilio credentials cleared");
-      }
+    // Side effects keyed by service name
+    if (changed.has("telegram") && isTelegramConfigured()) {
+      registerTelegramCommands();
+      reconcileTelegramWebhook(config).catch((err) => {
+        log.error(
+          { err },
+          "Failed to reconcile Telegram webhook after credential change",
+        );
+      });
     }
-
-    if (event.whatsappChanged) {
-      if (event.whatsappCredentials) {
-        config.whatsappPhoneNumberId = event.whatsappCredentials.phoneNumberId;
-        config.whatsappAccessToken = event.whatsappCredentials.accessToken;
-        config.whatsappAppSecret = event.whatsappCredentials.appSecret;
-        config.whatsappWebhookVerifyToken =
-          event.whatsappCredentials.webhookVerifyToken;
-        log.info("WhatsApp credentials loaded from credential vault");
-      } else {
-        config.whatsappPhoneNumberId = undefined;
-        config.whatsappAccessToken = undefined;
-        config.whatsappAppSecret = undefined;
-        config.whatsappWebhookVerifyToken = undefined;
-        log.info("WhatsApp credentials cleared");
-      }
-    }
-
-    if (event.slackChannelChanged && !slackFromEnv) {
-      if (event.slackChannelCredentials) {
-        config.slackChannelBotToken = event.slackChannelCredentials.botToken;
-        config.slackChannelAppToken = event.slackChannelCredentials.appToken;
-        log.info("Slack channel credentials loaded from credential vault");
-      } else {
-        config.slackChannelBotToken = undefined;
-        config.slackChannelAppToken = undefined;
-        log.info("Slack channel credentials cleared");
-      }
+    if (changed.has("slackChannel")) {
       startSlackSocket();
     }
   });
@@ -938,63 +908,16 @@ async function main() {
   credentialWatcher.start();
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
-    if (event.changedKeys.has("sms")) {
-      const sms = event.data.sms as
-        | {
-            phoneNumber?: string;
-            assistantPhoneNumbers?: Record<string, string>;
-          }
-        | undefined;
-      config.twilioPhoneNumber =
-        typeof sms?.phoneNumber === "string"
-          ? sms.phoneNumber || undefined
-          : undefined;
-      if (
-        sms?.assistantPhoneNumbers &&
-        typeof sms.assistantPhoneNumbers === "object" &&
-        !Array.isArray(sms.assistantPhoneNumbers)
-      ) {
-        config.assistantPhoneNumbers = sms.assistantPhoneNumbers as Record<
-          string,
-          string
-        >;
-      } else {
-        config.assistantPhoneNumbers = undefined;
-      }
-    }
+    applyConfigFileMappings(event.data, event.changedKeys, config);
 
-    if (event.changedKeys.has("email")) {
-      const email = event.data.email as { address?: string } | undefined;
-      config.assistantEmail =
-        typeof email?.address === "string"
-          ? email.address || undefined
-          : undefined;
-    }
-
-    if (event.changedKeys.has("twilio")) {
-      const twilio = event.data.twilio as { accountSid?: string } | undefined;
-      config.twilioAccountSid =
-        typeof twilio?.accountSid === "string"
-          ? twilio.accountSid || undefined
-          : undefined;
-    }
-
-    if (event.changedKeys.has("ingress")) {
-      const ingress = event.data.ingress as
-        | { publicBaseUrl?: string }
-        | undefined;
-      config.ingressPublicBaseUrl =
-        typeof ingress?.publicBaseUrl === "string"
-          ? ingress.publicBaseUrl || undefined
-          : undefined;
-      if (isTelegramConfigured()) {
-        reconcileTelegramWebhook(config).catch((err) => {
-          log.error(
-            { err },
-            "Failed to reconcile Telegram webhook after ingress URL change",
-          );
-        });
-      }
+    // Side effect: reconcile Telegram webhook when ingress URL changes
+    if (event.changedKeys.has("ingress") && isTelegramConfigured()) {
+      reconcileTelegramWebhook(config).catch((err) => {
+        log.error(
+          { err },
+          "Failed to reconcile Telegram webhook after ingress URL change",
+        );
+      });
     }
   });
 

@@ -334,7 +334,9 @@ extension AppDelegate {
 
         // Handle avatar_updated from daemon: reload the avatar image from disk
         daemonClient.onAvatarUpdated = { _ in
-            AvatarAppearanceManager.shared.reloadAvatar()
+            Task { @MainActor in
+                AvatarAppearanceManager.shared.reloadAvatar()
+            }
         }
 
         // Restart DaemonClient connection when the health monitor relaunches

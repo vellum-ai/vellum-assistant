@@ -112,6 +112,14 @@
       "label": "Outbound Proxy Sidecar",
       "description": "Route proxy session management through the sidecar process instead of running in-process",
       "defaultEnabled": false
+    },
+    {
+      "id": "app-builder-multifile",
+      "scope": "assistant",
+      "key": "feature_flags.app-builder-multifile.enabled",
+      "label": "App Builder Multi-file",
+      "description": "Enable multi-file TSX app creation with esbuild compilation instead of single-HTML apps",
+      "defaultEnabled": false
     }
   ]
 }

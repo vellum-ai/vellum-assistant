@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getLogger, type LogFileConfig } from "./logger.js";
+import { readConfigFileDefaults } from "./config-file-mappings.js";
 import {
   getRootDir,
   readCredential,
@@ -311,51 +312,31 @@ export async function loadConfig(): Promise<GatewayConfig> {
   let twilioAccountSid =
     process.env.TWILIO_ACCOUNT_SID || twilioCreds?.accountSid || undefined;
 
-  // Phone number: env var > config file sms.phoneNumber > credential store
-  let twilioPhoneNumber: string | undefined =
-    process.env.TWILIO_PHONE_NUMBER || undefined;
-  let assistantPhoneNumbers: Record<string, string> | undefined;
-  let assistantEmail: string | undefined;
+  // Read config.json defaults for fields that can come from the config file
+  let configFileData: Record<string, unknown> = {};
   try {
     const cfgPath = join(getRootDir(), "workspace", "config.json");
     const raw = readFileSync(cfgPath, "utf-8");
     const data = JSON.parse(raw);
-    if (
-      !twilioPhoneNumber &&
-      data?.sms?.phoneNumber &&
-      typeof data.sms.phoneNumber === "string"
-    ) {
-      twilioPhoneNumber = data.sms.phoneNumber;
-    }
-    if (
-      !twilioAccountSid &&
-      data?.twilio?.accountSid &&
-      typeof data.twilio.accountSid === "string"
-    ) {
-      twilioAccountSid = data.twilio.accountSid;
-    }
-    const rawMapping = data?.sms?.assistantPhoneNumbers;
-    if (
-      rawMapping &&
-      typeof rawMapping === "object" &&
-      !Array.isArray(rawMapping)
-    ) {
-      const normalized: Record<string, string> = {};
-      for (const [assistantId, phoneNumber] of Object.entries(
-        rawMapping as Record<string, unknown>,
-      )) {
-        if (typeof phoneNumber === "string" && phoneNumber.trim().length > 0) {
-          normalized[assistantId] = phoneNumber;
-        }
-      }
-      assistantPhoneNumbers = normalized;
-    }
-    if (data?.email?.address && typeof data.email.address === "string") {
-      assistantEmail = data.email.address;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      configFileData = data as Record<string, unknown>;
     }
   } catch {
     // config file may not exist yet
   }
+  const configDefaults = readConfigFileDefaults(configFileData);
+
+  // Phone number: env var > config file > credential store
+  let twilioPhoneNumber: string | undefined =
+    process.env.TWILIO_PHONE_NUMBER ||
+    (configDefaults.twilioPhoneNumber as string | undefined);
+  if (!twilioAccountSid) {
+    twilioAccountSid = configDefaults.twilioAccountSid as string | undefined;
+  }
+  const assistantPhoneNumbers = configDefaults.assistantPhoneNumbers as
+    | Record<string, string>
+    | undefined;
+  const assistantEmail = configDefaults.assistantEmail as string | undefined;
   if (!twilioPhoneNumber) {
     twilioPhoneNumber =
       (await readCredential("credential:twilio:phone_number")) || undefined;
@@ -503,7 +484,9 @@ export async function loadConfig(): Promise<GatewayConfig> {
   }
   const trustProxy = trustProxyRaw === "true";
 
-  const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
+  const ingressPublicBaseUrl =
+    process.env.INGRESS_PUBLIC_BASE_URL ||
+    (configDefaults.ingressPublicBaseUrl as string | undefined);
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 
