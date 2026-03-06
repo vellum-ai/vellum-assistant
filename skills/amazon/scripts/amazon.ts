@@ -1,12 +1,22 @@
+#!/usr/bin/env bun
 /**
- * Amazon CLI entry point
+ * Standalone Amazon CLI entry point.
  *
- * This stub will be replaced with the actual implementation in M3.
- * The full CLI will provide commands for Amazon shopping: search, cart management,
- * checkout, and order placement via browser automation.
+ * Invoked via the launcher script at ~/.vellum/bin/amazon,
+ * which is created when the amazon skill is installed.
  *
- * See SKILL.md for the complete command reference.
+ * registerAmazonCommand() creates a nested `amazon` subcommand
+ * (designed for `vellum amazon <sub>`). We extract that subcommand
+ * and use it as the root so `amazon status` works directly.
  */
 
-// Placeholder - implementation coming in M3
-console.log("Amazon CLI - implementation pending");
+import { Command } from "commander";
+
+import { registerAmazonCommand } from "./amazon-cli.js";
+
+// Register into a throwaway parent, then extract the nested command
+const wrapper = new Command();
+registerAmazonCommand(wrapper);
+const amz = wrapper.commands.find((c) => c.name() === "amazon");
+if (!amz) throw new Error("amazon command not registered");
+amz.parse();
