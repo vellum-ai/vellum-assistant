@@ -37,25 +37,43 @@ enum KeychainBrokerService {
 
     // MARK: - Set
 
-    /// Store a UTF-8 string value for a given account. Uses delete-then-add
-    /// to handle both insert and update cases.
+    /// Store a UTF-8 string value for a given account. Uses update-first
+    /// with add-fallback so a transient add failure never erases an existing
+    /// secret (unlike the previous delete-then-add approach).
     @discardableResult
     static func set(account: String, value: String) -> Bool {
-        // Delete any existing item first (ignore not-found errors).
-        delete(account: account)
-
         guard let data = value.data(using: .utf8) else { return false }
 
-        let attributes: [String: Any] = [
+        // Try to update an existing item first.
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: serviceName,
             kSecAttrAccount as String: account,
+        ]
+        let updateAttributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
+        let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
 
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        return status == errSecSuccess
+        if updateStatus == errSecSuccess {
+            return true
+        }
+
+        // Item doesn't exist yet — add it.
+        if updateStatus == errSecItemNotFound {
+            let addAttributes: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: serviceName,
+                kSecAttrAccount as String: account,
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            ]
+            let addStatus = SecItemAdd(addAttributes as CFDictionary, nil)
+            return addStatus == errSecSuccess
+        }
+
+        return false
     }
 
     // MARK: - Delete

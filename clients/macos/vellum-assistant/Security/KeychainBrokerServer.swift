@@ -59,7 +59,11 @@ final class KeychainBrokerServer {
     func start() {
         // Generate auth token.
         var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let rngStatus = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard rngStatus == errSecSuccess else {
+            log.error("SecRandomCopyBytes failed with status \(rngStatus) — aborting broker start")
+            return
+        }
         let token = bytes.map { String(format: "%02x", $0) }.joined()
         authToken = token
 
