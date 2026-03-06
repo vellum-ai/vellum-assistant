@@ -77,7 +77,11 @@ async function main() {
     console.log("Usage: vellum <command> [options]");
     console.log("");
     console.log("Commands:");
+    console.log("  autonomy View and configure autonomy tiers");
     console.log("  client   Connect to a hatched assistant");
+    console.log("  config   Manage configuration");
+    console.log("  contacts Manage assistant contacts");
+    console.log("  email    Email operations (provider-agnostic)");
     console.log("  hatch    Create a new assistant instance");
     console.log("  login    Log in to the Vellum platform");
     console.log("  logout   Log out of the Vellum platform");
