@@ -23,6 +23,8 @@ export type ConfigChangeEvent = {
   assistantPhoneNumbersChanged: boolean;
   assistantEmail: string | undefined;
   assistantEmailChanged: boolean;
+  twilioAccountSid: string | undefined;
+  twilioAccountSidChanged: boolean;
 };
 
 export type ConfigChangeCallback = (event: ConfigChangeEvent) => void;
@@ -36,6 +38,7 @@ function readConfigFile(path: string): {
   smsPhoneNumber?: string;
   assistantPhoneNumbers?: Record<string, string>;
   assistantEmail?: string;
+  twilioAccountSid?: string;
 } {
   try {
     if (!existsSync(path)) return {};
@@ -72,11 +75,17 @@ function readConfigFile(path: string): {
         ? data.email.address || undefined
         : undefined;
 
+    const twilioAccountSid =
+      data.twilio && typeof data.twilio.accountSid === "string"
+        ? data.twilio.accountSid || undefined
+        : undefined;
+
     return {
       ingressPublicBaseUrl,
       smsPhoneNumber,
       assistantPhoneNumbers,
       assistantEmail,
+      twilioAccountSid,
     };
   } catch (err) {
     log.debug({ err }, "Failed to read config file");
@@ -92,6 +101,7 @@ export class ConfigFileWatcher {
   private lastSmsPhoneNumber: string | undefined;
   private lastAssistantPhoneNumbers: Record<string, string> | undefined;
   private lastAssistantEmail: string | undefined;
+  private lastTwilioAccountSid: string | undefined;
   private callback: ConfigChangeCallback;
   private configPath: string;
 
@@ -179,6 +189,7 @@ export class ConfigFileWatcher {
       smsPhoneNumber,
       assistantPhoneNumbers,
       assistantEmail,
+      twilioAccountSid,
     } = readConfigFile(this.configPath);
 
     const ingressChanged =
@@ -189,12 +200,15 @@ export class ConfigFileWatcher {
       JSON.stringify(assistantPhoneNumbers) !==
       JSON.stringify(this.lastAssistantPhoneNumbers);
     const assistantEmailChanged = assistantEmail !== this.lastAssistantEmail;
+    const twilioAccountSidChanged =
+      twilioAccountSid !== this.lastTwilioAccountSid;
 
     if (
       !ingressChanged &&
       !smsPhoneNumberChanged &&
       !assistantPhoneNumbersChanged &&
-      !assistantEmailChanged
+      !assistantEmailChanged &&
+      !twilioAccountSidChanged
     ) {
       return;
     }
@@ -203,6 +217,7 @@ export class ConfigFileWatcher {
     this.lastSmsPhoneNumber = smsPhoneNumber;
     this.lastAssistantPhoneNumbers = assistantPhoneNumbers;
     this.lastAssistantEmail = assistantEmail;
+    this.lastTwilioAccountSid = twilioAccountSid;
 
     if (ingressChanged) {
       log.info(
@@ -219,6 +234,12 @@ export class ConfigFileWatcher {
     if (assistantEmailChanged) {
       log.info({ assistantEmail }, "Assistant email updated from config file");
     }
+    if (twilioAccountSidChanged) {
+      log.info(
+        { twilioAccountSid },
+        "Twilio account SID updated from config file",
+      );
+    }
 
     this.callback({
       ingressPublicBaseUrl,
@@ -229,6 +250,8 @@ export class ConfigFileWatcher {
       assistantPhoneNumbersChanged,
       assistantEmail,
       assistantEmailChanged,
+      twilioAccountSid,
+      twilioAccountSidChanged,
     });
   }
 }
