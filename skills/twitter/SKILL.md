@@ -33,7 +33,7 @@ OAuth uses the official X API v2. It is the most reliable connection method and 
 The browser path is quick to start and useful when the user does not have X developer app credentials. It captures auth cookies from Chrome and uses them to interact with X.
 
 - Supports: **all operations** (post, reply, timeline, search, home, bookmarks, notifications, likes, followers, following, media)
-- Setup: Run `vellum x refresh` from the terminal to open Chrome and capture session cookies automatically.
+- Setup: Import a session from a Ride Shotgun recording: `bun run scripts/twitter-cli.ts login --recording <path>`
 - Set the strategy: `bun run scripts/twitter-cli.ts strategy set browser`
 
 ### Auto mode (default)
@@ -56,13 +56,13 @@ When the user triggers a Twitter operation and no strategy has been configured y
 
 2. **Present both options with trade-offs:**
    - **OAuth**: Most reliable and official. Requires X developer app credentials (OAuth Client ID and optional Client Secret). Supports posting and replying. Set up right here in the chat.
-   - **Browser session**: Quick to start, no developer credentials needed. Supports all operations including reading timelines and searching. Set up with `vellum x refresh` from the terminal.
+   - **Browser session**: Quick to start, no developer credentials needed. Supports all operations including reading timelines and searching. Requires importing a Ride Shotgun recording.
 
 3. **Ask the user which they prefer.** Do not choose for them.
 
 4. **Execute setup for the chosen path:**
    - If OAuth: Collect the credentials in-chat using the secure credential prompt, then connect. Follow the **OAuth Setup Sequence** below.
-   - If browser: Direct the user to run `vellum x refresh` from their terminal to capture session cookies from Chrome.
+   - If browser: Direct the user to import a session from a Ride Shotgun recording using `bun run scripts/twitter-cli.ts login --recording <path>`.
 
 ### OAuth Setup Sequence
 
@@ -99,8 +99,8 @@ When a Twitter operation fails, follow these steps:
 2. **Explain the likely cause clearly** to the user.
 
 3. **Suggest trying the other path as an alternative:**
-   - If the browser session expired: suggest setting up OAuth for post/reply operations, or direct the user to refresh the browser session with `vellum x refresh` from the terminal.
-   - If OAuth failed or is not configured: suggest using the browser path with `bun run scripts/twitter-cli.ts strategy set browser` and refreshing via `vellum x refresh`.
+   - If the browser session expired: suggest setting up OAuth for post/reply operations, or ask the user to import a fresh session recording.
+   - If OAuth failed or is not configured: suggest using the browser path with `bun run scripts/twitter-cli.ts strategy set browser` and importing a session via `bun run scripts/twitter-cli.ts login --recording <path>`.
    - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `bun run scripts/twitter-cli.ts strategy set browser`.
 
 4. **Offer concrete steps to switch:**
@@ -109,8 +109,8 @@ When a Twitter operation fails, follow these steps:
    # Switch to the other strategy
    bun run scripts/twitter-cli.ts strategy set <oauth|browser|auto>
 
-   # If switching to browser, direct the user to refresh the session from the terminal
-   # vellum x refresh
+   # If switching to browser, import a session recording
+   bun run scripts/twitter-cli.ts login --recording <path>
    ```
 
 ## Strategy Management Commands
@@ -256,6 +256,6 @@ When the user wants to see how their posts are performing:
 - All commands return JSON with an `ok` field
 - When drafting replies, match the tone of the conversation — casual threads get casual replies
 - Always show the user what you're about to post and get approval before sending
-- If a browser session is expired, direct the user to refresh it with `vellum x refresh` from their terminal before retrying, or suggest switching to OAuth for post/reply operations
+- If a browser session is expired, ask the user to import a fresh session recording via `bun run scripts/twitter-cli.ts login --recording <path>`, or suggest switching to OAuth for post/reply operations
 - If an operation fails, check `bun run scripts/twitter-cli.ts status --json` to diagnose the issue before retrying
 - The `post` and `reply` commands include a `pathUsed` field in their response so you can tell the user which connection method was used
