@@ -49,7 +49,9 @@ beforeEach(() => {
 afterEach(() => {
   process.argv = originalArgv;
   process.env.BASE_DATA_DIR = originalBaseDataDir;
-  process.exitCode = originalExitCode;
+  // Bun treats `process.exitCode = undefined` as a no-op, so explicitly
+  // reset to 0 when the original value was not set.
+  process.exitCode = originalExitCode ?? 0;
   rmSync(tempDir, { recursive: true, force: true });
 });
 
