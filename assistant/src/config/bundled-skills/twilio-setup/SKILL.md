@@ -42,24 +42,6 @@ This skill manages the full Twilio lifecycle:
 
 Number search and purchase use proxied calls to the Twilio REST API (`bash` with `network_mode: "proxied"`). Local bookkeeping (Account SID, phone number, config updates) uses `assistant config` commands. Auth Token is stored in encrypted credential storage via `assistant credentials`. Status/list retrieval uses `assistant credentials inspect` and `assistant config get`.
 
-### Multi-Assistant Setups
-
-In a multi-assistant environment (multiple assistants sharing the same runtime), some actions are **assistant-scoped** while others are **global** (shared across all assistants):
-
-**Global actions** (shared across all assistants):
-
-- `assistant config set twilio.accountSid` -- Stores Account SID in config. All assistants share the same Twilio account.
-- `assistant credentials set twilio:auth_token` -- Stores Auth Token in encrypted credential storage. Shared across all assistants.
-- `assistant credentials delete twilio:auth_token` -- Removes the Auth Token. This affects all assistants.
-
-**Assistant-scoped actions** (phone number configuration is scoped per assistant via local config):
-
-- `assistant config get twilio.accountSid` / `assistant config get twilio.phoneNumber` -- Returns the Account SID and the phone number assigned to the current assistant.
-- `assistant config set twilio.phoneNumber` -- Assigns a phone number to the current assistant.
-- Proxied Twilio API calls (search/list/purchase numbers) -- Use global credentials to interact with the shared Twilio account.
-
-CLI commands operate on the local assistant's config directly, so no `assistantId` parameter is needed. In multi-assistant setups, ensure you are running commands in the correct assistant's context.
-
 ## Step 1: Check Current Configuration
 
 First, check whether Twilio is already configured:
@@ -106,8 +88,6 @@ Both values are required. If credentials are invalid, proxied Twilio API calls (
 **Note:** Unlike the previous gateway endpoint, this does not validate credentials against the Twilio API before storing. Verify credentials are correct by attempting a proxied Twilio API call (Step 3b) -- if it fails, the credentials are invalid.
 
 **Note:** Injection templates for proxied Twilio API calls are not automatically configured by these CLI commands. If proxied calls fail with auth errors, this is a known gap requiring a future CLI command.
-
-**Note:** Setting credentials is a global operation -- credentials are stored once and shared across all assistants.
 
 ## Step 3: Get a Phone Number
 
@@ -307,8 +287,6 @@ assistant config set twilio.accountSid ""
 
 This deletes the Auth Token from encrypted storage and clears the Account SID from config. Phone number assignments are preserved. Voice calls and SMS will stop working until credentials are reconfigured.
 
-**Note:** Clearing credentials is a global operation -- it removes credentials for all assistants, not just the current one. In multi-assistant setups, warn the user that clearing credentials will affect all assistants sharing this Twilio account.
-
 ## Troubleshooting
 
 ### "Twilio credentials not configured"
@@ -351,5 +329,5 @@ do not yet have CLI equivalents:
 3. **Webhook auto-configuration** -- Voice, status callback, and SMS webhook
    URLs are not automatically set on the Twilio phone number. Configure
    webhooks manually in the Twilio Console or wait for a future CLI command.
-4. **Stale phone number pruning** -- In multi-assistant setups, stale
-   assistant phone number mappings are not automatically cleaned up.
+4. **Stale phone number pruning** -- Stale phone number mappings are not
+   automatically cleaned up.
