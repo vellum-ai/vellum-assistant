@@ -303,12 +303,17 @@ extension AppDelegate {
             self.handleRecordingResume(msg)
         }
 
-        // Handle client_settings_update from daemon: write to UserDefaults and post notification
-        daemonClient.onClientSettingsUpdate = { msg in
+        // Handle client_settings_update from daemon: write to UserDefaults, update SettingsStore, and post notification
+        daemonClient.onClientSettingsUpdate = { [weak self] msg in
             UserDefaults.standard.set(msg.value, forKey: msg.key)
             if msg.key == "activationKey" {
                 NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
             }
+            if msg.key == "themePreference" {
+                self?.applyThemePreference()
+            }
+            // Update SettingsStore's @Published properties so the Settings UI reflects the change
+            self?.services.settingsStore.applyRemoteUpdate(key: msg.key, value: msg.value)
         }
 
         daemonClient.onIdentityChanged = { msg in

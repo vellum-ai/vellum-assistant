@@ -1582,6 +1582,7 @@ public struct ChatMessage: Identifiable, Equatable {
         && lhs.isSubagentNotification == rhs.isSubagentNotification
         && lhs.isContentStripped == rhs.isContentStripped
         && lhs.streamingCodePreview == rhs.streamingCodePreview
+        && lhs.isNudge == rhs.isNudge
     }
     public let id: UUID
     public let role: ChatRole
@@ -1627,6 +1628,9 @@ public struct ChatMessage: Identifiable, Equatable {
     /// during history loading (via maxTextChars/maxToolResultChars). Full content
     /// can be fetched on demand via message_content_request.
     public var wasTruncated: Bool = false
+    /// When true, this is a client-only settings-change nudge injected after the user
+    /// returns from settings. Rendered with a distinct info-style background and icon.
+    public var isNudge: Bool = false
 
     /// Concatenated text from all segments. Backward-compatible computed property.
     public var text: String {

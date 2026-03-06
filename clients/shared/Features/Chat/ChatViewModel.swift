@@ -956,6 +956,21 @@ public final class ChatViewModel: ObservableObject {
     }
     #endif
 
+    // MARK: - Synthetic Messages
+
+    /// Injects a synthetic assistant message directly into the chat, without going through the daemon.
+    /// Used for proactive/contextual nudges (e.g., post-settings suggestions).
+    ///
+    /// This message is intentionally client-only (UI hint, not a conversation turn):
+    /// - It is NOT sent to the daemon and will NOT appear in the daemon's conversation history.
+    /// - It will NOT survive reconnect or reload — history loads from the daemon will not include it.
+    /// - It should not be used for messages that need to influence future LLM context.
+    @MainActor public func injectAssistantMessage(_ text: String) {
+        var message = ChatMessage(role: .assistant, text: text, status: .sent)
+        message.isNudge = true
+        messages.append(message)
+    }
+
     // MARK: - Sending
 
     public func sendMessage(hidden: Bool = false) {

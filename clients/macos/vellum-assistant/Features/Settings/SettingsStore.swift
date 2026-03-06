@@ -708,6 +708,39 @@ public final class SettingsStore: ObservableObject {
         // stale responses could overwrite an optimistic toggle.
     }
 
+    // MARK: - Remote Setting Updates
+
+    /// Apply a setting change pushed from the daemon via `client_settings_update` IPC.
+    /// This sets @Published properties directly so SwiftUI views update immediately,
+    /// rather than relying on UserDefaults which SettingsStore only reads at init.
+    func applyRemoteUpdate(key: String, value: Any) {
+        switch key {
+        case "cmdEnterToSend":
+            if let b = value as? Bool { cmdEnterToSend = b }
+        case "maxStepsPerSession":
+            if let n = value as? Double { maxSteps = n }
+            else if let n = value as? Int { maxSteps = Double(n) }
+        case "mediaEmbedsEnabled":
+            if let b = value as? Bool { mediaEmbedsEnabled = b }
+        case "selectedImageGenModel":
+            if let s = value as? String { selectedImageGenModel = s }
+        case "activityNotificationsEnabled":
+            if let b = value as? Bool { activityNotificationsEnabled = b }
+        case "sendPerformanceReports":
+            if let b = value as? Bool { sendPerformanceReports = b }
+        case "devModeEnabled":
+            if let b = value as? Bool { isDevMode = b }
+        case "userTimezone":
+            if let s = value as? String { userTimezone = s }
+        case "globalHotkeyShortcut":
+            if let s = value as? String { globalHotkeyShortcut = s }
+        case "quickInputHotkeyShortcut":
+            if let s = value as? String { quickInputHotkeyShortcut = s }
+        default:
+            break
+        }
+    }
+
     // MARK: - API Key Actions
 
     func saveAPIKey(_ raw: String) {

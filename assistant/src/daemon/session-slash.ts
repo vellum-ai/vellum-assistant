@@ -58,14 +58,14 @@ const AVAILABLE_MODELS = [
   "claude-haiku-4-5-20251001",
 ] as const;
 
-const MODEL_DISPLAY_NAMES: Record<string, string> = {
+export const MODEL_DISPLAY_NAMES: Record<string, string> = {
   "claude-opus-4-6": "Claude Opus 4.6",
   "claude-opus-4-6-fast": "Claude Opus 4.6 Fast",
   "claude-sonnet-4-6": "Claude Sonnet 4.6",
   "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
 };
 
-const PROVIDER_MODEL_SHORTCUTS: Record<
+export const PROVIDER_MODEL_SHORTCUTS: Record<
   string,
   { provider: string; model: string; displayName: string }
 > = {
@@ -130,12 +130,20 @@ export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
 );
 
 /** Partial-match a user input like "opus", "sonnet", "haiku" to a full model ID. */
-function matchModel(input: string): string | undefined {
+export function matchModel(input: string): string | undefined {
   const lower = input.toLowerCase().trim();
-  // Exact match first
+  // Exact match on model ID
   const exact = AVAILABLE_MODELS.find((m) => m === lower);
   if (exact) return exact;
-  // Partial match (e.g. "opus" → "claude-opus-4-6")
+  // Shortcut match (e.g. "sonnet" → "claude-sonnet-4-6")
+  const shortcut = PROVIDER_MODEL_SHORTCUTS[lower];
+  if (shortcut) return shortcut.model;
+  // Display name match (e.g. "Claude Sonnet 4.6" → "claude-sonnet-4-6")
+  const byDisplayName = Object.entries(MODEL_DISPLAY_NAMES).find(
+    ([, name]) => name.toLowerCase() === lower,
+  );
+  if (byDisplayName) return byDisplayName[0];
+  // Partial match on model ID (e.g. "opus" → "claude-opus-4-6")
   return AVAILABLE_MODELS.find((m) => m.includes(lower));
 }
 
