@@ -252,17 +252,17 @@ extension AppDelegate {
 
         // Static actions
         window.actions = [
-            CommandPaletteAction(id: "new-conversation", icon: "square.and.pencil", label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
+            CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
                 self?.mainWindow?.threadManager.enterDraftMode()
                 self?.mainWindow?.windowState.selection = nil
             },
-            CommandPaletteAction(id: "settings", icon: "gear", label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
+            CommandPaletteAction(id: "settings", icon: VIcon.settings.rawValue, label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
                 self?.mainWindow?.windowState.togglePanel(.settings)
             },
-            CommandPaletteAction(id: "app-directory", icon: "square.grid.2x2", label: "App Directory", shortcutHint: nil) { [weak self] in
+            CommandPaletteAction(id: "app-directory", icon: VIcon.layoutGrid.rawValue, label: "App Directory", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.showAppsPanel()
             },
-            CommandPaletteAction(id: "intelligence", icon: "brain.head.profile", label: "Intelligence", shortcutHint: nil) { [weak self] in
+            CommandPaletteAction(id: "intelligence", icon: VIcon.brain.rawValue, label: "Intelligence", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.togglePanel(.intelligence)
             },
             CommandPaletteAction(id: "navigate-back", icon: "chevron.left", label: "Back", shortcutHint: "\u{2318}[") { [weak self] in

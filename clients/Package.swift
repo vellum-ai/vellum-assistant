@@ -34,6 +34,12 @@ let package = Package(
             dependencies: [],
             path: "shared",
             exclude: ["Tests"],
+            resources: [
+                .copy("Resources/LucideIcons"),
+                .copy("Resources/LUCIDE-LICENSE"),
+                .copy("Resources/lucide-icon-manifest.json"),
+                .copy("Resources/lucide-version.txt"),
+            ],
             swiftSettings: [
                 .enableUpcomingFeature("BareSlashRegexLiterals")
             ],

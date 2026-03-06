@@ -80,19 +80,18 @@ extension ChatBubble {
             Group {
                 switch confirmation.state {
                 case .approved:
-                    Image(systemName: "checkmark.circle.fill")
+                    VIconView(.circleCheck, size: 12)
                         .foregroundColor(chipColor)
                 case .denied:
-                    Image(systemName: "exclamationmark.circle.fill")
+                    VIconView(.circleAlert, size: 12)
                         .foregroundColor(chipColor)
                 case .timedOut:
-                    Image(systemName: "clock.fill")
+                    VIconView(.clock, size: 12)
                         .foregroundColor(chipColor)
                 default:
                     EmptyView()
                 }
             }
-            .font(.system(size: 12))
 
             Text(isApproved ? "\(confirmation.toolCategory) Allowed" :
                  isDenied ? "\(confirmation.toolCategory) Denied" : "Timed Out")

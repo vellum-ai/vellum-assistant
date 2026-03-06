@@ -26,8 +26,7 @@ struct SubagentDetailPanel: View {
                     if isRunning {
                         Button(action: { onAbort?() }) {
                             HStack(spacing: VSpacing.xxs) {
-                                Image(systemName: "stop.fill")
-                                    .font(.system(size: 8))
+                                VIconView(.square, size: 8)
                                 Text("Abort")
                                     .font(VFont.captionMedium)
                             }
@@ -65,8 +64,7 @@ struct SubagentDetailPanel: View {
                 // Error banner
                 if let error = subagentInfo?.error, !error.isEmpty {
                     HStack(alignment: .top, spacing: VSpacing.xs) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
+                        VIconView(.triangleAlert, size: 11)
                             .foregroundColor(Danger._500)
                         Text(error)
                             .font(VFont.caption)
@@ -159,8 +157,7 @@ struct SubagentDetailPanel: View {
     @ViewBuilder
     private func metricItem(icon: String, label: String, value: String) -> some View {
         HStack(spacing: VSpacing.xxs) {
-            Image(systemName: icon)
-                .font(.system(size: 10))
+            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
                 .foregroundColor(VColor.textMuted)
             VStack(alignment: .leading, spacing: 0) {
                 Text(label)
@@ -203,8 +200,7 @@ struct SubagentDetailPanel: View {
     @ViewBuilder
     private func label(icon: String, text: String, color: Color) -> some View {
         HStack(spacing: VSpacing.xxs) {
-            Image(systemName: icon)
-                .font(.system(size: 8))
+            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 8)
             Text(text)
                 .font(VFont.small)
         }

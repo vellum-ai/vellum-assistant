@@ -12,8 +12,7 @@ public struct CompletedSurfaceChip: View {
 
     public var body: some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(VFont.caption)
+            VIconView(.circleCheck, size: 12)
                 .foregroundColor(VColor.success)
 
             if let title {

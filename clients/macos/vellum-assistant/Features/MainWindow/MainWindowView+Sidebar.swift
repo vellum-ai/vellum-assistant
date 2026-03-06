@@ -183,10 +183,10 @@ extension MainWindowView {
             }
 
             // MARK: Nav Items (fixed)
-            SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: "square.grid.2x2", label: "Things", isActive: windowState.activePanel == .apps) {
+            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.activePanel == .apps) {
                 windowState.showAppsPanel()
             }
 
@@ -338,8 +338,7 @@ extension MainWindowView {
                                 } label: {
                                     HStack(spacing: VSpacing.xs) {
                                         ZStack {
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 10, weight: .semibold))
+                                            VIconView(.chevronRight, size: 10)
                                                 .foregroundColor(VColor.textMuted)
                                                 .rotationEffect(.degrees(isGroupExpanded ? 90 : 0))
                                                 .animation(VAnimation.fast, value: isGroupExpanded)
@@ -473,16 +472,16 @@ extension MainWindowView {
                 sidebarSectionDivider(isExpanded: false)
             }
 
-            SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: "square.grid.2x2", label: "Things", isActive: windowState.activePanel == .apps, isExpanded: false) {
+            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.activePanel == .apps, isExpanded: false) {
                 windowState.showAppsPanel()
             }
 
             sidebarSectionDivider(isExpanded: false)
 
-            SidebarNavRow(icon: "square.and.pencil", label: "New Chat", isActive: false, isExpanded: false) {
+            SidebarNavRow(icon: VIcon.squarePen.rawValue, label: "New Chat", isActive: false, isExpanded: false) {
                 windowState.selection = nil
                 threadManager.enterDraftMode()
             }

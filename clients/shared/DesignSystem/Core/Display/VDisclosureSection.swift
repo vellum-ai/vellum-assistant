@@ -42,8 +42,7 @@ public struct VDisclosureSection<Content: View>: View {
             } label: {
                 HStack(spacing: VSpacing.sm) {
                     if let icon {
-                        Image(systemName: icon)
-                            .font(.system(size: 14, weight: .medium))
+                        VIconView(.resolve(icon), size: 14)
                             .foregroundColor(VColor.textMuted)
                             .frame(width: 20)
                     }
@@ -63,8 +62,7 @@ public struct VDisclosureSection<Content: View>: View {
 
                     Spacer()
 
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                    VIconView(.chevronRight, size: 10)
                         .foregroundColor(VColor.textMuted)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(VAnimation.fast, value: isExpanded)
@@ -97,7 +95,7 @@ public struct VDisclosureSection<Content: View>: View {
                 VStack(spacing: VSpacing.lg) {
                     VDisclosureSection(
                         title: "Gateway",
-                        icon: "network",
+                        icon: VIcon.network.rawValue,
                         isExpanded: $basicExpanded
                     ) {
                         Text("Gateway content goes here")
@@ -109,7 +107,7 @@ public struct VDisclosureSection<Content: View>: View {
 
                     VDisclosureSection(
                         title: "Advanced",
-                        icon: "gearshape",
+                        icon: VIcon.slidersHorizontal.rawValue,
                         subtitle: "Bearer token, developer options",
                         isExpanded: $subtitleExpanded
                     ) {
@@ -122,7 +120,7 @@ public struct VDisclosureSection<Content: View>: View {
 
                     VDisclosureSection(
                         title: "Diagnostics",
-                        icon: "stethoscope",
+                        icon: VIcon.stethoscope.rawValue,
                         isExpanded: $collapsedExpanded
                     ) {
                         Text("Diagnostics content goes here")

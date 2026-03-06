@@ -13,8 +13,7 @@ struct DrawerMenuItem: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: icon)
-                        .font(.system(size: 12, weight: .medium))
+                    VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
                         .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
                         .frame(width: 18)
                         .rotationEffect(.degrees(isHovered ? -10 : 0))

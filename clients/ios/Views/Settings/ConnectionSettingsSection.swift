@@ -62,7 +62,7 @@ struct DaemonConnectionSection: View {
                     if clientProvider.isConnected {
                         // Connected state
                         HStack {
-                            Image(systemName: "checkmark.circle.fill")
+                            VIconView(.circleCheck, size: 16)
                                 .foregroundColor(VColor.success)
                             Text("Connected")
                                 .font(VFont.body)
@@ -71,7 +71,7 @@ struct DaemonConnectionSection: View {
                     } else {
                         // Disconnected state — gateway configured but not connected
                         HStack {
-                            Image(systemName: "exclamationmark.circle.fill")
+                            VIconView(.circleAlert, size: 16)
                                 .foregroundColor(VColor.error)
                             Text("Disconnected")
                                 .font(VFont.body)
@@ -105,8 +105,7 @@ struct DaemonConnectionSection: View {
                     HStack {
                         Spacer()
                         VStack(spacing: 8) {
-                            Image(systemName: "qrcode.viewfinder")
-                                .font(.system(size: 40))
+                            VIconView(.qrCode, size: 40)
                             Text("Scan QR Code")
                                 .font(.headline)
                         }

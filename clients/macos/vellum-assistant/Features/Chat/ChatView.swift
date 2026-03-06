@@ -277,8 +277,7 @@ struct ChatView: View {
                     )
                     .overlay {
                         VStack(spacing: VSpacing.sm) {
-                            Image(systemName: "arrow.down.doc.fill")
-                                .font(.system(size: 28, weight: .medium))
+                            VIconView(.arrowDownToLine, size: 28)
                                 .foregroundColor(VColor.accent)
                             Text("Drop files here")
                                 .font(VFont.bodyMedium)

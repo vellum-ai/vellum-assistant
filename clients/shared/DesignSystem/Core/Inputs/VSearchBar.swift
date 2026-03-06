@@ -11,8 +11,7 @@ public struct VSearchBar: View {
 
     public var body: some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
+            VIconView(.search, size: 12)
                 .foregroundColor(VColor.textMuted)
 
             TextField(placeholder, text: $text)
@@ -22,8 +21,7 @@ public struct VSearchBar: View {
 
             if !text.isEmpty {
                 Button(action: { text = "" }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
+                    VIconView(.circleX, size: 12)
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)

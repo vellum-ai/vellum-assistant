@@ -19,9 +19,8 @@ struct CommandPaletteView: View {
                         .controlSize(.small)
                         .frame(width: 16, height: 16)
                 } else {
-                    Image(systemName: "magnifyingglass")
+                    VIconView(.search, size: 16)
                         .foregroundColor(VColor.textMuted)
-                        .font(.system(size: 16, weight: .medium))
                 }
 
                 TextField("Search conversations, memories, schedules...", text: $viewModel.query)
@@ -38,9 +37,8 @@ struct CommandPaletteView: View {
                         viewModel.query = ""
                         viewModel.serverResults = .empty
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        VIconView(.circleX, size: 14)
                             .foregroundColor(VColor.textMuted)
-                            .font(.system(size: 14))
                     }
                     .buttonStyle(.plain)
                 }
@@ -210,9 +208,8 @@ struct CommandPaletteView: View {
 
     private func actionRow(_ action: CommandPaletteAction, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
-            Image(systemName: action.icon)
+            VIconView(SFSymbolMapping.icon(forSFSymbol: action.icon, fallback: .puzzle), size: 13)
                 .foregroundColor(VColor.textSecondary)
-                .font(.system(size: 13))
                 .frame(width: 20, alignment: .center)
 
             Text(action.label)
@@ -242,9 +239,8 @@ struct CommandPaletteView: View {
 
     private func recentRow(_ recent: CommandPaletteRecentItem, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
-            Image(systemName: "bubble.left.and.bubble.right")
+            VIconView(.messagesSquare, size: 13)
                 .foregroundColor(VColor.textSecondary)
-                .font(.system(size: 13))
                 .frame(width: 20, alignment: .center)
 
             Text(recent.title)
@@ -268,9 +264,8 @@ struct CommandPaletteView: View {
 
     private func conversationRow(_ conv: SearchResultConversation, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
-            Image(systemName: "bubble.left.and.bubble.right")
+            VIconView(.messagesSquare, size: 13)
                 .foregroundColor(VColor.textSecondary)
-                .font(.system(size: 13))
                 .frame(width: 20, alignment: .center)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -303,9 +298,8 @@ struct CommandPaletteView: View {
 
     private func memoryRow(_ memory: SearchResultMemory, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
-            Image(systemName: "brain")
+            VIconView(.brain, size: 13)
                 .foregroundColor(VColor.textSecondary)
-                .font(.system(size: 13))
                 .frame(width: 20, alignment: .center)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -335,9 +329,8 @@ struct CommandPaletteView: View {
 
     private func scheduleRow(_ schedule: SearchResultSchedule, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
-            Image(systemName: "clock")
+            VIconView(.clock, size: 13)
                 .foregroundColor(VColor.textSecondary)
-                .font(.system(size: 13))
                 .frame(width: 20, alignment: .center)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -368,9 +361,8 @@ struct CommandPaletteView: View {
 
     private func contactRow(_ contact: SearchResultContact, isSelected: Bool) -> some View {
         HStack(spacing: VSpacing.md) {
-            Image(systemName: "person.2")
+            VIconView(.users, size: 13)
                 .foregroundColor(VColor.textSecondary)
-                .font(.system(size: 13))
                 .frame(width: 20, alignment: .center)
 
             VStack(alignment: .leading, spacing: 2) {

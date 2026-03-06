@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// SwiftUI content for the pairing approval prompt.
 /// Shows the device name and three action buttons: Deny, Approve Once, Always Allow.
@@ -8,9 +9,8 @@ struct PairingApprovalView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "iphone")
-                .font(.system(size: 40))
-                .foregroundStyle(.secondary)
+            VIconView(.smartphone, size: 40)
+                .foregroundColor(.secondary)
 
             Text("Pairing Request")
                 .font(.headline)

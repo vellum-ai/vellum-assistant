@@ -137,8 +137,7 @@ extension ChatBubble {
 
     func fileAttachmentChip(_ attachment: ChatAttachment) -> some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: fileIcon(for: attachment.mimeType))
-                .font(VFont.caption)
+            VIconView(fileIcon(for: attachment.mimeType), size: 14)
                 .foregroundColor(isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary)
 
             Text(attachment.filename)
@@ -201,14 +200,14 @@ extension ChatBubble {
         }
     }
 
-    func fileIcon(for mimeType: String) -> String {
-        if mimeType.hasPrefix("video/") { return "film" }
-        if mimeType.hasPrefix("audio/") { return "waveform" }
-        if mimeType.hasPrefix("text/") { return "doc.text.fill" }
-        if mimeType == "application/pdf" { return "doc.fill" }
-        if mimeType.contains("zip") || mimeType.contains("archive") { return "doc.zipper" }
-        if mimeType.contains("json") || mimeType.contains("xml") { return "doc.text.fill" }
-        return "doc.fill"
+    func fileIcon(for mimeType: String) -> VIcon {
+        if mimeType.hasPrefix("video/") { return .film }
+        if mimeType.hasPrefix("audio/") { return .audioWaveform }
+        if mimeType.hasPrefix("text/") { return .fileText }
+        if mimeType == "application/pdf" { return .file }
+        if mimeType.contains("zip") || mimeType.contains("archive") { return .fileArchive }
+        if mimeType.contains("json") || mimeType.contains("xml") { return .fileText }
+        return .file
     }
 
     func formattedFileSize(base64Length: Int) -> String {

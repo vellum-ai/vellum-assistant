@@ -95,7 +95,7 @@ struct AppSharePanelView: View {
 
                     // Copy row
                     serviceRow(
-                        icon: NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy"),
+                        icon: VIcon.copy.nsImage,
                         title: "Copy",
                         index: -1
                     ) {

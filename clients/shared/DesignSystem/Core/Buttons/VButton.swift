@@ -35,8 +35,7 @@ public struct VButton: View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
                 if let leftIcon {
-                    Image(systemName: leftIcon)
-                        .font(.system(size: iconSize, weight: .semibold))
+                    VIconView(.resolve(leftIcon), size: iconSize)
                 }
                 Text(label)
                     .font(labelFont)
@@ -45,8 +44,7 @@ public struct VButton: View {
                     Spacer(minLength: 0)
                 }
                 if let rightIcon {
-                    Image(systemName: rightIcon)
-                        .font(.system(size: iconSize, weight: .semibold))
+                    VIconView(.resolve(rightIcon), size: iconSize)
                 }
             }
         }
@@ -68,13 +66,7 @@ public struct VButton: View {
         .optionalAccessibilityIdentifier(accessibilityID)
     }
 
-    private var iconSize: CGFloat {
-        switch size {
-        case .small: return 10
-        case .medium: return 12
-        case .large: return 14
-        }
-    }
+    private var iconSize: CGFloat { 13 }
 
     private var labelFont: Font {
         switch size {
@@ -235,11 +227,11 @@ private extension View {
             VButton(label: "Ghost", style: .ghost, size: .medium) {}
             VButton(label: "Record", style: .outlined, size: .large) {}
             HStack(spacing: 12) {
-                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
                 VButton(label: "Disconnect", style: .danger, size: .medium) {}
             }
             VButton(label: "Connect", style: .primary, size: .medium) {}
-            VButton(label: "With Icon", leftIcon: "plus", style: .primary, size: .small) {}
+            VButton(label: "With Icon", leftIcon: VIcon.plus.rawValue, style: .primary, size: .small) {}
             VButton(label: "Full Width", style: .primary, isFullWidth: true) {}
             VButton(label: "Disabled", style: .primary, isDisabled: true) {}
         }

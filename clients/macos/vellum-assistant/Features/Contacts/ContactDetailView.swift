@@ -143,9 +143,8 @@ struct ContactDetailView: View {
                         editedNotes = displayContact.notes ?? ""
                         isEditing = true
                     } label: {
-                        Image(systemName: "pencil")
+                        VIconView(.pencil, size: 12)
                             .foregroundColor(VColor.textSecondary)
-                            .font(.system(size: 12))
                     }
                     .buttonStyle(.plain)
                     .opacity(isHoveringHeader ? 1 : 0)
@@ -158,7 +157,7 @@ struct ContactDetailView: View {
                                 ProgressView()
                                     .controlSize(.small)
                             } else {
-                                Image(systemName: "trash")
+                                VIconView(.trash, size: 14)
                                     .foregroundColor(VColor.error)
                             }
                         }
@@ -357,9 +356,8 @@ struct ContactDetailView: View {
     private func channelRow(_ channel: ContactChannelPayload) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: channelIcon(for: channel.type))
+                VIconView(channelIcon(for: channel.type), size: 14)
                     .foregroundColor(VColor.textSecondary)
-                    .font(.system(size: 14))
                     .frame(width: 20, alignment: .center)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -388,8 +386,7 @@ struct ContactDetailView: View {
 
                     if channel.policy != "allow" {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "shield.fill")
-                                .font(.system(size: 10))
+                            VIconView(.shield, size: 10)
                             Text("Policy: \(channel.policy)")
                                 .font(VFont.caption)
                         }
@@ -413,9 +410,8 @@ struct ContactDetailView: View {
     private func unconfiguredChannelRow(type: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: channelIcon(for: type))
+                VIconView(channelIcon(for: type), size: 14)
                     .foregroundColor(VColor.textSecondary)
-                    .font(.system(size: 14))
                     .frame(width: 20, alignment: .center)
 
                 Text(channelLabel(for: type))
@@ -492,9 +488,8 @@ struct ContactDetailView: View {
     private func unavailableChannelRow(type: String, reason: String?) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: channelIcon(for: type))
+                VIconView(channelIcon(for: type), size: 14)
                     .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 14))
                     .frame(width: 20, alignment: .center)
 
                 Text(channelLabel(for: type))
@@ -542,7 +537,7 @@ struct ContactDetailView: View {
 
                         VButton(
                             label: inviteCopiedType == "\(type)-link" ? "Copied!" : "Copy Link",
-                            icon: "doc.on.doc",
+                            icon: VIcon.copy.rawValue,
                             style: .secondary,
                             size: .medium
                         ) {
@@ -568,7 +563,7 @@ struct ContactDetailView: View {
 
                         VButton(
                             label: inviteCopiedType == "\(type)-handle" ? "Copied!" : "Copy Address",
-                            icon: "doc.on.doc",
+                            icon: VIcon.copy.rawValue,
                             style: .secondary,
                             size: .medium
                         ) {
@@ -595,7 +590,7 @@ struct ContactDetailView: View {
 
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy Code",
-                    icon: "doc.on.doc",
+                    icon: VIcon.copy.rawValue,
                     style: (result.shareUrl != nil || result.channelHandle != nil) ? .tertiary : .secondary,
                     size: .medium
                 ) {
@@ -624,7 +619,7 @@ struct ContactDetailView: View {
 
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy",
-                    icon: "doc.on.doc",
+                    icon: VIcon.copy.rawValue,
                     style: .tertiary,
                     size: .medium
                 ) {
@@ -726,9 +721,8 @@ struct ContactDetailView: View {
 
             if verificationSuccessChannelId == channel.id {
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "checkmark.circle.fill")
+                    VIconView(.circleCheck, size: 12)
                         .foregroundColor(VColor.success)
-                        .font(.system(size: 12))
                     Text("Verification code sent")
                         .font(VFont.caption)
                         .foregroundColor(VColor.success)
@@ -747,8 +741,7 @@ struct ContactDetailView: View {
                         NSWorkspace.shared.open(url)
                     } label: {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 11))
+                            VIconView(.externalLink, size: 11)
                             Text("Open Telegram")
                                 .font(VFont.caption)
                         }
@@ -859,20 +852,20 @@ struct ContactDetailView: View {
 
     // MARK: - Helpers
 
-    private func channelIcon(for type: String) -> String {
+    private func channelIcon(for type: String) -> VIcon {
         switch type {
         case "telegram":
-            return "paperplane.fill"
+            return .send
         case "voice":
-            return "phone.fill"
+            return .phoneCall
         case "sms":
-            return "phone.fill"
+            return .phoneCall
         case "email":
-            return "envelope.fill"
+            return .mail
         case "whatsapp", "slack":
-            return "bubble.left.fill"
+            return .messageCircle
         default:
-            return "globe"
+            return .globe
         }
     }
 

@@ -78,8 +78,7 @@ public struct ToolCallChip: View {
             } label: {
                 HStack(spacing: VSpacing.xs) {
                     // Tool-specific icon
-                    Image(systemName: toolCall.toolIcon)
-                        .font(.system(size: 12))
+                    VIconView(toolCall.toolIcon, size: 12)
                         .foregroundColor(toolCall.isError ? VColor.error : VColor.textSecondary)
 
                     // Plain-language description of what was done
@@ -97,8 +96,7 @@ public struct ToolCallChip: View {
                             .frame(width: 14, height: 14)
                     } else if hasExpandableContent {
                         // Chevron for expandable result
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
+                        VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
                             .foregroundColor(VColor.textMuted)
                     }
                 }
@@ -195,8 +193,7 @@ public struct ToolCallChip: View {
                                 // Structured display for command exit codes
                                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                                     HStack(spacing: VSpacing.xs) {
-                                        Image(systemName: "exclamationmark.triangle")
-                                            .font(.system(size: 11))
+                                        VIconView(.triangleAlert, size: 11)
                                             .foregroundColor(VColor.error)
                                         Text("Exit code \(exitCode)")
                                             .font(VFont.captionMedium)
@@ -220,8 +217,7 @@ public struct ToolCallChip: View {
                                 }
                             } else if result == "<command_completed />" {
                                 HStack(spacing: VSpacing.xs) {
-                                    Image(systemName: "checkmark.circle")
-                                        .font(.system(size: 11))
+                                    VIconView(.circleCheck, size: 11)
                                         .foregroundColor(VColor.accent)
                                     Text("Command completed successfully (no output).")
                                         .font(VFont.caption)

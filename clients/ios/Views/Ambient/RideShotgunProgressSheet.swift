@@ -13,9 +13,8 @@ struct RideShotgunProgressSheet: View {
         VStack(spacing: VSpacing.lg) {
             // Header
             HStack {
-                Image(systemName: "binoculars.fill")
+                VIconView(.binoculars, size: 16)
                     .foregroundStyle(VColor.accent)
-                    .symbolEffect(.pulse)
                     .accessibilityHidden(true)
                 Text(headerTitle)
                     .font(VFont.headline)

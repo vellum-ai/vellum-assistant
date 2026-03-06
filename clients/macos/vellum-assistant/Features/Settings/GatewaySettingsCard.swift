@@ -53,8 +53,7 @@ struct GatewaySettingsCard: View {
                         gatewayTargetCopied = false
                     }
                 } label: {
-                    Image(systemName: gatewayTargetCopied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 12, weight: .medium))
+                    VIconView(gatewayTargetCopied ? .check : .copy, size: 12)
                         .foregroundColor(gatewayTargetCopied ? VColor.success : VColor.textSecondary)
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
@@ -76,7 +75,7 @@ struct GatewaySettingsCard: View {
 
             // Running badge — only shown when gateway is reachable
             if store.gatewayReachable == true {
-                VButton(label: "Running", leftIcon: "checkmark.circle.fill", style: .success) {}
+                VButton(label: "Running", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
             }
 
             Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
@@ -118,9 +117,8 @@ struct GatewaySettingsCard: View {
                !store.ingressPublicBaseUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                store.ingressReachable == false {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                    VIconView(.triangleAlert, size: 12)
                         .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
                     Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
                         .font(VFont.caption)
                         .foregroundColor(VColor.warning)

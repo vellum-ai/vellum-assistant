@@ -200,34 +200,28 @@ final class PermissionPromptOverlay {
     }
 
     private func makeIconView(for kind: PromptKind) -> NSView {
-        let symbolName: String
+        let vicon: VIcon
         let color: NSColor
-        let accessibilityLabel: String
 
         switch kind {
         case .notDetermined:
-            symbolName = "mic.circle"
+            vicon = .mic
             color = .systemBlue
-            accessibilityLabel = "Microphone"
         case .denied(_, let deniedPermission):
             color = .systemOrange
             switch deniedPermission {
             case .microphone:
-                symbolName = "mic.slash.circle"
-                accessibilityLabel = "Microphone denied"
+                vicon = .micOff
             case .speechRecognition:
-                symbolName = "waveform.circle"
-                accessibilityLabel = "Speech recognition denied"
+                vicon = .audioWaveform
             case .both:
-                symbolName = "mic.slash.circle"
-                accessibilityLabel = "Permissions denied"
+                vicon = .micOff
             }
         }
 
         let imageView = NSImageView()
-        if let img = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityLabel) {
-            let config = NSImage.SymbolConfiguration(pointSize: 28, weight: .regular)
-            imageView.image = img.withSymbolConfiguration(config)
+        if let img = vicon.nsImage(size: 36) {
+            imageView.image = img
             imageView.contentTintColor = color
         }
         imageView.widthAnchor.constraint(equalToConstant: 36).isActive = true

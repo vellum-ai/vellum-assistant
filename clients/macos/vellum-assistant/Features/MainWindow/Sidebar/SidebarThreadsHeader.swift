@@ -16,14 +16,14 @@ struct SidebarThreadsHeader: View {
             if hasUnseenThreads {
                 VIconButton(
                     label: "Mark all as seen",
-                    icon: "checkmark.circle",
+                    icon: VIcon.circleCheck.rawValue,
                     iconOnly: true,
                     tooltip: "Mark all as seen",
                     action: onMarkAllSeen
                 )
                 .disabled(isLoading)
             }
-            VIconButton(label: "New thread", icon: "square.and.pencil", iconOnly: true, action: onNewThread)
+            VIconButton(label: "New thread", icon: VIcon.squarePen.rawValue, iconOnly: true, action: onNewThread)
                 .disabled(isLoading)
                 .opacity(isLoading ? 0.4 : 1)
         }
@@ -34,7 +34,7 @@ struct SidebarThreadsHeader: View {
             Button {
                 onMarkAllSeen()
             } label: {
-                Label("Mark All as Seen", systemImage: "checkmark.circle")
+                Label { Text("Mark All as Seen") } icon: { VIconView(.circleCheck, size: 14) }
             }
             .disabled(!hasUnseenThreads)
         }

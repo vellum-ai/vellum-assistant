@@ -72,8 +72,7 @@ struct NewSkillSheet: View {
 
     private var header: some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 14, weight: .medium))
+            VIconView(.sparkles, size: 14)
                 .foregroundColor(Forest._400)
             Text("New Skill")
                 .font(VFont.display)
@@ -82,8 +81,7 @@ struct NewSkillSheet: View {
             Button {
                 dismiss()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .medium))
+                VIconView(.x, size: 11)
                     .foregroundColor(VColor.textMuted)
                     .frame(width: 24, height: 24)
                     .background(VColor.ghostHover)
@@ -153,8 +151,7 @@ struct NewSkillSheet: View {
                 )
 
             VStack(spacing: VSpacing.md) {
-                Image(systemName: isDropTargeted ? "arrow.down.doc.fill" : "doc.text")
-                    .font(.system(size: 28, weight: .light))
+                VIconView(isDropTargeted ? .arrowDownToLine : .fileText, size: 28)
                     .foregroundColor(isDropTargeted ? Forest._400 : VColor.textMuted)
 
                 VStack(spacing: VSpacing.xs) {
@@ -164,8 +161,7 @@ struct NewSkillSheet: View {
 
                     if let fileName = droppedFileName {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 11))
+                            VIconView(.circleCheck, size: 11)
                                 .foregroundColor(VColor.success)
                             Text(fileName)
                                 .font(VFont.caption)
@@ -191,9 +187,8 @@ struct NewSkillSheet: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     ForEach(warnings, id: \.self) { warning in
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "exclamationmark.triangle.fill")
+                            VIconView(.triangleAlert, size: 11)
                                 .foregroundColor(VColor.warning)
-                                .font(.caption)
                             Text(warning)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textSecondary)
@@ -241,8 +236,7 @@ struct NewSkillSheet: View {
                     skillsManager.resetDraftState()
                 } label: {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 10, weight: .medium))
+                        VIconView(.chevronLeft, size: 10)
                         Text("Back")
                             .font(VFont.bodyMedium)
                     }
@@ -367,8 +361,7 @@ struct NewSkillSheet: View {
 
     private func errorLabel(_ text: String) -> some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: "exclamationmark.circle.fill")
-                .font(.system(size: 11))
+            VIconView(.circleAlert, size: 11)
                 .foregroundColor(VColor.error)
             Text(text)
                 .font(VFont.caption)

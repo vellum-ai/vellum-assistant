@@ -176,8 +176,7 @@ struct ContentView: View {
 
     private var connectionFailedView: some View {
         VStack(spacing: VSpacing.lg) {
-            Image(systemName: "wifi.exclamationmark")
-                .font(.system(size: 48))
+            VIconView(.wifiOff, size: 48)
                 .foregroundColor(VColor.textMuted)
 
             Text("Unable to Connect")
@@ -232,7 +231,7 @@ struct ContentView: View {
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.home)
                 .tabItem {
-                    Label("Home", systemImage: "house")
+                    Label { Text("Home") } icon: { VIconView(.house, size: 12) }
                 }
 
             ChatsTabView(store: threadStore, onConnectTapped: navigateToConnectSettings)
@@ -240,7 +239,7 @@ struct ContentView: View {
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.chats)
                 .tabItem {
-                    Label("Chats", systemImage: "message")
+                    Label { Text("Chats") } icon: { VIconView(.messageSquare, size: 12) }
                 }
 
             TasksTabView(onConnectTapped: navigateToConnectSettings)
@@ -248,7 +247,7 @@ struct ContentView: View {
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.tasks)
                 .tabItem {
-                    Label("Tasks", systemImage: "list.bullet.clipboard")
+                    Label { Text("Tasks") } icon: { VIconView(.clipboardList, size: 12) }
                 }
 
             IdentityView(onConnectTapped: navigateToConnectSettings)
@@ -256,14 +255,14 @@ struct ContentView: View {
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
                 .tag(Tab.identity)
                 .tabItem {
-                    Label("Identity", systemImage: "person.text.rectangle")
+                    Label { Text("Identity") } icon: { VIconView(.contact, size: 12) }
                 }
 
             SettingsView(authManager: authManager, navigateToConnect: $navigateToConnect, threadStore: threadStore)
                 .environmentObject(clientProvider)
                 .tag(Tab.settings)
                 .tabItem {
-                    Label("Settings", systemImage: "gear")
+                    Label { Text("Settings") } icon: { VIconView(.settings, size: 12) }
                 }
         }
     }

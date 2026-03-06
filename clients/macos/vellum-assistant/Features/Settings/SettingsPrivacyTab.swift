@@ -40,9 +40,8 @@ struct SettingsPrivacyTab: View {
 
             if let error = loadError {
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                    VIconView(.triangleAlert, size: 12)
                         .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
                     Text(error)
                         .font(VFont.caption)
                         .foregroundColor(VColor.error)

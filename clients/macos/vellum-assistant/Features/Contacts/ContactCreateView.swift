@@ -92,8 +92,7 @@ struct ContactCreateView: View {
 
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
+            VIconView(.triangleAlert, size: 12)
                 .foregroundColor(VColor.error)
             Text(message)
                 .font(VFont.caption)

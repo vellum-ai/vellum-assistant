@@ -12,7 +12,7 @@ public struct UsedToolsListCompact: View {
         return "Completed \(count) steps"
     }
 
-    private var pillIcon: String { "checkmark.circle.fill" }
+    private var pillIcon: VIcon { .circleCheck }
 
     private var pillIconColor: Color { VColor.success }
 
@@ -27,8 +27,7 @@ public struct UsedToolsListCompact: View {
                 withAnimation(VAnimation.fast) { isExpanded.toggle() }
             } label: {
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: pillIcon)
-                        .font(.system(size: 10))
+                    VIconView(pillIcon, size: 10)
                         .foregroundColor(pillIconColor)
 
                     Text(pillLabel)
@@ -36,8 +35,7 @@ public struct UsedToolsListCompact: View {
                         .foregroundColor(VColor.textSecondary)
                         .lineLimit(1)
 
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                    VIconView(.chevronRight, size: 9)
                         .foregroundColor(VColor.textMuted)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(VAnimation.fast, value: isExpanded)
@@ -83,8 +81,7 @@ private struct CompactToolRow: View {
                     .fill(toolCall.isError ? VColor.error : VColor.success)
                     .frame(width: 20, height: 20)
 
-                Image(systemName: toolCall.isError ? "xmark" : "checkmark")
-                    .font(.system(size: 9, weight: .bold))
+                VIconView(toolCall.isError ? .x : .check, size: 9)
                     .foregroundColor(.white)
             }
 

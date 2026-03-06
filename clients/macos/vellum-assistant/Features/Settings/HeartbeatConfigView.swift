@@ -37,8 +37,7 @@ struct HeartbeatConfigView: View {
             } else if let errorMessage {
                 Spacer()
                 VStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
+                    VIconView(.triangleAlert, size: 32)
                         .foregroundColor(VColor.textMuted)
                     Text("Failed to load configuration")
                         .foregroundColor(VColor.textSecondary)
@@ -176,8 +175,7 @@ struct HeartbeatConfigView: View {
                         // Inline save error
                         if let saveError = saveErrorMessage {
                             HStack(spacing: VSpacing.sm) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: 11))
+                                VIconView(.triangleAlert, size: 11)
                                     .foregroundColor(VColor.error)
                                 Text(saveError)
                                     .font(VFont.caption)

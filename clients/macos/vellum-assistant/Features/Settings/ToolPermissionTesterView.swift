@@ -211,9 +211,8 @@ struct ToolPermissionTesterView: View {
     private var resultSection: some View {
         if let error = model.lastError {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
+                VIconView(.triangleAlert, size: 12)
                     .foregroundColor(VColor.error)
-                    .font(.system(size: 12))
                 Text(error)
                     .font(VFont.caption)
                     .foregroundColor(VColor.error)
@@ -284,8 +283,7 @@ struct ToolPermissionTesterView: View {
                 // Local override label (shown after allowOnce / denyOnce)
                 if let label = result.localOverrideLabel {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 11))
+                        VIconView(.info, size: 11)
                             .foregroundColor(VColor.textMuted)
                         Text(label)
                             .font(VFont.caption)
@@ -325,18 +323,17 @@ struct ToolPermissionTesterView: View {
 
     @ViewBuilder
     private func decisionBadge(_ decision: String) -> some View {
-        let (color, icon): (Color, String) = {
+        let (color, icon): (Color, VIcon) = {
             switch decision.lowercased() {
-            case "allow": return (VColor.success, "checkmark.circle.fill")
-            case "deny": return (VColor.error, "xmark.circle.fill")
-            case "prompt": return (VColor.warning, "questionmark.circle.fill")
-            default: return (VColor.textMuted, "circle")
+            case "allow": return (VColor.success, .circleCheck)
+            case "deny": return (VColor.error, .circleX)
+            case "prompt": return (VColor.warning, .info)
+            default: return (VColor.textMuted, .circle)
             }
         }()
 
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: icon)
-                .font(.system(size: 12))
+            VIconView(icon, size: 12)
                 .foregroundColor(color)
             Text(decision.capitalized)
                 .font(VFont.captionMedium)

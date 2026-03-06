@@ -51,8 +51,7 @@ struct AnimatedImageView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: maxDimension, maxHeight: maxDimension)
             } else {
-                Image(systemName: "photo")
-                    .font(.system(size: 24))
+                VIconView(.image, size: 24)
                     .foregroundColor(VColor.textMuted)
                     .frame(width: 80, height: 60)
             }

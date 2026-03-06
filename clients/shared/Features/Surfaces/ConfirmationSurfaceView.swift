@@ -69,8 +69,7 @@ public struct ConfirmationSurfaceView: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Header with icon
             HStack(alignment: .top, spacing: VSpacing.md) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.title2)
+                VIconView(.triangleAlert, size: 24)
                     .foregroundStyle(data.destructive ? VColor.error : VColor.warning)
                 Text(inlineMarkdown(data.message))
                     .font(VFont.headline)
@@ -112,15 +111,13 @@ public struct ConfirmationSurfaceView: View {
         HStack(spacing: VSpacing.sm) {
             switch action {
             case .confirmed:
-                Image(systemName: "checkmark.circle.fill")
-                    .font(VFont.caption)
+                VIconView(.circleCheck, size: 12)
                     .foregroundColor(VColor.success)
                 Text(data.confirmedLabel ?? "Done")
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textPrimary)
             case .cancelled:
-                Image(systemName: "xmark.circle.fill")
-                    .font(VFont.caption)
+                VIconView(.circleX, size: 12)
                     .foregroundColor(VColor.textMuted)
                 Text(data.cancelLabel ?? "Dismissed")
                     .font(VFont.captionMedium)

@@ -22,8 +22,7 @@ struct ChatQueueSummaryView: View {
                     }
                 } label: {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
+                        VIconView(isExpanded ? .chevronDown : .chevronRight, size: 10)
                             .foregroundColor(VColor.textMuted)
                         Text("\(queuedMessages.count) Queued")
                             .font(VFont.captionMedium)
@@ -47,7 +46,7 @@ struct ChatQueueSummaryView: View {
                                 if message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                     // Attachment-only message — show filenames
                                     let names = message.attachments.map(\.filename).joined(separator: ", ")
-                                    Label(names.isEmpty ? "Attachment" : names, systemImage: "paperclip")
+                                    Label { Text(names.isEmpty ? "Attachment" : names) } icon: { VIconView(.paperclip, size: 14) }
                                         .font(VFont.body)
                                         .foregroundColor(VColor.textMuted)
                                         .lineLimit(1)
@@ -62,8 +61,7 @@ struct ChatQueueSummaryView: View {
                                     Button {
                                         onSendDirect(message.id)
                                     } label: {
-                                        Image(systemName: "arrow.up.circle.fill")
-                                            .font(.system(size: 13))
+                                        VIconView(.circleArrowUp, size: 13)
                                             .foregroundColor(VColor.textMuted)
                                     }
                                     .buttonStyle(.plain)
@@ -73,8 +71,7 @@ struct ChatQueueSummaryView: View {
                                     Button {
                                         onDelete(message.id)
                                     } label: {
-                                        Image(systemName: "trash")
-                                            .font(.system(size: 11))
+                                        VIconView(.trash, size: 11)
                                             .foregroundColor(VColor.textMuted)
                                     }
                                     .buttonStyle(.plain)

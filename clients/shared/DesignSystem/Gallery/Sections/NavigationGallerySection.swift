@@ -8,10 +8,10 @@ struct NavigationGallerySection: View {
 
     private let segmentItems = ["All", "Active", "Archived", "Drafts"]
     private let tabs = [
-        (label: "Dashboard", icon: "house"),
-        (label: "Sessions", icon: "list.bullet"),
-        (label: "Settings", icon: "gear"),
-        (label: "Logs", icon: "doc.text"),
+        (label: "Dashboard", icon: VIcon.house.rawValue),
+        (label: "Sessions", icon: VIcon.list.rawValue),
+        (label: "Settings", icon: VIcon.settings.rawValue),
+        (label: "Logs", icon: VIcon.fileText.rawValue),
     ]
 
     var body: some View {
@@ -119,15 +119,15 @@ struct NavigationGallerySection: View {
                 HStack(spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Default").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VTab(label: "Tab", icon: "doc", onSelect: {})
+                        VTab(label: "Tab", icon: VIcon.file.rawValue, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Selected").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VTab(label: "Tab", icon: "doc", isSelected: true, onSelect: {})
+                        VTab(label: "Tab", icon: VIcon.file.rawValue, isSelected: true, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Not closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VTab(label: "Tab", icon: "doc", isCloseable: false, onSelect: {})
+                        VTab(label: "Tab", icon: VIcon.file.rawValue, isCloseable: false, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("No icon").font(VFont.caption).foregroundColor(VColor.textMuted)
@@ -171,19 +171,19 @@ struct NavigationGallerySection: View {
                 HStack(spacing: VSpacing.lg) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Default").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VTab(label: "Tab", icon: "doc", style: .rectangular, onSelect: {})
+                        VTab(label: "Tab", icon: VIcon.file.rawValue, style: .rectangular, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Selected").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VTab(label: "Tab", icon: "doc", isSelected: true, style: .rectangular, onSelect: {})
+                        VTab(label: "Tab", icon: VIcon.file.rawValue, isSelected: true, style: .rectangular, onSelect: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VTab(label: "Tab", icon: "doc", style: .rectangular, onSelect: {}, onClose: {})
+                        VTab(label: "Tab", icon: VIcon.file.rawValue, style: .rectangular, onSelect: {}, onClose: {})
                     }
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Selected + Closeable").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VTab(label: "Tab", icon: "doc", isSelected: true, style: .rectangular, onSelect: {}, onClose: {})
+                        VTab(label: "Tab", icon: VIcon.file.rawValue, isSelected: true, style: .rectangular, onSelect: {}, onClose: {})
                     }
                 }
             }

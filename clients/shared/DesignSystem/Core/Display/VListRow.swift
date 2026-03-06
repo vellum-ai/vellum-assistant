@@ -43,7 +43,7 @@ public struct VListRow<Content: View>: View {
         VStack(spacing: 0) {
             VListRow(onTap: {}) {
                 HStack {
-                    Image(systemName: "doc.text")
+                    VIconView(.fileText, size: 14)
                         .foregroundColor(VColor.accent)
                     Text("Tappable row")
                         .foregroundColor(VColor.textPrimary)

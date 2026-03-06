@@ -200,7 +200,7 @@ extension AppDelegate {
             ), let img = NSImage(contentsOf: url) {
                 return img
             }
-            return NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
+            return VIcon.sparkles.nsImage(size: 18)
                 ?? NSImage()
         }()
 
@@ -295,17 +295,17 @@ extension AppDelegate {
 
         let currentThreadItem = NSMenuItem(title: "Current Thread", action: #selector(openCurrentThread), keyEquivalent: "")
         currentThreadItem.target = self
-        currentThreadItem.image = NSImage(systemSymbolName: "message", accessibilityDescription: nil)
+        currentThreadItem.image = VIcon.messageSquare.nsImage
         menu.addItem(currentThreadItem)
 
         let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
         newChatItem.target = self
-        newChatItem.image = NSImage(systemSymbolName: "plus.message", accessibilityDescription: nil)
+        newChatItem.image = VIcon.messageCirclePlus.nsImage
         menu.addItem(newChatItem)
 
         // My Apps submenu
         let myAppsItem = NSMenuItem(title: "My Apps", action: nil, keyEquivalent: "")
-        myAppsItem.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
+        myAppsItem.image = VIcon.layoutGrid.nsImage
         let appsSubmenu = NSMenu(title: "My Apps")
 
         let recentApps = Array(cachedApps.sorted { $0.createdAt > $1.createdAt }.prefix(5))
@@ -330,7 +330,7 @@ extension AppDelegate {
 
         // Skills submenu
         let skillsItem = NSMenuItem(title: "Skills", action: nil, keyEquivalent: "")
-        skillsItem.image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)
+        skillsItem.image = VIcon.puzzle.nsImage
         let skillsSubmenu = NSMenu(title: "Skills")
 
         let enabledSkills = cachedSkills.filter { $0.state == "enabled" }
@@ -369,14 +369,14 @@ extension AppDelegate {
 
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
         settingsItem.target = self
-        settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: nil)
+        settingsItem.image = VIcon.settings.nsImage
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
 
         // Ride Shotgun submenu
         let rideShotgunItem = NSMenuItem(title: "Ride Shotgun", action: nil, keyEquivalent: "")
-        rideShotgunItem.image = NSImage(systemSymbolName: "binoculars", accessibilityDescription: nil)
+        rideShotgunItem.image = VIcon.binoculars.nsImage
         let rideShotgunSubmenu = NSMenu(title: "Ride Shotgun")
 
         let observeItem = NSMenuItem(title: "Observe (3 min)", action: #selector(startRideShotgunObserve), keyEquivalent: "")
@@ -404,7 +404,7 @@ extension AppDelegate {
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
         updateItem.isEnabled = updateManager.canCheckForUpdates
-        updateItem.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+        updateItem.image = VIcon.circleArrowDown.nsImage
         menu.addItem(updateItem)
 
         let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
@@ -420,23 +420,23 @@ extension AppDelegate {
 
         let exportLogsItem = NSMenuItem(title: "Export Logs...", action: #selector(exportAssistantLogs), keyEquivalent: "")
         exportLogsItem.target = self
-        exportLogsItem.image = NSImage(systemSymbolName: "doc.zipper", accessibilityDescription: nil)
+        exportLogsItem.image = VIcon.fileArchive.nsImage
         menu.addItem(exportLogsItem)
 
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self
-        restartItem.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        restartItem.image = VIcon.refreshCw.nsImage
         menu.addItem(restartItem)
 
         menu.addItem(NSMenuItem.separator())
 
         let logoutItem = NSMenuItem(title: "Sign Out", action: #selector(performLogout), keyEquivalent: "")
         logoutItem.target = self
-        logoutItem.image = NSImage(systemSymbolName: "rectangle.portrait.and.arrow.right", accessibilityDescription: nil)
+        logoutItem.image = VIcon.logOut.nsImage
         menu.addItem(logoutItem)
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
+        quitItem.image = VIcon.power.nsImage
         menu.addItem(quitItem)
 
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)

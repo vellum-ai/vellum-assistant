@@ -55,8 +55,7 @@ struct RunningIndicator: View {
             let labelIndex = progressiveLabels.isEmpty ? 0 : min(Int(elapsed / labelInterval), progressiveLabels.count - 1)
             HStack(spacing: VSpacing.xs) {
                 if showIcon {
-                    Image(systemName: "terminal")
-                        .font(.system(size: 10))
+                    VIconView(.terminal, size: 10)
                         .foregroundColor(VColor.textSecondary)
                 }
 
@@ -79,8 +78,7 @@ struct RunningIndicator: View {
                 }
 
                 if onTap != nil {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                    VIconView(.chevronRight, size: 9)
                         .foregroundColor(VColor.textMuted)
                 }
 

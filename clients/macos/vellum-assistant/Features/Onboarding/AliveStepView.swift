@@ -96,8 +96,7 @@ struct AliveStepView: View {
 
     private func abilityTag(_ title: String, icon: String) -> some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: icon)
-                .font(VFont.caption)
+            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 11)
             Text(title)
                 .font(VFont.captionMedium)
                 .textSelection(.enabled)

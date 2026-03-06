@@ -318,8 +318,7 @@ struct ChatContentView: View {
     @ViewBuilder
     private func sessionErrorBanner(_ error: SessionError) -> some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: sessionErrorIcon(error.category))
-                .font(.system(size: 14, weight: .semibold))
+            VIconView(sessionErrorIcon(error.category), size: 14)
                 .foregroundColor(sessionErrorAccent(error.category))
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
@@ -348,8 +347,7 @@ struct ChatContentView: View {
             }
 
             Button(action: { viewModel.dismissSessionError() }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .medium))
+                VIconView(.x, size: 10)
                     .foregroundColor(VColor.textMuted)
             }
             .accessibilityLabel("Dismiss")
@@ -369,9 +367,8 @@ struct ChatContentView: View {
     @ViewBuilder
     private func genericErrorBanner(_ errorText: String) -> some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            VIconView(.triangleAlert, size: 14)
                 .foregroundColor(.white)
-                .font(VFont.caption)
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(errorText)
                     .font(VFont.caption)
@@ -407,8 +404,7 @@ struct ChatContentView: View {
                 }
             }
             Button(action: { viewModel.dismissError() }) {
-                Image(systemName: "xmark")
-                    .font(VFont.caption)
+                VIconView(.x, size: 14)
                     .foregroundColor(.white)
             }
             .accessibilityLabel("Dismiss")
@@ -419,18 +415,18 @@ struct ChatContentView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    private func sessionErrorIcon(_ category: SessionErrorCategory) -> String {
+    private func sessionErrorIcon(_ category: SessionErrorCategory) -> VIcon {
         switch category {
-        case .providerNetwork: return "wifi.exclamationmark"
-        case .rateLimit: return "clock.badge.exclamationmark"
-        case .providerApi: return "exclamationmark.icloud.fill"
-        case .queueFull: return "tray.full.fill"
-        case .sessionAborted: return "stop.circle.fill"
-        case .processingFailed, .regenerateFailed: return "arrow.triangle.2.circlepath"
-        case .contextTooLarge: return "text.badge.xmark"
-        case .providerBilling: return "creditcard.trianglebadge.exclamationmark"
-        case .authenticationRequired: return "lock.fill"
-        case .unknown: return "exclamationmark.triangle.fill"
+        case .providerNetwork: return .wifiOff
+        case .rateLimit: return .clockAlert
+        case .providerApi: return .cloudOff
+        case .queueFull: return .inbox
+        case .sessionAborted: return .circleStop
+        case .processingFailed, .regenerateFailed: return .refreshCw
+        case .contextTooLarge: return .fileText
+        case .providerBilling: return .creditCard
+        case .authenticationRequired: return .lock
+        case .unknown: return .triangleAlert
         }
     }
 
@@ -450,8 +446,7 @@ struct ChatContentView: View {
         VStack(spacing: VSpacing.lg) {
             Spacer()
             Spacer()
-            Image(systemName: "sparkles")
-                .font(.system(size: 48, weight: .thin))
+            VIconView(.sparkles, size: 48)
                 .foregroundColor(VColor.accent)
                 .opacity(emptyStateVisible ? 1 : 0)
                 .scaleEffect(emptyStateVisible ? 1 : 0.8)
