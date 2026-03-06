@@ -25,7 +25,7 @@ final class DocumentEditorThreadVisibilityTests: XCTestCase {
     func testDocumentEditorIsNotShowingChat() {
         let state = makeState(.panel(.documentEditor))
 
-        // isShowingChat is false for panels — the bug was using this instead of isConversationVisible
+        // isShowingChat only covers full-window chat (.thread / nil); panels use isConversationVisible
         XCTAssertFalse(state.isShowingChat,
                         "isShowingChat should be false for document editor (it's a panel)")
     }
@@ -59,7 +59,7 @@ final class DocumentEditorThreadVisibilityTests: XCTestCase {
         let presentation = ThreadHeaderPresentation(
             activeThread: thread,
             activeViewModel: vm,
-            isConversationVisible: true  // what isConversationVisible returns for document editor
+            isConversationVisible: true  // document editor always reports conversation as visible
         )
 
         XCTAssertEqual(presentation.displayTitle, "Doc Session Thread",
