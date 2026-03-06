@@ -234,11 +234,12 @@ struct MessageListView: View {
         scrollRestoreTask?.cancel()
         hasFreshAnchorMeasurement = false
         scrollRestoreTask = Task { @MainActor in
+            guard !Task.isCancelled else { return }
             // Stage 0: immediate — covers the happy path where layout is already ready.
+            log.debug("Scroll restore: stage 0 (immediate)")
             if anchorMessageId == nil {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
-            log.debug("Scroll restore: stage 0 (immediate)")
 
             // Stage 1: ~3 frames — handles most thread switches.
             try? await Task.sleep(nanoseconds: 50_000_000)
