@@ -576,7 +576,7 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 
 ### Telegram Credential Flow
 
-In desktop deployments, Telegram bot tokens are stored in secure storage (macOS Keychain or the encrypted file fallback) and never in plaintext config files. When deploying the gateway standalone, operators may also supply credentials via environment variables (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
+In desktop deployments, Telegram bot tokens are stored in secure storage (the encrypted file store at `~/.vellum/protected/keys.enc`, with macOS Keychain access available via the keychain broker) and never in plaintext config files. When deploying the gateway standalone, operators may also supply credentials via environment variables (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
 
 ```
 Entry points:
@@ -609,7 +609,7 @@ The `telegram_config` IPC message supports three actions:
 - **`set`** — validates the bot token against the Telegram API, stores it in secure storage, auto-generates a webhook secret if none exists (with rollback on failure), self-heals webhook_secret metadata if it already exists, and triggers gateway webhook reconciliation
 - **`clear`** — deregisters the webhook by calling Telegram's `deleteWebhook` API directly (while the token is still available), then deletes the bot token and webhook secret from both secure storage and credential metadata, and triggers gateway reconciliation
 
-The gateway reads Telegram credentials via its `credential-reader` module (`gateway/src/credential-reader.ts`), which uses a keychain-first fallback strategy on macOS: it tries the macOS Keychain first (via the `security` CLI), then falls back to the encrypted file store (`~/.vellum/protected/keys.enc`). This mirrors the assistant's own `secure-keys.ts` module. On non-macOS platforms, only the encrypted store is used. The keychain reader discriminates exit code 44 (`errSecItemNotFound` — credential genuinely missing) from other non-zero exit codes (transient errors like locked keychain or timeout), logging the latter as warnings for operator visibility.
+The gateway reads Telegram credentials via its `credential-reader` module (`gateway/src/credential-reader.ts`), which uses a broker-first fallback strategy: it tries the keychain broker first (a Unix domain socket served by the assistant daemon that proxies macOS Keychain reads), then falls back to the encrypted file store (`~/.vellum/protected/keys.enc`). When the broker is unavailable (e.g., daemon not running, non-macOS platform, or socket env var unset), the encrypted store is used directly.
 
 ### Webhook Reconciliation
 
@@ -666,7 +666,7 @@ The Slack channel requires two tokens:
 | App token | `xapp-...` | Used for `apps.connections.open` to establish the Socket Mode WebSocket connection   |
 | Bot token | `xoxb-...` | Used for `chat.postMessage` to send outbound messages and for `auth.test` validation |
 
-Both tokens are stored in secure storage (`credential:slack_channel:app_token`, `credential:slack_channel:bot_token`) via the assistant's Slack channel config endpoints (see `assistant/ARCHITECTURE.md`). The gateway reads them via its `credential-reader` module using the same keychain-first fallback strategy as Telegram credentials.
+Both tokens are stored in secure storage (`credential:slack_channel:app_token`, `credential:slack_channel:bot_token`) via the assistant's Slack channel config endpoints (see `assistant/ARCHITECTURE.md`). The gateway reads them via its `credential-reader` module using the same broker-first fallback strategy as Telegram credentials.
 
 **Auto-reconnect behavior:**
 
