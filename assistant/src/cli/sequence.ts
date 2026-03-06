@@ -75,7 +75,7 @@ progress through steps on a schedule.
 
 Lifecycle: active -> paused -> active (resume) or active -> archived.
 Enrollments track individual contacts through the sequence with statuses:
-active, completed, cancelled, bounced.
+active, paused, completed, replied, cancelled, failed.
 
 Guardrails enforce rate limits, daily send caps, cooldown periods, and
 duplicate enrollment checks to prevent abuse.
@@ -146,7 +146,7 @@ Arguments:
 
 Returns full sequence details: name, status, channel, description, exit-on-reply
 setting, all steps with delay and approval configuration, and enrollment
-breakdown by status (active, completed, cancelled, bounced).
+breakdown by status (active, paused, completed, replied, cancelled, failed).
 
 Examples:
   $ vellum sequence get seq_abc123
@@ -374,7 +374,7 @@ Displays the current guardrail configuration with all safety limits:
   Daily send cap          Max emails sent per day across all sequences
   Hourly rate (per-seq)   Max emails per hour within a single sequence
   Min step delay          Minimum seconds between consecutive step deliveries
-  Max active enrollments  Max concurrent active enrollments across all sequences
+  Max active enrollments  Max concurrent active enrollments per sequence
   Duplicate check         Whether duplicate enrollment in the same sequence is blocked
   Cooldown period         Time before a contact can be re-enrolled after completion
 
@@ -422,7 +422,7 @@ Valid keys:
   dailySendCap (or daily_send_cap)            Max emails sent per day across all sequences (numeric)
   perSequenceHourlyRate (or hourly_rate)       Max emails per hour per sequence (numeric)
   minimumStepDelaySec (or min_delay)           Minimum delay in seconds between sequence steps (numeric)
-  maxActiveEnrollments (or max_enrollments)    Max concurrent active enrollments across all sequences (numeric)
+  maxActiveEnrollments (or max_enrollments)    Max concurrent active enrollments per sequence (numeric)
   duplicateEnrollmentCheck (or duplicate_check) Prevent enrolling a contact already active in same sequence (true/false)
   cooldownPeriodMs                             Cooldown period in milliseconds before re-enrolling a contact (numeric)
   cooldown_days                                Cooldown period in days (converted to ms internally) (numeric)
