@@ -1,12 +1,13 @@
 /**
  * Route handlers for contact management endpoints.
  *
- * GET   /v1/contacts              — list contacts
- * POST  /v1/contacts              — create or update a contact
- * GET   /v1/contacts/:id          — get a contact by ID
- * POST  /v1/contacts/merge        — merge two contacts
- * PATCH /v1/contact-channels/:contactChannelId — update a contact channel's status/policy
- * POST  /v1/contact-channels/:contactChannelId/verify — initiate trusted contact verification
+ * GET    /v1/contacts              — list contacts
+ * POST   /v1/contacts              — create or update a contact
+ * GET    /v1/contacts/:id          — get a contact by ID
+ * DELETE /v1/contacts/:id          — delete a contact
+ * POST   /v1/contacts/merge        — merge two contacts
+ * PATCH  /v1/contact-channels/:contactChannelId — update a contact channel's status/policy
+ * POST   /v1/contact-channels/:contactChannelId/verify — initiate trusted contact verification
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -14,6 +15,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { ChannelId } from "../../channels/types.js";
 import { resolveGuardianName } from "../../config/user-reference.js";
 import {
+  deleteContact,
   getAssistantContactMetadata,
   getChannelById,
   getContact,
@@ -140,6 +142,20 @@ export function handleGetContact(contactId: string): Response {
     contact: withGuardianNameOverride(contact),
     assistantMetadata: assistantMeta ?? undefined,
   });
+}
+
+/**
+ * DELETE /v1/contacts/:id
+ */
+export function handleDeleteContact(contactId: string): Response {
+  const result = deleteContact(contactId);
+  if (result === "not_found") {
+    return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
+  }
+  if (result === "is_guardian") {
+    return httpError("FORBIDDEN", "Cannot delete a guardian contact", 403);
+  }
+  return new Response(null, { status: 204 });
 }
 
 /**
@@ -748,6 +764,12 @@ export function contactCatchAllRouteDefinitions(): RouteDefinition[] {
       method: "GET",
       policyKey: "contacts",
       handler: ({ params }) => handleGetContact(params.id),
+    },
+    {
+      endpoint: "contacts/:id",
+      method: "DELETE",
+      policyKey: "contacts",
+      handler: ({ params }) => handleDeleteContact(params.id),
     },
   ];
 }
