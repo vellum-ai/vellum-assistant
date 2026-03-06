@@ -6,8 +6,9 @@
  * This tool uses AppleScript to:
  *   1. Find the panel via its accessibility identifier
  *   2. Focus the SecureField
- *   3. Type the env var value via `keystroke` (generates real input events that
- *      update SwiftUI's @State binding, unlike `set value` which doesn't)
+ *   3. Paste the env var value via clipboard + Cmd-V (generates real input events
+ *      that update SwiftUI's @State binding, unlike `set value` which doesn't),
+ *      then immediately clear the clipboard to minimize secret exposure
  *   4. Click Save using a three-strategy cascade:
  *      - Strategy 1: AXIdentifier — reads `value of attribute "AXIdentifier"` to
  *        match the SwiftUI `.accessibilityIdentifier("secure-credential-save")`
@@ -74,7 +75,7 @@ export async function execute(
   // The AppleScript:
   // 1. Finds the Secure Credential panel window (scans all windows for "Secure Credential" header, smallest match wins)
   // 2. Finds the text field via `entire contents` (reliable regardless of nesting)
-  // 3. Types the env var value
+  // 3. Pastes the env var value via clipboard + Cmd-V, then clears the clipboard
   // 4. Clicks Save (by accessibility identifier, or by name "Save")
   //
   // The panel's actual hierarchy is:
@@ -123,10 +124,15 @@ tell application "System Events"
     end if
 
     -- Find and fill the text field using entire contents (works regardless of nesting depth).
-    -- We use `keystroke` instead of `set value` because SecureField's SwiftUI
-    -- @State binding only updates from real input events, not programmatic value sets.
-    -- We intentionally avoid the clipboard to prevent exposing the secret to
-    -- clipboard observers, history apps, or cross-device clipboard sync.
+    -- We use clipboard paste (Cmd-V) instead of `keystroke` or `set value` because:
+    --   - `set value` doesn't trigger SecureField's SwiftUI @State binding updates
+    --   - `keystroke` depends on the active macOS input source/keyboard layout, so
+    --     non-US or non-Latin layouts produce wrong characters (especially symbols)
+    --   - `keystroke` also interprets control characters literally (tab moves focus,
+    --     return submits the form), corrupting values that contain them
+    -- The tradeoff: the secret sits on the clipboard for ~100ms between paste and
+    -- clear. This is acceptable because the clipboard is immediately cleared, and
+    -- the alternative (keystroke) is silently unreliable.
     set foundField to false
     set allElems to entire contents of credentialWindow
     repeat with elem in allElems
@@ -139,8 +145,12 @@ tell application "System Events"
           -- Clear any existing content
           keystroke "a" using command down
           delay 0.1
-          keystroke "${escaped}"
-          delay 0.3
+          -- Set clipboard, paste, then immediately clear clipboard
+          set the clipboard to "${escaped}"
+          keystroke "v" using command down
+          delay 0.1
+          set the clipboard to ""
+          delay 0.2
           set foundField to true
           exit repeat
         end if
