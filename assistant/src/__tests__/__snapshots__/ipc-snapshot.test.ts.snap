@@ -628,13 +628,6 @@ exports[`IPC message snapshots ClientMessage types share_app_cloud serializes to
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types share_to_slack serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "type": "share_to_slack",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types slack_webhook_config serializes to expected JSON 1`] = `
 {
   "action": "get",
@@ -2231,13 +2224,6 @@ exports[`IPC message snapshots ServerMessage types share_app_cloud_response seri
   "shareUrl": "http://localhost:7821/v1/apps/shared/abc123def456",
   "success": true,
   "type": "share_app_cloud_response",
-}
-`;
-
-exports[`IPC message snapshots ServerMessage types share_to_slack_response serializes to expected JSON 1`] = `
-{
-  "success": true,
-  "type": "share_to_slack_response",
 }
 `;
 

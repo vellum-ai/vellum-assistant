@@ -53,11 +53,6 @@ struct GeneratedPanel: View {
     /// In-flight preview fetch tasks, keyed by local app ID, so they can be cancelled.
     @State private var previewTasks: [String: Task<Void, Never>] = [:]
 
-    // Slack sharing state
-    @State private var slackSharingAppId: String?
-    @State private var slackShareResult: (appId: String, success: Bool)?
-    @State private var slackClearTask: Task<Void, Never>?
-
     init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, gatewayBaseURL: String = "", onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
         self.onClose = onClose
         self._isExpanded = isExpanded
@@ -217,7 +212,6 @@ struct GeneratedPanel: View {
         .onDisappear {
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
-            slackClearTask?.cancel()
         }
     }
 
@@ -334,10 +328,6 @@ struct GeneratedPanel: View {
                             .opacity(0)
                     } else {
                         shareButton(for: item)
-
-                        if let localId = item.localAppId {
-                            slackShareButton(for: item, localAppId: localId)
-                        }
 
                         if item.isShared {
                             forkButton(for: item)
@@ -481,62 +471,6 @@ struct GeneratedPanel: View {
     private func deleteButton(for item: DisplayAppItem) -> some View {
         VIconButton(label: "Delete", icon: "trash", iconOnly: true) {
             deleteSharedApp(item)
-        }
-    }
-
-    @ViewBuilder
-    private func slackShareButton(for item: DisplayAppItem, localAppId: String) -> some View {
-        let isSharing = slackSharingAppId == item.id
-        let result = slackShareResult.flatMap { $0.appId == item.id ? $0 : nil }
-
-        if isSharing {
-            ProgressView()
-                .controlSize(.mini)
-                .frame(width: 24, height: 24)
-        } else if let result = result {
-            Image(systemName: result.success ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundColor(result.success ? VColor.success : VColor.error)
-                .frame(width: 24, height: 24)
-        } else {
-            VIconButton(label: "Share to Slack", icon: "paperplane", iconOnly: true) {
-                shareToSlack(appId: localAppId, itemId: item.id)
-            }
-        }
-    }
-
-    private func shareToSlack(appId: String, itemId: String) {
-        slackSharingAppId = itemId
-
-        Task { @MainActor in
-            daemonClient.onShareToSlackResponse = { response in
-                self.slackSharingAppId = nil
-                self.slackShareResult = (appId: itemId, success: response.success)
-
-                // Clear the result indicator after 2 seconds
-                self.slackClearTask?.cancel()
-                self.slackClearTask = Task {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    guard !Task.isCancelled else { return }
-                    if self.slackShareResult?.appId == itemId {
-                        self.slackShareResult = nil
-                    }
-                }
-            }
-
-            do {
-                try daemonClient.sendShareToSlack(appId: appId)
-            } catch {
-                self.slackSharingAppId = nil
-                self.slackShareResult = (appId: itemId, success: false)
-                self.slackClearTask?.cancel()
-                self.slackClearTask = Task {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    guard !Task.isCancelled else { return }
-                    if self.slackShareResult?.appId == itemId {
-                        self.slackShareResult = nil
-                    }
-                }
-            }
         }
     }
 

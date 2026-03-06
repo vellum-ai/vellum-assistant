@@ -1775,15 +1775,6 @@ public typealias ShareAppCloudResponseMessage = IPCShareAppCloudResponse
 
 // MARK: - Slack Webhook Messages (Manual)
 
-public struct ShareToSlackRequestMessage: Encodable, Sendable {
-    public let type = "share_to_slack"
-    public let appId: String
-
-    public init(appId: String) {
-        self.appId = appId
-    }
-}
-
 public struct SlackWebhookConfigRequestMessage: Encodable, Sendable {
     public let type = "slack_webhook_config"
     public let action: String
@@ -1793,12 +1784,6 @@ public struct SlackWebhookConfigRequestMessage: Encodable, Sendable {
         self.action = action
         self.webhookUrl = webhookUrl
     }
-}
-
-public struct ShareToSlackResponseMessage: Decodable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let error: String?
 }
 
 public struct SlackWebhookConfigResponseMessage: Decodable, Sendable {
@@ -2231,7 +2216,6 @@ public enum ServerMessage: Decodable, Sendable {
     case openBundleResponse(OpenBundleResponseMessage)
     case signBundlePayload(SignBundlePayloadMessage)
     case shareAppCloudResponse(ShareAppCloudResponseMessage)
-    case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case ingressConfigResponse(IngressConfigResponseMessage)
     case platformConfigResponse(PlatformConfigResponseMessage)
@@ -2552,9 +2536,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "share_app_cloud_response":
             let message = try ShareAppCloudResponseMessage(from: decoder)
             self = .shareAppCloudResponse(message)
-        case "share_to_slack_response":
-            let message = try ShareToSlackResponseMessage(from: decoder)
-            self = .shareToSlackResponse(message)
         case "slack_webhook_config_response":
             let message = try SlackWebhookConfigResponseMessage(from: decoder)
             self = .slackWebhookConfigResponse(message)

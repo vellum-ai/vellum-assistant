@@ -55,33 +55,9 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-// Mock app-store so getApp returns a fake app for share tests
-mock.module("../memory/app-store.js", () => ({
-  queryAppRecords: () => [],
-  createAppRecord: () => {},
-  updateAppRecord: () => {},
-  deleteAppRecord: () => {},
-  listApps: () => [],
-  getApp: (id: string) =>
-    id === "test-app"
-      ? { id: "test-app", name: "Test App", description: "A test app" }
-      : undefined,
-  createApp: () => {},
-  updateApp: () => {},
-}));
-
-// Mock Slack webhook poster
-const postedWebhooks: { url: string; name: string }[] = [];
-mock.module("../slack/slack-webhook.js", () => ({
-  postToSlackWebhook: async (url: string, name: string) => {
-    postedWebhooks.push({ url, name });
-  },
-}));
-
 import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
 import type {
   ServerMessage,
-  ShareToSlackRequest,
   SlackWebhookConfigRequest,
 } from "../daemon/ipc-contract.js";
 import { DebouncerMap } from "../util/debounce.js";
@@ -160,53 +136,5 @@ describe("Slack handlers use workspace config (not hardcoded path)", () => {
     expect(saveRawConfigCalls[0]!.slackWebhookUrl).toBe(
       "https://hooks.slack.com/new",
     );
-  });
-
-  test("share_to_slack reads webhook URL from loadRawConfig", async () => {
-    rawConfigStore = { slackWebhookUrl: "https://hooks.slack.com/share" };
-    postedWebhooks.length = 0;
-
-    const msg: ShareToSlackRequest = {
-      type: "share_to_slack",
-      appId: "test-app",
-    };
-
-    const { ctx, sent } = createTestContext();
-    await handleMessage(msg, {} as net.Socket, ctx);
-
-    // Wait a tick for async handler to complete
-    await new Promise((r) => setTimeout(r, 50));
-
-    const res = sent.find(
-      (m) => (m as { type: string }).type === "share_to_slack_response",
-    ) as { type: string; success: boolean } | undefined;
-    expect(res).toBeDefined();
-    expect(res!.success).toBe(true);
-
-    // Verify the webhook was posted with the URL from loadRawConfig
-    expect(postedWebhooks).toHaveLength(1);
-    expect(postedWebhooks[0]!.url).toBe("https://hooks.slack.com/share");
-    expect(postedWebhooks[0]!.name).toBe("Test App");
-  });
-
-  test("share_to_slack fails gracefully when no webhook URL configured", async () => {
-    rawConfigStore = {};
-
-    const msg: ShareToSlackRequest = {
-      type: "share_to_slack",
-      appId: "test-app",
-    };
-
-    const { ctx, sent } = createTestContext();
-    await handleMessage(msg, {} as net.Socket, ctx);
-
-    await new Promise((r) => setTimeout(r, 50));
-
-    const res = sent.find(
-      (m) => (m as { type: string }).type === "share_to_slack_response",
-    ) as { type: string; success: boolean; error?: string } | undefined;
-    expect(res).toBeDefined();
-    expect(res!.success).toBe(false);
-    expect(res!.error).toContain("No Slack webhook URL configured");
   });
 });

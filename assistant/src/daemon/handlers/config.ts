@@ -40,10 +40,7 @@ export {
   handleSchedulesList,
   handleScheduleToggle,
 } from "./config-scheduling.js";
-export {
-  handleShareToSlack,
-  handleSlackWebhookConfig,
-} from "./config-slack.js";
+export { handleSlackWebhookConfig } from "./config-slack.js";
 export {
   handleTelegramConfig,
   summarizeTelegramError,
