@@ -79,8 +79,13 @@ public final class MainWindowState: ObservableObject {
         }
     }
 
-    /// Whether the main content area is showing a plain chat conversation
+    /// Whether the main content area is showing a plain, full-window chat
     /// (either an explicit `.thread` selection or `nil` which defaults to chat).
+    ///
+    /// This is **narrower** than ``isConversationVisible``: it excludes panels
+    /// (including the document editor) and app-editing mode, even when those
+    /// layouts contain a chat pane. Use ``isConversationVisible`` when you need
+    /// to know whether *any* conversation UI is on screen.
     var isShowingChat: Bool {
         switch selection {
         case .thread, .none: return true

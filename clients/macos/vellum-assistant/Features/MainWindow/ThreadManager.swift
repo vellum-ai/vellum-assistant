@@ -223,6 +223,27 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         log.info("Created thread \(thread.id) with title \"\(thread.title)\"")
     }
 
+    /// Ensures an active thread exists, selecting or creating one if needed.
+    ///
+    /// Selection priority:
+    /// 1. If `preferredSessionId` is provided, select a non-archived thread with that session.
+    /// 2. Otherwise, select the first visible thread.
+    /// 3. If no threads exist, create a new one.
+    ///
+    /// Used by `.onAppear` handlers in panel layouts to guarantee a `ChatViewModel`
+    /// is available before the chat view renders.
+    func ensureActiveThread(preferredSessionId: String? = nil) {
+        guard activeViewModel == nil else { return }
+        if let sessionId = preferredSessionId,
+           let match = threads.first(where: { $0.sessionId == sessionId && !$0.isArchived }) {
+            selectThread(id: match.id)
+        } else if let first = visibleThreads.first {
+            selectThread(id: first.id)
+        } else {
+            createThread()
+        }
+    }
+
     /// Enter draft mode: show an empty chat without creating a sidebar thread.
     /// The thread is only created when the user sends their first message.
     func enterDraftMode() {

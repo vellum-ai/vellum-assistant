@@ -4,19 +4,26 @@ import XCTest
 @MainActor
 final class DocumentEditorThreadVisibilityTests: XCTestCase {
 
+    // MARK: - Helpers
+
+    /// Creates a `MainWindowState` pre-configured with the given selection.
+    private func makeState(_ selection: ViewSelection?) -> MainWindowState {
+        let state = MainWindowState(hasAPIKey: false)
+        state.selection = selection
+        return state
+    }
+
     // MARK: - isConversationVisible for document editor
 
     func testDocumentEditorIsConversationVisible() {
-        let state = MainWindowState(hasAPIKey: false)
-        state.selection = .panel(.documentEditor)
+        let state = makeState(.panel(.documentEditor))
 
         XCTAssertTrue(state.isConversationVisible,
                        "Document editor should always report conversation as visible")
     }
 
     func testDocumentEditorIsNotShowingChat() {
-        let state = MainWindowState(hasAPIKey: false)
-        state.selection = .panel(.documentEditor)
+        let state = makeState(.panel(.documentEditor))
 
         // isShowingChat is false for panels — the bug was using this instead of isConversationVisible
         XCTAssertFalse(state.isShowingChat,
@@ -24,24 +31,21 @@ final class DocumentEditorThreadVisibilityTests: XCTestCase {
     }
 
     func testThreadSelectionIsConversationVisible() {
-        let state = MainWindowState(hasAPIKey: false)
-        state.selection = .thread(UUID())
+        let state = makeState(.thread(UUID()))
 
         XCTAssertTrue(state.isConversationVisible)
         XCTAssertTrue(state.isShowingChat)
     }
 
     func testNilSelectionIsConversationVisible() {
-        let state = MainWindowState(hasAPIKey: false)
-        state.selection = nil
+        let state = makeState(nil)
 
         XCTAssertTrue(state.isConversationVisible)
         XCTAssertTrue(state.isShowingChat)
     }
 
     func testSettingsPanelIsNotConversationVisible() {
-        let state = MainWindowState(hasAPIKey: false)
-        state.selection = .panel(.settings)
+        let state = makeState(.panel(.settings))
 
         // Settings panel without chat bubble should not be conversation-visible
         XCTAssertFalse(state.isConversationVisible)
