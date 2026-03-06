@@ -1,9 +1,27 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { createCipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
+
+// ---------------------------------------------------------------------------
+// Logger mock — captures all log calls so the secret-leak test can inspect them
+// ---------------------------------------------------------------------------
+
+const logCalls: { method: string; args: unknown[] }[] = [];
+
+mock.module("../logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: (_target, prop) => {
+        if (typeof prop !== "string") return undefined;
+        return (...args: unknown[]) => {
+          logCalls.push({ method: prop, args });
+        };
+      },
+    }),
+}));
 
 import {
   readCredential,
@@ -193,6 +211,7 @@ beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
   savedBrokerSocket = process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
   delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+  logCalls.length = 0;
 });
 
 afterEach(() => {
@@ -351,5 +370,72 @@ describe("readCredential broker integration", () => {
     } finally {
       broker.close();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: secret values must not leak into log output
+// ---------------------------------------------------------------------------
+
+describe("secret leak prevention", () => {
+  function allLogStrings(): string {
+    return JSON.stringify(logCalls);
+  }
+
+  test("broker read does not leak secret values into logs", async () => {
+    const secretValue = "super-secret-broker-credential-value";
+    const broker = createMockBroker({
+      "credential:leak-test:key": secretValue,
+    });
+    try {
+      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = broker.socketPath;
+      writeBrokerToken(TEST_TOKEN);
+
+      const result = await readCredential("credential:leak-test:key");
+      expect(result).toBe(secretValue);
+
+      const serialized = allLogStrings();
+      expect(serialized).not.toContain(secretValue);
+      // The auth token used for broker handshake should also stay out of logs
+      expect(serialized).not.toContain(TEST_TOKEN);
+    } finally {
+      broker.close();
+    }
+  });
+
+  test("encrypted store read does not leak secret values into logs", async () => {
+    const secretValue = "super-secret-encrypted-credential-value";
+    delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+
+    writeEncryptedStore({
+      "credential:leak-test:key": secretValue,
+    });
+
+    const result = await readCredential("credential:leak-test:key");
+    expect(result).toBe(secretValue);
+
+    const serialized = allLogStrings();
+    expect(serialized).not.toContain(secretValue);
+  });
+
+  test("failed encrypted store read does not leak secret values into logs", async () => {
+    const secretValue = "super-secret-telegram-token";
+    delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+
+    writeMetadata([
+      { service: "telegram", field: "bot_token" },
+      { service: "telegram", field: "webhook_secret" },
+    ]);
+    writeEncryptedStore({
+      "credential:telegram:bot_token": secretValue,
+      "credential:telegram:webhook_secret": "webhook-secret-value",
+    });
+
+    const result = await readTelegramCredentials();
+    expect(result).not.toBeNull();
+
+    const serialized = allLogStrings();
+    expect(serialized).not.toContain(secretValue);
+    expect(serialized).not.toContain("webhook-secret-value");
   });
 });
