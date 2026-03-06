@@ -5,7 +5,7 @@
  * script/style tag injection, and returns structured diagnostics.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -62,6 +62,10 @@ export async function compileApp(appDir: string): Promise<CompileResult> {
   const distDir = join(appDir, "dist");
   const entryPoint = join(srcDir, "main.tsx");
 
+  // Clear stale dist/ output so removed assets (e.g. CSS) don't persist
+  if (existsSync(distDir)) {
+    rmSync(distDir, { recursive: true, force: true });
+  }
   await mkdir(distDir, { recursive: true });
 
   // Resolve preact from the assistant's own node_modules so per-app
