@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import VellumAssistantShared
@@ -12,6 +13,8 @@ final class SharingState {
     var showSharePicker = false
     var isBundling = false
     var shareFileURL: URL?
+    var shareAppName: String = ""
+    var shareAppIcon: NSImage?
     var isPublishing = false
     var publishedUrl: String?
     var publishError: String?

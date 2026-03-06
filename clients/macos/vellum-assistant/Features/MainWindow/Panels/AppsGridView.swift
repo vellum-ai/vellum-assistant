@@ -12,6 +12,8 @@ struct AppsGridView: View {
     @State private var editingApp: AppListManager.AppItem?
     @State private var sharingAppId: String?
     @State private var shareFileURL: URL?
+    @State private var shareAppName: String = ""
+    @State private var shareAppIcon: NSImage?
     @State private var showShareSheet = false
     @State private var isBundling = false
 
@@ -165,7 +167,7 @@ struct AppsGridView: View {
                 )
                 .overlay(alignment: .topTrailing) {
                     ZStack {
-                        ShareSheetButton(
+                        AppSharePanel(
                             items: shareFileURL != nil && sharingAppId == app.id ? [shareFileURL!] : [],
                             isPresented: Binding(
                                 get: { showShareSheet && sharingAppId == app.id },
@@ -173,7 +175,9 @@ struct AppsGridView: View {
                                     showShareSheet = newValue
                                     if !newValue { sharingAppId = nil }
                                 }
-                            )
+                            ),
+                            appName: shareAppName,
+                            appIcon: shareAppIcon
                         )
                         .frame(width: 0, height: 0)
                         .opacity(0)
@@ -289,6 +293,8 @@ struct AppsGridView: View {
             let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
             MainWindowView.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
             shareFileURL = url
+            shareAppName = response.manifest.name
+            shareAppIcon = MainWindowView.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
             isBundling = false
             showShareSheet = true
         }

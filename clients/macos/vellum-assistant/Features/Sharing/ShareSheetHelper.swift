@@ -1,31 +1,25 @@
 import AppKit
 import SwiftUI
 
-/// An NSView wrapper that presents an NSSharingServicePicker anchored to itself.
-/// Usage: set `isPresented` to `true` to trigger the share sheet with `items`.
-struct ShareSheetButton: NSViewRepresentable {
+/// An NSView wrapper that presents a custom share panel (AppSharePanelView) in an
+/// NSPopover anchored to itself. Replaces NSSharingServicePicker so the share panel
+/// shows the app's custom icon instead of a blank document.
+struct AppSharePanel: NSViewRepresentable {
     let items: [Any]
     @Binding var isPresented: Bool
+    let appName: String
+    let appIcon: NSImage?
 
-    func makeNSView(context: Context) -> NSButton {
-        let button = NSButton(frame: .zero)
-        button.bezelStyle = .inline
-        button.isBordered = false
-        button.title = ""
-        button.image = NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Share")
-        button.target = context.coordinator
-        button.action = #selector(Coordinator.showPicker(_:))
-        // Make the button invisible — SwiftUI overlay handles appearance
-        button.alphaValue = 0.01
-        return button
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        return view
     }
 
-    func updateNSView(_ nsView: NSButton, context: Context) {
+    func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.items = items
-        if isPresented && !context.coordinator.isPickerVisible {
-            // Delay presentation until the next run-loop iteration so the
-            // NSButton is fully attached to its window. Showing a picker on
-            // a view without a window crashes NSSharingServicePicker.
+        context.coordinator.appName = appName
+        context.coordinator.appIcon = appIcon
+        if isPresented && !context.coordinator.isPopoverShown {
             DispatchQueue.main.async {
                 guard nsView.window != nil else {
                     self.isPresented = false
@@ -34,76 +28,74 @@ struct ShareSheetButton: NSViewRepresentable {
                 context.coordinator.onDismiss = {
                     self.isPresented = false
                 }
-                context.coordinator.showPicker(nsView)
+                context.coordinator.showPopover(relativeTo: nsView)
             }
+        } else if !isPresented && context.coordinator.isPopoverShown {
+            context.coordinator.dismissPopover()
         }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(items: items)
+        Coordinator(items: items, appName: appName, appIcon: appIcon)
     }
 
-    class Coordinator: NSObject, NSSharingServicePickerDelegate {
+    class Coordinator: NSObject, NSPopoverDelegate {
         var items: [Any]
-        var isPickerVisible = false
+        var appName: String
+        var appIcon: NSImage?
+        var isPopoverShown = false
         var onDismiss: (() -> Void)?
+        private var popover: NSPopover?
 
-        init(items: [Any]) {
+        init(items: [Any], appName: String, appIcon: NSImage?) {
             self.items = items
+            self.appName = appName
+            self.appIcon = appIcon
         }
 
-        @objc func showPicker(_ sender: NSView) {
-            let picker = NSSharingServicePicker(items: items)
-            picker.delegate = self
-            isPickerVisible = true
-            picker.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-        }
-
-        func sharingServicePicker(
-            _ sharingServicePicker: NSSharingServicePicker,
-            sharingServicesForItems items: [Any],
-            proposedSharingServices proposedServices: [NSSharingService]
-        ) -> [NSSharingService] {
-            let slackService = NSSharingService(
-                title: "Slack",
-                image: NSWorkspace.shared.icon(forFile: "/Applications/Slack.app"),
-                alternateImage: nil
-            ) { [weak self] in
-                guard let self else { return }
-                self.handleSlackShare(items: items)
+        func showPopover(relativeTo view: NSView) {
+            guard let fileURL = items.compactMap({ $0 as? URL }).first(where: { $0.isFileURL }) else {
+                onDismiss?()
+                onDismiss = nil
+                return
             }
-            return [slackService] + proposedServices
+
+            let panelView = AppSharePanelView(
+                fileURL: fileURL,
+                appName: appName,
+                appIcon: appIcon,
+                onDismiss: { [weak self] in
+                    self?.dismissPopover()
+                }
+            )
+
+            let hostingController = NSHostingController(rootView: panelView)
+            hostingController.view.frame = NSRect(x: 0, y: 0, width: 240, height: 400)
+
+            let popover = NSPopover()
+            popover.contentViewController = hostingController
+            popover.behavior = .transient
+            popover.delegate = self
+            popover.contentSize = NSSize(width: 240, height: 400)
+
+            self.popover = popover
+            isPopoverShown = true
+            popover.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
         }
 
-        func sharingServicePicker(_ sharingServicePicker: NSSharingServicePicker, didChoose service: NSSharingService?) {
-            // Called when the user picks a service or dismisses the picker (service == nil).
-            isPickerVisible = false
+        func dismissPopover() {
+            popover?.performClose(nil)
+            popover = nil
+            isPopoverShown = false
             onDismiss?()
             onDismiss = nil
         }
 
-        private func handleSlackShare(items: [Any]) {
-            // Find the first file URL in the shared items
-            guard let fileURL = items.compactMap({ $0 as? URL }).first(where: { $0.isFileURL }) else {
-                return
-            }
-
-            let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
-            let destinationURL = downloadsURL.appendingPathComponent(fileURL.lastPathComponent)
-
-            // Copy to Downloads if not already there
-            if fileURL.standardizedFileURL != destinationURL.standardizedFileURL {
-                try? FileManager.default.removeItem(at: destinationURL)
-                try? FileManager.default.copyItem(at: fileURL, to: destinationURL)
-            }
-
-            // Open Slack
-            if let slackURL = URL(string: "slack://") {
-                NSWorkspace.shared.open(slackURL)
-            }
-
-            // Reveal the file in Finder so the user can drag it into Slack
-            NSWorkspace.shared.activateFileViewerSelecting([destinationURL])
+        func popoverDidClose(_ notification: Notification) {
+            popover = nil
+            isPopoverShown = false
+            onDismiss?()
+            onDismiss = nil
         }
     }
 }

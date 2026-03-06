@@ -125,6 +125,8 @@ extension MainWindowView {
                 let url = Self.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
                 Self.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
                 sharing.shareFileURL = url
+                sharing.shareAppName = response.manifest.name
+                sharing.shareAppIcon = Self.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
                 sharing.isBundling = false
                 sharing.showSharePicker = true
             }
@@ -156,6 +158,23 @@ extension MainWindowView {
         } catch {
             return originalURL
         }
+    }
+
+    /// Builds an NSImage for the app icon from base64 PNG, emoji, or app initial fallback.
+    /// Returns the image without applying it to a file — useful for the custom share panel header.
+    static func buildAppIcon(iconBase64: String?, emojiIcon: String?, appName: String) -> NSImage? {
+        if let base64 = iconBase64,
+           let data = Data(base64Encoded: base64),
+           let image = NSImage(data: data) {
+            return image
+        }
+
+        let glyph = (emojiIcon.flatMap { $0.isEmpty ? nil : $0 })
+            ?? String(appName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
+        if !glyph.isEmpty {
+            return renderEmojiIcon(emoji: glyph, size: 512)
+        }
+        return nil
     }
 
     /// Sets a custom icon on the file so the share sheet shows it instead of a blank document.

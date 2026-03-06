@@ -881,12 +881,14 @@ struct DynamicWorkspaceWrapper: View {
 
                     if let appId = data.appId {
                         ZStack {
-                            ShareSheetButton(
+                            AppSharePanel(
                                 items: sharing.shareFileURL != nil ? [sharing.shareFileURL!] : [],
                                 isPresented: Binding(
                                     get: { sharing.showSharePicker },
                                     set: { sharing.showSharePicker = $0 }
-                                )
+                                ),
+                                appName: sharing.shareAppName,
+                                appIcon: sharing.shareAppIcon
                             )
                             .frame(width: 0, height: 0)
                             .opacity(0)
