@@ -22,7 +22,7 @@ struct SidebarPrimaryRow: View {
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
                     .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
                 Text(label)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)

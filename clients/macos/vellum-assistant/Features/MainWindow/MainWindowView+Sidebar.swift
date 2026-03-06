@@ -506,8 +506,8 @@ extension MainWindowView {
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.md)
                                     .fill(windowState.isShowingChat && threadManager.activeThread != nil
-                                        ? Color(hex: 0xD4DFD0)
-                                        : Color(hex: 0xE8E6DA))
+                                        ? VColor.navActive
+                                        : VColor.navHover)
                             )
 
                         if switcher.switchTargets.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
