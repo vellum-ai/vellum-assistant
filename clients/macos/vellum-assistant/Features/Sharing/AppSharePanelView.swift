@@ -65,6 +65,12 @@ struct AppSharePanelView: View {
             .frame(maxHeight: 300)
         }
         .frame(width: 240)
+        .onDisappear {
+            if hoveredServiceIndex != nil {
+                NSCursor.pop()
+                hoveredServiceIndex = nil
+            }
+        }
         .background(VColor.surfaceSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
