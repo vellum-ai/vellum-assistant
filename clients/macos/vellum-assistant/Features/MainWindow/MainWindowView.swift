@@ -216,7 +216,7 @@ struct MainWindowView: View {
         ThreadHeaderPresentation(
             activeThread: threadManager.activeThread,
             activeViewModel: threadManager.activeViewModel,
-            isConversationVisible: windowState.isShowingChat || isChatBubbleActive
+            isConversationVisible: windowState.isConversationVisible
         )
     }
 
@@ -383,7 +383,7 @@ struct MainWindowView: View {
                 .help("Search (\u{2318}K)")
             }
             Spacer()
-            if windowState.isShowingChat || isChatBubbleActive {
+            if windowState.isConversationVisible {
                 ThreadTitleActionsControl(
                     presentation: threadHeaderPresentation,
                     onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
@@ -419,7 +419,7 @@ struct MainWindowView: View {
                 settingsStore.pendingSettingsTab = .voice
                 windowState.selection = .panel(.settings)
             }
-            if windowState.isShowingChat || isChatBubbleActive {
+            if windowState.isConversationVisible {
                 // Voice mode toggle
                 VIconButton(
                     label: "Voice Mode",

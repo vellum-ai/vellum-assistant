@@ -371,6 +371,19 @@ extension MainWindowView {
                         )
                     }
                 )
+                .onAppear {
+                    if threadManager.activeViewModel == nil {
+                        // Prefer the thread whose session matches the open document
+                        if let docSessionId = documentManager.sessionId,
+                           let match = threadManager.threads.first(where: { $0.sessionId == docSessionId && !$0.isArchived }) {
+                            threadManager.selectThread(id: match.id)
+                        } else if let firstThread = threadManager.visibleThreads.first {
+                            threadManager.selectThread(id: firstThread.id)
+                        } else {
+                            threadManager.createThread()
+                        }
+                    }
+                }
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
                 VSplitView(
