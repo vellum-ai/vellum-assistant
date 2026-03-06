@@ -261,11 +261,11 @@ Examples:
             sourceChannel: opts.sourceChannel,
             sourceSessionId,
             attentionHints: {
-              requiresAction: opts.requiresAction,
+              requiresAction: opts.requiresAction ?? true,
               urgency,
               deadlineAt,
-              isAsyncBackground: opts.isAsyncBackground,
-              visibleInSourceNow: opts.visibleInSourceNow,
+              isAsyncBackground: opts.isAsyncBackground ?? false,
+              visibleInSourceNow: opts.visibleInSourceNow ?? false,
             },
             contextPayload: {
               requestedMessage: message,
