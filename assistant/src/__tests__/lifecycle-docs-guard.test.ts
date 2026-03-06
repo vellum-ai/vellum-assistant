@@ -5,8 +5,8 @@ import { describe, expect, it } from "bun:test";
 
 /**
  * Guard test: prevent stale lifecycle instructions from being reintroduced
- * into documentation. The canonical lifecycle commands are `vellum wake`,
- * `vellum ps`, and `vellum sleep`. Repo-local slash commands live in
+ * into documentation. The canonical lifecycle commands are `assistant wake`,
+ * `assistant ps`, and `assistant sleep`. Repo-local slash commands live in
  * `.claude/skills/`, not `.claude/commands/`.
  *
  * See AGENTS.md for the conventions these tests enforce.
@@ -58,7 +58,7 @@ describe("lifecycle docs guard", () => {
     }
   });
 
-  it("key docs reference vellum lifecycle commands", () => {
+  it("key docs reference assistant lifecycle commands", () => {
     const checks: Array<{
       file: string;
       pattern: string;
@@ -66,21 +66,21 @@ describe("lifecycle docs guard", () => {
     }> = [
       {
         file: "README.md",
-        pattern: "vellum wake\\|vellum ps\\|vellum sleep",
+        pattern: "assistant wake\\|assistant ps\\|assistant sleep",
         description:
-          "README.md should mention vellum wake, vellum ps, or vellum sleep",
+          "README.md should mention assistant wake, assistant ps, or assistant sleep",
       },
       {
         file: "assistant/README.md",
-        pattern: "vellum wake\\|vellum ps",
+        pattern: "assistant wake\\|assistant ps",
         description:
-          "assistant/README.md should mention vellum wake or vellum ps",
+          "assistant/README.md should mention assistant wake or assistant ps",
       },
       {
         file: "AGENTS.md",
-        pattern: "vellum ps\\|vellum sleep\\|vellum wake",
+        pattern: "assistant ps\\|assistant sleep\\|assistant wake",
         description:
-          "AGENTS.md should mention vellum ps, vellum sleep, or vellum wake in the /update command description",
+          "AGENTS.md should mention assistant ps, assistant sleep, or assistant wake in the /update command description",
       },
     ];
 
@@ -99,11 +99,11 @@ describe("lifecycle docs guard", () => {
 
     if (failures.length > 0) {
       const message = [
-        "Key docs are missing vellum lifecycle command references:",
+        "Key docs are missing assistant lifecycle command references:",
         "",
         ...failures.map((f) => `  - ${f}`),
         "",
-        "These docs should reference vellum CLI lifecycle commands (wake/ps/sleep).",
+        "These docs should reference assistant CLI lifecycle commands (wake/ps/sleep).",
       ].join("\n");
 
       expect(failures, message).toEqual([]);
@@ -195,7 +195,7 @@ describe("lifecycle docs guard", () => {
     if (violations.length > 0) {
       const message = [
         "Found docs using stale daemon startup patterns as primary instructions.",
-        "Use `vellum wake` / `vellum sleep` instead. Raw bun commands are acceptable",
+        "Use `assistant wake` / `assistant sleep` instead. Raw bun commands are acceptable",
         "only in collapsed <details> sections or dev-only contexts.",
         "",
         "Violations:",

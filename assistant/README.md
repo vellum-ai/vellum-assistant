@@ -59,15 +59,15 @@ When a release includes relevant updates, the assistant materializes release not
 
 ### Lifecycle management (recommended)
 
-Use the `vellum` CLI to manage assistant and gateway processes:
+Use the `assistant` CLI to manage assistant and gateway processes:
 
 ```bash
-vellum wake    # start assistant + gateway from current checkout
-vellum ps      # list assistants and per-assistant process status
-vellum sleep   # stop assistant + gateway (directory-agnostic)
+assistant wake    # start assistant + gateway from current checkout
+assistant ps      # list assistants and per-assistant process status
+assistant sleep   # stop assistant + gateway (directory-agnostic)
 ```
 
-> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically.
+> **Note:** `assistant wake` requires a hatched assistant. Run `assistant hatch` first, or launch the macOS app which handles hatching automatically.
 
 ### Development: raw bun commands
 
@@ -81,18 +81,18 @@ bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 
 ### CLI commands
 
-| Command                                    | Description                                      |
-| ------------------------------------------ | ------------------------------------------------ |
-| `vellum wake`                              | Start assistant + gateway from current checkout  |
-| `vellum sleep`                             | Stop assistant + gateway processes               |
-| `vellum ps`                                | List assistants and per-assistant process status |
-| `vellum`                                   | Launch interactive CLI session                   |
-| `vellum dev`                               | Run assistant with auto-restart on file changes  |
-| `vellum sessions list\|new\|export\|clear` | Manage conversation sessions                     |
-| `vellum config set\|get\|list`             | Manage configuration                             |
-| `vellum keys set\|list\|delete`            | Manage API keys in secure storage                |
-| `vellum trust list\|remove\|clear`         | Manage trust rules                               |
-| `vellum doctor`                            | Run diagnostic checks                            |
+| Command                                       | Description                                      |
+| --------------------------------------------- | ------------------------------------------------ |
+| `assistant wake`                              | Start assistant + gateway from current checkout  |
+| `assistant sleep`                             | Stop assistant + gateway processes               |
+| `assistant ps`                                | List assistants and per-assistant process status |
+| `assistant`                                   | Launch interactive CLI session                   |
+| `assistant dev`                               | Run assistant with auto-restart on file changes  |
+| `assistant sessions list\|new\|export\|clear` | Manage conversation sessions                     |
+| `assistant config set\|get\|list`             | Manage configuration                             |
+| `assistant keys set\|list\|delete`            | Manage API keys in secure storage                |
+| `assistant trust list\|remove\|clear`         | Manage trust rules                               |
+| `assistant doctor`                            | Run diagnostic checks                            |
 
 ## Project Structure
 
@@ -485,7 +485,7 @@ docker run --rm -p 3001:3001 \
   vellum-assistant:local
 ```
 
-The image exposes port `3001` and bundles the `vellum` CLI binary.
+The image exposes port `3001` and bundles the `assistant` CLI binary.
 
 ## Ride Shotgun
 

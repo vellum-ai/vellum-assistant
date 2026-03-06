@@ -433,7 +433,7 @@ async function listAllAssistants(): Promise<void> {
 export async function ps(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum ps [<name>]");
+    console.log("Usage: assistant ps [<name>]");
     console.log("");
     console.log(
       "List all assistants, or show processes for a specific assistant.",

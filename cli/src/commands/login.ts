@@ -9,7 +9,7 @@ export async function login(): Promise<void> {
   const args = process.argv.slice(3);
 
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum login --token <session-token>");
+    console.log("Usage: assistant login --token <session-token>");
     console.log("");
     console.log("Log in to the Vellum platform.");
     console.log("");
@@ -32,7 +32,7 @@ export async function login(): Promise<void> {
   }
 
   if (!token) {
-    console.error("Usage: vellum login --token <session-token>");
+    console.error("Usage: assistant login --token <session-token>");
     console.error("");
     console.error("To get your session token:");
     console.error("  1. Log in to the Vellum platform in your browser");
@@ -58,7 +58,7 @@ export async function login(): Promise<void> {
 export async function logout(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum logout");
+    console.log("Usage: assistant logout");
     console.log("");
     console.log(
       "Log out of the Vellum platform and remove the stored session token.",
@@ -73,7 +73,7 @@ export async function logout(): Promise<void> {
 export async function whoami(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum whoami");
+    console.log("Usage: assistant whoami");
     console.log("");
     console.log("Show the currently logged-in Vellum platform user.");
     process.exit(0);
@@ -81,7 +81,9 @@ export async function whoami(): Promise<void> {
 
   const token = readPlatformToken();
   if (!token) {
-    console.error("Not logged in. Run `vellum login --token <token>` first.");
+    console.error(
+      "Not logged in. Run `assistant login --token <token>` first.",
+    );
     process.exit(1);
   }
 

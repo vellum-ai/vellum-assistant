@@ -145,7 +145,7 @@ ensure_bun() {
     success "bun installed ($(bun --version))"
 }
 
-# Ensure ~/.bun/bin is in the user's shell profile so bun and vellum are
+# Ensure ~/.bun/bin is in the user's shell profile so bun and assistant are
 # available in new terminal sessions. The bun installer sometimes skips
 # this (e.g. when stdin is piped via curl | bash).
 configure_shell_profile() {
@@ -179,27 +179,27 @@ configure_shell_profile() {
     done
 }
 
-# Create a symlink so `vellum` is available without ~/.bun/bin in PATH.
+# Create a symlink so `assistant` is available without ~/.bun/bin in PATH.
 # Tries /usr/local/bin first (works on most systems), falls back to
 # ~/.local/bin (user-writable, no sudo needed).
 # This is best-effort — failure must not abort the install script.
-symlink_vellum() {
-    local vellum_bin="$HOME/.bun/bin/vellum"
-    if [ ! -f "$vellum_bin" ]; then
+symlink_assistant() {
+    local assistant_bin="$HOME/.bun/bin/assistant"
+    if [ ! -f "$assistant_bin" ]; then
         return 0
     fi
 
-    # Skip if vellum is already resolvable outside of ~/.bun/bin
+    # Skip if assistant is already resolvable outside of ~/.bun/bin
     local resolved
-    resolved=$(command -v vellum 2>/dev/null || true)
-    if [ -n "$resolved" ] && [ "$resolved" != "$vellum_bin" ]; then
+    resolved=$(command -v assistant 2>/dev/null || true)
+    if [ -n "$resolved" ] && [ "$resolved" != "$assistant_bin" ]; then
         return 0
     fi
 
     # Try /usr/local/bin (may need sudo on some systems)
     if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
-        if ln -sf "$vellum_bin" /usr/local/bin/vellum 2>/dev/null; then
-            success "Symlinked /usr/local/bin/vellum → $vellum_bin"
+        if ln -sf "$assistant_bin" /usr/local/bin/assistant 2>/dev/null; then
+            success "Symlinked /usr/local/bin/assistant → $assistant_bin"
             return 0
         fi
     fi
@@ -207,8 +207,8 @@ symlink_vellum() {
     # Fallback: ~/.local/bin
     local local_bin="$HOME/.local/bin"
     mkdir -p "$local_bin" 2>/dev/null || true
-    if ln -sf "$vellum_bin" "$local_bin/vellum" 2>/dev/null; then
-        success "Symlinked $local_bin/vellum → $vellum_bin"
+    if ln -sf "$assistant_bin" "$local_bin/assistant" 2>/dev/null; then
+        success "Symlinked $local_bin/assistant → $assistant_bin"
         # Ensure ~/.local/bin is in PATH in shell profile
         for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile"; do
             if [ -f "$profile" ] && ! grep -q "$local_bin" "$profile" 2>/dev/null; then
@@ -237,21 +237,21 @@ esac
 ENVEOF
 }
 
-install_vellum() {
-    if command -v vellum >/dev/null 2>&1; then
-        info "Updating vellum to latest..."
+install_assistant() {
+    if command -v assistant >/dev/null 2>&1; then
+        info "Updating assistant CLI to latest..."
         bun install -g vellum@latest
     else
-        info "Installing vellum globally..."
+        info "Installing assistant CLI globally..."
         bun install -g vellum@latest
     fi
 
-    if ! command -v vellum >/dev/null 2>&1; then
-        error "vellum installation failed. Please install manually: bun install -g vellum"
+    if ! command -v assistant >/dev/null 2>&1; then
+        error "assistant CLI installation failed. Please install manually: bun install -g vellum"
         exit 1
     fi
 
-    success "vellum installed ($(vellum --version 2>/dev/null || echo 'unknown'))"
+    success "assistant CLI installed ($(assistant --version 2>/dev/null || echo 'unknown'))"
 }
 
 main() {
@@ -262,26 +262,26 @@ main() {
     ensure_git
     ensure_bun
     configure_shell_profile
-    install_vellum
-    symlink_vellum
+    install_assistant
+    symlink_assistant
 
     # Write a sourceable env file so the quickstart one-liner can pick up
     # PATH changes in the caller's shell:
     #   curl ... | bash && . ~/.config/vellum/env
     write_env_file
 
-    # Source the shell profile so vellum hatch runs with the correct PATH
+    # Source the shell profile so assistant hatch runs with the correct PATH
     # in this session (the profile changes only take effect in new shells
     # otherwise).
     export BUN_INSTALL="$HOME/.bun"
     export PATH="$BUN_INSTALL/bin:$PATH"
 
-    info "Running vellum hatch..."
+    info "Running assistant hatch..."
     printf "\n"
     if [ -n "${VELLUM_SSH_USER:-}" ] && [ "$(id -u)" = "0" ]; then
-        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.vellum/.env\" ] && . \"\$HOME/.vellum/.env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; vellum hatch"
+        su - "$VELLUM_SSH_USER" -c "set -a; [ -f \"\$HOME/.vellum/.env\" ] && . \"\$HOME/.vellum/.env\"; set +a; export PATH=\"$HOME/.bun/bin:\$PATH\"; assistant hatch"
     else
-        vellum hatch
+        assistant hatch
     fi
 }
 

@@ -9,7 +9,7 @@ import { startLocalDaemon, startGateway } from "../lib/local";
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum wake [options]");
+    console.log("Usage: assistant wake [options]");
     console.log("");
     console.log("Start the assistant and gateway processes.");
     console.log("");
@@ -26,7 +26,7 @@ export async function wake(): Promise<void> {
   const hasLocal = assistants.some((a) => a.cloud === "local");
   if (!hasLocal) {
     console.error(
-      "Error: No local assistant found in lock file. Run 'vellum hatch local' first.",
+      "Error: No local assistant found in lock file. Run 'assistant hatch local' first.",
     );
     process.exit(1);
   }

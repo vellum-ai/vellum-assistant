@@ -185,7 +185,7 @@ function parseArgs(): HatchArgs {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--help" || arg === "-h") {
-      console.log("Usage: vellum hatch [species] [options]");
+      console.log("Usage: assistant hatch [species] [options]");
       console.log("");
       console.log("Create a new assistant instance.");
       console.log("");
@@ -536,7 +536,7 @@ function installCLISymlink(): void {
   if (!cliBinary || !existsSync(cliBinary)) return;
 
   // Preferred location — works on most Macs where /usr/local/bin exists
-  const preferredPath = "/usr/local/bin/vellum";
+  const preferredPath = "/usr/local/bin/assistant";
   if (trySymlink(cliBinary, preferredPath)) {
     console.log(`   Symlinked ${preferredPath} → ${cliBinary}`);
     return;
@@ -545,7 +545,7 @@ function installCLISymlink(): void {
   // Fallback — use ~/.local/bin which is user-writable and doesn't need root.
   // On some Macs /usr/local doesn't exist and creating it requires admin privileges.
   const localBinDir = join(homedir(), ".local", "bin");
-  const fallbackPath = join(localBinDir, "vellum");
+  const fallbackPath = join(localBinDir, "assistant");
   if (trySymlink(cliBinary, fallbackPath)) {
     console.log(`   Symlinked ${fallbackPath} → ${cliBinary}`);
     ensureLocalBinInShellProfile(localBinDir);
@@ -553,7 +553,7 @@ function installCLISymlink(): void {
   }
 
   console.log(
-    `   ⚠ Could not create symlink for vellum CLI (tried ${preferredPath} and ${fallbackPath})`,
+    `   ⚠ Could not create symlink for assistant CLI (tried ${preferredPath} and ${fallbackPath})`,
   );
 }
 
@@ -595,7 +595,7 @@ async function displayPairingQRCode(
     const daemonReady = await waitForDaemonReady(runtimeUrl, bearerToken);
     if (!daemonReady) {
       console.warn(
-        "⚠ Assistant health check did not pass within 15s. Run `vellum pair` to try again.\n",
+        "⚠ Assistant health check did not pass within 15s. Run `assistant pair` to try again.\n",
       );
       return;
     }
@@ -616,7 +616,7 @@ async function displayPairingQRCode(
     if (!registerRes.ok) {
       const body = await registerRes.text().catch(() => "");
       console.warn(
-        `⚠ Could not register pairing request: ${registerRes.status} ${registerRes.statusText}${body ? ` — ${body}` : ""}. Run \`vellum pair\` to try again.\n`,
+        `⚠ Could not register pairing request: ${registerRes.status} ${registerRes.statusText}${body ? ` — ${body}` : ""}. Run \`assistant pair\` to try again.\n`,
       );
       return;
     }
@@ -660,12 +660,12 @@ async function displayPairingQRCode(
     console.log("Scan this QR code with the Vellum iOS app to pair:\n");
     console.log(qrString);
     console.log("This pairing request expires in 5 minutes.");
-    console.log("Run `vellum pair` to generate a new one.\n");
+    console.log("Run `assistant pair` to generate a new one.\n");
   } catch (err) {
     // Non-fatal — pairing is optional
     const reason = err instanceof Error ? err.message : String(err);
     console.warn(
-      `⚠ Could not generate pairing QR code: ${reason}. Run \`vellum pair\` to try again.\n`,
+      `⚠ Could not generate pairing QR code: ${reason}. Run \`assistant pair\` to try again.\n`,
     );
   }
 }

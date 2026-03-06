@@ -92,15 +92,15 @@ See [.githooks/README.md](./.githooks/README.md) for more details about availabl
 <details>
 <summary><b>Assistant Runtime</b></summary>
 
-The assistant runtime lives in `/assistant`. The recommended way to start it is via the `vellum` CLI:
+The assistant runtime lives in `/assistant`. The recommended way to start it is via the `assistant` CLI:
 
 ```bash
-vellum wake    # starts assistant + gateway from current checkout
-vellum ps      # check process status
-vellum sleep   # stop assistant + gateway
+assistant wake    # starts assistant + gateway from current checkout
+assistant ps      # check process status
+assistant sleep   # stop assistant + gateway
 ```
 
-> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically. Alternatively, the macOS app supports **managed sign-in** during onboarding — authenticating via the platform and connecting to a platform-hosted assistant without running a local assistant.
+> **Note:** `assistant wake` requires a hatched assistant. Run `assistant hatch` first, or launch the macOS app which handles hatching automatically. Alternatively, the macOS app supports **managed sign-in** during onboarding — authenticating via the platform and connecting to a platform-hosted assistant without running a local assistant.
 
 <details>
 <summary>Development: raw bun commands</summary>
@@ -152,7 +152,7 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 | `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `~/.vellum/workspace` path (or your custom `dataDir` path) |
 | `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora) |
 
-Run `vellum doctor` for a full diagnostic check including sandbox backend status.
+Run `assistant doctor` for a full diagnostic check including sandbox backend status.
 
 </details>
 
@@ -317,9 +317,9 @@ Twitter integration supports two operation paths: **OAuth** (X API v2) and **Bro
 
 - **OAuth path**: Uses stored OAuth2 tokens via `withValidToken('integration:twitter', ...)` to call the X API v2 directly. Supports `post` and `reply`. Most reliable when developer credentials are configured — no browser session needed for these operations.
 
-- **Browser path** (CDP): Uses Chrome DevTools Protocol to execute operations through an authenticated x.com browser tab. Supports all operations including read-only ones (timeline, search, home, notifications, bookmarks, likes, followers, following, media). Quick to start — no developer credentials needed. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
+- **Browser path** (CDP): Uses Chrome DevTools Protocol to execute operations through an authenticated x.com browser tab. Supports all operations including read-only ones (timeline, search, home, notifications, bookmarks, likes, followers, following, media). Quick to start — no developer credentials needed. Session cookies are captured via Ride Shotgun (`assistant x refresh`).
 
-- **Strategy selection**: `vellum x strategy set <oauth|browser|auto>` controls which path is used. Default is `auto`, which prefers OAuth when credentials are available and the operation is supported, then falls back to browser. The strategy is persisted in config as `twitterOperationStrategy`.
+- **Strategy selection**: `assistant x strategy set <oauth|browser|auto>` controls which path is used. Default is `auto`, which prefers OAuth when credentials are available and the operation is supported, then falls back to browser. The strategy is persisted in config as `twitterOperationStrategy`.
 
 **OAuth2 PKCE setup** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The assistant runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. The flow verifies the user's identity (`GET /2/users/me`) and stores tokens in the vault for use by both identity verification and the OAuth operation path. Connect via the Settings UI or `twitter_auth_start` IPC message.
 
@@ -636,9 +636,9 @@ Over SSH-forwarded sockets, the probe fails automatically (the filesystems don't
 | CLI: "could not connect to assistant socket" | Is the SSH socket tunnel active? Check `VELLUM_DAEMON_SOCKET` path |
 | CLI: assistant starts locally despite socket override | Check that `VELLUM_DAEMON_AUTOSTART` is not set to `1` |
 | macOS: not connecting | Verify socket path in `VELLUM_DAEMON_SOCKET` exists and is writable |
-| Any: "connection refused" | Is the remote assistant running? (`vellum ps` on remote) |
+| Any: "connection refused" | Is the remote assistant running? (`assistant ps` on remote) |
 
-Run `vellum doctor` for a full diagnostic check including socket path and autostart policy.
+Run `assistant doctor` for a full diagnostic check including socket path and autostart policy.
 
 </details>
 

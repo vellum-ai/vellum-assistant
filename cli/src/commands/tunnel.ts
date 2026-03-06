@@ -22,7 +22,7 @@ function parseArgs(): TunnelArgs {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--help" || arg === "-h") {
-      console.log("Usage: vellum tunnel [<name>] [options]");
+      console.log("Usage: assistant tunnel [<name>] [options]");
       console.log("");
       console.log("Create a tunnel for a locally hosted assistant.");
       console.log("");
@@ -73,7 +73,9 @@ export async function tunnel(): Promise<void> {
         `No assistant instance found with name '${assistantName}'.`,
       );
     } else {
-      console.error("No assistant instance found. Run `vellum hatch` first.");
+      console.error(
+        "No assistant instance found. Run `assistant hatch` first.",
+      );
     }
     process.exit(1);
   }

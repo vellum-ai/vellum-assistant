@@ -49,10 +49,7 @@ function getRepoSkillsDir(): string | undefined {
  */
 function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
   try {
-    const raw = readFileSync(
-      join(repoSkillsDir, "catalog.json"),
-      "utf-8",
-    );
+    const raw = readFileSync(join(repoSkillsDir, "catalog.json"), "utf-8");
     const manifest = JSON.parse(raw) as CatalogManifest;
     if (!Array.isArray(manifest.skills)) return [];
     return manifest.skills;
@@ -349,7 +346,7 @@ function hasFlag(args: string[], flag: string): boolean {
 // ---------------------------------------------------------------------------
 
 function printUsage(): void {
-  console.log("Usage: vellum skills <subcommand> [options]");
+  console.log("Usage: assistant skills <subcommand> [options]");
   console.log("");
   console.log("Subcommands:");
   console.log(
@@ -431,7 +428,7 @@ export async function skills(): Promise<void> {
     case "install": {
       const skillId = args.find((a) => !a.startsWith("--") && a !== "install");
       if (!skillId) {
-        console.error("Usage: vellum skills install <skill-id>");
+        console.error("Usage: assistant skills install <skill-id>");
         process.exit(1);
       }
 
@@ -481,7 +478,7 @@ export async function skills(): Promise<void> {
         (a) => !a.startsWith("--") && a !== "uninstall",
       );
       if (!skillId) {
-        console.error("Usage: vellum skills uninstall <skill-id>");
+        console.error("Usage: assistant skills uninstall <skill-id>");
         process.exit(1);
       }
 

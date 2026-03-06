@@ -6,7 +6,7 @@ import { stopProcessByPidFile } from "../lib/process";
 export async function sleep(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum sleep");
+    console.log("Usage: assistant sleep");
     console.log("");
     console.log("Stop the assistant and gateway processes.");
     process.exit(0);
@@ -40,5 +40,4 @@ export async function sleep(): Promise<void> {
   } else {
     console.log("Gateway stopped.");
   }
-
 }

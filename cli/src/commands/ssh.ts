@@ -42,7 +42,7 @@ function extractHostFromUrl(url: string): string {
 export async function ssh(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum ssh [<name>]");
+    console.log("Usage: assistant ssh [<name>]");
     console.log("");
     console.log("SSH into a remote assistant instance.");
     console.log("");
@@ -60,7 +60,9 @@ export async function ssh(): Promise<void> {
     if (name) {
       console.error(`No assistant instance found with name '${name}'.`);
     } else {
-      console.error("No assistant instance found. Run `vellum hatch` first.");
+      console.error(
+        "No assistant instance found. Run `assistant hatch` first.",
+      );
     }
     process.exit(1);
   }
@@ -70,7 +72,7 @@ export async function ssh(): Promise<void> {
   if (cloud === "local") {
     console.error(
       "Cannot SSH into a local assistant. Local assistants run directly on this machine.\n" +
-        `Use 'vellum ps ${entry.assistantId}' to check its processes instead.`,
+        `Use 'assistant ps ${entry.assistantId}' to check its processes instead.`,
     );
     process.exit(1);
   }

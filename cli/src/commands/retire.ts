@@ -120,7 +120,7 @@ async function retireCustom(entry: AssistantEntry): Promise<void> {
   console.log(`\u{1F5D1}\ufe0f  Retiring custom instance on ${sshHost}...\n`);
 
   const remoteCmd = [
-    "bunx vellum sleep 2>/dev/null || true",
+    "assistant sleep 2>/dev/null || true",
     "pkill -f gateway 2>/dev/null || true",
     "rm -rf ~/.vellum",
   ].join(" && ");
@@ -203,7 +203,7 @@ export async function retire(): Promise<void> {
 async function retireInner(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum retire <name> [--source <source>]");
+    console.log("Usage: assistant retire <name> [--source <source>]");
     console.log("");
     console.log("Delete an assistant instance and archive its data.");
     console.log("");
@@ -219,14 +219,14 @@ async function retireInner(): Promise<void> {
 
   if (!name) {
     console.error("Error: Instance name is required.");
-    console.error("Usage: vellum retire <name> [--source <source>]");
+    console.error("Usage: assistant retire <name> [--source <source>]");
     process.exit(1);
   }
 
   const entry = findAssistantByName(name);
   if (!entry) {
     console.error(`No assistant found with name '${name}'.`);
-    console.error("Run 'vellum hatch' first, or check the instance name.");
+    console.error("Run 'assistant hatch' first, or check the instance name.");
     process.exit(1);
   }
 
