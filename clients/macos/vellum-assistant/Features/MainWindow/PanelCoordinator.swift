@@ -838,6 +838,7 @@ struct DynamicWorkspaceWrapper: View {
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
     @State private var showShareDrawer = false
+    @State private var shareButtonFrame: CGRect = .zero
 
     /// Corner radius for the WKWebView clipping container — no rounding needed since the
     /// outer page container handles corner rounding.
@@ -894,18 +895,12 @@ struct DynamicWorkspaceWrapper: View {
                                 VIconButton(label: "Share", icon: "square.and.arrow.up", iconOnly: true, variant: .outlined, size: 28, tooltip: "Share") {
                                     showShareDrawer.toggle()
                                 }
-                                .popover(isPresented: $showShareDrawer, arrowEdge: .bottom) {
-                                    ShareDrawer(
-                                        onShare: {
-                                            showShareDrawer = false
-                                            onBundleAndShare(appId)
-                                        },
-                                        onPublish: {
-                                            showShareDrawer = false
-                                            onPublishPage(data.html, data.preview?.title, data.appId)
-                                        }
-                                    )
-                                }
+                                .background(GeometryReader { proxy in
+                                    Color.clear.onChange(of: showShareDrawer) { _, _ in
+                                        shareButtonFrame = proxy.frame(in: .named("appPageContainer"))
+                                    }
+                                    .onAppear { shareButtonFrame = proxy.frame(in: .named("appPageContainer")) }
+                                })
                                 .overlay {
                                     AppSharePanel(
                                         items: sharing.shareFileURL != nil ? [sharing.shareFileURL!] : [],
@@ -1020,6 +1015,35 @@ struct DynamicWorkspaceWrapper: View {
                         maskedCorners: webViewMaskedCorners
                     )
                 }
+            }
+        }
+        .coordinateSpace(name: "appPageContainer")
+        .overlay(alignment: .topLeading) {
+            if showShareDrawer {
+                // Dismiss backdrop
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { showShareDrawer = false }
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if showShareDrawer, let appId = data.appId {
+                ShareDrawer(
+                    onShare: {
+                        showShareDrawer = false
+                        onBundleAndShare(appId)
+                    },
+                    onPublish: {
+                        showShareDrawer = false
+                        onPublishPage(data.html, data.preview?.title, data.appId)
+                    }
+                )
+                .offset(
+                    x: shareButtonFrame.maxX - 180,
+                    y: shareButtonFrame.maxY + VSpacing.xs
+                )
+                .zIndex(10)
+                .transition(.opacity)
             }
         }
     }
