@@ -13,7 +13,7 @@
 
 import { answerCall } from "../calls/call-domain.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
-import { upsertMember } from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -459,7 +459,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "voice") {
       try {
-        upsertMember({
+        upsertContactChannel({
           sourceChannel: "voice",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,

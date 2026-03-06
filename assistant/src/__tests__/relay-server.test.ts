@@ -192,7 +192,7 @@ import {
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import {
   createGuardianBinding,
-  upsertMember,
+  upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianRequests,
@@ -291,7 +291,7 @@ function resetTables() {
 }
 
 function addTrustedVoiceContact(phoneNumber: string): void {
-  upsertMember({
+  upsertContactChannel({
     sourceChannel: "voice",
     externalUserId: phoneNumber,
     externalChatId: phoneNumber,
@@ -2452,7 +2452,7 @@ describe("relay-server", () => {
     });
 
     // Create a blocked member
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "voice",
       externalUserId: "+15558881111",
       externalChatId: "+15558881111",

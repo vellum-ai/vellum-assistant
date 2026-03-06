@@ -134,7 +134,7 @@ export function revokeGuardianBinding(channel: string): boolean {
  * Returns the native Contact + ContactChannel, or null if no usable
  * identity was provided or the lookup failed after upsert.
  */
-export function upsertMember(params: {
+export function upsertContactChannel(params: {
   sourceChannel: string;
   externalUserId?: string;
   externalChatId?: string;

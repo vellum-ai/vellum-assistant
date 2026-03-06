@@ -19,7 +19,7 @@ import {
   createGuardianBinding,
   revokeGuardianBinding,
   touchContactInteraction,
-  upsertMember,
+  upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
@@ -785,7 +785,7 @@ export class RelayConnection {
 
     if (!params.skipMemberActivation) {
       try {
-        upsertMember({
+        upsertContactChannel({
           sourceChannel: "voice",
           externalUserId: fromNumber,
           externalChatId: fromNumber,

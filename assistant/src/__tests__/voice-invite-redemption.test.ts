@@ -24,7 +24,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { upsertMember } from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
@@ -281,7 +281,7 @@ describe("redeemVoiceInviteCode", () => {
     const { code } = createVoiceInvite({ callerPhone: phone });
 
     // Pre-create an active member for this phone on voice channel
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "voice",
       externalUserId: phone,
       status: "active",
@@ -306,7 +306,7 @@ describe("redeemVoiceInviteCode", () => {
     const phone = "+15551234567";
     const { code } = createVoiceInvite({ callerPhone: phone });
 
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "voice",
       externalUserId: phone,
       status: "blocked",
