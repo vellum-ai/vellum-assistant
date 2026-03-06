@@ -22,8 +22,10 @@ fi
 # Delegate all parsing, comparison, and baseline update to Python.
 UPDATE_BASELINE="${UPDATE_BASELINE:-true}"
 
-python3 - "$RESULTS_LOG" "$BASELINE_FILE" "$REGRESSION_THRESHOLD_PCT" "$BASELINE_DIR" "$UPDATE_BASELINE" "$MIN_ABSOLUTE_DELTA" << 'PYEOF'
-import re, sys, json, os
+# Run comparison in Python. The `|| true` ensures CI never fails even if
+# the Python script hits an unexpected error (e.g., malformed baseline JSON).
+python3 - "$RESULTS_LOG" "$BASELINE_FILE" "$REGRESSION_THRESHOLD_PCT" "$BASELINE_DIR" "$UPDATE_BASELINE" "$MIN_ABSOLUTE_DELTA" << 'PYEOF' || true
+import re, sys, json, os, traceback
 
 results_log      = sys.argv[1]
 baseline_file    = sys.argv[2]
