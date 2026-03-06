@@ -299,7 +299,7 @@ struct AppSharePanelView: View {
     }
 
     /// Recursively computes the total size of all files within a directory.
-    private static func directorySize(at url: URL) -> UInt64? {
+    nonisolated private static func directorySize(at url: URL) -> UInt64? {
         guard let enumerator = FileManager.default.enumerator(
             at: url,
             includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
