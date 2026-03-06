@@ -5,6 +5,7 @@ import {
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
+  syncConfigToLockfile,
 } from "../config/loader.js";
 import { getCliLogger } from "../util/logger.js";
 
@@ -29,6 +30,7 @@ export function registerConfigCommand(program: Command): void {
       }
       setNestedValue(raw, key, parsed);
       saveRawConfig(raw);
+      syncConfigToLockfile();
       log.info(`Set ${key} = ${JSON.stringify(parsed)}`);
     });
 
