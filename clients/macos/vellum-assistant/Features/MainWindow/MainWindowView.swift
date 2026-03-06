@@ -601,7 +601,8 @@ struct MainWindowView: View {
             if zoomManager.showZoomIndicator {
                 ZoomIndicatorView(percentage: zoomManager.zoomPercentage)
                     .transition(.move(edge: .top).combined(with: .opacity))
-                    .padding(.top, VSpacing.xxl + VSpacing.xl)
+                    .padding(.top, 40)
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
             }
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
