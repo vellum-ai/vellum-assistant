@@ -41,6 +41,7 @@ struct SettingsSnapshot {
 
 struct SettingsChange {
     let description: String
+    let examplePrompt: String?
 }
 
 struct SettingsChangeDetector {
@@ -49,52 +50,52 @@ struct SettingsChangeDetector {
 
         if before.model != after.model {
             let displayName = SettingsStore.modelDisplayNames[after.model] ?? after.model
-            changes.append(SettingsChange(description: "model switched to \(displayName)"))
+            changes.append(SettingsChange(description: "model switched to \(displayName)", examplePrompt: "Switch model to \(displayName)"))
         }
         if before.userTimezone != after.userTimezone, let tz = after.userTimezone {
-            changes.append(SettingsChange(description: "timezone set to \(tz)"))
+            changes.append(SettingsChange(description: "timezone set to \(tz)", examplePrompt: "Set my timezone to \(tz)"))
         }
         if before.maxSteps != after.maxSteps {
-            changes.append(SettingsChange(description: "max steps set to \(Int(after.maxSteps))"))
+            changes.append(SettingsChange(description: "max steps set to \(Int(after.maxSteps))", examplePrompt: "Set max steps to \(Int(after.maxSteps))"))
         }
         if before.mediaEmbedsEnabled != after.mediaEmbedsEnabled {
-            changes.append(SettingsChange(description: "media embeds \(after.mediaEmbedsEnabled ? "enabled" : "disabled")"))
+            changes.append(SettingsChange(description: "media embeds \(after.mediaEmbedsEnabled ? "enabled" : "disabled")", examplePrompt: "\(after.mediaEmbedsEnabled ? "Enable" : "Disable") media embeds"))
         }
         if before.pttEnabled != after.pttEnabled {
-            changes.append(SettingsChange(description: "push to talk \(after.pttEnabled ? "enabled" : "disabled")"))
+            changes.append(SettingsChange(description: "push to talk \(after.pttEnabled ? "enabled" : "disabled")", examplePrompt: "\(after.pttEnabled ? "Enable" : "Disable") push to talk"))
         }
         if before.wakeWordEnabled != after.wakeWordEnabled {
-            changes.append(SettingsChange(description: "wake word \(after.wakeWordEnabled ? "enabled" : "disabled")"))
+            changes.append(SettingsChange(description: "wake word \(after.wakeWordEnabled ? "enabled" : "disabled")", examplePrompt: "\(after.wakeWordEnabled ? "Enable" : "Disable") wake word"))
         }
         if before.cmdEnterToSend != after.cmdEnterToSend {
-            changes.append(SettingsChange(description: after.cmdEnterToSend ? "send with Cmd+Enter" : "send with Enter"))
+            changes.append(SettingsChange(description: after.cmdEnterToSend ? "send with Cmd+Enter" : "send with Enter", examplePrompt: "Switch to \(after.cmdEnterToSend ? "Cmd+Enter" : "Enter") to send"))
         }
         if !before.hasTelegram && after.hasTelegram {
-            changes.append(SettingsChange(description: "Telegram connected"))
+            changes.append(SettingsChange(description: "Telegram connected", examplePrompt: nil))
         }
         if !before.hasTwitter && after.hasTwitter {
-            changes.append(SettingsChange(description: "Twitter connected"))
+            changes.append(SettingsChange(description: "Twitter connected", examplePrompt: nil))
         }
         if !before.hasTwilio && after.hasTwilio {
-            changes.append(SettingsChange(description: "Twilio connected"))
+            changes.append(SettingsChange(description: "Twilio connected", examplePrompt: nil))
         }
         if !before.hasSlack && after.hasSlack {
-            changes.append(SettingsChange(description: "Slack connected"))
+            changes.append(SettingsChange(description: "Slack connected", examplePrompt: nil))
         }
         if !before.hasBraveKey && after.hasBraveKey {
-            changes.append(SettingsChange(description: "Brave search connected"))
+            changes.append(SettingsChange(description: "Brave search connected", examplePrompt: nil))
         }
         if !before.hasPerplexityKey && after.hasPerplexityKey {
-            changes.append(SettingsChange(description: "Perplexity connected"))
+            changes.append(SettingsChange(description: "Perplexity connected", examplePrompt: nil))
         }
         if !before.hasElevenLabsKey && after.hasElevenLabsKey {
-            changes.append(SettingsChange(description: "ElevenLabs TTS connected"))
+            changes.append(SettingsChange(description: "ElevenLabs TTS connected", examplePrompt: nil))
         }
         if !before.hasImageGenKey && after.hasImageGenKey {
-            changes.append(SettingsChange(description: "image generation connected"))
+            changes.append(SettingsChange(description: "image generation connected", examplePrompt: nil))
         }
         if !before.hasVercelKey && after.hasVercelKey {
-            changes.append(SettingsChange(description: "Vercel connected"))
+            changes.append(SettingsChange(description: "Vercel connected", examplePrompt: nil))
         }
 
         return changes
@@ -103,6 +104,11 @@ struct SettingsChangeDetector {
     static func buildNudgeMessage(changes: [SettingsChange]) -> String {
         guard !changes.isEmpty else { return "" }
         let bullets = changes.map { "- \($0.description)" }.joined(separator: "\n")
-        return "**I noticed you changed some settings:**\n\(bullets)"
+        let examples = changes.compactMap(\.examplePrompt)
+        var message = "**I noticed you changed some settings:**\n\(bullets)"
+        if let example = examples.first {
+            message += "\n\nNext time you can just ask me, e.g. \"\(example)\""
+        }
+        return message
     }
 }
