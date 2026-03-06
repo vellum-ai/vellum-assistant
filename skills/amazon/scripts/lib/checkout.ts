@@ -302,16 +302,6 @@ export async function placeOrder(
     const script = `
       (async function() {
         try {
-          var antiCsrf = '';
-          var csrfMeta = document.querySelector('meta[name="anti-csrftoken-a2z"]');
-          if (csrfMeta && csrfMeta.content) {
-            antiCsrf = csrfMeta.content;
-          } else {
-            var csrfInp = document.querySelector('input[name="anti-csrftoken-a2z"]');
-            if (csrfInp && csrfInp.value) { antiCsrf = csrfInp.value; }
-            else { var m = document.cookie.match(/anti-csrftoken-a2z=([^;]+)/); if (m) antiCsrf = decodeURIComponent(m[1]); }
-          }
-
           // Load checkout page to get form token
           var spcResp = await fetch(${JSON.stringify(spcUrl)}, {
             credentials: 'include',
@@ -324,6 +314,19 @@ export async function placeOrder(
           // Extract form action and hidden fields
           var parser = new DOMParser();
           var doc = parser.parseFromString(spcHtml, 'text/html');
+
+          // Extract anti-CSRF token from the fetched checkout page (doc), not from document
+          // See client.ts for architecture: CSRF tokens must come from the fetched page
+          var antiCsrf = '';
+          var csrfMeta = doc.querySelector('meta[name="anti-csrftoken-a2z"]');
+          if (csrfMeta && csrfMeta.content) {
+            antiCsrf = csrfMeta.content;
+          } else {
+            var csrfInp = doc.querySelector('input[name="anti-csrftoken-a2z"]');
+            if (csrfInp && csrfInp.value) { antiCsrf = csrfInp.value; }
+            else { var m = document.cookie.match(/anti-csrftoken-a2z=([^;]+)/); if (m) antiCsrf = decodeURIComponent(m[1]); }
+          }
+
           var form = doc.querySelector('form#turbo-checkout-pyo-form') || doc.querySelector('form[name="checkout"]') || doc.querySelector('#placeYourOrder form');
 
           if (!form) {
