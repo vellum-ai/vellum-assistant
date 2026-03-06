@@ -213,11 +213,11 @@ struct ChatBubble: View {
                 // Uses layoutPriority instead of fixedSize to avoid forcing
                 // full height measurement during lazy placement.
                 .layoutPriority(1)
-                // Flatten the render tree for stable (non-streaming) messages into a
-                // single compositing layer, reducing recursive SwiftUI layout passes.
-                // Uses compositingGroup instead of drawingGroup to avoid rasterizing
-                // text into a Metal texture (which breaks .textSelection(.enabled)).
-                .compositingGroup()
+                // For non-streaming messages, flatten the render tree into a single
+                // compositing layer, reducing recursive SwiftUI layout passes.
+                // Uses compositingGroup instead of drawingGroup to preserve text selection.
+                // Skipped during streaming to avoid re-compositing on every token delta.
+                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming))
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)
@@ -537,5 +537,18 @@ struct ChatBubble: View {
     @MainActor static var lastStreamingSegments: (text: String, value: [MarkdownSegment])?
     @MainActor static var lastStreamingInlineMarkdown: (text: String, value: AttributedString)?
     @MainActor static var lastStreamingMarkdown: (text: String, value: AttributedString)?
+}
+
+/// Applies `.compositingGroup()` only when active, to avoid re-compositing during streaming.
+private struct ConditionalCompositingGroup: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.compositingGroup()
+        } else {
+            content
+        }
+    }
 }
 
