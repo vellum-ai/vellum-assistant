@@ -55,7 +55,7 @@
       "key": "feature_flags.messaging.gmail.enabled",
       "label": "Messaging: Gmail",
       "description": "Allow messaging tools to operate on the Gmail platform",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "messaging-telegram",
