@@ -13,7 +13,6 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../../../config/env.js";
-import { RESEND_COOLDOWN_MS } from "../../../daemon/handlers/config-channels.js";
 import { getLogger } from "../../../util/logger.js";
 import { mintDaemonDeliveryToken } from "../../auth/token-service.js";
 import {
@@ -23,6 +22,7 @@ import {
   updateSessionDelivery,
   updateSessionStatus,
 } from "../../channel-guardian-service.js";
+import { RESEND_COOLDOWN_MS } from "../../guardian-outbound-actions.js";
 import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
