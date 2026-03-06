@@ -9,7 +9,9 @@
 
 import { join } from "node:path";
 
+import { compileApp } from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
+import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -44,6 +46,34 @@ function handleAppChange(
   broadcastToAllClients: ((msg: ServerMessage) => void) | undefined,
   opts?: { fileChange?: boolean; status?: string },
 ): void {
+  const app = getApp(appId);
+
+  // Multifile apps need a recompile before refreshing surfaces so the
+  // WebView picks up the latest compiled output.
+  if (app && isMultifileApp(app)) {
+    const appDir = join(getAppsDir(), appId);
+    void compileApp(appDir)
+      .then((result) => {
+        if (!result.ok) {
+          log.warn(
+            { appId, errors: result.errors },
+            "Recompile failed on app change, serving stale dist/",
+          );
+        }
+        refreshSurfacesForApp(ctx, appId, opts);
+        broadcastToAllClients?.({ type: "app_files_changed", appId });
+        void updatePublishedAppDeployment(appId);
+      })
+      .catch((err) => {
+        log.warn({ appId, err }, "Recompile threw on app change");
+        // Still refresh surfaces with stale output
+        refreshSurfacesForApp(ctx, appId, opts);
+        broadcastToAllClients?.({ type: "app_files_changed", appId });
+        void updatePublishedAppDeployment(appId);
+      });
+    return;
+  }
+
   refreshSurfacesForApp(ctx, appId, opts);
   broadcastToAllClients?.({ type: "app_files_changed", appId });
   void updatePublishedAppDeployment(appId);
