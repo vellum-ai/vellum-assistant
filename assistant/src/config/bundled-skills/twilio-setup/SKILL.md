@@ -6,112 +6,72 @@ includes: ["public-ingress"]
 metadata: { "vellum": { "emoji": "\ud83d\udcf1" } }
 ---
 
-You are helping your user configure Twilio for voice calls and SMS messaging. Twilio is the shared telephony provider for both the **phone-calls** and **SMS messaging** capabilities. When this skill is invoked, walk through each step below using existing CLI tools and secure credential storage.
+You are helping your user configure Twilio for voice calls and SMS messaging. Walk through each step below.
 
-## Quick Start
+## Retrieving Twilio Credentials
+
+Many steps below require the Account SID and Auth Token. Retrieve them with:
 
 ```bash
-# 1. Check current status
-assistant config get twilio.accountSid
-assistant credentials inspect twilio:auth_token --json
-assistant config get twilio.phoneNumber
-# 2. Store credentials (after collecting via credential_store prompt)
-assistant config set twilio.accountSid "ACxxx"
-assistant credentials set twilio:auth_token "xxx"
-# 3. Get Account SID and Auth Token for Twilio API calls
 TWILIO_SID=$(assistant config get twilio.accountSid)
 TWILIO_TOKEN=$(assistant credentials reveal twilio:auth_token)
-# 4. Search and provision via Twilio API
-curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true"
-curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json" -d "PhoneNumber=+1xxx"
-# 5. Assign locally (saves to config)
-assistant config set twilio.phoneNumber "+1xxx"
 ```
-
-For voice call setup after Twilio is configured, use `phone-calls` + `call_start`.
-
-## Overview
-
-This skill manages the full Twilio lifecycle:
-
-- **Credential storage** — Auth Token stored securely via `assistant credentials set twilio:auth_token`; Account SID stored in config via `assistant config set twilio.accountSid`
-- **Direct Twilio API access** — Search and purchase numbers via the Twilio REST API using credentials retrieved from CLI
-- **Phone number assignment** — Assign an existing Twilio number to the assistant via `assistant config set twilio.phoneNumber`
-- **Status checking** — Verify credentials and assigned number via `assistant credentials inspect twilio:auth_token` + `assistant config get`
-
-Number search and purchase use direct calls to the Twilio REST API with credentials retrieved via `assistant credentials reveal` and `assistant config get`. Local bookkeeping (Account SID, phone number, config updates) uses `assistant config` commands. Auth Token is stored in encrypted credential storage via `assistant credentials`.
 
 ## Step 1: Check Current Configuration
 
-First, check whether Twilio is already configured:
-
 ```bash
-# Check if Account SID is configured
 assistant config get twilio.accountSid
-
-# Check if Auth Token is stored
-assistant credentials inspect twilio:auth_token --json
-# -> look at "hasSecret" field (true = auth token exists)
-
-# Check assigned phone number
+assistant credentials inspect twilio:auth_token --json  # check "hasSecret" field
 assistant config get twilio.phoneNumber
 ```
 
-If `twilio.accountSid` returns a value and `hasSecret` is `true` on `twilio:auth_token`, credentials are stored. If `twilio.phoneNumber` also returns a phone number, Twilio is fully configured. Tell the user Twilio is already configured and offer to show the current status or reconfigure.
+- If `twilio.accountSid` has a value, `hasSecret` is `true`, and `twilio.phoneNumber` is set -- Twilio is fully configured. Offer to show status or reconfigure.
+- Otherwise, continue to the missing steps.
 
 ## Step 2: Collect and Store Credentials
 
-If credentials are not yet stored, guide the user through Twilio account setup:
+Tell the user: **"You'll need a Twilio account. Sign up at https://www.twilio.com/try-twilio -- it's free to start and includes trial credit."**
 
-1. Tell the user: **"You'll need a Twilio account. Sign up at https://www.twilio.com/try-twilio -- it's free to start and includes trial credit."**
-2. Once they have an account, they need two pieces of information:
-   - **Account SID** -- found on the Twilio Console dashboard at https://console.twilio.com
-   - **Auth Token** -- found on the same dashboard (click "Show" to reveal it)
+They need two values from the Twilio Console dashboard (https://console.twilio.com):
 
-**IMPORTANT -- Secure credential collection only:** Never use credentials pasted in plaintext chat. Always collect credentials through the secure credential prompt flow:
+- **Account SID**
+- **Auth Token** (click "Show" to reveal)
 
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, and `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, and `placeholder: "your_auth_token"`.
+Collect them securely -- never accept credentials pasted in plaintext chat:
 
-After both credentials are collected, store them using CLI commands:
+- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
+- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, `placeholder: "your_auth_token"`.
+
+Then store them:
 
 ```bash
 assistant config set twilio.accountSid "<value from credential_store for twilio/account_sid>"
 assistant credentials set twilio:auth_token "<value from credential_store for twilio/auth_token>"
 ```
 
-The Account SID is stored in config (it is not a secret), while the Auth Token is stored in encrypted credential storage.
-
-Both values are required. If credentials are invalid, Twilio API calls (Step 3b) will fail -- tell the user and ask them to re-enter via the secure prompt.
+If credentials are invalid, Twilio API calls in Step 3 will fail -- ask the user to re-enter.
 
 ## Step 3: Get a Phone Number
 
-The assistant needs a phone number to make calls and send SMS. There are two paths:
+The assistant needs a phone number for calls and SMS. Three options:
 
 ### Option A: Provision a New Number
 
-If the user wants to buy a new number through Twilio:
+Retrieve credentials (see "Retrieving Twilio Credentials" above), then:
 
-**3a. Retrieve credentials for Twilio API calls:**
-
-```bash
-TWILIO_SID=$(assistant config get twilio.accountSid)
-TWILIO_TOKEN=$(assistant credentials reveal twilio:auth_token)
-```
-
-**3b. Search for available numbers:**
+**Search for available numbers:**
 
 ```bash
 curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
   "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true&AreaCode=415"
 ```
 
-- `AreaCode` is optional -- ask the user if they have a preferred area code
-- Replace `US` with a different ISO 3166-1 alpha-2 country code if the user wants a non-US number
+- `AreaCode` is optional -- ask the user if they have a preference
+- Replace `US` with another country code if needed
 
-The response contains an `available_phone_numbers` array. Present the first few options to the user with their `phone_number` and `friendly_name`.
+Present the first few results from the `available_phone_numbers` array (show `phone_number` and `friendly_name`).
 
-**3c. Purchase the chosen number:**
+**Purchase the chosen number:**
 
 ```bash
 curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
@@ -119,59 +79,43 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   -d "PhoneNumber=+14155551234"
 ```
 
-The response includes the purchased number's `phone_number` and `sid`.
+Note the `sid` field (starts with `PN`) from the response -- needed for webhook setup in Step 4.
 
-**3d. Assign locally (saves to config):**
+**Trial account note:** Trial accounts come with one free number. Check "Active Numbers" in the Console first.
 
-```bash
-assistant config set twilio.phoneNumber "+14155551234"
-```
+### Option B: Use an Existing Number
 
-This stores the phone number in config. After assigning, configure webhooks on the number so Twilio can reach the assistant -- see Step 4.
-
-**Trial account note:** Twilio trial accounts come with one free phone number. Check "Active Numbers" in the Twilio Console first before provisioning.
-
-### Option B: Assign an Existing Number
-
-If the user already has a Twilio phone number, first retrieve credentials (same as Option A, step 3a), then list existing numbers:
+Retrieve credentials, then list numbers on the account:
 
 ```bash
 curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
   "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json"
 ```
 
-The response includes an `incoming_phone_numbers` array with each number's `phone_number`, `friendly_name`, and `capabilities`. Present these to the user and let them choose.
-
-Then assign the chosen number:
-
-```bash
-assistant config set twilio.phoneNumber "+14155551234"
-```
-
-The phone number must be in E.164 format. After assigning, configure webhooks -- see Step 4.
+Present the `incoming_phone_numbers` array. Let the user choose.
 
 ### Option C: Manual Entry
 
-If the user wants to enter a number directly (e.g., they know it already), assign it using a CLI command:
+If the user already knows their number, skip the API calls.
+
+### Save the phone number
+
+After choosing a number via any option:
 
 ```bash
 assistant config set twilio.phoneNumber "+14155551234"
 ```
 
-After assigning, configure webhooks -- see Step 4.
-
 ## Step 4: Set Up Public Ingress and Webhooks
 
-Twilio needs a publicly reachable URL for voice webhooks, ConversationRelay WebSocket, and SMS delivery reports. The **public-ingress** skill handles this via ngrok.
-
-Check if ingress is already configured:
+Twilio needs a publicly reachable URL for voice webhooks and SMS delivery. Check if ingress is configured:
 
 ```bash
 assistant config get ingress.publicBaseUrl
 assistant config get ingress.enabled
 ```
 
-If not configured, load and run the public-ingress skill:
+If not configured, load the public-ingress skill:
 
 ```
 skill_load skill=public-ingress
@@ -179,7 +123,9 @@ skill_load skill=public-ingress
 
 ### Configure Twilio Webhooks
 
-Once ingress is configured, set the webhook URLs on the Twilio phone number so Twilio knows where to send incoming calls and messages. Retrieve the required values:
+Set webhook URLs on the phone number so Twilio routes traffic to the assistant.
+
+Retrieve credentials and config values:
 
 ```bash
 TWILIO_SID=$(assistant config get twilio.accountSid)
@@ -188,14 +134,14 @@ PUBLIC_URL=$(assistant config get ingress.publicBaseUrl)
 PHONE_NUMBER=$(assistant config get twilio.phoneNumber)
 ```
 
-Look up the phone number's SID (needed to update it):
+Look up the phone number's SID:
 
 ```bash
 curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
   "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json?PhoneNumber=$PHONE_NUMBER"
 ```
 
-Note the `sid` field (starts with `PN`) from the matching entry in `incoming_phone_numbers`. Then update the webhooks:
+Note the `sid` field (starts with `PN`) from the matching entry, then update webhooks:
 
 ```bash
 curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
@@ -205,53 +151,29 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   -d "SmsUrl=$PUBLIC_URL/webhooks/twilio/sms"
 ```
 
-The expected webhook URLs are:
+## Step 5: Verify and Enable
 
-- **Voice URL:** `{publicBaseUrl}/webhooks/twilio/voice`
-- **Voice status callback:** `{publicBaseUrl}/webhooks/twilio/status`
-- **SMS URL:** `{publicBaseUrl}/webhooks/twilio/sms`
-- **ConversationRelay WebSocket:** `{publicBaseUrl}/webhooks/twilio/relay` (wss://, configured at call time)
-
-## Step 5: Verify Setup
-
-After configuration, verify by checking credential and config status:
+Re-run the checks from Step 1 to confirm everything is set. Then enable voice calls:
 
 ```bash
-assistant config get twilio.accountSid
-assistant credentials inspect twilio:auth_token --json
-assistant config get twilio.phoneNumber
+assistant config set calls.enabled true
 ```
 
-Confirm:
+SMS is available automatically once Twilio is configured -- no flag needed.
 
-- `twilio.accountSid` returns the Account SID
-- `hasSecret` is `true` on `twilio:auth_token`
-- `twilio.phoneNumber` returns the expected phone number
+Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}."**
 
-Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}. This number is used for both voice calls and SMS messaging."**
+## Step 6: Guardian Verification (Optional)
 
-## Step 5.5: Guardian Verification (Voice)
+Link the user's phone number as the trusted voice guardian so the assistant can verify inbound callers.
 
-Now link the user's phone number as the trusted voice guardian. Tell the user: "Now let's verify your guardian identity for voice. This links your phone number so the assistant can verify inbound callers."
+Load the guardian-verify-setup skill with `channel: "voice"`:
 
-Load the **guardian-verify-setup** skill to handle the verification flow:
+```
+skill_load skill=guardian-verify-setup
+```
 
-- Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
-
-When invoking the skill, indicate the channel is `voice`. The guardian-verify-setup skill manages the full outbound verification flow, including:
-
-- Collecting the user's phone number as the destination (accepts any common format -- the API normalizes to E.164)
-- Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/outbound/start` with `channel: "voice"`
-- Calling the phone number and providing a code for the user to enter via their phone's keypad
-- Proactively polling for completion (voice auto-check) so the user gets instant confirmation
-- Checking guardian status to confirm the binding was created
-- Handling resend, cancel, and error cases
-
-Tell the user: _"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted voice guardian."_
-
-After the guardian-verify-setup skill completes (or the user skips), continue to Step 6.
-
-**Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
+The skill handles the full verification flow (outbound call, code entry, confirmation). If the user declines, skip this step.
 
 To re-check guardian status later:
 
@@ -259,63 +181,44 @@ To re-check guardian status later:
 assistant integrations guardian status --channel voice --json
 ```
 
-## Step 6: Enable Features
-
-Now that Twilio is configured, the user can enable the features that depend on it:
-
-**For voice calls:**
-
-```bash
-assistant config set calls.enabled true
-```
-
-**For SMS messaging:**
-SMS is available automatically once Twilio is configured -- no additional feature flag is needed.
-
 ## Clearing Credentials
 
-If the user wants to disconnect Twilio:
+To disconnect Twilio:
 
 ```bash
 assistant credentials delete twilio:auth_token
 assistant config set twilio.accountSid ""
 ```
 
-This deletes the Auth Token from encrypted storage and clears the Account SID from config. Phone number assignments are preserved. Voice calls and SMS will stop working until credentials are reconfigured.
+Phone number assignments are preserved. Voice calls and SMS will stop until credentials are reconfigured.
 
 ## Troubleshooting
 
 ### "Twilio credentials not configured"
 
-Run Steps 2 and 3 to store credentials and assign a phone number.
+Run Steps 2 and 3.
 
 ### "No phone number assigned"
 
-Run Step 3 to provision or assign a phone number.
+Run Step 3.
 
 ### Phone number provisioning fails
 
-- Verify Twilio credentials are correct
-- On trial accounts, you may already have a free number -- check "Active Numbers" in the Console
-- Ensure the Twilio account has sufficient balance for paid accounts
+- Verify credentials are correct
+- Trial accounts may already have a free number -- check "Active Numbers" in the Console
+- Ensure the account has sufficient balance
 
 ### Calls/SMS fail after setup
 
-- Verify public ingress is running (`ingress.publicBaseUrl` must be set)
+- Verify ingress is running: `assistant config get ingress.publicBaseUrl`
 - For calls, ensure `calls.enabled` is `true`
-- On trial accounts, outbound calls and SMS can only reach verified numbers
+- Trial accounts can only reach verified numbers
 
-### "Number not found" when assigning
+### Incoming calls/SMS not reaching the assistant
 
-- The number must be owned by the same Twilio account
-- Use the list numbers endpoint to see available numbers
-- Ensure the number is in E.164 format (`+` followed by country code and number)
+Webhooks on the Twilio phone number may not match the current ingress URL. This happens when ngrok restarts with a new URL or webhooks were never configured.
 
-### Incoming calls/SMS not reaching the assistant (webhook mismatch)
-
-This usually means the webhooks on the Twilio phone number don't match the current public ingress URL. This can happen when the ingress URL changes (e.g., ngrok restarts with a new URL) or webhooks were never configured.
-
-**Diagnose:** Fetch the phone number's current webhook configuration from Twilio and compare it to the expected ingress URL:
+**Diagnose** -- fetch the number's current webhooks and compare to the expected URL:
 
 ```bash
 TWILIO_SID=$(assistant config get twilio.accountSid)
@@ -323,12 +226,11 @@ TWILIO_TOKEN=$(assistant credentials reveal twilio:auth_token)
 PUBLIC_URL=$(assistant config get ingress.publicBaseUrl)
 PHONE_NUMBER=$(assistant config get twilio.phoneNumber)
 
-# Fetch current webhooks
 curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
   "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json?PhoneNumber=$PHONE_NUMBER"
 ```
 
-In the response, check the `voice_url`, `status_callback`, and `sms_url` fields. They should start with the current `ingress.publicBaseUrl`. If they don't match (e.g., they point to an old ngrok URL), update them:
+Check that `voice_url`, `status_callback`, and `sms_url` start with the current `ingress.publicBaseUrl`. If they don't match, update them:
 
 ```bash
 PHONE_SID=<PN sid from the response above>
