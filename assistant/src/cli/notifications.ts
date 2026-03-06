@@ -3,6 +3,7 @@ import type { Command } from "commander";
 import { getDeliverableChannels } from "../channels/config.js";
 import { initializeDb } from "../memory/db.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { listEvents } from "../notifications/events-store.js";
 import {
   isNotificationSourceChannel,
   isNotificationSourceEventName,
@@ -289,6 +290,113 @@ Examples:
             );
             if (result.reason) {
               log.info(`  Reason: ${result.reason}`);
+            }
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  // -------------------------------------------------------------------------
+  // list
+  // -------------------------------------------------------------------------
+
+  notifications
+    .command("list")
+    .description("List recent notification events from the local event store")
+    .option("--limit <n>", "Maximum number of events to return (default: 20)")
+    .option("--source-event-name <name>", "Filter by source event name")
+    .addHelpText(
+      "after",
+      `
+Reads from the local notification events store, ordered by creation time
+(newest first). Each event represents a signal that was emitted through the
+notification pipeline.
+${buildSourceEventNamesHelpBlock()}
+
+Examples:
+  $ vellum notifications list
+  $ vellum notifications list --limit 5
+  $ vellum notifications list --source-event-name reminder.fired
+  $ vellum notifications list --source-event-name reminder.fired --limit 10 --json`,
+    )
+    .action(
+      (
+        opts: {
+          limit?: string;
+          sourceEventName?: string;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          // Validate --source-event-name
+          if (
+            opts.sourceEventName != null &&
+            !isNotificationSourceEventName(opts.sourceEventName)
+          ) {
+            const validEvents = NOTIFICATION_SOURCE_EVENT_NAMES.map(
+              (e) => e.id,
+            ).join(", ");
+            writeOutput(cmd, {
+              ok: false,
+              error: `Invalid source event name "${opts.sourceEventName}". Valid values: ${validEvents}`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          // Parse and validate --limit
+          let limit = 20;
+          if (opts.limit != null) {
+            const parsed = Number(opts.limit);
+            if (
+              !Number.isFinite(parsed) ||
+              !Number.isInteger(parsed) ||
+              parsed < 1
+            ) {
+              writeOutput(cmd, {
+                ok: false,
+                error: `Invalid limit "${opts.limit}". Must be a positive integer`,
+              });
+              process.exitCode = 1;
+              return;
+            }
+            limit = parsed;
+          }
+
+          initializeDb();
+
+          const rows = listEvents({
+            limit,
+            sourceEventName: opts.sourceEventName,
+          });
+
+          const events = rows.map((row) => ({
+            id: row.id,
+            sourceEventName: row.sourceEventName,
+            sourceChannel: row.sourceChannel,
+            sourceSessionId: row.sourceSessionId,
+            urgency: (JSON.parse(row.attentionHintsJson) as { urgency: string })
+              .urgency,
+            dedupeKey: row.dedupeKey,
+            createdAt: new Date(row.createdAt).toISOString(),
+          }));
+
+          writeOutput(cmd, { ok: true, events });
+
+          if (!shouldOutputJson(cmd)) {
+            if (events.length === 0) {
+              log.info("No notification events found");
+            } else {
+              log.info(`${events.length} event(s):\n`);
+              for (const event of events) {
+                log.info(
+                  `  ${event.createdAt}  ${event.sourceEventName}  ${event.urgency}  ${event.sourceChannel}`,
+                );
+              }
             }
           }
         } catch (err) {
