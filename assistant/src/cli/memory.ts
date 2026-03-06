@@ -278,7 +278,8 @@ Two modes of operation:
   --pattern <regex>  Dismiss only conflicts where either the existing or
                      candidate statement matches the given regex (case-insensitive)
 
-Exactly one of --all or --pattern must be provided.
+At least one of --all or --pattern must be provided. If both are given,
+--all takes priority and all pending conflicts are dismissed.
 
 The --scope flag targets a specific memory scope. Defaults to "default" if
 omitted. The --dry-run flag previews which conflicts would be dismissed

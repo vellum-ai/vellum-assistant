@@ -26,7 +26,7 @@ export function registerSessionsCommand(program: Command): void {
     "after",
     `
 Sessions represent conversation threads with the assistant. Each session has a
-unique ID and a title. The daemon must be running for "list" and "new" (they
+unique ID and a title. The assistant must be running for "list" and "new" (they
 communicate via IPC), while "export" and "clear" operate on the local SQLite
 database directly.
 
@@ -46,8 +46,8 @@ Examples:
 Shows all sessions with their ID, title, and a relative timestamp (e.g.
 "3 hours ago"). Sessions are listed in order of most recently updated.
 
-Requires the daemon to be running — communicates via IPC. If auto-start is
-enabled, the daemon will be started automatically.
+Requires the assistant to be running — communicates via IPC. If auto-start is
+enabled, the assistant will be started automatically.
 
 Examples:
   $ vellum sessions list`,
@@ -76,10 +76,10 @@ Examples:
       `
 Arguments:
   title   Optional session title (string). If omitted, a default title is
-          assigned by the daemon.
+          assigned by the assistant.
 
 Creates a new conversation session and prints its title and ID. Requires the
-daemon to be running — communicates via IPC.
+assistant to be running — communicates via IPC.
 
 Examples:
   $ vellum sessions new
@@ -118,7 +118,7 @@ Two output formats are available:
   json  Structured JSON export with full metadata, message content arrays,
         and timestamps.
 
-Operates on the local SQLite database directly — does not require the daemon.
+Operates on the local SQLite database directly — does not require the assistant.
 
 Examples:
   $ vellum sessions export
@@ -195,11 +195,11 @@ Examples:
       `
 Permanently deletes ALL conversations, messages, and Qdrant vector data.
 Prompts for confirmation (y/N) before proceeding. After clearing the local
-database, notifies the running daemon (if any) to invalidate its in-memory
+database, notifies the running assistant (if any) to invalidate its in-memory
 sessions so it does not serve stale history.
 
 Operates on the local SQLite database and Qdrant directly — does not require
-the daemon, but will notify it if running.
+the assistant, but will notify it if running.
 
 Intended for development use. This action cannot be undone.
 

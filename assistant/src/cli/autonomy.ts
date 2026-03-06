@@ -199,7 +199,8 @@ Resolution order (first match wins):
   3. Channel default    — per-channel tier set via --channel
   4. Global default     — the fallback tier set via --default
 
-Config is stored in ~/.vellum/workspace/autonomy.json.
+Config is stored in <data-dir>/.vellum/workspace/autonomy.json, where
+<data-dir> is the BASE_DATA_DIR environment variable (defaults to $HOME).
 
 Examples:
   $ vellum autonomy get
@@ -246,7 +247,8 @@ Examples:
     .addHelpText(
       "after",
       `
-Four mutually exclusive targeting modes (use exactly one per invocation):
+Four targeting modes — provide one of the following per invocation. If multiple
+are given, the first match is applied in this priority order:
 
   --default <tier>                Set the global default tier. The <tier>
                                   value is the argument itself — do not
