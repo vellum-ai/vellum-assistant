@@ -17,6 +17,7 @@ struct AppSharePanelView: View {
     @State private var showChannelPicker = false
     @State private var isSendingToSlack = false
     @State private var slackError: String?
+    @State private var formattedFileSize: String = ""
 
     @available(macOS, deprecated: 13.0)
     var body: some View {
@@ -43,6 +44,9 @@ struct AppSharePanelView: View {
         .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         .onAppear {
             services = Self.availableSharingServices(for: fileURL)
+        }
+        .task {
+            formattedFileSize = await computeFileSize()
         }
     }
 
@@ -273,13 +277,17 @@ struct AppSharePanelView: View {
         NSSharingService.sharingServices(forItems: [url])
     }
 
-    private var formattedFileSize: String {
+    private func computeFileSize() async -> String {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory) else {
             return ""
         }
         if isDirectory.boolValue {
-            return directorySize(at: fileURL)
+            let url = fileURL
+            let size = await Task.detached {
+                Self.directorySize(at: url)
+            }.value
+            return size
                 .map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
                 ?? "App Bundle"
         }
@@ -291,7 +299,7 @@ struct AppSharePanelView: View {
     }
 
     /// Recursively computes the total size of all files within a directory.
-    private func directorySize(at url: URL) -> UInt64? {
+    private static func directorySize(at url: URL) -> UInt64? {
         guard let enumerator = FileManager.default.enumerator(
             at: url,
             includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
