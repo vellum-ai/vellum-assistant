@@ -154,6 +154,13 @@ extension MainWindowView {
         try? FileManager.default.removeItem(at: cleanURL)
         do {
             try FileManager.default.linkItem(at: originalURL, to: cleanURL)
+            // Hide .vellum extension in Finder so it displays as just the app name
+            var resourceURL = cleanURL
+            try? resourceURL.setResourceValues({
+                var v = URLResourceValues()
+                v.hasHiddenExtension = true
+                return v
+            }())
             return cleanURL
         } catch {
             return originalURL
