@@ -19,8 +19,7 @@ struct AppSharePanelView: View {
             header
                 .padding(VSpacing.lg)
 
-            Divider()
-                .background(VColor.surfaceBorder)
+            VColor.surfaceBorder.frame(height: 1)
 
             // Services list
             ScrollView {
@@ -46,8 +45,8 @@ struct AppSharePanelView: View {
                         }
                     }
 
-                    Divider()
-                        .background(VColor.surfaceBorder)
+                    VColor.surfaceBorder.frame(height: 1)
+                        .padding(.horizontal, VSpacing.xs)
                         .padding(.vertical, VSpacing.xs)
 
                     // Copy row
@@ -66,8 +65,19 @@ struct AppSharePanelView: View {
             .frame(maxHeight: 300)
         }
         .frame(width: 240)
-        .background(VColor.surface)
+        .onDisappear {
+            if hoveredServiceIndex != nil {
+                NSCursor.pop()
+                hoveredServiceIndex = nil
+            }
+        }
+        .background(VColor.surfaceSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         .onAppear {
             services = Self.availableSharingServices(for: fileURL)
         }
@@ -119,14 +129,14 @@ struct AppSharePanelView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: VSpacing.md) {
+            HStack(spacing: VSpacing.sm) {
                 if let icon {
                     Image(nsImage: icon)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 20, height: 20)
+                        .frame(width: 18, height: 18)
                 } else {
-                    Color.clear.frame(width: 20, height: 20)
+                    Color.clear.frame(width: 18, height: 18)
                 }
 
                 Text(title)
@@ -137,12 +147,13 @@ struct AppSharePanelView: View {
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)
-            .background(hoveredServiceIndex == index ? VColor.backgroundSubtle : Color.clear)
+            .background(hoveredServiceIndex == index ? VColor.navHover : Color.clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering in
             hoveredServiceIndex = hovering ? index : nil
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
     }
 

@@ -166,7 +166,7 @@ extension MainWindowView {
         if let base64 = iconBase64,
            let data = Data(base64Encoded: base64),
            let image = NSImage(data: data) {
-            return image
+            return roundedIcon(from: image)
         }
 
         let glyph = (emojiIcon.flatMap { $0.isEmpty ? nil : $0 })
@@ -179,11 +179,12 @@ extension MainWindowView {
 
     /// Sets a custom icon on the file so the share sheet shows it instead of a blank document.
     /// Prefers the AI-generated icon (base64 PNG), falls back to rendering the emoji or app initial.
+    /// All icons are clipped to a rounded rect so Finder shows transparent corners.
     static func applyFileIcon(to url: URL, iconBase64: String?, emojiIcon: String?, appName: String) {
         if let base64 = iconBase64,
            let data = Data(base64Encoded: base64),
            let image = NSImage(data: data) {
-            NSWorkspace.shared.setIcon(image, forFile: url.path, options: [])
+            NSWorkspace.shared.setIcon(roundedIcon(from: image), forFile: url.path, options: [])
             return
         }
 
@@ -193,6 +194,17 @@ extension MainWindowView {
         if !glyph.isEmpty {
             let image = renderEmojiIcon(emoji: glyph, size: 512)
             NSWorkspace.shared.setIcon(image, forFile: url.path, options: [])
+        }
+    }
+
+    /// Clips an image to a rounded rect with transparent corners, matching macOS icon shape.
+    private static func roundedIcon(from source: NSImage, size: CGFloat = 512) -> NSImage {
+        let cornerRadius = size * 0.22
+        return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+            path.addClip()
+            source.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+            return true
         }
     }
 
