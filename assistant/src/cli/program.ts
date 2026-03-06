@@ -22,6 +22,7 @@ import { registerMapCommand } from "./map.js";
 import { registerMcpCommand } from "./mcp.js";
 import { registerMemoryCommand } from "./memory.js";
 import { registerNotificationsCommand } from "./notifications.js";
+import { registerOAuthCommand } from "./oauth.js";
 import { registerSequenceCommand } from "./sequence.js";
 import { registerSessionsCommand } from "./sessions.js";
 import { registerTrustCommand } from "./trust.js";
@@ -55,6 +56,7 @@ export function buildCliProgram(): Command {
   registerAutonomyCommand(program);
   registerCompletionsCommand(program);
   registerNotificationsCommand(program);
+  registerOAuthCommand(program);
 
   registerTwitterCommand(program);
   registerMapCommand(program);
