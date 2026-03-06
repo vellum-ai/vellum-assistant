@@ -83,6 +83,7 @@ extension AppDelegate {
     func setupViewMenu() {
         guard let mainMenu = NSApp.mainMenu else { return }
         let managedZoomMenuTag = 9_401
+        let managedNavigationMenuTag = 9_402
 
         let viewMenu: NSMenu
         let existingIndex = mainMenu.indexOfItem(withTitle: "View")
@@ -106,7 +107,7 @@ extension AppDelegate {
         // Preserve non-managed items already provided by AppKit/SwiftUI,
         // while making this setup idempotent across reconfiguration cycles.
         let preservedItems = viewMenu.items.filter { item in
-            item.tag != managedZoomMenuTag
+            item.tag != managedZoomMenuTag && item.tag != managedNavigationMenuTag
         }
         viewMenu.removeAllItems()
 
@@ -141,6 +142,30 @@ extension AppDelegate {
         zoomResetItem.tag = managedZoomMenuTag
         viewMenu.addItem(zoomResetItem)
 
+        let navSeparator = NSMenuItem.separator()
+        navSeparator.tag = managedNavigationMenuTag
+        viewMenu.addItem(navSeparator)
+
+        let backItem = NSMenuItem(
+            title: "Back",
+            action: #selector(handleNavigateBack),
+            keyEquivalent: "["
+        )
+        backItem.keyEquivalentModifierMask = .command
+        backItem.target = self
+        backItem.tag = managedNavigationMenuTag
+        viewMenu.addItem(backItem)
+
+        let forwardItem = NSMenuItem(
+            title: "Forward",
+            action: #selector(handleNavigateForward),
+            keyEquivalent: "]"
+        )
+        forwardItem.keyEquivalentModifierMask = .command
+        forwardItem.target = self
+        forwardItem.tag = managedNavigationMenuTag
+        viewMenu.addItem(forwardItem)
+
         if !preservedItems.isEmpty {
             let preservedSeparator = NSMenuItem.separator()
             preservedSeparator.tag = managedZoomMenuTag
@@ -168,10 +193,24 @@ extension AppDelegate {
     @objc public func handleWindowZoomOut() { routeZoomIntent(.windowZoomOut) }
     @objc public func handleWindowZoomReset() { routeZoomIntent(.windowZoomReset) }
 
+    @objc public func handleNavigateBack() {
+        mainWindow?.windowState.navigateBack()
+    }
+
+    @objc public func handleNavigateForward() {
+        mainWindow?.windowState.navigateForward()
+    }
+
     // MARK: - Menu Item Validation
 
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
+        if action == #selector(handleNavigateBack) {
+            return mainWindow?.windowState.navigationHistory.canGoBack ?? false
+        }
+        if action == #selector(handleNavigateForward) {
+            return mainWindow?.windowState.navigationHistory.canGoForward ?? false
+        }
         if action == #selector(markAllThreadsSeen) {
             return (mainWindow?.threadManager.unseenVisibleConversationCount ?? 0) > 0
         }
