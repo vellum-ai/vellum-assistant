@@ -19,8 +19,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" 
   -d '{"accountSid":"ACxxx","authToken":"xxx"}'
 # 3. Get credential ID and Account SID for proxied calls
 credential_store action=list  # → note credential_id for twilio/account_sid
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" | jq -r '.accountSid'
+vellum integrations twilio config --json | jq -r '.accountSid'
 # 4. Search and provision via Twilio API (proxy injects auth automatically)
 #    bash network_mode=proxied credential_ids=["<cred_id>"]
 curl -s "https://api.twilio.com/2010-04-01/Accounts/<SID>/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true"
@@ -57,7 +56,7 @@ In a multi-assistant environment (multiple assistants sharing the same runtime),
 
 - `GET /v1/integrations/twilio/config` — Returns the phone number assigned to the specified assistant.
 - `POST /v1/integrations/twilio/numbers/assign` — Assigns a phone number to a specific assistant via the per-assistant mapping.
-- `POST /v1/integrations/twilio/numbers/provision` — Provisions a new number and assigns it to the specified assistant.
+- `POST /v1/integrations/twilio/numbers/provision` — Legacy convenience endpoint that provisions a new number and assigns it to the specified assistant. The main flow now uses proxied Twilio API calls (search + purchase) followed by the assign endpoint.
 - `GET /v1/integrations/twilio/numbers` — Lists all phone numbers on the shared Twilio account (uses global credentials).
 
 Include `assistantId` as a query parameter in assistant-scoped requests whenever:
@@ -129,8 +128,7 @@ Find the entry with `service: "twilio"` and `field: "account_sid"`. Note its `cr
 Then retrieve the Account SID (needed for Twilio URL paths):
 
 ```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" | jq -r '.accountSid'
+vellum integrations twilio config --json | jq -r '.accountSid'
 ```
 
 **3b. Search for available numbers (proxied Twilio API):**
