@@ -199,7 +199,7 @@ describe("Twitter strategy router", () => {
           suggestAlternative: string;
         };
         expect(e.message).toContain("OAuth is not configured");
-        expect(e.message).toContain("vellum x strategy set browser");
+        expect(e.message).toContain("switch to browser strategy");
         expect(e.pathUsed).toBe("oauth");
         expect(e.suggestAlternative).toBe("browser");
       }

@@ -896,7 +896,7 @@ function buildDynamicSkillWorkflowSection(
     lines.push(
       "",
       "### X (Twitter) Skill",
-      'When the user asks to post, reply, or interact with X/Twitter, load the "twitter" skill using `skill_load`. Do NOT use computer-use or the browser skill for X — the X skill provides CLI commands (`vellum x post`, `vellum x reply`) that are faster and more reliable.',
+      'When the user asks to post, reply, or interact with X/Twitter, load the "twitter" skill using `skill_load`. Do NOT use computer-use or the browser skill for X — the twitter skill provides optimized CLI commands that are faster and more reliable.',
     );
   }
 

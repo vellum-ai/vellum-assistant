@@ -240,8 +240,8 @@ import type { ClientMessage } from "../../../assistant/src/daemon/ipc-contract.j
 // ---------------------------------------------------------------------------
 
 const SESSION_EXPIRED_MSG =
-  "Your Twitter session has expired. Please sign in to Twitter in Chrome — " +
-  "run `vellum x refresh` to capture your session automatically.";
+  "Your Twitter session has expired. Please import a fresh session recording " +
+  "via `login --recording <path>` or switch to OAuth for post/reply operations.";
 
 function success(data: Record<string, unknown>): ToolExecutionResult {
   return {
@@ -751,11 +751,11 @@ async function handleLogout(): Promise<ToolExecutionResult> {
 }
 
 async function handleRefresh(): Promise<ToolExecutionResult> {
-  // Refresh requires Chrome CDP and Ride Shotgun, which must run through
-  // the daemon. Return guidance to use the CLI command.
+  // Refresh requires Chrome CDP and Ride Shotgun. Return guidance for alternatives.
   return failure(
-    "The refresh command requires the full CLI. " +
-      "Run `vellum x refresh` from your terminal to capture fresh cookies.",
+    "Browser session refresh requires Chrome CDP integration. " +
+      "Use `login --recording <path>` to import a Ride Shotgun recording, " +
+      "or switch to OAuth for post/reply operations.",
   );
 }
 
