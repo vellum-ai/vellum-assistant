@@ -751,6 +751,14 @@ describe("vellum credentials CLI", () => {
       expect(parsed.error).toContain("Invalid credential name");
     });
 
+    test("reveal in human mode emits bare secret with trailing newline", async () => {
+      seedCredential("twilio", "auth_token", "secret_xyz_789");
+
+      const result = await runCli(["reveal", "twilio:auth_token"]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("secret_xyz_789\n");
+    });
+
     test("errors when metadata exists but no secret stored", async () => {
       seedMetadataOnly("test", "nosecret");
 
