@@ -7,7 +7,7 @@
  * make cleanup decisions (e.g. only kill Chrome if *we* launched it).
  */
 
-import { spawn as spawnChild } from "node:child_process";
+import { execSync, spawn as spawnChild } from "node:child_process";
 import { homedir } from "node:os";
 import { join as pathJoin } from "node:path";
 
@@ -51,14 +51,23 @@ export interface EnsureChromeOptions {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns `true` when a CDP endpoint is responding at the given base URL.
+ * Returns `true` when a CDP endpoint is responding at the given base URL
+ * and has at least one open page tab. A CDP endpoint with zero tabs is
+ * stale and unusable — callers should treat it as not ready.
  */
 export async function isCdpReady(
   cdpBase: string = DEFAULT_CDP_BASE,
 ): Promise<boolean> {
   try {
     const res = await fetch(`${cdpBase}/json/version`);
-    return res.ok;
+    if (!res.ok) return false;
+
+    // Verify there's at least one page tab — a CDP endpoint with no tabs
+    // is a stale Chrome process that should be relaunched.
+    const listRes = await fetch(`${cdpBase}/json/list`);
+    if (!listRes.ok) return false;
+    const targets = (await listRes.json()) as Array<{ type: string }>;
+    return targets.some((t) => t.type === "page");
   } catch {
     return false;
   }
@@ -84,6 +93,25 @@ export async function ensureChromeWithCdp(
 
   if (await isCdpReady(baseUrl)) {
     return { baseUrl, launchedByUs: false, userDataDir };
+  }
+
+  // If CDP is responding but has no tabs (stale), kill the process holding the port.
+  try {
+    const versionRes = await fetch(`${baseUrl}/json/version`);
+    if (versionRes.ok) {
+      // Stale Chrome — CDP up but no tabs. Kill it so we can relaunch.
+      try {
+        execSync(`lsof -ti :${port} | xargs kill -9 2>/dev/null`, {
+          stdio: "ignore",
+        });
+      } catch {
+        // Ignore — process may have already exited.
+      }
+      // Brief wait for port to clear.
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  } catch {
+    // CDP not responding at all — port is free, proceed to launch.
   }
 
   const args = [
