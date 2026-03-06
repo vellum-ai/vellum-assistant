@@ -109,7 +109,7 @@ export function registerContactsCommand(program: Command): void {
     .description("Manage contact invites");
 
   invites
-    .command("list")
+    .command("list", { isDefault: true })
     .description("List invites")
     .option("--source-channel <sourceChannel>", "Filter by source channel")
     .option("--status <status>", "Filter by invite status")
