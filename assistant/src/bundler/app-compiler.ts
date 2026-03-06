@@ -9,9 +9,16 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { build, type Message } from "esbuild";
+import { build, type Message, type Plugin } from "esbuild";
 
 import { getLogger } from "../util/logger.js";
+import {
+  ALLOWED_PACKAGES,
+  getCacheDir,
+  isBareImport,
+  packageName,
+  resolvePackage,
+} from "./package-resolver.js";
 
 const log = getLogger("app-compiler");
 
@@ -64,6 +71,42 @@ export async function compileApp(appDir: string): Promise<CompileResult> {
     "../../node_modules/preact",
   );
 
+  // Plugin that resolves bare third-party imports against the allowlist
+  const resolvePlugin: Plugin = {
+    name: "vellum-package-resolver",
+    setup(pluginBuild) {
+      pluginBuild.onResolve({ filter: /.*/ }, async (args) => {
+        // Only intercept bare specifiers (not relative, not preact/react aliases)
+        if (
+          args.kind !== "import-statement" &&
+          args.kind !== "dynamic-import"
+        ) {
+          return undefined;
+        }
+        if (!isBareImport(args.path)) return undefined;
+
+        const pkg = packageName(args.path);
+        const nodeModulesDir = await resolvePackage(pkg);
+
+        if (nodeModulesDir) {
+          // Let esbuild resolve normally — nodePaths will pick it up
+          return undefined;
+        }
+
+        // Not allowed — produce a clear error
+        return {
+          errors: [
+            {
+              text: `Package '${pkg}' is not in the allowed list. Allowed: ${ALLOWED_PACKAGES.join(", ")}`,
+            },
+          ],
+        };
+      });
+    },
+  };
+
+  const cacheNodeModules = join(getCacheDir(), "node_modules");
+
   let result;
   try {
     result = await build({
@@ -87,8 +130,9 @@ export async function compileApp(appDir: string): Promise<CompileResult> {
         react: "preact/compat",
         "react-dom": "preact/compat",
       },
-      // Point esbuild at the assistant's preact so it can resolve jsx-runtime
-      nodePaths: [resolve(preactDir, "..")],
+      plugins: [resolvePlugin],
+      // Point esbuild at assistant's preact and at the shared package cache
+      nodePaths: [resolve(preactDir, ".."), cacheNodeModules],
       logLevel: "silent",
     });
   } catch (err: unknown) {

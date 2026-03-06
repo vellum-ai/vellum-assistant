@@ -1,9 +1,17 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { compileApp } from "../bundler/app-compiler.js";
+import {
+  ALLOWED_PACKAGES,
+  getCacheDir,
+  isBareImport,
+  packageName,
+  resolvePackage,
+} from "../bundler/package-resolver.js";
 
 // ---------------------------------------------------------------------------
 // Shared temp directory
@@ -176,5 +184,96 @@ console.log("styled");`,
     const html = await readFile(join(appDir, "dist", "index.html"), "utf-8");
     const matches = html.match(/src="main\.js"/g);
     expect(matches).toHaveLength(1);
+  });
+
+  test("disallowed package import produces a clear error", async () => {
+    const appDir = await scaffold("disallowed-pkg", {
+      "main.tsx": `import leftpad from "left-pad";\nconsole.log(leftpad("hi", 5));`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].text).toContain("not in the allowed list");
+    expect(result.errors[0].text).toContain("left-pad");
+  });
+
+  test("allowed package (zod) compiles successfully", async () => {
+    const appDir = await scaffold("allowed-pkg-zod", {
+      "main.tsx": `import { z } from "zod";\nconst schema = z.string();\nconsole.log(schema.parse("hello"));`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toHaveLength(0);
+
+    const js = await readFile(join(appDir, "dist", "main.js"), "utf-8");
+    expect(js.length).toBeGreaterThan(100);
+  }, 30_000);
+
+  test("allowed package uses shared cache on second build", async () => {
+    // First build installs the package
+    const appDir1 = await scaffold("cache-test-1", {
+      "main.tsx": `import { z } from "zod";\nconsole.log(z.string());`,
+      "index.html": MINIMAL_HTML,
+    });
+    const r1 = await compileApp(appDir1);
+    expect(r1.ok).toBe(true);
+
+    // The cache dir should now have zod
+    const cacheDir = getCacheDir();
+    expect(existsSync(join(cacheDir, "node_modules", "zod"))).toBe(true);
+
+    // Second build should reuse the cache (no install needed)
+    const appDir2 = await scaffold("cache-test-2", {
+      "main.tsx": `import { z } from "zod";\nconst s = z.number();\nconsole.log(s.parse(42));`,
+      "index.html": MINIMAL_HTML,
+    });
+    const r2 = await compileApp(appDir2);
+    expect(r2.ok).toBe(true);
+  }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// Package resolver unit tests
+// ---------------------------------------------------------------------------
+
+describe("package-resolver", () => {
+  test("isBareImport identifies bare specifiers", () => {
+    expect(isBareImport("date-fns")).toBe(true);
+    expect(isBareImport("zod")).toBe(true);
+    expect(isBareImport("@scope/pkg")).toBe(true);
+    expect(isBareImport("./local")).toBe(false);
+    expect(isBareImport("../parent")).toBe(false);
+    expect(isBareImport("/absolute")).toBe(false);
+    expect(isBareImport("preact")).toBe(false);
+    expect(isBareImport("preact/hooks")).toBe(false);
+    expect(isBareImport("react")).toBe(false);
+    expect(isBareImport("react-dom")).toBe(false);
+  });
+
+  test("packageName extracts top-level name", () => {
+    expect(packageName("date-fns")).toBe("date-fns");
+    expect(packageName("date-fns/format")).toBe("date-fns");
+    expect(packageName("@scope/pkg")).toBe("@scope/pkg");
+    expect(packageName("@scope/pkg/sub")).toBe("@scope/pkg");
+  });
+
+  test("resolvePackage returns null for disallowed packages", async () => {
+    const result = await resolvePackage("left-pad");
+    expect(result).toBeNull();
+  });
+
+  test("ALLOWED_PACKAGES contains expected entries", () => {
+    expect(ALLOWED_PACKAGES).toContain("date-fns");
+    expect(ALLOWED_PACKAGES).toContain("chart.js");
+    expect(ALLOWED_PACKAGES).toContain("lodash-es");
+    expect(ALLOWED_PACKAGES).toContain("zod");
+    expect(ALLOWED_PACKAGES).toContain("clsx");
+    expect(ALLOWED_PACKAGES).toContain("lucide");
   });
 });
