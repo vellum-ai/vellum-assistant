@@ -553,7 +553,7 @@ Examples:
         if (shouldOutputJson(cmd)) {
           writeOutput(cmd, { ok: true, value: secret });
         } else {
-          process.stdout.write(secret);
+          process.stdout.write(secret + "\n");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
