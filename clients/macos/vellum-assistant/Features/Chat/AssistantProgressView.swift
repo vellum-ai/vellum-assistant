@@ -421,29 +421,32 @@ struct AssistantProgressView: View {
 
             // +N overflow badge with popover
             if overflow > 0 {
-                Text("+\(overflow)")
-                    .font(VFont.captionMedium)
-                    .foregroundColor(VColor.textSecondary)
-                    .padding(.horizontal, VSpacing.xs)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(
-                        Capsule().fill(VColor.backgroundSubtle)
-                    )
-                    .overlay(
-                        Capsule().stroke(VColor.surfaceBorder, lineWidth: 1)
-                    )
-                    .onTapGesture {
-                        suppressNextExpand = true
-                        isOverflowPopoverShown.toggle()
-                    }
-                    .popover(isPresented: $isOverflowPopoverShown, arrowEdge: .bottom) {
-                        VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            ForEach(Array(resolved.dropFirst(2).enumerated()), id: \.offset) { _, confirmation in
-                                compactPermissionChip(confirmation)
-                            }
+                Button(action: {
+                    suppressNextExpand = true
+                    isOverflowPopoverShown.toggle()
+                }) {
+                    Text("+\(overflow)")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textSecondary)
+                        .padding(.horizontal, VSpacing.xs)
+                        .padding(.vertical, VSpacing.xxs)
+                        .background(
+                            Capsule().fill(VColor.backgroundSubtle)
+                        )
+                        .overlay(
+                            Capsule().stroke(VColor.surfaceBorder, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(overflow) more permissions")
+                .popover(isPresented: $isOverflowPopoverShown, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(Array(resolved.dropFirst(2).enumerated()), id: \.offset) { _, confirmation in
+                            compactPermissionChip(confirmation)
                         }
-                        .padding(VSpacing.sm)
                     }
+                    .padding(VSpacing.sm)
+                }
             }
         }
     }
