@@ -1,5 +1,5 @@
 ---
-name: "X"
+name: "twitter"
 description: "Read and post on X (formerly Twitter) via OAuth or browser session"
 metadata:
   emoji: "𝕏"
