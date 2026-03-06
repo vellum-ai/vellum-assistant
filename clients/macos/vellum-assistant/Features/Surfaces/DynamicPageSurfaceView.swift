@@ -442,7 +442,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
             if hasSrcDir && !FileManager.default.fileExists(atPath: distIndex.path) {
                 // Multifile app whose dist/ hasn't been compiled yet — show a
-                // "building" placeholder that auto-retries every 2 seconds.
+                // "building" placeholder that auto-retries by navigating to the
+                // scheme URL (not reload, which would just re-render this inline HTML).
+                let distSchemeURL = "vellumapp://\(appId)/dist/index.html"
                 let origin = "vellumapp://\(appId)/"
                 let buildingHTML = """
                 <!DOCTYPE html><html><head><meta charset="UTF-8">
@@ -453,8 +455,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 button{margin-top:12px;padding:8px 16px;border:1px solid #ccc;border-radius:6px;
                 background:#fff;cursor:pointer;font-size:13px}button:hover{background:#f0f0f0}</style>
                 </head><body><div class="c"><div class="spin">⚙️</div><p>Building app…</p>
-                <button onclick="location.reload()">Refresh</button></div>
-                <script>setTimeout(()=>location.reload(),2000)</script></body></html>
+                <button onclick="window.location.href='\(distSchemeURL)'">Refresh</button></div>
+                <script>setTimeout(()=>{window.location.href='\(distSchemeURL)'},2000)</script></body></html>
                 """
                 webView.loadHTMLString(buildingHTML, baseURL: URL(string: origin))
             } else {

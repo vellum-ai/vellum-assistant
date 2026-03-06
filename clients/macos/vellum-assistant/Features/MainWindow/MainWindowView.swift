@@ -730,15 +730,6 @@ struct MainWindowView: View {
                 try? daemonClient.sendAppOpen(appId: reopenId)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .pinAppToHomebase)) { notification in
-            guard let appId = notification.userInfo?["appId"] as? String,
-                  let name = notification.userInfo?["name"] as? String else { return }
-            let icon = notification.userInfo?["icon"] as? String
-            let appType = notification.userInfo?["appType"] as? String
-            let description = notification.userInfo?["description"] as? String
-            appListManager.recordAppOpen(id: appId, name: name, icon: icon, appType: appType, description: description)
-            appListManager.pinApp(id: appId)
-        }
         .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
             guard let appId = notification.userInfo?["appId"] as? String else { return }
             bundleAndShare(appId: appId)

@@ -126,9 +126,18 @@ function serveMultifileApp(appId: string, appName: string): Response {
     );
   }
 
-  // Keep relative asset paths — the WebView's vellumapp:// scheme handler
-  // resolves them relative to the dist/ directory on disk.
-  const html = readFileSync(indexPath, "utf-8");
+  // Rewrite relative asset paths to absolute HTTP routes so browsers and
+  // HTTP-based consumers (e.g. /pages/:appId) can resolve them. The macOS
+  // WebView uses the vellumapp:// scheme handler which resolves on disk,
+  // but HTTP clients need the /v1/apps/:appId/dist/ route.
+  let html = readFileSync(indexPath, "utf-8");
+  html = html.replace(
+    /(?:src|href)="(\.?\/?main\.(js|css))"/g,
+    (_match, _filename, ext) => {
+      const attr = ext === "css" ? "href" : "src";
+      return `${attr}="/v1/apps/${appId}/dist/main.${ext}"`;
+    },
+  );
 
   // Compiled apps use external scripts so 'unsafe-inline' is not needed for
   // script-src; however we keep it for style-src since the app HTML may use
