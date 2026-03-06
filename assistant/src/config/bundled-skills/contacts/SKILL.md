@@ -496,22 +496,22 @@ If the Slack bot is not available (Slack credentials not configured), tell the g
 Use this to show the guardian their active (and optionally all) invite links.
 
 ```bash
-vellum contacts invites --source-channel telegram --json
+vellum contacts invites list --source-channel telegram --json
 ```
 
 For voice invites:
 
 ```bash
-vellum contacts invites --source-channel voice --json
+vellum contacts invites list --source-channel voice --json
 ```
 
 For email, WhatsApp, SMS, or Slack invites:
 
 ```bash
-vellum contacts invites --source-channel email --json
-vellum contacts invites --source-channel whatsapp --json
-vellum contacts invites --source-channel sms --json
-vellum contacts invites --source-channel slack --json
+vellum contacts invites list --source-channel email --json
+vellum contacts invites list --source-channel whatsapp --json
+vellum contacts invites list --source-channel sms --json
+vellum contacts invites list --source-channel slack --json
 ```
 
 Optional query parameters:
