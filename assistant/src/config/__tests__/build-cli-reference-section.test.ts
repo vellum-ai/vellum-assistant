@@ -6,8 +6,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  buildCliReferenceSection,
   _resetCliHelpCache,
+  buildCliReferenceSection,
 } from "../system-prompt.js";
 
 describe("buildCliReferenceSection", () => {
