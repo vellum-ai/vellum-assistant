@@ -67,6 +67,7 @@ import {
   type RouteDefinition,
   type GetClientIp,
 } from "./http/router.js";
+import { applyConfigFileMappings } from "./config-file-mappings.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 
@@ -907,63 +908,16 @@ async function main() {
   credentialWatcher.start();
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
-    if (event.changedKeys.has("sms")) {
-      const sms = event.data.sms as
-        | {
-            phoneNumber?: string;
-            assistantPhoneNumbers?: Record<string, string>;
-          }
-        | undefined;
-      config.twilioPhoneNumber =
-        typeof sms?.phoneNumber === "string"
-          ? sms.phoneNumber || undefined
-          : undefined;
-      if (
-        sms?.assistantPhoneNumbers &&
-        typeof sms.assistantPhoneNumbers === "object" &&
-        !Array.isArray(sms.assistantPhoneNumbers)
-      ) {
-        config.assistantPhoneNumbers = sms.assistantPhoneNumbers as Record<
-          string,
-          string
-        >;
-      } else {
-        config.assistantPhoneNumbers = undefined;
-      }
-    }
+    applyConfigFileMappings(event.data, event.changedKeys, config);
 
-    if (event.changedKeys.has("email")) {
-      const email = event.data.email as { address?: string } | undefined;
-      config.assistantEmail =
-        typeof email?.address === "string"
-          ? email.address || undefined
-          : undefined;
-    }
-
-    if (event.changedKeys.has("twilio")) {
-      const twilio = event.data.twilio as { accountSid?: string } | undefined;
-      config.twilioAccountSid =
-        typeof twilio?.accountSid === "string"
-          ? twilio.accountSid || undefined
-          : undefined;
-    }
-
-    if (event.changedKeys.has("ingress")) {
-      const ingress = event.data.ingress as
-        | { publicBaseUrl?: string }
-        | undefined;
-      config.ingressPublicBaseUrl =
-        typeof ingress?.publicBaseUrl === "string"
-          ? ingress.publicBaseUrl || undefined
-          : undefined;
-      if (isTelegramConfigured()) {
-        reconcileTelegramWebhook(config).catch((err) => {
-          log.error(
-            { err },
-            "Failed to reconcile Telegram webhook after ingress URL change",
-          );
-        });
-      }
+    // Side effect: reconcile Telegram webhook when ingress URL changes
+    if (event.changedKeys.has("ingress") && isTelegramConfigured()) {
+      reconcileTelegramWebhook(config).catch((err) => {
+        log.error(
+          { err },
+          "Failed to reconcile Telegram webhook after ingress URL change",
+        );
+      });
     }
   });
 
