@@ -1,8 +1,10 @@
 ---
-name: "Amazon"
+name: "amazon"
 description: "Shop on Amazon and Amazon Fresh using the built-in CLI integration"
-user-invocable: true
-metadata: { "vellum": { "emoji": "📦" } }
+metadata:
+  emoji: "📦"
+  vellum:
+    user-invocable: true
 ---
 
 You can shop on Amazon (and Amazon Fresh for groceries) for the user using the `vellum amazon` CLI.
