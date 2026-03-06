@@ -42,7 +42,7 @@ Commands:
   followers <screenName>     Get user's followers
   following <screenName>     Get accounts user follows
   media <screenName>         Get user's media tweets
-  login                      Initiate OAuth login flow
+  login --recording <path>   Import session from Ride Shotgun recording
   logout                     Log out of current session
   refresh                    Refresh browser session cookies
   strategy [get|set <value>] Get or set the connection strategy (oauth|browser|auto)
@@ -50,6 +50,7 @@ Commands:
 Options:
   --count <n>                Number of items to fetch (default varies by command)
   --product <type>           Search product type: Top, Latest, People, Media
+  --recording <path>         Path to Ride Shotgun recording file (login command)
   --json                     Output raw JSON (status command)
   --help, -h                 Show this help message
 
@@ -61,7 +62,7 @@ Examples:
   bun run scripts/twitter-cli.ts post "Hello, world!"
   bun run scripts/twitter-cli.ts reply https://x.com/user/status/123 "Nice post!"
   bun run scripts/twitter-cli.ts timeline elonmusk --count 10
-  bun run scripts/twitter-cli.ts search "bun runtime" --product Latest --count 20
+  bun run scripts/twitter-cli.ts search "bun runtime" --product Latest
   bun run scripts/twitter-cli.ts strategy set oauth
 `);
 }
@@ -77,6 +78,7 @@ interface ParsedArgs {
     count?: number;
     product?: "Top" | "Latest" | "People" | "Media";
     json?: boolean;
+    recording?: string;
     help: boolean;
   };
 }
@@ -135,6 +137,9 @@ function parseArgs(argv: string[]): ParsedArgs {
         process.exit(1);
       }
       result.options.product = val as "Top" | "Latest" | "People" | "Media";
+      i += 2;
+    } else if (arg === "--recording" && i + 1 < argv.length) {
+      result.options.recording = argv[i + 1];
       i += 2;
     } else if (!arg.startsWith("-")) {
       if (result.command === null) {
@@ -204,7 +209,7 @@ function buildInput(
         outputError("search requires query argument");
         process.exit(1);
       }
-      return { query: args[0], count: options.count, product: options.product };
+      return { query: args[0], product: options.product };
 
     case "bookmarks":
       return { count: options.count };
@@ -227,7 +232,7 @@ function buildInput(
         outputError("followers requires screenName argument");
         process.exit(1);
       }
-      return { screenName: args[0], count: options.count };
+      return { screenName: args[0] };
 
     case "following":
       if (args.length < 1) {
@@ -271,6 +276,8 @@ function buildInput(
       break;
 
     case "login":
+      return { recording: options.recording };
+
     case "logout":
     case "refresh":
       return {};
