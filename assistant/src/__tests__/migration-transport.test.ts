@@ -240,6 +240,50 @@ describe("Auth headers", () => {
     expect(headers["X-Session-Token"]).toBe("test-session-token");
   });
 
+  test("auth header wins over case-insensitive entry in defaultHeaders", async () => {
+    const managed = capturingFetch(200, {
+      is_valid: true,
+      errors: [],
+      manifest: {},
+    });
+
+    await validateBundle(
+      managedConfig({
+        fetchFn: managed.fetchFn,
+        defaultHeaders: { "x-session-token": "should-be-overridden" },
+      }),
+      sampleFileData,
+    );
+
+    const managedHeaders = managed.captured[0].init.headers as Record<
+      string,
+      string
+    >;
+    expect(managedHeaders["X-Session-Token"]).toBe("test-session-token");
+    expect(managedHeaders["x-session-token"]).toBeUndefined();
+
+    const runtime = capturingFetch(200, {
+      is_valid: true,
+      errors: [],
+      manifest: {},
+    });
+
+    await validateBundle(
+      runtimeConfig({
+        fetchFn: runtime.fetchFn,
+        defaultHeaders: { authorization: "should-be-overridden" },
+      }),
+      sampleFileData,
+    );
+
+    const runtimeHeaders = runtime.captured[0].init.headers as Record<
+      string,
+      string
+    >;
+    expect(runtimeHeaders.Authorization).toBe("Bearer test-jwt");
+    expect(runtimeHeaders.authorization).toBeUndefined();
+  });
+
   test("no auth header when authHeader is not provided", async () => {
     const { fetchFn, captured } = capturingFetch(200, {
       is_valid: true,
