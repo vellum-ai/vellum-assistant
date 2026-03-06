@@ -57,6 +57,7 @@ mock.module("../security/secure-keys.js", () => ({
 // ---------------------------------------------------------------------------
 
 mock.module("../tools/credentials/metadata-store.js", () => ({
+  assertMetadataWritable: (): void => {},
   upsertCredentialMetadata: (
     service: string,
     field: string,
