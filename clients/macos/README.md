@@ -1,6 +1,6 @@
 # vellum-assistant
 
-A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by AI language models with tool use. Supports multiple providers (Anthropic, OpenAI, Google, Ollama, Fireworks).
+A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use.
 
 ## iOS Target
 
@@ -111,7 +111,7 @@ All releases are available at [github.com/vellum-ai/velly/releases](https://gith
 ### Local Mode
 - macOS 14.0 (Sonoma) or later
 - Xcode 15+ (for building from source)
-- API key for at least one supported provider (Anthropic, OpenAI, Google, etc.)
+- Anthropic API key
 - Local assistant process running (`vellum wake`)
 
 ### Managed Mode
@@ -277,7 +277,7 @@ Grant these in System Settings → Privacy & Security.
 
 1. Launch the app — an onboarding flow guides you through permissions and setup on first run
 2. The app appears as a sparkles icon in your menu bar
-3. Open Settings (click icon → gear) and enter your API key for a supported provider (local mode only)
+3. Open Settings (click icon → gear) and enter your Anthropic API key (local mode only)
 4. Click the menu bar icon or press `⌘⇧G` to open the task input
 5. Type a task (e.g., "Fill in the name field with John Smith") and press Go
 6. Or hold the Fn key to dictate a task via voice

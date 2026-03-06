@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by AI language models with tool use. Supports multiple providers (Anthropic, OpenAI, Google, Ollama, Fireworks). It lives as a sparkles icon in the menu bar — users type a task (or hold Fn for voice), and the agent executes it step-by-step.
+A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use. It lives as a sparkles icon in the menu bar — users type a task (or hold Fn for voice), and the agent executes it step-by-step.
 
 ## Build & Test
 
