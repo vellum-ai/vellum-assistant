@@ -4,13 +4,18 @@ This directory contains native client applications for the Vellum Assistant, org
 
 For client architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
+---
+
 ## Structure
+
+<details>
+<summary><strong>Directory layout</strong></summary>
 
 ```
 clients/
 ├── Package.swift              # Multi-platform Swift Package Manager manifest
 ├── shared/                    # VellumAssistantShared - cross-platform code
-│   ├── IPC/                   # Assistant communication (DaemonClient, DaemonConfig, IPCMessages)
+│   ├── IPC/                   # Daemon communication (DaemonClient, DaemonConfig, IPCMessages)
 │   ├── Features/Chat/         # Shared chat UI (ChatViewModel, MessageBubbleView, InputBarView, etc.)
 │   ├── Features/Surfaces/     # Shared surface rendering (confirmation, form)
 │   ├── DesignSystem/          # Design tokens and components (VColor, VFont, VSpacing, etc.)
@@ -30,6 +35,10 @@ clients/
 └── chrome-extension/          # Chrome browser extension
 ```
 
+</details>
+
+---
+
 ## Targets
 
 ### VellumAssistantShared (Library)
@@ -38,7 +47,7 @@ clients/
 
 **Contains**:
 - **IPC layer** (`DaemonClient`, `IPCMessages`, `Generated/IPCContractGenerated`) - Network communication with the assistant
-  - macOS: Unix domain socket (default `~/.vellum/vellum.sock`, resolved dynamically via `resolveSocketPath()` which honors `BASE_DATA_DIR` and the lockfile for multi-instance setups) or HTTP+SSE in managed mode
+  - macOS: Unix domain socket (`~/.vellum/vellum.sock`)
   - iOS: HTTP+SSE through the gateway (no direct TCP or Unix socket connection)
   - Wire types are auto-generated from the TS IPC contract; `IPCMessages.swift` provides
     typealiases, convenience inits, the `ServerMessage` routing enum, and a few hand-maintained
@@ -70,6 +79,8 @@ clients/
 
 **Contains**: Just `@main` app delegate setup
 **Dependencies**: VellumAssistantLib
+
+---
 
 ## Building
 
@@ -125,9 +136,11 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 
 Depends only on `VellumAssistantShared` (no macOS frameworks).
 
+---
+
 ## Code Reuse Strategy
 
-**Significant code reuse** between macOS and iOS achieved through:
+**~45-50% code reuse** between macOS and iOS achieved through:
 
 1. **Shared IPC layer** - Both platforms communicate with the assistant (different transport)
 2. **Shared design system** - Tokens and components with conditional compilation
@@ -138,6 +151,8 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 - **Computer-use**: AXUIElement + CGEvent (macOS only, sandboxing prevents on iOS)
 - **Screen recording**: ScreenCaptureKit (macOS) vs ReplayKit (iOS)
 - **App lifecycle**: NSStatusItem (macOS) vs UIScene (iOS)
+
+---
 
 ## Development
 
@@ -158,6 +173,8 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 3. DO NOT import `VellumAssistantLib` (macOS-only)
 4. Use `#if os(iOS)` guards if sharing files with macOS
 
+---
+
 ## Known Limitations
 
 ### iOS Signing Operations
@@ -166,17 +183,21 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 
 ### iOS Gateway Networking
 - iOS connects to the assistant exclusively via the HTTP gateway
-- Pair via QR code (Settings → Connect on both devices); all pairings require host-side approval
+- Pair via QR code (Settings → Connect on both devices); all pairings require Mac-side approval
 - LAN pairing works automatically when both devices are on the same network
 
 ### iOS Computer-Use
 - AXUIElement + CGEvent APIs are macOS-only (sandbox prevents on iOS)
 - Computer-use sessions initiated from iOS proxy through the Mac assistant
 
+---
+
 ## Documentation
 
 - **macOS development**: See `clients/macos/CLAUDE.md`
 - **iOS development**: See `clients/ios/README.md`
+
+---
 
 ## Testing
 

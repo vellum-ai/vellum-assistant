@@ -2,6 +2,8 @@
 
 The iOS app is built via a native Xcode project (`vellum-assistant-ios.xcodeproj`) generated from `project.yml` using XcodeGen. It depends on `VellumAssistantShared` from the local SPM package at `clients/Package.swift`.
 
+---
+
 ## Features
 
 - **Cloud login** — sign in with Vellum to connect to a platform-hosted assistant (no Mac required)
@@ -22,6 +24,8 @@ The iOS app is built via a native Xcode project (`vellum-assistant-ios.xcodeproj
 - Siri Shortcuts integration — "Ask Vellum..." via AppIntents framework
 - Deep linking via `vellum://send?message=...` URL scheme
 - Responsive typography and spacing that scales down for iPhone compact width
+
+---
 
 ## Build & Test
 
@@ -63,6 +67,8 @@ cd clients/ios
 ./build.sh
 ```
 
+---
+
 ## Connection Modes
 
 The iOS onboarding flow offers two paths: **cloud login** and **connect to assistant**.
@@ -87,13 +93,11 @@ Pair with a running assistant (local Mac or remote) via QR code. The iOS app con
 4. Tap **Approve Once** or **Always Allow** on the host
 5. The app auto-configures the gateway URL and bearer token
 
-The QR code uses a v4 payload with a one-time pairing secret (no bearer token in the QR). All pairings require host-side approval. Devices approved with "Always Allow" auto-approve on future pairings. LAN pairing works automatically when both devices are on the same network — the QR code includes the local gateway URL for direct LAN connections.
-
-### Legacy: Standalone Anthropic API Key
-
-The Settings screen still includes an Anthropic API key field for direct-to-API usage. This is a legacy fallback not offered during onboarding. If configured, the app can send messages directly to the Anthropic API without a paired assistant.
+The QR code uses a v4 payload with a one-time pairing secret (no bearer token in the QR). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings. LAN pairing works automatically when both devices are on the same network — the QR code includes the local gateway URL for direct LAN connections.
 
 **Note for simulator:** Keychain is unavailable for unsigned simulator builds. API keys and tokens are stored in `UserDefaults` instead, which works fine for development. On a real device, credentials are stored in the Keychain.
+
+---
 
 ## Running Tests
 
@@ -129,7 +133,12 @@ cd clients
 swift test --filter VellumAssistantSharedTests
 ```
 
+---
+
 ## Configuration Reference
+
+<details>
+<summary><strong>Configuration settings</strong></summary>
 
 | Setting | Storage | Default | Description |
 |---------|---------|---------|-------------|
@@ -138,13 +147,22 @@ swift test --filter VellumAssistantSharedTests
 | Device ID | Keychain (device) / UserDefaults (sim), provider `"pairing-device-id"` | — | Stable UUID for pairing identity (survives reinstalls) |
 | Conversation key | UserDefaults `conversation_key` | — | Auto-generated UUID for session identification |
 | Session token | Keychain via `AuthManager` | — | WorkOS session token for cloud login mode |
-| Anthropic API key | Keychain (device) / UserDefaults (sim) | — | Legacy standalone mode (direct Anthropic API) |
+| Anthropic API key | Keychain (device) / UserDefaults (sim) | — | Used by TitleGenerator for auto-generating thread titles |
+
+</details>
+
+---
 
 ## Dependencies
 
 The iOS app depends only on `VellumAssistantShared`. It must **not** import `VellumAssistantLib`, which links macOS-only frameworks (AppKit, ScreenCaptureKit, etc.).
 
+---
+
 ## Troubleshooting
+
+<details>
+<summary><strong>Common issues and fixes</strong></summary>
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
@@ -156,3 +174,5 @@ The iOS app depends only on `VellumAssistantShared`. It must **not** import `Vel
 | Auth timeout / immediate disconnect | Missing or wrong bearer token | Re-scan QR code to obtain a fresh token |
 | "Failed to save API Key" | Keychain unavailable (simulator) | Expected — key saved to UserDefaults instead |
 | Old version still showing in simulator | Cached build | `xcrun simctl uninstall <UDID> ai.vellum.assistant.ios` then reinstall |
+
+</details>
