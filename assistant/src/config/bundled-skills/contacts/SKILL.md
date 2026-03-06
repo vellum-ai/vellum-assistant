@@ -9,7 +9,8 @@ Manage the user's contacts, relationship graph, access control (trusted contacts
 
 ## Prerequisites
 
-- This skill uses `assistant contacts` CLI commands and `assistant channels` CLI commands. The CLI calls the service layer directly — no gateway dependency.
+- `assistant contacts` CLI commands call the service layer directly and do not require the assistant to be running.
+- `assistant channels` and `assistant integrations` CLI commands (e.g. `assistant channels readiness`, `assistant integrations telegram config`) require the assistant to be running because they call the gateway.
 - All CLI commands support `--json` for machine-readable output.
 
 ## Contact Management
