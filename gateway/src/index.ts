@@ -914,6 +914,10 @@ async function main() {
       config.assistantEmail = event.assistantEmail;
     }
 
+    if (event.twilioAccountSidChanged) {
+      config.twilioAccountSid = event.twilioAccountSid;
+    }
+
     if (event.ingressChanged) {
       config.ingressPublicBaseUrl = event.ingressPublicBaseUrl;
       if (isTelegramConfigured()) {
