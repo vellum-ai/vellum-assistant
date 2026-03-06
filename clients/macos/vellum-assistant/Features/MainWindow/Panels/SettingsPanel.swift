@@ -100,30 +100,49 @@ struct SettingsPanel: View {
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
 
     var body: some View {
-        // Two-column layout: bare nav on window background, content in its own surface panel
-        HStack(alignment: .top, spacing: 0) {
-            // Left: nav sidebar sits directly on the window background — no card/surface wrapper
-            settingsNav
-                .frame(width: 200)
+        VStack(spacing: 0) {
+            // Header: back chevron + title
+            HStack(spacing: VSpacing.md) {
+                VIconButton(
+                    label: "Back",
+                    icon: "chevron.left",
+                    iconOnly: true,
+                    variant: .outlined,
+                    action: onClose
+                )
 
-            // Right: tab content — panel background on content only, nav floats on window chrome
-            // Contacts tab is a master-detail split that needs full height; wrapping it in
-            // a ScrollView would collapse maxHeight: .infinity to minimum content size.
-            if selectedTab == .contacts {
-                selectedTabContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .background(VColor.backgroundSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-            } else {
-                ScrollView {
-                    selectedTabContent
-                        .padding(VSpacing.lg)
-                        .frame(maxWidth: .infinity, alignment: .top)
-                }
-                .background(VColor.backgroundSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                Text("Settings")
+                    .font(VFont.panelTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
             }
+            .padding(.bottom, VSpacing.md)
+
+            VColor.surfaceBorder.frame(height: 1)
+
+            // Body: nav pinned left + centered content with max width
+            HStack(alignment: .top, spacing: 0) {
+                settingsNav
+                    .frame(width: 200)
+
+                if selectedTab == .contacts {
+                    selectedTabContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                } else {
+                    ScrollView {
+                        selectedTabContent
+                            .padding(VSpacing.lg)
+                            .frame(maxWidth: 700, alignment: .top)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
         }
+        .padding(VSpacing.xl)
+        .background(VColor.backgroundSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .task {
             // Refresh permission status and contacts feature flag when the view appears
             await refreshPermissionStatus()
@@ -213,25 +232,7 @@ struct SettingsPanel: View {
     // MARK: - Nav Sidebar
 
     private var settingsNav: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            // Back to app link at top of sidebar
-            Button(action: onClose) {
-                HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(VColor.textMuted)
-                    Text("Back to app")
-                        .font(VFont.body)
-                        .foregroundColor(VColor.textMuted)
-                }
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xs)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.bottom, VSpacing.md)
-
-            // Tab nav items
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
             ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
@@ -239,7 +240,8 @@ struct SettingsPanel: View {
             }
             Spacer()
         }
-        .padding(VSpacing.lg)
+        .padding(.top, VSpacing.lg)
+        .padding(.trailing, VSpacing.sm)
     }
 
     // MARK: - Tab Content Router
@@ -1109,20 +1111,28 @@ private struct SettingsNavRow: View {
 
     var body: some View {
         Button(action: action) {
-            Text(tab.rawValue)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .font(isSelected ? VFont.bodyMedium : VFont.body)
-                .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-                .background(isSelected ? VColor.navActive : (isHovered ? VColor.navHover : Color.clear))
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .contentShape(Rectangle())
+            HStack {
+                Text(tab.rawValue)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, VSpacing.sm)
+            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                (isSelected ? VColor.navActive : isHovered ? VColor.navHover : .clear)
+                    .animation(VAnimation.fast, value: isHovered)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(tab.rawValue)
+        .padding(.trailing, VSpacing.md)
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
