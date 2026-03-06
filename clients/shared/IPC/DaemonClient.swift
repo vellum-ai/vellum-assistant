@@ -1794,6 +1794,11 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(ContactsRequestMessage(action: "update_channel", channelId: channelId, status: status, policy: policy, reason: reason))
     }
 
+    /// Request deletion of a contact by ID.
+    public func sendDeleteContact(contactId: String) throws {
+        try send(ContactsRequestMessage(action: "delete", contactId: contactId))
+    }
+
     /// Update a contact's metadata via the HTTP API (`POST /v1/contacts`).
     /// Routes through `HTTPTransport` when available so that managed-mode
     /// URL paths (`/v1/assistants/{id}/contacts/`) and auth headers
