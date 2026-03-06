@@ -159,19 +159,6 @@ struct MainWindowView: View {
         windowState.selection = .app(appId)
     }
 
-    /// Whether the chat bubble toggle is active (chat is open).
-    var isChatBubbleActive: Bool {
-        switch windowState.selection {
-        case .appEditing:
-            return true
-        case .panel(let panelType) where panelType != .documentEditor:
-            return isAppChatOpen
-        default:
-            return false
-        }
-    }
-
-
     /// Resolve display names for thread export.
     private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
         let assistantName = AssistantDisplayName.resolve(
