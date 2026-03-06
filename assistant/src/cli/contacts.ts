@@ -113,7 +113,11 @@ export function registerContactsCommand(program: Command): void {
             sourceChannel: opts.sourceChannel,
             status: opts.status,
           });
-          writeOutput(cmd, result);
+          if (result.ok) {
+            writeOutput(cmd, { ok: true, invites: result.data });
+          } else {
+            writeOutput(cmd, result);
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeOutput(cmd, { ok: false, error: message });
@@ -173,7 +177,11 @@ export function registerContactsCommand(program: Command): void {
             friendName: opts.friendName,
             guardianName: opts.guardianName,
           });
-          writeOutput(cmd, result);
+          if (result.ok) {
+            writeOutput(cmd, { ok: true, invite: result.data });
+          } else {
+            writeOutput(cmd, result);
+          }
           if (!result.ok) {
             process.exitCode = 1;
           }
@@ -192,7 +200,11 @@ export function registerContactsCommand(program: Command): void {
       try {
         initializeDb();
         const result = revokeIngressInvite(inviteId);
-        writeOutput(cmd, result);
+        if (result.ok) {
+          writeOutput(cmd, { ok: true, invite: result.data });
+        } else {
+          writeOutput(cmd, result);
+        }
         if (!result.ok) process.exitCode = 1;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -245,8 +257,17 @@ export function registerContactsCommand(program: Command): void {
               sourceChannel: "voice",
               ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
             });
-            writeOutput(cmd, result);
-            if (!result.ok) {
+            if (result.ok) {
+              writeOutput(cmd, {
+                ok: true,
+                type: result.type,
+                memberId: result.memberId,
+                ...(result.type === "redeemed"
+                  ? { inviteId: result.inviteId }
+                  : {}),
+              });
+            } else {
+              writeOutput(cmd, { ok: false, error: result.reason });
               process.exitCode = 1;
             }
           } else {
@@ -260,7 +281,11 @@ export function registerContactsCommand(program: Command): void {
                 ? { externalChatId: opts.externalChatId }
                 : {}),
             });
-            writeOutput(cmd, result);
+            if (result.ok) {
+              writeOutput(cmd, { ok: true, invite: result.data });
+            } else {
+              writeOutput(cmd, result);
+            }
             if (!result.ok) {
               process.exitCode = 1;
             }
