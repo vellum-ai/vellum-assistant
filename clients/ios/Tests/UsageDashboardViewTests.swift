@@ -3,6 +3,7 @@ import XCTest
 
 #if canImport(UIKit)
 import SwiftUI
+@testable import vellum_assistant_ios
 #endif
 
 /// Tests for the UsageDashboardStore states used by the iOS UsageDashboardView.
