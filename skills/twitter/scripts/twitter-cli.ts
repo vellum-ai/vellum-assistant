@@ -307,7 +307,9 @@ async function main(): Promise<void> {
     const result = await executeTwitterCommand(parsed.command, input);
 
     if (result.isError) {
-      outputError(result.content);
+      const data = JSON.parse(result.content);
+      output(data);
+      process.exitCode = 1;
     } else {
       const data = JSON.parse(result.content);
       output(data);
