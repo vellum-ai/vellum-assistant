@@ -39,17 +39,43 @@ mock.module("../security/secure-keys.js", () => ({
     secureKeyStore.set(account, value);
     return true;
   },
-  deleteSecureKey: (account: string) => {
+  setSecureKeyAsync: async (
+    account: string,
+    value: string,
+  ): Promise<boolean> => {
+    _setSecureKeyCalls += 1;
+    secureKeyStore.set(account, value);
+    return true;
+  },
+  deleteSecureKey: (account: string): "deleted" | "not-found" | "error" => {
     _deleteSecureKeyCalls += 1;
     if (secureKeyStore.has(account)) {
       secureKeyStore.delete(account);
-      return "deleted" as const;
+      return "deleted";
     }
-    return "not-found" as const;
+    return "not-found";
+  },
+  deleteSecureKeyAsync: async (
+    account: string,
+  ): Promise<"deleted" | "not-found" | "error"> => {
+    _deleteSecureKeyCalls += 1;
+    if (secureKeyStore.has(account)) {
+      secureKeyStore.delete(account);
+      return "deleted";
+    }
+    return "not-found";
   },
   listSecureKeys: (): string[] => {
     return [...secureKeyStore.keys()];
   },
+  getSecureKeyAsync: async (account: string): Promise<string | undefined> => {
+    _getSecureKeyCalls += 1;
+    return secureKeyStore.get(account);
+  },
+  getBackendType: (): "broker" | "encrypted" | null => null,
+  isDowngradedFromKeychain: (): boolean => false,
+  _resetBackend: (): void => {},
+  _setBackend: (): void => {},
 }));
 
 // ---------------------------------------------------------------------------
