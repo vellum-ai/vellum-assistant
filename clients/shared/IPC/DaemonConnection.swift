@@ -33,7 +33,7 @@ extension DaemonClient {
         // started after a previous bootstrap carry the persisted JWT.
         if case .http(let baseURL, let bearerToken, let conversationKey) = config.transport {
             let tokenEnv = config.instanceDir.map { ["BASE_DATA_DIR": $0] }
-            let resolvedToken = bearerToken ?? readHttpToken(environment: tokenEnv)
+            let resolvedToken = bearerToken ?? (try? String(contentsOfFile: resolveHttpTokenPath(environment: tokenEnv), encoding: .utf8)).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             try await connectHTTP(baseURL: baseURL, bearerToken: resolvedToken, conversationKey: conversationKey)
             return
         }

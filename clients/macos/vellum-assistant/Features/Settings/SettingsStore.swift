@@ -2288,16 +2288,7 @@ public final class SettingsStore: ObservableObject {
         ingressPublicBaseUrl
     }
 
-<<<<<<< HEAD
-    /// LAN pairing URL for the gateway (port 7830), or nil if no LAN IP available.
-=======
-    /// Bearer token for iOS pairing.
-    var resolvedIosBearerToken: String {
-        readHttpToken() ?? ""
-    }
-
     /// LAN pairing URL for the gateway, or nil if no LAN IP available.
->>>>>>> d1c54ffa8 (fix(macos): use lockfile gateway port instead of hardcoded 7830 (#12781))
     var lanPairingUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
         return "http://\(ip):\(LockfilePaths.resolveGatewayPort())"

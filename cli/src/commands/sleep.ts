@@ -1,19 +1,17 @@
-import { homedir } from "os";
 import { join } from "path";
 
 import {
   defaultLocalResources,
-  loadAllAssistants,
   resolveTargetAssistant,
 } from "../lib/assistant-config.js";
-import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
+import { stopProcessByPidFile } from "../lib/process";
 
 export async function sleep(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
     console.log("Usage: vellum sleep [<name>]");
     console.log("");
-    console.log("Stop the assistant, gateway, and outbound-proxy processes.");
+    console.log("Stop the assistant and gateway processes.");
     console.log("");
     console.log("Arguments:");
     console.log(
@@ -38,8 +36,6 @@ export async function sleep(): Promise<void> {
   const socketFile = resources.socketPath;
   const vellumDir = join(resources.instanceDir, ".vellum");
   const gatewayPidFile = join(vellumDir, "gateway.pid");
-  // Outbound proxy is a shared singleton — always use the global PID path
-  const outboundProxyPidFile = join(homedir(), ".vellum", "outbound-proxy.pid");
 
   // Stop daemon
   const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [
@@ -63,29 +59,5 @@ export async function sleep(): Promise<void> {
     console.log("Gateway is not running.");
   } else {
     console.log("Gateway stopped.");
-  }
-
-  // Only stop the shared outbound proxy if no other local assistants still
-  // have a running daemon — the proxy is a global singleton shared by all
-  // instances.
-  const otherLocalRunning = loadAllAssistants().some((other) => {
-    if (other.cloud !== "local") return false;
-    if (other.assistantId === entry.assistantId) return false;
-    const otherRes = other.resources ?? defaultLocalResources();
-    return isProcessAlive(otherRes.pidFile).alive;
-  });
-
-  if (otherLocalRunning) {
-    console.log("Outbound proxy left running (other local instances active).");
-  } else {
-    const outboundProxyStopped = await stopProcessByPidFile(
-      outboundProxyPidFile,
-      "outbound-proxy",
-    );
-    if (!outboundProxyStopped) {
-      console.log("Outbound proxy is not running.");
-    } else {
-      console.log("Outbound proxy stopped.");
-    }
   }
 }
