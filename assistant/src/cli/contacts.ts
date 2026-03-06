@@ -11,6 +11,7 @@ import { initializeDb } from "../memory/db.js";
 import {
   createIngressInvite,
   listIngressInvites,
+  revokeIngressInvite,
 } from "../runtime/invite-service.js";
 import { writeOutput } from "./integrations.js";
 
@@ -181,4 +182,14 @@ export function registerContactsCommand(program: Command): void {
         }
       },
     );
+
+  invites
+    .command("revoke <inviteId>")
+    .description("Revoke an active invite")
+    .action(async (inviteId: string, _opts: unknown, cmd: Command) => {
+      initializeDb();
+      const result = revokeIngressInvite(inviteId);
+      writeOutput(cmd, result);
+      if (!result.ok) process.exitCode = 1;
+    });
 }
