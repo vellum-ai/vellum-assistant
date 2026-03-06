@@ -332,4 +332,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         assistantCli.stop()
     }
 
+    // MARK: - Public Actions (for SwiftUI .commands menu items)
+
+    public func performZoomIn() { zoomManager.zoomIn() }
+    public func performZoomOut() { zoomManager.zoomOut() }
+    public func performZoomReset() { zoomManager.resetZoom() }
+    public func performNavigateBack() { mainWindow?.windowState.navigateBack() }
+    public func performNavigateForward() { mainWindow?.windowState.navigateForward() }
+
 }
