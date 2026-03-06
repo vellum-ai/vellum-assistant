@@ -671,7 +671,7 @@ Examples:
       `
 Reserves an Amazon Fresh delivery slot for the current order. The slot ID
 must be obtained from "fresh delivery-slots". A slot must be selected before
-placing an Amazon Fresh order via "order place --slot-id".
+placing an Amazon Fresh order via "order place".
 
 Examples:
   $ vellum amazon fresh select-slot --slot-id slot_abc123
@@ -768,7 +768,6 @@ Examples:
       "--payment-method-id <id>",
       "Payment method ID (uses default if omitted)",
     )
-    .option("--slot-id <id>", "Amazon Fresh delivery slot ID")
     .addHelpText(
       "after",
       `
@@ -780,9 +779,9 @@ Options:
   --payment-method-id <id>   Payment method to charge. Obtain IDs from
                              "payment-methods". If omitted, Amazon uses the
                              account's default payment method.
-  --slot-id <id>             Amazon Fresh delivery slot. Required for Fresh
-                             orders. Obtain IDs from "fresh delivery-slots"
-                             and reserve with "fresh select-slot" first.
+
+For Amazon Fresh orders, select a delivery slot before placing the order:
+  $ vellum amazon fresh select-slot --slot-id slot_abc123
 
 Recommended workflow before placing an order:
   1. vellum amazon cart view          (verify cart contents)
@@ -793,22 +792,16 @@ Recommended workflow before placing an order:
 Examples:
   $ vellum amazon order place
   $ vellum amazon order place --payment-method-id pm_abc123
-  $ vellum amazon order place --slot-id slot_abc123 --json`,
+  $ vellum amazon order place --json`,
     )
-    .action(
-      async (
-        opts: { paymentMethodId?: string; slotId?: string },
-        cmd: Command,
-      ) => {
-        await run(cmd, async () => {
-          const result = await placeOrder({
-            paymentMethodId: opts.paymentMethodId,
-            deliverySlotId: opts.slotId,
-          });
-          return { order: result };
+    .action(async (opts: { paymentMethodId?: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const result = await placeOrder({
+          paymentMethodId: opts.paymentMethodId,
         });
-      },
-    );
+        return { order: result };
+      });
+    });
 }
 
 // ---------------------------------------------------------------------------
