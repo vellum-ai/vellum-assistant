@@ -6,7 +6,8 @@
  * Outputs structured JSON data that can be presented in any environment.
  */
 
-import { executeTwitterCommand, type TwitterCommand } from "./service.js";
+import type { TwitterCommand } from "./service.js";
+import { executeTwitterCommand } from "./service.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -22,7 +23,8 @@ function outputError(message: string, code = 1): void {
 }
 
 function printUsage(): void {
-  process.stderr.write(`Usage: bun run scripts/twitter-cli.ts <command> [options]
+  process.stderr
+    .write(`Usage: bun run scripts/twitter-cli.ts <command> [options]
 
 Interact with X (formerly Twitter) via OAuth or browser session.
 
@@ -128,7 +130,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       const val = argv[i + 1];
       if (!["Top", "Latest", "People", "Media"].includes(val)) {
         outputError(
-          'Invalid product type. Use "Top", "Latest", "People", or "Media".',
+          'Invalid product type. Use "Top", "Latest", "People", or "Media".'
         );
         process.exit(1);
       }
@@ -163,7 +165,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 function buildInput(
   command: TwitterCommand,
   args: string[],
-  options: ParsedArgs["options"],
+  options: ParsedArgs["options"]
 ): Record<string, unknown> {
   switch (command) {
     case "status":
@@ -250,13 +252,15 @@ function buildInput(
       }
       if (args[0] === "set") {
         if (args.length < 2) {
-          outputError("strategy set requires a value (oauth, browser, or auto)");
+          outputError(
+            "strategy set requires a value (oauth, browser, or auto)"
+          );
           process.exit(1);
         }
         const value = args[1];
         if (!["oauth", "browser", "auto"].includes(value)) {
           outputError(
-            'Invalid strategy value. Use "oauth", "browser", or "auto".',
+            'Invalid strategy value. Use "oauth", "browser", or "auto".'
           );
           process.exit(1);
         }
