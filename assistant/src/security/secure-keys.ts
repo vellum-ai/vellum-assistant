@@ -91,7 +91,7 @@ export async function getSecureKeyAsync(
   if (broker.isAvailable()) {
     const result = await broker.get(account);
     // null = broker error, fall back to encrypted store
-    if (result === null) return encryptedStore.getKey(account);
+    if (result == null) return encryptedStore.getKey(account);
     // Broker responded — trust its answer
     return result.found ? result.value : undefined;
   }
