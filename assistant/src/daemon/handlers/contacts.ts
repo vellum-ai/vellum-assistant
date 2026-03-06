@@ -2,6 +2,7 @@ import * as net from "node:net";
 
 import { resolveGuardianName } from "../../config/user-reference.js";
 import {
+  deleteContact,
   getContact,
   listContacts,
   updateChannelStatus,
@@ -131,6 +132,39 @@ export function handleContacts(
           type: "contacts_response",
           success: true,
           contact: parentContact ? toContactPayload(parentContact) : undefined,
+        });
+        return;
+      }
+
+      case "delete": {
+        if (!msg.contactId) {
+          ctx.send(socket, {
+            type: "contacts_response",
+            success: false,
+            error: "contactId is required for delete",
+          });
+          return;
+        }
+        const result = deleteContact(msg.contactId);
+        if (result === "not_found") {
+          ctx.send(socket, {
+            type: "contacts_response",
+            success: false,
+            error: `Contact "${msg.contactId}" not found`,
+          });
+          return;
+        }
+        if (result === "is_guardian") {
+          ctx.send(socket, {
+            type: "contacts_response",
+            success: false,
+            error: "Cannot delete a guardian contact",
+          });
+          return;
+        }
+        ctx.send(socket, {
+          type: "contacts_response",
+          success: true,
         });
         return;
       }
