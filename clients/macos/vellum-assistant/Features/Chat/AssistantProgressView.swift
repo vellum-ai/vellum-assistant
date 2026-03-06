@@ -35,6 +35,7 @@ struct AssistantProgressView: View {
     @State private var startDate: Date = Date()
     @State private var processingStartDate: Date?
     @State private var isOverflowPopoverShown: Bool = false
+    @State private var suppressNextExpand: Bool = false
 
     // MARK: - Derived State
 
@@ -224,6 +225,10 @@ struct AssistantProgressView: View {
 
     private var headerRow: some View {
         Button(action: {
+            if suppressNextExpand {
+                suppressNextExpand = false
+                return
+            }
             guard hasChevron else { return }
             suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
@@ -428,6 +433,7 @@ struct AssistantProgressView: View {
                         Capsule().stroke(VColor.surfaceBorder, lineWidth: 1)
                     )
                     .onTapGesture {
+                        suppressNextExpand = true
                         isOverflowPopoverShown.toggle()
                     }
                     .popover(isPresented: $isOverflowPopoverShown, arrowEdge: .bottom) {
