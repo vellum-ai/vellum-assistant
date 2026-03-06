@@ -103,9 +103,7 @@ export async function sendRelayCommand(
         "Authentication failed with assistant. Make sure the assistant is running.",
       );
     }
-    throw new Error(
-      `Browser relay request failed: ${response.status} ${text}`,
-    );
+    throw new Error(`Browser relay request failed: ${response.status} ${text}`);
   }
 
   return (await response.json()) as ExtensionResponse;

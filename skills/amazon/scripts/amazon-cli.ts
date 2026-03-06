@@ -833,7 +833,9 @@ interface CdpSession {
   userDataDir: string;
 }
 
-async function isCdpReady(cdpBase: string = DEFAULT_CDP_BASE): Promise<boolean> {
+async function isCdpReady(
+  cdpBase: string = DEFAULT_CDP_BASE,
+): Promise<boolean> {
   try {
     const res = await fetch(`${cdpBase}/json/version`);
     return res.ok;
@@ -842,11 +844,13 @@ async function isCdpReady(cdpBase: string = DEFAULT_CDP_BASE): Promise<boolean> 
   }
 }
 
-async function ensureChromeWithCdp(options: {
-  port?: number;
-  userDataDir?: string;
-  startUrl?: string;
-} = {}): Promise<CdpSession> {
+async function ensureChromeWithCdp(
+  options: {
+    port?: number;
+    userDataDir?: string;
+    startUrl?: string;
+  } = {},
+): Promise<CdpSession> {
   const { spawn } = await import("node:child_process");
   const port = options.port ?? DEFAULT_CDP_PORT;
   const baseUrl = `http://localhost:${port}`;
