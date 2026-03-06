@@ -7,24 +7,43 @@ import Foundation
 /// doesn't saturate the network.
 private actor AsyncSemaphore {
     private var count: Int
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var nextID: UInt64 = 0
+    private var waiters: [(id: UInt64, continuation: CheckedContinuation<Void, Never>)] = []
 
     init(value: Int) { self.count = value }
 
-    func wait() async {
+    /// Waits for a slot. If the calling task is cancelled while waiting,
+    /// the waiter is removed from the queue so it doesn't occupy a slot.
+    func wait() async throws {
         if count > 0 {
             count -= 1
             return
         }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+        let id = nextID
+        nextID += 1
+        try await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                waiters.append((id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
+        }
+        // After resuming, re-check cancellation so cancelled tasks don't proceed.
+        try Task.checkCancellation()
+    }
+
+    /// Removes a cancelled waiter and restores the slot it would have used.
+    private func cancelWaiter(id: UInt64) {
+        if let idx = waiters.firstIndex(where: { $0.id == id }) {
+            let removed = waiters.remove(at: idx)
+            removed.continuation.resume()
         }
     }
 
     func signal() {
         if let waiter = waiters.first {
             waiters.removeFirst()
-            waiter.resume()
+            waiter.continuation.resume()
         } else {
             count += 1
         }
@@ -76,7 +95,11 @@ public final class ImageMIMEProbe {
         request.httpMethod = "HEAD"
         request.timeoutInterval = 5
 
-        await semaphore.wait()
+        do {
+            try await semaphore.wait()
+        } catch {
+            return .unknown  // Task was cancelled while waiting for a slot
+        }
         defer { Task { await semaphore.signal() } }
 
         let result: ImageURLClassification

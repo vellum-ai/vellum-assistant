@@ -269,13 +269,20 @@ actor MarkdownParseActor {
         cache.countLimit = 256
     }
 
+    /// Text longer than this is parsed but not cached, matching
+    /// ChatBubble's size guardrails to prevent oversized entries from
+    /// evicting many smaller, more frequently accessed ones.
+    private let maxCacheableTextLength = 10_000
+
     func parse(_ text: String) -> [MarkdownSegment] {
         let key = text as NSString
         if let cached = cache.object(forKey: key) {
             return cached.segments
         }
         let result = parseMarkdownSegments(text)
-        cache.setObject(CacheEntry(result), forKey: key)
+        if text.count <= maxCacheableTextLength {
+            cache.setObject(CacheEntry(result), forKey: key)
+        }
         return result
     }
 
