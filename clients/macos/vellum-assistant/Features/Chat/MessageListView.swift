@@ -149,6 +149,13 @@ struct MessageListView: View {
     @State private var lastHandledContainerWidth: CGFloat = 0
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
+    /// In-flight staged scroll-to-bottom task used after thread switches and
+    /// app restarts to reliably anchor the viewport once layout settles.
+    @State private var scrollRestoreTask: Task<Void, Never>?
+    /// Whether the AnchorMinYKey preference has fired since the last scroll
+    /// restore began. Ensures anchorTracker.isVisible reflects real geometry
+    /// rather than the manual reset applied on thread switch.
+    @State private var hasFreshAnchorMeasurement: Bool = false
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -216,6 +223,46 @@ struct MessageListView: View {
             guard !Task.isCancelled else { return }
             isThreadContentHovered = false
             hoverExitDebounceTask = nil
+        }
+    }
+
+    /// Staged scroll-to-bottom that retries after increasing delays to handle
+    /// cases where SwiftUI hasn't committed the new content's layout yet (e.g.
+    /// after a thread switch or app restart). Cancelled by user scroll-up,
+    /// user scroll-to-bottom, anchor message set, or view disappearance.
+    private func restoreScrollToBottom(proxy: ScrollViewProxy) {
+        scrollRestoreTask?.cancel()
+        hasFreshAnchorMeasurement = false
+        scrollRestoreTask = Task { @MainActor in
+            // Stage 0: immediate — covers the happy path where layout is already ready.
+            if anchorMessageId == nil {
+                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+            }
+
+            // Stage 1: ~3 frames — handles most thread switches.
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard !Task.isCancelled else { return }
+            if anchorMessageId == nil {
+                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+            }
+
+            // Let stage 1's scrollTo propagate through layout (~2 frames)
+            // so anchorTracker.isVisible reflects whether it landed.
+            try? await Task.sleep(nanoseconds: 30_000_000)
+            guard !Task.isCancelled else { return }
+            let scrollLanded = hasFreshAnchorMeasurement && anchorTracker.isVisible
+
+            // Stage 2: ~7 frames — catches slower layout/materialization.
+            // Gated on scrollLanded: if an earlier stage succeeded (confirmed
+            // by real geometry, not our manual reset), skip — this prevents
+            // snapping back if the user repositioned via scrollbar drag or
+            // keyboard scroll (which ScrollWheelDetector doesn't catch).
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+            if anchorMessageId == nil && !hasReceivedScrollEvent && !scrollLanded {
+                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+            }
+            if !Task.isCancelled { scrollRestoreTask = nil }
         }
     }
 
@@ -473,10 +520,14 @@ struct MessageListView: View {
                     onScrollUp: {
                         scrollDebounceTask?.cancel()
                         scrollDebounceTask = nil
+                        scrollRestoreTask?.cancel()
+                        scrollRestoreTask = nil
                         isNearBottom = false
                         hasReceivedScrollEvent = true
                     },
                     onScrollToBottom: {
+                        scrollRestoreTask?.cancel()
+                        scrollRestoreTask = nil
                         isNearBottom = true
                         hasReceivedScrollEvent = true
                     }
@@ -491,6 +542,7 @@ struct MessageListView: View {
             .onPreferenceChange(AnchorMinYKey.self) { minY in
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
+                hasFreshAnchorMeasurement = true
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
             .overlay(alignment: .bottom) {
@@ -555,7 +607,7 @@ struct MessageListView: View {
                         }
                     }
                 } else {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    restoreScrollToBottom(proxy: proxy)
                 }
                 // When anchorMessageId is set but the target message isn't loaded
                 // yet, skip scrolling entirely — onChange(of: messages.count) will
@@ -573,6 +625,8 @@ struct MessageListView: View {
                 resizeScrollTask = nil
                 expandSuppressionTask?.cancel()
                 expandSuppressionTask = nil
+                scrollRestoreTask?.cancel()
+                scrollRestoreTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -713,6 +767,7 @@ struct MessageListView: View {
                 isSuppressingBottomScroll = false
                 isNearBottom = true
                 anchorTracker.isVisible = true
+                anchorTracker.lastMinY = 0
                 hasReceivedScrollEvent = false
                 lastHandledContainerWidth = containerWidth
                 hoverExitDebounceTask?.cancel()
@@ -734,18 +789,11 @@ struct MessageListView: View {
                     threadSwitchSuppressionTask = nil
                 }
                 isThreadContentHovered = false
-                DispatchQueue.main.async {
-                    // Skip scroll-to-bottom when an anchor message is pending —
-                    // the anchorMessageId onChange handler will scroll to the
-                    // specific message instead. Stale anchors from other threads
-                    // are cleared by ThreadManager.activeThreadId.didSet, so
-                    // anchorMessageId here always belongs to the current thread.
-                    if anchorMessageId == nil {
-                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                    }
-                }
+                restoreScrollToBottom(proxy: proxy)
             }
             .onChange(of: anchorMessageId) {
+                scrollRestoreTask?.cancel()
+                scrollRestoreTask = nil
                 // Record the timestamp when a new anchor is set so the
                 // pagination-exhaustion guard can measure elapsed time.
                 anchorSetTime = anchorMessageId != nil ? Date() : nil
