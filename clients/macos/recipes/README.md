@@ -14,10 +14,10 @@ recipes/
 
 ### How It Works
 
-1. `RecipeExecutor` dynamically loads a recipe markdown file from the app bundle (source files live in `vellum-assistant/Resources/Recipes/`)
+1. `RecipeExecutor` dynamically loads a recipe markdown file from the app bundle (source files live in `clients/macos/vellum-assistant/Resources/Recipes/`)
 2. It parses the structured steps and builds a task prompt with context interpolation (assistant name, target repo, etc.)
 3. The prompt is handed to a `ComputerUseSession`, which executes the steps via the standard computer-use pipeline (perceive → infer → verify → execute)
-4. Captured credentials are stored securely (Keychain on macOS)
+4. Captured credentials are extracted from session output and returned to the caller (secure storage integration is not yet implemented)
 
 The recipe acts as a **pre-written plan** — the model spends almost zero tokens on planning and almost all tokens on perception + action execution.
 
@@ -93,7 +93,7 @@ These recipe files do not exist yet:
 
 ## Extending: Adding a New Recipe
 
-1. Create `{service}-setup.md` in `vellum-assistant/Resources/Recipes/` (the app bundle resource directory)
+1. Create `{service}-setup.md` in `clients/macos/vellum-assistant/Resources/Recipes/` (the app bundle resource directory)
 2. Follow the structure in `github-app-setup.md`
 3. `RecipeExecutor` dynamically loads recipes by filename from the bundle — no registration step is needed
 
@@ -119,10 +119,10 @@ These map directly to the 10 tools available in `ComputerUseSession`:
 
 ## Security Considerations
 
-- Private keys are captured from browser downloads and stored in the
-  assistant's secure credential store (Keychain on macOS)
+- Private keys are captured from browser downloads (secure Keychain
+  storage is planned but not yet implemented in `RecipeExecutor`)
 - Recipe execution requires explicit user consent ("I'll use your mouse and keyboard")
 - `ActionVerifier` safety checks remain active during recipe execution
   (no destructive keys, no sensitive data exposure, loop detection)
-- Credentials are never sent to the LLM after capture — they go directly
-  to secure storage via a post-processing step
+- Credentials are never sent to the LLM after capture — they are
+  extracted in a post-processing step (secure storage TBD)
