@@ -8,9 +8,10 @@
       "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using CLI tools or guided manual steps",
       "metadata": {
         "emoji": "🔑",
-        "vellum": "",
-        "user-invocable": "true",
-        "credential-setup-for": "gmail"
+        "vellum": {
+          "user-invocable": "true",
+          "credential-setup-for": "gmail"
+        }
       },
       "compatibility": "Desktop: requires gcloud and gws CLI tools. Channels: requires public ingress for OAuth callback"
     },

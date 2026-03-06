@@ -58,13 +58,14 @@ function parseFrontmatter(content) {
 }
 
 /**
- * Minimal YAML parser for flat key-value pairs and simple nested maps.
- * Handles string values (quoted or unquoted) and one level of nesting.
+ * Minimal YAML parser for flat key-value pairs and nested maps.
+ * Handles string values (quoted or unquoted) and multiple levels of nesting.
  */
 function parseSimpleYaml(yaml) {
   const result = {};
   const lines = yaml.split("\n");
-  let currentKey = null;
+  // Stack of { indent, obj } to track nesting context
+  const stack = [{ indent: -1, obj: result, key: null }];
 
   for (const line of lines) {
     // Skip blank lines and comments
@@ -72,30 +73,26 @@ function parseSimpleYaml(yaml) {
       continue;
     }
 
-    // Check for nested key (indented with spaces)
-    if (/^\s+\S/.test(line) && currentKey !== null) {
-      const nestedMatch = line.match(/^\s+(\S+):\s*(.*)/);
-      if (nestedMatch) {
-        if (typeof result[currentKey] !== "object" || result[currentKey] === null) {
-          result[currentKey] = {};
-        }
-        result[currentKey][nestedMatch[1]] = stripQuotes(nestedMatch[2].trim());
-      }
-      continue;
-    }
+    // Calculate indentation (number of leading spaces)
+    const indent = line.match(/^(\s*)/)[1].length;
+    const match = line.match(/^(\s*)(\S+):\s*(.*)/);
+    if (!match) continue;
 
-    // Top-level key
-    const match = line.match(/^(\S+):\s*(.*)/);
-    if (match) {
-      currentKey = match[1];
-      const value = match[2].trim();
-      if (value === "" || value === "|" || value === ">") {
-        // Will be filled by nested lines or is empty
-        result[currentKey] = value === "" ? "" : "";
-      } else {
-        result[currentKey] = stripQuotes(value);
-        currentKey = null; // Reset so next indented line doesn't attach
-      }
+    const key = match[2];
+    const value = match[3].trim();
+
+    // Pop stack to find the parent at the right indentation level
+    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
+      stack.pop();
+    }
+    const parent = stack[stack.length - 1].obj;
+
+    if (value === "" || value === "|" || value === ">") {
+      // Start of a nested object
+      parent[key] = {};
+      stack.push({ indent, obj: parent[key], key });
+    } else {
+      parent[key] = stripQuotes(value);
     }
   }
 
