@@ -1,7 +1,4 @@
 import Foundation
-import os
-
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "NavigationHistory")
 
 /// Manages back/forward navigation stacks for the main window,
 /// allowing users to retrace their steps through view selections.
@@ -34,20 +31,12 @@ final class NavigationHistory: ObservableObject {
     // MARK: - Recording
 
     func recordTransition(from: ViewSelection?, to: ViewSelection?, persistentThreadId: UUID?) {
-        log.debug("recordTransition called — from: \(String(describing: from)), to: \(String(describing: to)), suppressed: \(self.isSuppressed)")
-
-        guard !isSuppressed else {
-            log.debug("recordTransition skipped — suppressed")
-            return
-        }
+        guard !isSuppressed else { return }
 
         let fromEntry = entry(for: from, persistentThreadId: persistentThreadId)
         let toEntry = entry(for: to, persistentThreadId: persistentThreadId)
 
-        guard fromEntry != toEntry else {
-            log.debug("recordTransition skipped — fromEntry == toEntry")
-            return
-        }
+        guard fromEntry != toEntry else { return }
 
         backStack.append(fromEntry)
         forwardStack.removeAll()
@@ -55,8 +44,6 @@ final class NavigationHistory: ObservableObject {
         if backStack.count > maxDepth {
             backStack.removeFirst()
         }
-
-        log.debug("recordTransition recorded — backStack.count: \(self.backStack.count)")
     }
 
     // MARK: - Navigation

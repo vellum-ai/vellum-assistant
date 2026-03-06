@@ -1,8 +1,5 @@
 import SwiftUI
 import VellumAssistantShared
-import os
-
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MainWindowState")
 
 /// Represents what is currently displayed in the main content area.
 enum ViewSelection: Equatable {
@@ -23,16 +20,15 @@ public final class MainWindowState: ObservableObject {
     let navigationHistory = NavigationHistory()
 
     /// Tracks the last known selection for navigation history recording.
-    /// Updated at the end of `didSet` to avoid relying on `oldValue` or
-    /// `willSet` with `@Published`, which can behave unreliably.
+    /// Captured at the start of `didSet` (before any side effects) to avoid
+    /// relying on `oldValue` or `willSet` with `@Published`, which can
+    /// behave unreliably.
     private var _lastKnownSelection: ViewSelection?
 
     @Published var selection: ViewSelection? {
         didSet {
             let previousSelection = _lastKnownSelection
             _lastKnownSelection = selection
-
-            log.debug("selection.didSet — previous: \(String(describing: previousSelection)), new: \(String(describing: self.selection))")
 
             navigationHistory.recordTransition(from: previousSelection, to: selection, persistentThreadId: persistentThreadId)
             // When navigating to a thread, update the persistent thread tracker.
