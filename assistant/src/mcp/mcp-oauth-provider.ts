@@ -101,7 +101,17 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
-    await setSecureKeyAsync(tokensKey(this.serverId), JSON.stringify(tokens));
+    const ok = await setSecureKeyAsync(
+      tokensKey(this.serverId),
+      JSON.stringify(tokens),
+    );
+    if (!ok) {
+      log.warn(
+        { serverId: this.serverId },
+        "Failed to persist OAuth tokens to secure storage",
+      );
+      return;
+    }
     log.info({ serverId: this.serverId }, "OAuth tokens saved");
   }
 
@@ -124,7 +134,17 @@ export class McpOAuthProvider implements OAuthClientProvider {
   async saveClientInformation(
     info: OAuthClientInformationMixed,
   ): Promise<void> {
-    await setSecureKeyAsync(clientInfoKey(this.serverId), JSON.stringify(info));
+    const ok = await setSecureKeyAsync(
+      clientInfoKey(this.serverId),
+      JSON.stringify(info),
+    );
+    if (!ok) {
+      log.warn(
+        { serverId: this.serverId },
+        "Failed to persist OAuth client information to secure storage",
+      );
+      return;
+    }
     log.info({ serverId: this.serverId }, "OAuth client information saved");
   }
 
@@ -154,7 +174,16 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
-    await setSecureKeyAsync(discoveryKey(this.serverId), JSON.stringify(state));
+    const ok = await setSecureKeyAsync(
+      discoveryKey(this.serverId),
+      JSON.stringify(state),
+    );
+    if (!ok) {
+      log.warn(
+        { serverId: this.serverId },
+        "Failed to persist OAuth discovery state to secure storage",
+      );
+    }
   }
 
   // --- Redirect to Authorization ---
@@ -214,16 +243,34 @@ export class McpOAuthProvider implements OAuthClientProvider {
     );
 
     if (scope === "all" || scope === "tokens") {
-      await deleteSecureKeyAsync(tokensKey(this.serverId));
+      const ok = await deleteSecureKeyAsync(tokensKey(this.serverId));
+      if (!ok) {
+        log.warn(
+          { serverId: this.serverId },
+          "Failed to delete OAuth tokens from secure storage",
+        );
+      }
     }
     if (scope === "all" || scope === "client") {
-      await deleteSecureKeyAsync(clientInfoKey(this.serverId));
+      const ok = await deleteSecureKeyAsync(clientInfoKey(this.serverId));
+      if (!ok) {
+        log.warn(
+          { serverId: this.serverId },
+          "Failed to delete OAuth client information from secure storage",
+        );
+      }
     }
     if (scope === "all" || scope === "verifier") {
       this._codeVerifier = undefined;
     }
     if (scope === "all" || scope === "discovery") {
-      await deleteSecureKeyAsync(discoveryKey(this.serverId));
+      const ok = await deleteSecureKeyAsync(discoveryKey(this.serverId));
+      if (!ok) {
+        log.warn(
+          { serverId: this.serverId },
+          "Failed to delete OAuth discovery state from secure storage",
+        );
+      }
     }
   }
 
@@ -373,11 +420,22 @@ export class McpOAuthProvider implements OAuthClientProvider {
 export async function deleteMcpOAuthCredentials(
   serverId: string,
 ): Promise<void> {
-  await Promise.all([
+  const [tokensOk, clientOk, discoveryOk] = await Promise.all([
     deleteSecureKeyAsync(tokensKey(serverId)),
     deleteSecureKeyAsync(clientInfoKey(serverId)),
     deleteSecureKeyAsync(discoveryKey(serverId)),
   ]);
+  if (!tokensOk || !clientOk || !discoveryOk) {
+    const failed = [
+      !tokensOk && "tokens",
+      !clientOk && "client_info",
+      !discoveryOk && "discovery",
+    ].filter(Boolean);
+    log.warn(
+      { serverId, failedKeys: failed },
+      "Some OAuth credentials could not be deleted from secure storage",
+    );
+  }
   log.info({ serverId }, "OAuth credentials deleted");
 }
 

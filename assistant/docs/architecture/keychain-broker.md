@@ -55,11 +55,11 @@ graph LR
 
 ### TypeScript side (runtime + gateway)
 
-| File                                               | Role                                                                                                                                                                                                                                     |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/security/keychain-broker-client.ts` | Async UDS client for the runtime. Persistent socket connection, request/response correlation, auth token caching with auto-refresh on `UNAUTHORIZED`. Falls back gracefully (returns safe defaults, never throws).                       |
-| `assistant/src/security/secure-keys.ts`            | Unified API surface. Sync variants use encrypted store only. Async variants (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`) try broker first, fall back to encrypted store. Writes go to both stores for consistency. |
-| `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via `spawnSync` + inline Node script (gateway is sync-only at credential read time), falls back to encrypted store.                                                                            |
+| File                                               | Role                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/security/keychain-broker-client.ts` | Async UDS client for the runtime. Persistent socket connection, request/response correlation, auth token caching with auto-refresh on `UNAUTHORIZED`. Falls back gracefully (returns safe defaults, never throws).                                                                                                                                                                                |
+| `assistant/src/security/secure-keys.ts`            | Unified API surface. Sync variants use encrypted store only. Async variants (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`) try broker first. **Reads** fall back to the encrypted store when the broker is unavailable or key is not found. **Writes and deletes** return `false` on broker failure (no encrypted-store fallback) to prevent stale divergence between stores. |
+| `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via `spawnSync` + inline Node script (gateway is sync-only at credential read time), falls back to encrypted store.                                                                                                                                                                                                                                     |
 
 ## IPC Contract
 
@@ -163,6 +163,6 @@ XPC provides stronger caller identity guarantees via audit tokens and code requi
 
 ## Migration
 
-Existing encrypted store keys remain accessible — the encrypted store is always consulted as a fallback when the broker does not have a key. New writes from async code paths go to both the broker (keychain) and the encrypted store, keeping both in sync. There is no one-time migration step required.
+Existing encrypted store keys remain accessible — the encrypted store is always consulted as a **read** fallback when the broker does not have a key. Successful writes from async code paths go to both the broker (keychain) and the encrypted store, keeping both in sync. If a broker write or delete fails, the operation returns `false` without falling back to the encrypted store alone, preventing stale divergence. Callers must inspect the boolean return value and handle failures (typically by logging a warning). There is no one-time migration step required.
 
 The old `keychain.ts` module (which called `/usr/bin/security` CLI directly) has been deleted. The old keychain-to-encrypted migration code has been removed. All keychain access now flows exclusively through the broker.
