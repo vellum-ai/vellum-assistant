@@ -419,7 +419,7 @@ The response contains `{ ok: true, invite: { id, token, inviteCode, guardianInst
 
 - `inviteCode` is the 6-digit code the invitee must send to redeem the invite.
 - `guardianInstruction` is a generated instruction telling the guardian how to share the invite.
-- `channelHandle` (optional) is the assistant's WhatsApp display phone number. It is not currently available because the Meta WhatsApp Business API identifies numbers by `phone_number_id`, which is not a user-facing phone number.
+- `channelHandle` (optional) is the assistant's WhatsApp display phone number. It is only present when a display number is configured via `whatsapp.phoneNumber` in workspace config.
 
 **Presenting to the guardian**: If `channelHandle` is present, give the guardian the invite code and the assistant's WhatsApp number:
 
