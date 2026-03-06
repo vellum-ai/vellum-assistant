@@ -33,18 +33,16 @@ private actor AsyncSemaphore {
         }
     }
 
-    /// Removes a cancelled waiter and restores the slot it would have used.
-    /// If the waiter was already removed by signal() (race between cancel and
-    /// signal), return the slot that signal() transferred to the now-cancelled task.
+    /// Removes a cancelled waiter from the queue before signal() gives it a slot.
+    /// If the waiter was already removed by signal() (race), do nothing — the
+    /// caller's `defer { semaphore.signal() }` will return the slot when probe() exits.
     private func cancelWaiter(id: UInt64) {
         if let idx = waiters.firstIndex(where: { $0.id == id }) {
             let removed = waiters.remove(at: idx)
             removed.continuation.resume()
-        } else {
-            // signal() already resumed this waiter and gave it a slot,
-            // but the task is cancelled and won't use it. Return the slot.
-            count += 1
         }
+        // If not found, signal() already resumed this waiter. The slot will be
+        // returned by the caller's defer block — no action needed here.
     }
 
     func signal() {
