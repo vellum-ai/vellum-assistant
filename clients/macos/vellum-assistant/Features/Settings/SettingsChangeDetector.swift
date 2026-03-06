@@ -107,7 +107,7 @@ struct SettingsChangeDetector {
         let examples = changes.compactMap(\.examplePrompt)
         var message = "**I noticed you changed some settings:**\n\(bullets)"
         if let example = examples.first {
-            message += "\n\nNext time you can just ask me, e.g. \"\(example)\""
+            message += "\n\nNext time you can just ask me: \"\(example)\""
         }
         return message
     }
