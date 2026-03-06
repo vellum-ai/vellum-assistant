@@ -729,6 +729,34 @@ if [ -d "$QLTHUMB_SRC" ]; then
     echo "VellumQLThumbnail appex built"
 fi
 
+# Build and embed Quick Look Preview extension (appex)
+QLPREV_SRC="$SCRIPT_DIR/VellumQLPreview"
+if [ -d "$QLPREV_SRC" ]; then
+    echo "Building VellumQLPreview appex..."
+    QLPREV_APPEX="$CONTENTS/PlugIns/VellumQLPreview.appex"
+    QLPREV_APPEX_CONTENTS="$QLPREV_APPEX/Contents"
+    QLPREV_APPEX_MACOS="$QLPREV_APPEX_CONTENTS/MacOS"
+    mkdir -p "$QLPREV_APPEX_MACOS"
+
+    # Compile the extension as an appex binary.
+    # App extensions use NSExtensionMain as the entry point (provided by Foundation).
+    xcrun swiftc \
+        -module-name VellumQLPreview \
+        -emit-executable \
+        -target "$(uname -m)-apple-macosx14.0" \
+        -sdk "$(xcrun --show-sdk-path)" \
+        -framework QuickLookUI \
+        -framework UniformTypeIdentifiers \
+        -Xlinker -e -Xlinker _NSExtensionMain \
+        -o "$QLPREV_APPEX_MACOS/VellumQLPreview" \
+        "$QLPREV_SRC/PreviewProvider.swift"
+
+    # Copy Info.plist
+    cp "$QLPREV_SRC/Info.plist" "$QLPREV_APPEX_CONTENTS/Info.plist"
+
+    echo "VellumQLPreview appex built"
+fi
+
 # Remove transient runtime artifacts that may be written into the app bundle
 # during local dev runs (for example qdrant marker files). These are not part
 # of the distributable app and can break outer-bundle codesign verification.
@@ -785,6 +813,17 @@ if [ -d "$QLTHUMB_APPEX" ]; then
     fi
     codesign "${QLTHUMB_SIGN_FLAGS[@]}" "$QLTHUMB_APPEX"
     echo "VellumQLThumbnail.appex signed"
+fi
+
+# Sign Quick Look Preview extension (must be signed before outer app bundle)
+QLPREV_APPEX="$CONTENTS/PlugIns/VellumQLPreview.appex"
+if [ -d "$QLPREV_APPEX" ]; then
+    QLPREV_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        QLPREV_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${QLPREV_SIGN_FLAGS[@]}" "$QLPREV_APPEX"
+    echo "VellumQLPreview.appex signed"
 fi
 
 # Sign CLI binary
