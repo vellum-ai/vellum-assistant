@@ -65,8 +65,9 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 
 | Need | Use this | Not this |
 |------|----------|----------|
-| Multi-line text input (short-form) | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
+| Multi-line text input (short/medium) | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
 | Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with GeometryReader height measurement (see chat composer) | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
+| Long-form text editing | `TextEditor` (acceptable for editor-like surfaces where the user expects a full text-editing experience, e.g., contact notes, skill editing, tool permission tester) | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
 | Auto-growing height | `ScrollView` + `GeometryReader` on inner content + `.frame(height: clamp(measured, min, max))` | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
 | Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
@@ -217,6 +218,10 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 ## Testing and quality
 - Add or update tests when behavior changes; favor the testing patterns already used in that client.
 - Keep builds and linting clean; run relevant tests when feasible.
+
+## Docs anti-drift
+- Avoid brittle hardcoded counts, version claims, or roadmap placeholders in client READMEs unless they are generated automatically. Prefer evergreen wording (e.g., "iOS-specific integration tests" instead of "70 iOS-specific tests").
+- When updating documentation, verify claims against the current codebase rather than copying from stale sources.
 
 ## Maintenance
 - Refresh this guidance after major Apple OS or SwiftUI releases (for example, post-WWDC).
