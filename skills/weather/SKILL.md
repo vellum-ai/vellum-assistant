@@ -44,6 +44,7 @@ The command returns JSON with:
 Present weather data visually if your environment supports rich output. Otherwise, use the `text` field for a readable summary.
 
 **Suggested presentation:**
+
 - Show current temperature prominently with the condition
 - Include "feels like" temperature and key metrics (humidity, wind)
 - Display the forecast as a list or table with highs, lows, and conditions

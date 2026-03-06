@@ -22,7 +22,8 @@ function outputError(message: string, code = 1): void {
 }
 
 function printUsage(): void {
-  process.stderr.write(`Usage: bun run scripts/weather-cli.ts <location> [options]
+  process.stderr
+    .write(`Usage: bun run scripts/weather-cli.ts <location> [options]
 
 Get current weather conditions and forecast for a location.
 
