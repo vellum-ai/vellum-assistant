@@ -377,7 +377,8 @@ export async function removeFromCart(opts: {
 
   return runWithBackoff(async () => {
     const url = `${AMAZON_BASE}/gp/cart/view.html`;
-    const body = `cartItemId.${opts.cartItemId}=${opts.cartItemId}&quantity.${opts.cartItemId}=0&submit.delete.${opts.cartItemId}=Delete&ie=UTF8&action=delete`;
+    const cid = encodeURIComponent(opts.cartItemId);
+    const body = `cartItemId.${cid}=${cid}&quantity.${cid}=0&submit.delete.${cid}=Delete&ie=UTF8&action=delete`;
 
     const script = `
       (async function() {
