@@ -963,6 +963,9 @@ export async function startGateway(
     // than the drain window.  Respect an explicit env override.
     GATEWAY_SHUTDOWN_DRAIN_MS: process.env.GATEWAY_SHUTDOWN_DRAIN_MS || "0",
     ...(watch ? { VELLUM_DEV: "1" } : {}),
+    // Set BASE_DATA_DIR so the gateway loads the correct signing key and
+    // credentials for this instance (mirrors the daemon env setup).
+    ...(resources ? { BASE_DATA_DIR: resources.instanceDir } : {}),
   };
 
   if (process.env.GATEWAY_UNMAPPED_POLICY) {
