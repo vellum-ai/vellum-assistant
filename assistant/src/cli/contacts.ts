@@ -24,12 +24,45 @@ export function registerContactsCommand(program: Command): void {
     .description("Manage and query the contact graph")
     .option("--json", "Machine-readable compact JSON output");
 
+  contacts.addHelpText(
+    "after",
+    `
+Contacts represent people and entities the assistant interacts with. Each
+contact is identified by a UUID, has a role (contact, guardian, owner, or
+assistant), and can be linked to external identifiers — phone numbers,
+Telegram IDs, email addresses — via channel memberships. The contact graph
+is the source of truth for identity resolution across all channels.
+
+Examples:
+  $ vellum contacts list
+  $ vellum contacts get abc-123
+  $ vellum contacts merge keep-id merge-id
+  $ vellum contacts invites list`,
+  );
+
   contacts
     .command("list")
     .description("List contacts")
     .option("--role <role>", "Filter by role (default: contact)", "contact")
     .option("--limit <limit>", "Maximum number of contacts to return")
     .option("--query <query>", "Search query to filter contacts")
+    .addHelpText(
+      "after",
+      `
+Lists contacts with optional filtering. The --role flag accepts: contact,
+guardian, owner, or assistant (defaults to contact). The --limit flag sets
+the maximum number of results (defaults to 50).
+
+When --query is provided, a full-text search is performed across contact
+names and linked external identifiers (phone numbers, emails, Telegram
+usernames). Without --query, returns all contacts matching the role filter.
+
+Examples:
+  $ vellum contacts list
+  $ vellum contacts list --role guardian
+  $ vellum contacts list --query "john" --limit 10
+  $ vellum contacts list --role owner --json`,
+    )
     .action(
       async (
         opts: {
@@ -62,6 +95,20 @@ export function registerContactsCommand(program: Command): void {
   contacts
     .command("get <id>")
     .description("Get a contact by ID")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  id   UUID of the contact to retrieve
+
+Returns the full contact record including role, display name, and all
+channel memberships (phone numbers, Telegram IDs, email addresses, etc.).
+For assistant-type contacts, additional assistant metadata is included.
+
+Examples:
+  $ vellum contacts get 7a3b1c2d-4e5f-6789-abcd-ef0123456789
+  $ vellum contacts get abc-123 --json`,
+    )
     .action(async (id: string, _opts: unknown, cmd: Command) => {
       try {
         initializeDb();
@@ -90,6 +137,21 @@ export function registerContactsCommand(program: Command): void {
   contacts
     .command("merge <keepId> <mergeId>")
     .description("Merge two contacts")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  keepId    UUID of the surviving contact that will absorb the other
+  mergeId   UUID of the contact to be merged and deleted
+
+All channel memberships, conversation history, and metadata from mergeId
+are transferred to keepId. After the merge, mergeId is permanently deleted.
+This operation is irreversible.
+
+Examples:
+  $ vellum contacts merge 7a3b1c2d-4e5f-6789-abcd-ef0123456789 9f8e7d6c-5b4a-3210-fedc-ba9876543210
+  $ vellum contacts merge keep-id merge-id --json`,
+    )
     .action(
       async (keepId: string, mergeId: string, _opts: unknown, cmd: Command) => {
         try {
@@ -108,11 +170,39 @@ export function registerContactsCommand(program: Command): void {
     .command("invites")
     .description("Manage contact invites");
 
+  invites.addHelpText(
+    "after",
+    `
+Invites are tokens that grant channel access when redeemed. Each invite is
+tied to a source channel (telegram, voice, sms, email, whatsapp) and can
+optionally have usage limits, expiration, and notes. When redeemed, the
+invite creates a channel membership linking a contact to an external
+identifier on the source channel.
+
+Examples:
+  $ vellum contacts invites list
+  $ vellum contacts invites create --source-channel telegram
+  $ vellum contacts invites revoke abc-123
+  $ vellum contacts invites redeem --token xyz-789 --source-channel telegram --external-user-id 12345`,
+  );
+
   invites
     .command("list", { isDefault: true })
     .description("List invites")
     .option("--source-channel <sourceChannel>", "Filter by source channel")
     .option("--status <status>", "Filter by invite status")
+    .addHelpText(
+      "after",
+      `
+Lists all invites with optional filtering by source channel or status.
+Returns invite tokens, their source channels, usage counts, and expiration.
+
+Examples:
+  $ vellum contacts invites list
+  $ vellum contacts invites list --source-channel telegram
+  $ vellum contacts invites list --status active
+  $ vellum contacts invites list --source-channel voice --json`,
+    )
     .action(
       async (
         opts: { sourceChannel?: string; status?: string },
@@ -159,6 +249,27 @@ export function registerContactsCommand(program: Command): void {
     .option(
       "--guardian-name <name>",
       "Guardian name (required for voice invites)",
+    )
+    .addHelpText(
+      "after",
+      `
+Creates a new invite token for the specified source channel. The --source-channel
+flag is required and must be one of: telegram, voice, sms, email, whatsapp.
+
+Optional fields:
+  --note                        Free-text note attached to the invite
+  --max-uses                    Maximum number of times the invite can be redeemed
+  --expires-in-ms               Expiry duration in milliseconds from creation
+  --contact-name                Name used to personalize invite instructions
+
+Voice invites require three additional fields:
+  --expected-external-user-id   E.164 phone number of the expected caller (e.g. +15551234567)
+  --friend-name                 Name the contact uses for the assistant's owner
+  --guardian-name                Name of the guardian associated with this invite
+
+Examples:
+  $ vellum contacts invites create --source-channel telegram --note "For Alice" --max-uses 1
+  $ vellum contacts invites create --source-channel voice --expected-external-user-id "+15551234567" --friend-name "Alice" --guardian-name "Bob" --contact-name "Alice Smith"`,
     )
     .action(
       async (
@@ -225,6 +336,19 @@ export function registerContactsCommand(program: Command): void {
   invites
     .command("revoke <inviteId>")
     .description("Revoke an active invite")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  inviteId   UUID of the invite to revoke
+
+Revokes an active invite so it can no longer be redeemed. Already-redeemed
+channel memberships are not affected. Returns the updated invite record.
+
+Examples:
+  $ vellum contacts invites revoke 7a3b1c2d-4e5f-6789-abcd-ef0123456789
+  $ vellum contacts invites revoke abc-123 --json`,
+    )
     .action(async (inviteId: string, _opts: unknown, cmd: Command) => {
       try {
         initializeDb();
@@ -255,6 +379,24 @@ export function registerContactsCommand(program: Command): void {
       "E.164 phone number for voice code redemption",
     )
     .option("--assistant-id <id>", "Assistant ID for voice code redemption")
+    .addHelpText(
+      "after",
+      `
+Two redemption modes:
+
+1. Token-based redemption: Provide --token, --source-channel, and
+   --external-user-id (and optionally --external-chat-id). Creates a
+   channel membership linking the contact to the external identifier.
+
+2. Voice-code-based redemption: Provide --code (6-digit code) and
+   --caller-external-user-id (E.164 phone number). Optionally include
+   --assistant-id to scope the redemption to a specific assistant.
+
+Examples:
+  $ vellum contacts invites redeem --token xyz-789 --source-channel telegram --external-user-id 12345
+  $ vellum contacts invites redeem --code 123456 --caller-external-user-id "+15551234567"
+  $ vellum contacts invites redeem --code 654321 --caller-external-user-id "+15559876543" --assistant-id asst-abc --json`,
+    )
     .action(
       async (
         opts: {
