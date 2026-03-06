@@ -27,6 +27,9 @@ export const ALLOWED_PACKAGES: readonly string[] = [
 const INSTALL_TIMEOUT_MS = 10_000;
 const MAX_PACKAGE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
+/** In-flight install promises keyed by package name, to deduplicate concurrent requests. */
+const inflight = new Map<string, Promise<string | null>>();
+
 /** Where all cached packages live on disk. */
 export function getCacheDir(): string {
   return join(homedir(), ".vellum", "package-cache");
@@ -38,7 +41,11 @@ export function getCacheDir(): string {
  */
 export function isBareImport(name: string): boolean {
   if (name.startsWith(".") || name.startsWith("/")) return false;
-  if (name.startsWith("preact") || name === "react" || name === "react-dom") {
+  if (
+    name.startsWith("preact") ||
+    name.startsWith("react") ||
+    name.startsWith("react-dom")
+  ) {
     return false;
   }
   return true;
@@ -75,6 +82,27 @@ export async function resolvePackage(name: string): Promise<string | null> {
     return nodeModulesDir;
   }
 
+  // Deduplicate concurrent install requests for the same package
+  const existing = inflight.get(pkg);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = installPackage(pkg, cacheDir, nodeModulesDir, pkgDir);
+  inflight.set(pkg, promise);
+  try {
+    return await promise;
+  } finally {
+    inflight.delete(pkg);
+  }
+}
+
+async function installPackage(
+  pkg: string,
+  cacheDir: string,
+  nodeModulesDir: string,
+  pkgDir: string,
+): Promise<string | null> {
   // Ensure cache directory exists with a package.json so bun install works
   await mkdir(cacheDir, { recursive: true });
   const pkgJsonPath = join(cacheDir, "package.json");
@@ -101,11 +129,13 @@ export async function resolvePackage(name: string): Promise<string | null> {
 
     // Race against timeout
     const exited = proc.exited;
-    const timeout = new Promise<"timeout">((resolve) =>
-      setTimeout(() => resolve("timeout"), INSTALL_TIMEOUT_MS),
-    );
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), INSTALL_TIMEOUT_MS);
+    });
 
     const raceResult = await Promise.race([exited, timeout]);
+    clearTimeout(timer!);
 
     if (raceResult === "timeout") {
       proc.kill();
