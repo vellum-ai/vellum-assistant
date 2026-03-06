@@ -466,8 +466,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 let schemeURL = URL(string: "vellumapp://\(appId)/index.html")!
                 webView.load(URLRequest(url: schemeURL))
             } else if !data.html.isEmpty {
-                // No files on disk — use daemon-provided HTML from the surface message
-                let origin = "vellumapp://\(appId)/"
+                // No files on disk — use daemon-provided HTML from the surface message.
+                // Use the same origin as updateNSView so localStorage persists across reloads.
+                let origin = "https://\(appId).vellum.local/"
                 webView.loadHTMLString(data.html, baseURL: URL(string: origin))
             } else {
                 let schemeURL = URL(string: "vellumapp://\(appId)/index.html")!
