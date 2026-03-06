@@ -135,28 +135,6 @@ export function weatherCodeToDescription(code: number): string {
   return "Unknown";
 }
 
-/**
- * Maps WMO weather codes to SF Symbol icon names for native rendering.
- * When `isDay` is false, uses moon/night variants for clear and partly cloudy.
- */
-export function weatherCodeToSFSymbol(
-  code: number,
-  isDay: boolean = true,
-): string {
-  if (code === 0) return isDay ? "sun.max.fill" : "moon.fill";
-  if (code === 1) return isDay ? "sun.max.fill" : "moon.fill";
-  if (code === 2) return isDay ? "cloud.sun.fill" : "cloud.moon.fill";
-  if (code === 3) return "cloud.fill";
-  if (code === 45 || code === 48) return "cloud.fog.fill";
-  if (code >= 51 && code <= 57) return "cloud.rain.fill";
-  if (code >= 61 && code <= 67) return "cloud.rain.fill";
-  if (code >= 71 && code <= 77) return "snowflake";
-  if (code >= 80 && code <= 82) return "cloud.rain.fill";
-  if (code >= 85 && code <= 86) return "snowflake";
-  if (code >= 95) return "cloud.bolt.fill";
-  return "cloud.fill";
-}
-
 function windDirectionToCompass(degrees: number): string {
   const directions = [
     "N",
