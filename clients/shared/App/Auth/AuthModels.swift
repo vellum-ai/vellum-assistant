@@ -180,3 +180,68 @@ public enum PlatformAPIError: LocalizedError, Sendable {
         }
     }
 }
+
+// MARK: - Self-Hosted Local Registration
+
+public struct EnsureSelfHostedLocalRegistrationRequest: Codable, Sendable {
+    public let clientInstallationId: String
+    public let runtimeAssistantId: String
+    public let clientPlatform: String
+
+    enum CodingKeys: String, CodingKey {
+        case clientInstallationId = "client_installation_id"
+        case runtimeAssistantId = "runtime_assistant_id"
+        case clientPlatform = "client_platform"
+    }
+}
+
+public struct EnsureSelfHostedLocalRegistrationResponse: Codable, Sendable {
+    public let assistant: SelfHostedAssistantInfo
+    public let registration: SelfHostedRegistrationInfo
+}
+
+public struct SelfHostedAssistantInfo: Codable, Sendable {
+    public let id: String
+    public let name: String?
+}
+
+public struct SelfHostedRegistrationInfo: Codable, Sendable {
+    public let clientInstallationId: String
+    public let runtimeAssistantId: String
+    public let clientPlatform: String
+
+    enum CodingKeys: String, CodingKey {
+        case clientInstallationId = "client_installation_id"
+        case runtimeAssistantId = "runtime_assistant_id"
+        case clientPlatform = "client_platform"
+    }
+}
+
+public struct ReprovisionSelfHostedLocalApiKeyRequest: Codable, Sendable {
+    public let clientInstallationId: String
+    public let runtimeAssistantId: String
+    public let clientPlatform: String
+
+    enum CodingKeys: String, CodingKey {
+        case clientInstallationId = "client_installation_id"
+        case runtimeAssistantId = "runtime_assistant_id"
+        case clientPlatform = "client_platform"
+    }
+}
+
+public struct ReprovisionSelfHostedLocalApiKeyResponse: Codable, Sendable {
+    public let assistant: SelfHostedAssistantInfo
+    public let provisioning: SelfHostedProvisioningInfo
+}
+
+public struct SelfHostedProvisioningInfo: Codable, Sendable {
+    public let credentialName: String
+    public let assistantApiKey: String
+    public let rotated: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case credentialName = "credential_name"
+        case assistantApiKey = "assistant_api_key"
+        case rotated
+    }
+}
