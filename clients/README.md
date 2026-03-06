@@ -177,6 +177,17 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 - **macOS development**: See `clients/macos/CLAUDE.md`
 - **iOS development**: See `clients/ios/README.md`
 
+### Docs Checks
+
+A sanity-check script catches known stale documentation patterns (outdated transport wording, hardcoded test counts, stale dependency claims). It runs automatically in CI on PRs that touch client docs.
+
+```bash
+# Run locally from the repo root:
+./scripts/check-client-docs.sh
+```
+
+To extend the checks, add new `check_absent` calls to the script. Keep patterns narrowly scoped to avoid false positives.
+
 ## Testing
 
 ```bash

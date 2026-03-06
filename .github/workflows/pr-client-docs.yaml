@@ -1,0 +1,24 @@
+name: PR Client Docs Checks
+
+on:
+  pull_request:
+    types: [synchronize, opened, reopened]
+    paths:
+      - 'clients/**/*.md'
+      - 'scripts/check-client-docs.sh'
+      - '.github/workflows/pr-client-docs.yaml'
+
+concurrency:
+  group: pr-client-docs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check-stale-patterns:
+    name: Check for stale doc patterns
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run client docs guard
+        run: ./scripts/check-client-docs.sh
