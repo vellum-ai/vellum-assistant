@@ -2,7 +2,7 @@
 name: "Amazon"
 description: "Shop on Amazon and Amazon Fresh using the built-in CLI integration"
 user-invocable: true
-metadata: {"vellum": {"emoji": "\uD83D\uDCE6"}}
+metadata: { "vellum": { "emoji": "\uD83D\uDCE6" } }
 ---
 
 You can shop on Amazon (and Amazon Fresh for groceries) for the user using the `vellum amazon` CLI.
@@ -92,7 +92,7 @@ vellum amazon fresh select-slot --slot-id <id> --json
 
 vellum amazon payment-methods --json
 vellum amazon checkout --json
-vellum amazon order place [--payment-method-id <id>] [--slot-id <id>] --json
+vellum amazon order place [--payment-method-id <id>] --json
 ```
 
 ## Example Interactions
