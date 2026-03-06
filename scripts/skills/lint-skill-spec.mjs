@@ -11,8 +11,9 @@
  *      no consecutive hyphens, no leading/trailing hyphens.
  *   6. `description` constraints: 1-1024 chars, non-empty.
  *   7. Optional `compatibility`: 1-500 chars if present.
- *   8. Frontmatter is followed by Markdown body content.
- *   9. Non-standard top-level fields emit migration guidance:
+ *   8. Required `metadata.emoji` (Vellum extension).
+ *   9. Frontmatter is followed by Markdown body content.
+ *  10. Non-standard top-level fields emit migration guidance:
  *      - Vellum-specific fields → move to `metadata.vellum`
  *      - Environment requirements → move to `compatibility`
  *
@@ -214,6 +215,26 @@ function validateCompatibility(compatibility) {
   return errors;
 }
 
+function validateMetadataEmoji(metadata) {
+  const errors = [];
+
+  if (!metadata || typeof metadata !== "object") {
+    errors.push(
+      'Required field "metadata.emoji" is missing. Skills must have an emoji in metadata.',
+    );
+    return errors;
+  }
+
+  const emoji = metadata.emoji;
+  if (typeof emoji !== "string" || emoji.length === 0) {
+    errors.push(
+      'Required field "metadata.emoji" is missing or empty. Skills must have an emoji in metadata.',
+    );
+  }
+
+  return errors;
+}
+
 /**
  * Detect non-standard top-level fields and recommend migration.
  *
@@ -301,7 +322,14 @@ function validateSkill(skillName) {
     ),
   );
 
-  // 5. Check for non-standard fields and recommend migration
+  // 5. Validate required metadata.emoji (Vellum requirement)
+  errors.push(
+    ...validateMetadataEmoji(frontmatter.metadata).map(
+      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+    ),
+  );
+
+  // 6. Check for non-standard fields and recommend migration
   errors.push(
     ...validateNonStandardFields(frontmatter).map(
       (e) => `skills/${skillName}/SKILL.md: ${e}`,
