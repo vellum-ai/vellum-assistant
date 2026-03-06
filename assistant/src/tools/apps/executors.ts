@@ -219,7 +219,18 @@ render(<App />, document.getElementById('app')!);
     // Compile src/ → dist/
     const { join } = await import("node:path");
     const appDir = join(getAppsDir(), app.id);
-    await compileApp(appDir);
+    const compileResult = await compileApp(appDir);
+    if (!compileResult.ok) {
+      return {
+        content: JSON.stringify({
+          ...app,
+          compile_errors: compileResult.errors,
+          compile_warnings: compileResult.warnings,
+          compile_duration_ms: compileResult.durationMs,
+        }),
+        isError: false,
+      };
+    }
   }
 
   if (input.set_as_home_base) {
