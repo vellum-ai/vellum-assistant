@@ -232,7 +232,7 @@ function buildInput(
         outputError("followers requires screenName argument");
         process.exit(1);
       }
-      return { screenName: args[0], count: options.count };
+      return { screenName: args[0] };
 
     case "following":
       if (args.length < 1) {
