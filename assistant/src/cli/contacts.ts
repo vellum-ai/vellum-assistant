@@ -28,8 +28,8 @@ export function registerContactsCommand(program: Command): void {
     "after",
     `
 Contacts represent people and entities the assistant interacts with. Each
-contact is identified by a UUID, has a role (contact, guardian, owner, or
-assistant), and can be linked to external identifiers — phone numbers,
+contact is identified by a UUID, has a role (contact or guardian), and
+can be linked to external identifiers — phone numbers,
 Telegram IDs, email addresses — via channel memberships. The contact graph
 is the source of truth for identity resolution across all channels.
 
@@ -49,8 +49,8 @@ Examples:
     .addHelpText(
       "after",
       `
-Lists contacts with optional filtering. The --role flag accepts: contact,
-guardian, owner, or assistant (defaults to contact). The --limit flag sets
+Lists contacts with optional filtering. The --role flag accepts: contact
+or guardian (defaults to contact). The --limit flag sets
 the maximum number of results (defaults to 50).
 
 When --query is provided, a full-text search is performed across contact
@@ -61,7 +61,7 @@ Examples:
   $ vellum contacts list
   $ vellum contacts list --role guardian
   $ vellum contacts list --query "john" --limit 10
-  $ vellum contacts list --role owner --json`,
+  $ vellum contacts list --role guardian --json`,
     )
     .action(
       async (
@@ -384,8 +384,8 @@ Examples:
       `
 Two redemption modes:
 
-1. Token-based redemption: Provide --token, --source-channel, and
-   --external-user-id (and optionally --external-chat-id). Creates a
+1. Token-based redemption: Provide --token, --source-channel, and at
+   least one of --external-user-id or --external-chat-id. Creates a
    channel membership linking the contact to the external identifier.
 
 2. Voice-code-based redemption: Provide --code (6-digit code) and

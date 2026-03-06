@@ -15,7 +15,7 @@ Queries channel readiness and configuration status through the gateway API.
 Channels are the communication interfaces (telegram, voice, sms, email, etc.)
 that the assistant uses to send and receive messages.
 
-The daemon must be running — channel status is read from the live gateway.
+The assistant must be running — channel status is read from the live gateway.
 
 Examples:
   $ vellum channels readiness

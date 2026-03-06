@@ -989,7 +989,7 @@ public struct IPCContactsInviteResponseInvite: Codable, Sendable {
 public struct IPCContactsRequest: Codable, Sendable {
     public let type: String
     public let action: String
-    /// Contact ID (get only).
+    /// Contact ID (get and delete).
     public let contactId: String?
     /// Channel ID (update_channel only).
     public let channelId: String?

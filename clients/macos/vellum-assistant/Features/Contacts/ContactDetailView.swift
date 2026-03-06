@@ -17,8 +17,11 @@ struct ContactDetailView: View {
     let contact: ContactPayload
     var daemonClient: DaemonClient?
     var store: SettingsStore?
+    var onDelete: (() -> Void)?
 
     @State var currentContact: ContactPayload?
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
     @State private var actionInProgress: String?
     @State var errorMessage: String?
     @State private var isEditing = false
@@ -68,6 +71,18 @@ struct ContactDetailView: View {
             .padding(VSpacing.xl)
         }
         .background(VColor.background)
+        .confirmationDialog(
+            "Delete \(displayContact.displayName)?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                deleteContact()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will permanently delete this contact and all their channels. This action cannot be undone.")
+        }
         .onAppear {
             currentContact = contact
             if contact.role == "guardian" {
@@ -136,6 +151,24 @@ struct ContactDetailView: View {
                     .opacity(isHoveringHeader ? 1 : 0)
                     .animation(VAnimation.fast, value: isHoveringHeader)
                     .accessibilityLabel("Edit contact")
+
+                    if displayContact.role != "guardian" {
+                        Button(action: { showDeleteConfirmation = true }) {
+                            if isDeleting {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "trash")
+                                    .foregroundColor(VColor.error)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isDeleting)
+                        .help("Delete contact")
+                        .opacity(isHoveringHeader ? 1 : 0)
+                        .animation(VAnimation.fast, value: isHoveringHeader)
+                        .accessibilityLabel("Delete contact")
+                    }
                 }
             }
 
@@ -1016,6 +1049,38 @@ struct ContactDetailView: View {
             }
 
             actionInProgress = nil
+        }
+    }
+
+    private func deleteContact() {
+        guard let daemonClient else { return }
+        isDeleting = true
+        errorMessage = nil
+
+        Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.sendDeleteContact(contactId: displayContact.id)
+            } catch {
+                errorMessage = "Failed to delete contact: \(error.localizedDescription)"
+                isDeleting = false
+                return
+            }
+
+            for await message in stream {
+                if case .contactsResponse(let response) = message {
+                    if response.success {
+                        onDelete?()
+                    } else {
+                        errorMessage = response.error ?? "Failed to delete contact"
+                    }
+                    isDeleting = false
+                    return
+                }
+            }
+
+            isDeleting = false
         }
     }
 }

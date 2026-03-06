@@ -68,7 +68,7 @@ server uses one of three transport types:
   sse               Remote server using Server-Sent Events
   streamable-http   Remote server using Streamable HTTP transport
 
-Changes to MCP server configuration require a daemon restart to take effect
+Changes to MCP server configuration require an assistant restart to take effect
 (vellum sleep && vellum wake).
 
 Examples:
@@ -99,7 +99,8 @@ Shows each configured MCP server with its current status and configuration:
   Blocked      Tool blocklist filter (if configured)
 
 When output is a TTY, health checks run in parallel with live status updates.
-In non-TTY mode (piped or --json), checks run sequentially.
+In non-TTY mode (piped), checks run sequentially. With --json, outputs raw
+server config without running health checks.
 
 Examples:
   $ vellum mcp list
@@ -360,7 +361,7 @@ Examples:
         saveRawConfig(raw);
         log.info(`Added MCP server "${name}" (${opts.transportType})`);
         log.info(
-          "Restart the daemon for changes to take effect: vellum sleep && vellum wake",
+          "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
         );
       },
     );
@@ -381,9 +382,9 @@ starts a local callback server to receive the authorization code.
 The command waits up to 2.5 minutes for the user to complete the browser-based
 OAuth flow. If the server already has valid cached tokens, the command succeeds
 immediately without opening a browser. Tokens are cached locally for future use
-by the daemon.
+by the assistant.
 
-After successful authentication, restart the daemon for changes to take effect
+After successful authentication, restart the assistant for changes to take effect
 (vellum sleep && vellum wake).
 
 Examples:
@@ -543,7 +544,7 @@ Examples:
 
       log.info(`Authentication successful for "${name}".`);
       log.info(
-        "Restart the daemon for changes to take effect: vellum sleep && vellum wake",
+        "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
       );
       process.exit(0);
     });
@@ -562,7 +563,7 @@ any stored OAuth credentials (tokens, client info, discovery metadata) for
 sse/streamable-http servers. If no OAuth credentials exist, the cleanup is
 silently skipped.
 
-After removal, restart the daemon for changes to take effect
+After removal, restart the assistant for changes to take effect
 (vellum sleep && vellum wake).
 
 Examples:
@@ -597,7 +598,7 @@ Examples:
       saveRawConfig(raw);
       log.info(`Removed MCP server "${name}".`);
       log.info(
-        "Restart the daemon for changes to take effect: vellum sleep && vellum wake",
+        "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
       );
     });
 }

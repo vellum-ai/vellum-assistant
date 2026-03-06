@@ -110,6 +110,13 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return proxyToRuntime(req, `/v1/contacts/${contactId}`, "");
     },
 
+    async handleDeleteContact(
+      req: Request,
+      contactId: string,
+    ): Promise<Response> {
+      return proxyToRuntime(req, `/v1/contacts/${contactId}`, "");
+    },
+
     async handleMergeContacts(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/contacts/merge", "");
     },

@@ -195,21 +195,24 @@ beforeEach(() => {
 // ===========================================================================
 
 describe("startOutbound", () => {
-  test("SMS: returns missing_destination when destination is absent", () => {
-    const result = startOutbound({ channel: "sms" });
+  test("SMS: returns missing_destination when destination is absent", async () => {
+    const result = await startOutbound({ channel: "sms" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("missing_destination");
     expect(result.channel).toBe("sms");
   });
 
-  test("SMS: returns invalid_destination for garbage phone number", () => {
-    const result = startOutbound({ channel: "sms", destination: "notaphone" });
+  test("SMS: returns invalid_destination for garbage phone number", async () => {
+    const result = await startOutbound({
+      channel: "sms",
+      destination: "notaphone",
+    });
     expect(result.success).toBe(false);
     expect(result.error).toBe("invalid_destination");
   });
 
-  test("SMS: succeeds with valid E.164 number", () => {
-    const result = startOutbound({
+  test("SMS: succeeds with valid E.164 number", async () => {
+    const result = await startOutbound({
       channel: "sms",
       destination: "+15551234567",
     });
@@ -222,8 +225,8 @@ describe("startOutbound", () => {
     expect(result.channel).toBe("sms");
   });
 
-  test("SMS: succeeds with loose phone format (parentheses + dashes)", () => {
-    const result = startOutbound({
+  test("SMS: succeeds with loose phone format (parentheses + dashes)", async () => {
+    const result = await startOutbound({
       channel: "sms",
       destination: "(555) 987-6543",
     });
@@ -231,14 +234,14 @@ describe("startOutbound", () => {
     expect(result.verificationSessionId).toBeDefined();
   });
 
-  test("Telegram: returns missing_destination when absent", () => {
-    const result = startOutbound({ channel: "telegram" });
+  test("Telegram: returns missing_destination when absent", async () => {
+    const result = await startOutbound({ channel: "telegram" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("missing_destination");
   });
 
-  test("Telegram: succeeds with numeric chat ID", () => {
-    const result = startOutbound({
+  test("Telegram: succeeds with numeric chat ID", async () => {
+    const result = await startOutbound({
       channel: "telegram",
       destination: "123456789",
     });
@@ -248,8 +251,8 @@ describe("startOutbound", () => {
     expect(result.sendCount).toBe(1);
   });
 
-  test("Telegram: returns invalid_destination for negative (group) chat ID", () => {
-    const result = startOutbound({
+  test("Telegram: returns invalid_destination for negative (group) chat ID", async () => {
+    const result = await startOutbound({
       channel: "telegram",
       destination: "-100123456",
     });
@@ -257,8 +260,8 @@ describe("startOutbound", () => {
     expect(result.error).toBe("invalid_destination");
   });
 
-  test("Telegram: returns pending_bootstrap for handle destination", () => {
-    const result = startOutbound({
+  test("Telegram: returns pending_bootstrap for handle destination", async () => {
+    const result = await startOutbound({
       channel: "telegram",
       destination: "@someuser",
     });
@@ -270,9 +273,9 @@ describe("startOutbound", () => {
     expect(result.secret).toBeUndefined();
   });
 
-  test("Telegram: returns no_bot_username when bot not configured", () => {
+  test("Telegram: returns no_bot_username when bot not configured", async () => {
     mockBotUsername = undefined;
-    const result = startOutbound({
+    const result = await startOutbound({
       channel: "telegram",
       destination: "@someuser",
     });
@@ -280,20 +283,23 @@ describe("startOutbound", () => {
     expect(result.error).toBe("no_bot_username");
   });
 
-  test("voice: returns missing_destination when absent", () => {
-    const result = startOutbound({ channel: "voice" });
+  test("voice: returns missing_destination when absent", async () => {
+    const result = await startOutbound({ channel: "voice" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("missing_destination");
   });
 
-  test("voice: returns invalid_destination for garbage", () => {
-    const result = startOutbound({ channel: "voice", destination: "badphone" });
+  test("voice: returns invalid_destination for garbage", async () => {
+    const result = await startOutbound({
+      channel: "voice",
+      destination: "badphone",
+    });
     expect(result.success).toBe(false);
     expect(result.error).toBe("invalid_destination");
   });
 
-  test("voice: succeeds with valid phone", () => {
-    const result = startOutbound({
+  test("voice: succeeds with valid phone", async () => {
+    const result = await startOutbound({
       channel: "voice",
       destination: "+15559876543",
     });
@@ -303,9 +309,9 @@ describe("startOutbound", () => {
     expect(result.sendCount).toBe(1);
   });
 
-  test("voice: passes originConversationId to startGuardianVerificationCall", () => {
+  test("voice: passes originConversationId to startGuardianVerificationCall", async () => {
     voiceCallInitCalls.length = 0;
-    const result = startOutbound({
+    const result = await startOutbound({
       channel: "voice",
       destination: "+15559876543",
       originConversationId: "conv-origin-linkage-test",
@@ -316,9 +322,9 @@ describe("startOutbound", () => {
     expect(voiceCallInitCalls[0].phoneNumber).toBe("+15559876543");
   });
 
-  test("voice: succeeds without originConversationId (backward compat)", () => {
+  test("voice: succeeds without originConversationId (backward compat)", async () => {
     voiceCallInitCalls.length = 0;
-    const result = startOutbound({
+    const result = await startOutbound({
       channel: "voice",
       destination: "+15551119999",
     });
@@ -326,9 +332,9 @@ describe("startOutbound", () => {
     expect(voiceCallInitCalls.length).toBe(1);
   });
 
-  test("unsupported channel returns unsupported_channel", () => {
+  test("unsupported channel returns unsupported_channel", async () => {
     // Cast to bypass type checking for test purposes
-    const result = startOutbound({ channel: "email" as never });
+    const result = await startOutbound({ channel: "email" as never });
     expect(result.success).toBe(false);
     expect(result.error).toBe("unsupported_channel");
   });
@@ -345,9 +351,9 @@ describe("resendOutbound", () => {
     expect(result.error).toBe("no_active_session");
   });
 
-  test("SMS: succeeds when an active session exists and cooldown has passed", () => {
+  test("SMS: succeeds when an active session exists and cooldown has passed", async () => {
     // Start a session first
-    const startResult = startOutbound({
+    const startResult = await startOutbound({
       channel: "sms",
       destination: "+15551112222",
     });
@@ -369,8 +375,8 @@ describe("resendOutbound", () => {
     expect(resendResult.sendCount).toBe(2);
   });
 
-  test("SMS: preserves originConversationId on resend", () => {
-    const startResult = startOutbound({
+  test("SMS: preserves originConversationId on resend", async () => {
+    const startResult = await startOutbound({
       channel: "sms",
       destination: "+15551113333",
     });
@@ -395,7 +401,7 @@ describe("resendOutbound", () => {
 
   test("voice: preserves originConversationId on resend and passes it to call initiation", async () => {
     voiceCallInitCalls.length = 0;
-    const startResult = startOutbound({
+    const startResult = await startOutbound({
       channel: "voice",
       destination: "+15559991111",
     });
@@ -440,8 +446,8 @@ describe("cancelOutbound", () => {
     expect(result.error).toBe("no_active_session");
   });
 
-  test("succeeds when an active session exists", () => {
-    const startResult = startOutbound({
+  test("succeeds when an active session exists", async () => {
+    const startResult = await startOutbound({
       channel: "sms",
       destination: "+15553334444",
     });
@@ -582,8 +588,8 @@ describe("HTTP route: handleCancelOutbound", () => {
 // ===========================================================================
 
 describe("origin conversation linkage", () => {
-  test("startOutbound SMS echoes originConversationId in result", () => {
-    const result = startOutbound({
+  test("startOutbound SMS echoes originConversationId in result", async () => {
+    const result = await startOutbound({
       channel: "sms",
       destination: "+15551119999",
       originConversationId: "conv-origin-sms-test",
@@ -592,8 +598,8 @@ describe("origin conversation linkage", () => {
     expect(result.originConversationId).toBe("conv-origin-sms-test");
   });
 
-  test("startOutbound voice echoes originConversationId in result", () => {
-    const result = startOutbound({
+  test("startOutbound voice echoes originConversationId in result", async () => {
+    const result = await startOutbound({
       channel: "voice",
       destination: "+15552229999",
       originConversationId: "conv-origin-voice-test",
@@ -602,8 +608,8 @@ describe("origin conversation linkage", () => {
     expect(result.originConversationId).toBe("conv-origin-voice-test");
   });
 
-  test("startOutbound Telegram (chat ID) echoes originConversationId in result", () => {
-    const result = startOutbound({
+  test("startOutbound Telegram (chat ID) echoes originConversationId in result", async () => {
+    const result = await startOutbound({
       channel: "telegram",
       destination: "999888777",
       originConversationId: "conv-origin-tg-test",
@@ -612,8 +618,8 @@ describe("origin conversation linkage", () => {
     expect(result.originConversationId).toBe("conv-origin-tg-test");
   });
 
-  test("startOutbound without originConversationId returns undefined for field", () => {
-    const result = startOutbound({
+  test("startOutbound without originConversationId returns undefined for field", async () => {
+    const result = await startOutbound({
       channel: "sms",
       destination: "+15553338888",
     });
@@ -635,7 +641,7 @@ describe("origin conversation linkage", () => {
   });
 
   test("voice call initiation receives originConversationId", async () => {
-    const result = startOutbound({
+    const result = await startOutbound({
       channel: "voice",
       destination: "+15554443333",
       originConversationId: "conv-origin-voice-init",
@@ -656,7 +662,7 @@ describe("origin conversation linkage", () => {
     voiceCallInitCalls.length = 0;
 
     // Start a voice session (no origin initially)
-    const startResult = startOutbound({
+    const startResult = await startOutbound({
       channel: "voice",
       destination: "+15552228888",
     });

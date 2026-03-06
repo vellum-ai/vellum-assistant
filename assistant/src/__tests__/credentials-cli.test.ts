@@ -17,13 +17,13 @@ function nextUUID(): string {
   return `00000000-0000-0000-0000-${String(idCounter).padStart(12, "0")}`;
 }
 
-// Track mock call counts for reveal isolation tests
-let getSecureKeyCalls = 0;
+// Track mock call counts
+let _getSecureKeyCalls = 0;
 let _setSecureKeyCalls = 0;
 let _deleteSecureKeyCalls = 0;
-let listMetadataCalls = 0;
-let getMetadataCalls = 0;
-let getMetadataByIdCalls = 0;
+let _listMetadataCalls = 0;
+let _getMetadataCalls = 0;
+let _getMetadataByIdCalls = 0;
 
 // ---------------------------------------------------------------------------
 // Mock secure-keys
@@ -31,7 +31,7 @@ let getMetadataByIdCalls = 0;
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string): string | undefined => {
-    getSecureKeyCalls += 1;
+    _getSecureKeyCalls += 1;
     return secureKeyStore.get(account);
   },
   setSecureKey: (account: string, value: string): boolean => {
@@ -113,7 +113,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
     service: string,
     field: string,
   ): CredentialMetadata | undefined => {
-    getMetadataCalls += 1;
+    _getMetadataCalls += 1;
     return metadataStore.find(
       (c) => c.service === service && c.field === field,
     );
@@ -121,7 +121,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   getCredentialMetadataById: (
     credentialId: string,
   ): CredentialMetadata | undefined => {
-    getMetadataByIdCalls += 1;
+    _getMetadataByIdCalls += 1;
     return metadataStore.find((c) => c.credentialId === credentialId);
   },
   deleteCredentialMetadata: (service: string, field: string): boolean => {
@@ -133,7 +133,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
     return true;
   },
   listCredentialMetadata: (): CredentialMetadata[] => {
-    listMetadataCalls += 1;
+    _listMetadataCalls += 1;
     return [...metadataStore];
   },
 }));
@@ -142,7 +142,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 // Import the module under test (after mocks are registered)
 // ---------------------------------------------------------------------------
 
-const { registerCredentialCommand } = await import("../cli/credential.js");
+const { registerCredentialsCommand } = await import("../cli/credentials.js");
 
 // ---------------------------------------------------------------------------
 // Test helper
@@ -172,8 +172,8 @@ async function runCli(
       writeErr: () => {},
       writeOut: (str: string) => stdoutChunks.push(str),
     });
-    registerCredentialCommand(program);
-    await program.parseAsync(["node", "vellum", "credential", ...args]);
+    registerCredentialsCommand(program);
+    await program.parseAsync(["node", "vellum", "credentials", ...args]);
   } catch {
     // Commander throws on --help and on missing required args; treat as non-zero exit
     if (process.exitCode === 0) process.exitCode = 1;
@@ -243,17 +243,17 @@ function seedMetadataOnly(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("vellum credential CLI", () => {
+describe("vellum credentials CLI", () => {
   beforeEach(() => {
     secureKeyStore = new Map();
     metadataStore = [];
     idCounter = 0;
-    getSecureKeyCalls = 0;
+    _getSecureKeyCalls = 0;
     _setSecureKeyCalls = 0;
     _deleteSecureKeyCalls = 0;
-    listMetadataCalls = 0;
-    getMetadataCalls = 0;
-    getMetadataByIdCalls = 0;
+    _listMetadataCalls = 0;
+    _getMetadataCalls = 0;
+    _getMetadataByIdCalls = 0;
     process.exitCode = 0;
   });
 
@@ -703,31 +703,62 @@ describe("vellum credential CLI", () => {
   // =========================================================================
 
   describe("reveal", () => {
-    test("returns not-implemented error with exit code 1", async () => {
+    test("returns plaintext value by service:field", async () => {
       seedCredential("twilio", "account_sid", "AC123456789012");
 
       const result = await runCli(["reveal", "twilio:account_sid", "--json"]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.value).toBe("AC123456789012");
+    });
+
+    test("returns plaintext value by UUID", async () => {
+      const meta = seedCredential("github", "token", "ghp_abcdefghij1234");
+
+      const result = await runCli(["reveal", meta.credentialId, "--json"]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.value).toBe("ghp_abcdefghij1234");
+    });
+
+    test("errors on nonexistent credential", async () => {
+      const result = await runCli(["reveal", "nonexistent:field", "--json"]);
       expect(result.exitCode).toBe(1);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("Not implemented");
+      expect(parsed.error).toContain("not found");
     });
 
-    test("does not access secure storage or metadata", async () => {
-      seedCredential("twilio", "account_sid", "AC123456789012");
+    test("errors on nonexistent UUID", async () => {
+      const result = await runCli([
+        "reveal",
+        "00000000-0000-0000-0000-000000000099",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("not found");
+    });
 
-      // Reset call counters after seeding
-      getSecureKeyCalls = 0;
-      getMetadataCalls = 0;
-      getMetadataByIdCalls = 0;
-      listMetadataCalls = 0;
+    test("rejects invalid name without colon", async () => {
+      const result = await runCli(["reveal", ":field_only", "--json"]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("Invalid credential name");
+    });
 
-      await runCli(["reveal", "twilio:account_sid", "--json"]);
+    test("errors when metadata exists but no secret stored", async () => {
+      seedMetadataOnly("test", "nosecret");
 
-      expect(getSecureKeyCalls).toBe(0);
-      expect(getMetadataCalls).toBe(0);
-      expect(getMetadataByIdCalls).toBe(0);
-      expect(listMetadataCalls).toBe(0);
+      const result = await runCli(["reveal", "test:nosecret", "--json"]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("not found");
     });
   });
 
@@ -736,7 +767,7 @@ describe("vellum credential CLI", () => {
   // =========================================================================
 
   describe("help text", () => {
-    test("credential --help contains naming convention table and storage description", async () => {
+    test("credentials --help contains naming convention table and storage description", async () => {
       const result = await runCli(["--help"]);
       const out = result.stdout;
       expect(out).toContain("twilio:account_sid");
@@ -744,38 +775,32 @@ describe("vellum credential CLI", () => {
       expect(out).toContain("Examples:");
     });
 
-    test("credential list --help contains --search description and examples", async () => {
+    test("credentials list --help contains --search description and examples", async () => {
       const result = await runCli(["list", "--help"]);
       const out = result.stdout;
       expect(out).toContain("--search");
       expect(out).toContain("Examples:");
-      expect(out).toContain("credential list --search twilio");
+      expect(out).toContain("credentials list --search twilio");
     });
 
-    test("credential set --help contains Arguments: and Examples: sections", async () => {
+    test("credentials set --help contains Arguments: and Examples: sections", async () => {
       const result = await runCli(["set", "--help"]);
       const out = result.stdout;
       expect(out).toContain("Arguments:");
       expect(out).toContain("Examples:");
     });
 
-    test("credential inspect --help mentions UUID support", async () => {
+    test("credentials inspect --help mentions UUID support", async () => {
       const result = await runCli(["inspect", "--help"]);
       const out = result.stdout;
       expect(out).toContain("UUID");
     });
 
-    test("credential reveal --help mentions not yet implemented and points to inspect", async () => {
+    test("credentials reveal --help mentions piping and examples", async () => {
       const result = await runCli(["reveal", "--help"]);
       const out = result.stdout;
-      expect(out).toContain("inspect");
-      // Check for "not yet implemented" or related wording
-      const lowerOut = out.toLowerCase();
-      expect(
-        lowerOut.includes("not yet implemented") ||
-          lowerOut.includes("reserved for future use") ||
-          lowerOut.includes("currently disabled"),
-      ).toBe(true);
+      expect(out).toContain("stdout");
+      expect(out).toContain("Examples:");
     });
   });
 });

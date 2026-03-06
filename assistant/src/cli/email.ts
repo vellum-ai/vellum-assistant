@@ -117,6 +117,17 @@ Examples:
   provider
     .command("get")
     .description("Show the active email provider")
+    .addHelpText(
+      "after",
+      `
+Returns the name of the currently active email provider (e.g. agentmail,
+resend). Use this to confirm which backend is handling email operations
+before making changes.
+
+Examples:
+  $ vellum email provider get
+  $ vellum email provider get --json`,
+    )
     .action((_opts: unknown, cmd: Command) => {
       output({ ok: true, provider: svc.getProviderName() }, getJson(cmd));
     });
@@ -136,8 +147,7 @@ Persists the provider selection to config. All subsequent email commands
 (setup, inbox, draft, guardrails) will route through the selected provider.
 
 Examples:
-  $ vellum email provider set agentmail
-  $ vellum email provider set resend`,
+  $ vellum email provider set agentmail`,
     )
     .action((name: string, _opts: unknown, cmd: Command) => {
       if (!SUPPORTED_PROVIDERS.includes(name as SupportedProvider)) {
@@ -383,6 +393,19 @@ Examples:
   inbox
     .command("list")
     .description("List all inboxes")
+    .addHelpText(
+      "after",
+      `
+Lists all inboxes configured on the active email provider. Each inbox
+entry includes its address, display name, and inbox ID.
+
+Use this to verify which inboxes are available before creating drafts or
+configuring inbound webhooks.
+
+Examples:
+  $ vellum email inbox list
+  $ vellum email inbox list --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const inboxes = await svc.listInboxes();
@@ -469,6 +492,23 @@ Examples:
       "--status <status>",
       "Filter by status (pending|approved|sent|rejected)",
     )
+    .addHelpText(
+      "after",
+      `
+Lists all email drafts, optionally filtered by status. Returns an array
+of draft objects with their IDs, recipients, subjects, and current status.
+
+Use --status to narrow results to a specific lifecycle stage:
+  pending   — created but not yet approved or rejected
+  approved  — approved and queued for sending
+  sent      — successfully delivered
+  rejected  — explicitly rejected via "draft reject"
+
+Examples:
+  $ vellum email draft list
+  $ vellum email draft list --status pending
+  $ vellum email draft list --status sent --json`,
+    )
     .action(async (opts: { status?: string }, cmd: Command) => {
       await run(cmd, async () => {
         const drafts = await svc.listDrafts(opts.status);
@@ -480,6 +520,21 @@ Examples:
     .command("get <draftId>")
     .description("Get a draft by ID")
     .option("--inbox <id>", "Inbox ID (for multi-inbox setups)")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  draftId   The ID of the draft to retrieve (e.g. d_abc123)
+
+Returns the full draft object including sender, recipient, subject, body,
+status, and timestamps. Use --inbox to scope the lookup in multi-inbox
+setups.
+
+Examples:
+  $ vellum email draft get d_abc123
+  $ vellum email draft get d_abc123 --inbox inbox_456
+  $ vellum email draft get d_abc123 --json`,
+    )
     .action(async (draftId: string, opts: { inbox?: string }, cmd: Command) => {
       await run(cmd, async () => {
         const d = await svc.getDraft(draftId, opts.inbox);
@@ -538,6 +593,20 @@ Examples:
     .requiredOption("--draft-id <id>", "Draft ID to reject")
     .option("--inbox <id>", "Inbox ID (for multi-inbox setups)")
     .option("--reason <text>", "Reason for rejection")
+    .addHelpText(
+      "after",
+      `
+Marks a pending draft as rejected so it will not be sent. Optionally
+include a --reason to record why the draft was rejected.
+
+Rejected drafts remain in the system for audit purposes but cannot be
+approved or sent. Use "draft list --status rejected" to view them.
+
+Examples:
+  $ vellum email draft reject --draft-id d_abc123
+  $ vellum email draft reject --draft-id d_abc123 --reason "Wrong recipient"
+  $ vellum email draft reject --draft-id d_abc123 --inbox inbox_456`,
+    )
     .action(
       async (
         opts: { draftId: string; inbox?: string; reason?: string },
@@ -554,6 +623,20 @@ Examples:
     .command("delete <draftId>")
     .description("Delete a draft")
     .option("--inbox <id>", "Inbox ID (for multi-inbox setups)")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  draftId   The ID of the draft to delete (e.g. d_abc123)
+
+Permanently removes a draft from the system. Unlike "reject", deleted
+drafts cannot be recovered or audited. Use --inbox to scope the deletion
+in multi-inbox setups.
+
+Examples:
+  $ vellum email draft delete d_abc123
+  $ vellum email draft delete d_abc123 --inbox inbox_456`,
+    )
     .action(async (draftId: string, opts: { inbox?: string }, cmd: Command) => {
       await run(cmd, async () => {
         await svc.deleteDraft(draftId, opts.inbox);
@@ -566,11 +649,39 @@ Examples:
   // =========================================================================
   const inbound = email.command("inbound").description("View inbound messages");
 
+  inbound.addHelpText(
+    "after",
+    `
+View messages received by your inboxes. Inbound messages are emails sent
+to your configured inbox addresses by external senders.
+
+Use "inbound list" to browse received messages and "inbound get" to
+retrieve the full content of a specific message.
+
+Examples:
+  $ vellum email inbound list
+  $ vellum email inbound list --thread-id thr_abc123
+  $ vellum email inbound get msg_def456`,
+  );
+
   inbound
     .command("list")
     .description("List inbound messages")
     .option("--thread-id <id>", "Filter by thread ID")
     .option("--inbox <id>", "Inbox ID (for multi-inbox setups)")
+    .addHelpText(
+      "after",
+      `
+Lists inbound messages received by your inboxes. Optionally filter by
+thread ID to see only messages belonging to a specific conversation, or
+by inbox ID to scope to a particular inbox.
+
+Examples:
+  $ vellum email inbound list
+  $ vellum email inbound list --thread-id thr_abc123
+  $ vellum email inbound list --inbox inbox_456
+  $ vellum email inbound list --json`,
+    )
     .action(
       async (opts: { threadId?: string; inbox?: string }, cmd: Command) => {
         await run(cmd, async () => {
@@ -583,6 +694,19 @@ Examples:
   inbound
     .command("get <messageId>")
     .description("Get a specific inbound message")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  messageId   The ID of the inbound message to retrieve (e.g. msg_abc123)
+
+Returns the full inbound message including sender, recipients, subject,
+body, headers, and timestamps.
+
+Examples:
+  $ vellum email inbound get msg_abc123
+  $ vellum email inbound get msg_abc123 --json`,
+    )
     .action(async (messageId: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const message = await svc.getMessage(messageId);
@@ -595,9 +719,33 @@ Examples:
   // =========================================================================
   const thread = email.command("thread").description("View email threads");
 
+  thread.addHelpText(
+    "after",
+    `
+Threads group related emails (original message and replies) into a single
+conversation. Each thread has a unique ID and contains one or more messages.
+
+Use "thread list" to browse all threads and "thread get" to retrieve
+the full conversation history for a specific thread.
+
+Examples:
+  $ vellum email thread list
+  $ vellum email thread get thr_abc123`,
+  );
+
   thread
     .command("list")
     .description("List threads")
+    .addHelpText(
+      "after",
+      `
+Lists all email threads. Each thread entry includes its ID, subject,
+participant addresses, message count, and timestamps.
+
+Examples:
+  $ vellum email thread list
+  $ vellum email thread list --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const threads = await svc.listThreads();
@@ -608,6 +756,19 @@ Examples:
   thread
     .command("get <threadId>")
     .description("Get a specific thread")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  threadId   The ID of the thread to retrieve (e.g. thr_abc123)
+
+Returns the full thread including all messages (inbound and outbound),
+participants, subject, and timestamps. Messages are ordered chronologically.
+
+Examples:
+  $ vellum email thread get thr_abc123
+  $ vellum email thread get thr_abc123 --json`,
+    )
     .action(async (threadId: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const t = await svc.getThread(threadId);
@@ -645,6 +806,18 @@ Examples:
   guardrails
     .command("get")
     .description("Show current guardrail settings")
+    .addHelpText(
+      "after",
+      `
+Returns the current guardrail configuration: outbound pause state,
+daily send cap, today's send count, and a summary of address rules.
+
+Use this to verify guardrail settings before sending emails.
+
+Examples:
+  $ vellum email guardrails get
+  $ vellum email guardrails get --json`,
+    )
     .action((_opts: unknown, cmd: Command) => {
       output({ ok: true, ...svc.getGuardrails() }, getJson(cmd));
     });
@@ -663,7 +836,7 @@ value unchanged.
   --paused true/false   Enable or disable the outbound pause. When paused,
                         all "approve-send" calls are blocked with exit code 2.
   --daily-cap <n>       Set the maximum number of emails that can be sent per
-                        calendar day. Set to 0 to remove the cap.
+                        calendar day. Set to 0 to disable sending entirely.
 
 Examples:
   $ vellum email guardrails set --paused true
@@ -713,6 +886,21 @@ Examples:
   guardrails
     .command("allow <pattern>")
     .description("Allow addresses matching pattern")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  pattern   Glob pattern matching email addresses to allow. Supports * as
+            wildcard. Examples: "*@partner.com", "vip@*", "*@*.trusted.com"
+
+Creates an allow rule. Addresses matching this pattern will pass the
+address-rule guardrail check during "approve-send". Note that block rules
+take precedence over allow rules for the same address.
+
+Examples:
+  $ vellum email guardrails allow "*@partner.com"
+  $ vellum email guardrails allow "vip@example.com"`,
+    )
     .action((pattern: string, _opts: unknown, cmd: Command) => {
       const rule = svc.addRule("allow", pattern);
       output({ ok: true, rule }, getJson(cmd));
@@ -721,6 +909,18 @@ Examples:
   guardrails
     .command("rules")
     .description("List all address rules")
+    .addHelpText(
+      "after",
+      `
+Lists all configured address rules (both block and allow). Each rule
+entry includes its ID, type (block or allow), and the glob pattern.
+
+Use the rule ID with "guardrails unrule" to remove a specific rule.
+
+Examples:
+  $ vellum email guardrails rules
+  $ vellum email guardrails rules --json`,
+    )
     .action((_opts: unknown, cmd: Command) => {
       output({ ok: true, rules: svc.listAddressRules() }, getJson(cmd));
     });

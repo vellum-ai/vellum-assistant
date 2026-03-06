@@ -51,7 +51,11 @@ struct ContactsContainerView: View {
                 ContactDetailView(
                     contact: contact,
                     daemonClient: daemonClient,
-                    store: store
+                    store: store,
+                    onDelete: {
+                        selectedContactId = nil
+                        viewModel.loadContacts()
+                    }
                 )
                 .id(contactId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

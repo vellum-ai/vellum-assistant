@@ -166,6 +166,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "home-base-ui", scopes: ["settings.read"] },
   { endpoint: "contacts", scopes: ["settings.read"] },
   { endpoint: "contacts:POST", scopes: ["settings.write"] },
+  { endpoint: "contacts:DELETE", scopes: ["settings.write"] },
   { endpoint: "contacts/merge", scopes: ["settings.write"] },
   { endpoint: "contacts:GET", scopes: ["settings.read"] },
   { endpoint: "contact-channels", scopes: ["settings.write"] },

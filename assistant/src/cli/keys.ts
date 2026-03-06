@@ -103,6 +103,9 @@ Examples:
       const result = deleteSecureKey(provider);
       if (result === "deleted") {
         log.info(`Deleted API key for "${provider}"`);
+      } else if (result === "error") {
+        log.error(`Failed to delete API key for "${provider}": storage error`);
+        process.exit(1);
       } else {
         log.error(`No API key found for "${provider}"`);
         process.exit(1);

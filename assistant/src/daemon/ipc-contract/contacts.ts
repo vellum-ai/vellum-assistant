@@ -1,11 +1,11 @@
-// Contact management: list, get, and update channel status.
+// Contact management: list, get, update channel status, and delete.
 
 // === Client → Server ===
 
 export interface ContactsRequest {
   type: "contacts";
-  action: "list" | "get" | "update_channel";
-  /** Contact ID (get only). */
+  action: "list" | "get" | "update_channel" | "delete";
+  /** Contact ID (get and delete). */
   contactId?: string;
   /** Channel ID (update_channel only). */
   channelId?: string;

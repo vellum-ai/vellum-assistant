@@ -376,7 +376,7 @@ Examples:
     "after",
     `
 Covers SMS regulatory compliance for the configured Twilio account. All
-subcommands require the daemon to be running since they query the gateway API.
+subcommands require the assistant to be running since they query the gateway API.
 
 Subcommands:
   compliance   Check SMS regulatory compliance status
