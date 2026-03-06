@@ -258,6 +258,10 @@ export function createToolExecutor(
           undefined,
           ctx.conversationId,
           req.executionTarget,
+          undefined,
+          undefined,
+          undefined,
+          toolUseId,
         );
         if (
           (response.decision === "always_allow" ||
