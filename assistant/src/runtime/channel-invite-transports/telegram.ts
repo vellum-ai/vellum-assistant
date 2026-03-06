@@ -10,7 +10,12 @@
  */
 
 import type { ChannelId } from "../../channels/types.js";
-import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
+import { getSecureKey } from "../../security/secure-keys.js";
+import {
+  getCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
+import { getLogger } from "../../util/logger.js";
 import type {
   ChannelInviteAdapter,
   InviteShareLink,
@@ -35,6 +40,57 @@ function getTelegramBotUsername(): string | undefined {
     return meta.accountInfo.trim();
   }
   return process.env.TELEGRAM_BOT_USERNAME || undefined;
+}
+
+/**
+ * Ensure the Telegram bot username is resolved and cached in credential
+ * metadata. When the bot token was configured via CLI `credential set`,
+ * `credential_store` tool, or ingress secret redirect, the `getMe` API
+ * call that populates `accountInfo` is skipped — this function fills that
+ * gap so that invite share links can be generated.
+ */
+export async function ensureTelegramBotUsernameResolved(): Promise<void> {
+  const meta = getCredentialMetadata("telegram", "bot_token");
+  if (
+    meta?.accountInfo &&
+    typeof meta.accountInfo === "string" &&
+    meta.accountInfo.trim().length > 0
+  ) {
+    return; // Username already cached
+  }
+
+  const token = getSecureKey("credential:telegram:bot_token");
+  if (!token) return;
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+    if (!res.ok) {
+      getLogger("telegram-invite").warn(
+        "Failed to resolve Telegram bot username: HTTP %d",
+        res.status,
+      );
+      return;
+    }
+    const body = (await res.json()) as {
+      ok: boolean;
+      result?: { username?: string };
+    };
+    const username = body.result?.username;
+    if (!username) {
+      getLogger("telegram-invite").warn(
+        "Telegram getMe response did not include a username",
+      );
+      return;
+    }
+    upsertCredentialMetadata("telegram", "bot_token", {
+      accountInfo: username,
+    });
+  } catch (err) {
+    getLogger("telegram-invite").warn(
+      { err },
+      "Failed to resolve Telegram bot username via getMe API",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
