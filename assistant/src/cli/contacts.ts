@@ -2,10 +2,12 @@ import type { Command } from "commander";
 
 import {
   getAssistantContactMetadata,
+  getChannelById,
   getContact,
   listContacts,
   mergeContacts,
   searchContacts,
+  updateChannelStatus,
   upsertContact,
 } from "../contacts/contact-store.js";
 import type {
@@ -53,6 +55,14 @@ Examples:
     .option("--role <role>", "Filter by role (default: contact)", "contact")
     .option("--limit <limit>", "Maximum number of contacts to return")
     .option("--query <query>", "Search query to filter contacts")
+    .option(
+      "--channel-address <address>",
+      "Search by channel address (email, phone, handle)",
+    )
+    .option(
+      "--channel-type <channelType>",
+      "Filter by channel type (email, telegram, sms, voice, whatsapp, slack)",
+    )
     .addHelpText(
       "after",
       `
@@ -60,14 +70,20 @@ Lists contacts with optional filtering. The --role flag accepts: contact
 or guardian (defaults to contact). The --limit flag sets
 the maximum number of results (defaults to 50).
 
-When --query is provided, a full-text search is performed across contact
-names and linked external identifiers (phone numbers, emails, Telegram
-usernames). Without --query, returns all contacts matching the role filter.
+When --query, --channel-address, or --channel-type is provided, a search
+is performed. --query does full-text search across contact names and
+linked external identifiers. --channel-address matches phone numbers,
+emails, or handles. --channel-type filters by channel kind. These filters
+can be combined. Without any search params, returns all contacts matching
+the role filter.
 
 Examples:
   $ assistant contacts list
   $ assistant contacts list --role guardian
   $ assistant contacts list --query "john" --limit 10
+  $ assistant contacts list --channel-address "+15551234567"
+  $ assistant contacts list --channel-type telegram
+  $ assistant contacts list --query "alice" --channel-type email
   $ assistant contacts list --role guardian --json`,
     )
     .action(
@@ -76,6 +92,8 @@ Examples:
           role?: string;
           limit?: string;
           query?: string;
+          channelAddress?: string;
+          channelType?: string;
         },
         cmd: Command,
       ) => {
@@ -86,8 +104,16 @@ Examples:
 
           const effectiveLimit = limit ?? 50;
 
-          const results = opts.query
-            ? searchContacts({ query: opts.query, role, limit: effectiveLimit })
+          const hasSearchParams =
+            opts.query || opts.channelAddress || opts.channelType;
+          const results = hasSearchParams
+            ? searchContacts({
+                query: opts.query,
+                channelAddress: opts.channelAddress,
+                channelType: opts.channelType,
+                role,
+                limit: effectiveLimit,
+              })
             : listContacts(effectiveLimit, role);
 
           writeOutput(cmd, { ok: true, contacts: results });
@@ -268,6 +294,116 @@ Examples:
           });
 
           writeOutput(cmd, { ok: true, contact: result });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  const channelsCmds = contacts
+    .command("channels")
+    .description("Manage contact channels");
+
+  channelsCmds.addHelpText(
+    "after",
+    `
+Channels represent external communication endpoints linked to contacts —
+phone numbers, Telegram IDs, email addresses, etc. Each channel has a
+status (active, pending, revoked, blocked, unverified) and a policy
+(allow, deny, escalate) that controls how the assistant handles messages
+from that channel.
+
+Examples:
+  $ assistant contacts channels update-status <channelId> --status revoked --reason "No longer needed"
+  $ assistant contacts channels update-status <channelId> --policy deny`,
+  );
+
+  channelsCmds
+    .command("update-status <channelId>")
+    .description("Update a channel's status or policy")
+    .option(
+      "--status <status>",
+      "New channel status: active, revoked, or blocked",
+    )
+    .option("--policy <policy>", "New channel policy: allow, deny, or escalate")
+    .option("--reason <reason>", "Reason for the status change")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  channelId   UUID of the contact channel to update
+
+Updates the access-control fields on an existing channel. At least one of
+--status or --policy must be provided.
+
+When --status is "revoked", --reason is mapped to revokedReason on the
+channel record. When --status is "blocked", --reason is mapped to
+blockedReason. The --reason flag is ignored for other status values.
+
+Valid --status values: active, revoked, blocked
+Valid --policy values: allow, deny, escalate
+
+Examples:
+  $ assistant contacts channels update-status abc-123 --status revoked --reason "No longer needed" --json
+  $ assistant contacts channels update-status abc-123 --status blocked --reason "Spam" --json
+  $ assistant contacts channels update-status abc-123 --policy deny --json
+  $ assistant contacts channels update-status abc-123 --status active --policy allow --json`,
+    )
+    .action(
+      async (
+        channelId: string,
+        opts: {
+          status?: string;
+          policy?: string;
+          reason?: string;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          if (!opts.status && !opts.policy) {
+            writeOutput(cmd, {
+              ok: false,
+              error: "At least one of --status or --policy must be provided",
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          initializeDb();
+
+          const existing = getChannelById(channelId);
+          if (!existing) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Channel not found: ${channelId}`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          const status = opts.status as ChannelStatus | undefined;
+          const policy = opts.policy as ChannelPolicy | undefined;
+
+          let revokedReason: string | null | undefined;
+          let blockedReason: string | null | undefined;
+          if (opts.reason) {
+            if (status === "revoked") {
+              revokedReason = opts.reason;
+            } else if (status === "blocked") {
+              blockedReason = opts.reason;
+            }
+          }
+
+          const result = updateChannelStatus(channelId, {
+            status,
+            policy,
+            revokedReason,
+            blockedReason,
+          });
+
+          writeOutput(cmd, { ok: true, channel: result });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeOutput(cmd, { ok: false, error: message });
