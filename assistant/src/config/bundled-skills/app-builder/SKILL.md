@@ -134,7 +134,7 @@ useEffect(() => {
 
 **File workflow:** Use `app_file_write` for each source file. The build happens automatically when you call `app_open`.
 
-**Allowed third-party packages:** `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`, `lucide`. Import them directly — esbuild resolves them at build time. No CDN imports.
+**Allowed third-party packages:** `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`, `lucide`. Import them directly — esbuild resolves them at build time. No CDN imports. Note: `lucide` is the vanilla JS icon library (not `lucide-react`). Use its `createElement` or `createIcons` API, or manually inline SVG — do not import JSX icon components.
 
 **Example — creating a multi-file project:**
 
@@ -143,7 +143,7 @@ app_file_write(app_id, "src/index.html", `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Project Tracker</title></head>
-<body><div id="app"></div><script type="module" src="./main.js"></script></body>
+<body><div id="app"></div></body>
 </html>`)
 
 app_file_write(app_id, "src/main.tsx", `import { render } from 'preact';
