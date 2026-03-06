@@ -6,7 +6,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, existsSync, readFileSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -14,7 +14,7 @@ import { extname, join } from "node:path";
 import archiver from "archiver";
 import JSZip from "jszip";
 
-import { getApp } from "../memory/app-store.js";
+import { getApp, getAppsDir } from "../memory/app-store.js";
 import { computeContentId } from "../util/content-id.js";
 import { getLogger } from "../util/logger.js";
 import type { SigningCallback } from "./bundle-signer.js";
@@ -172,6 +172,8 @@ export async function materializeAssets(
 export interface BundleResult {
   bundlePath: string;
   manifest: AppManifest;
+  /** Base64-encoded PNG of the app icon, if one was generated. */
+  iconImageBase64?: string;
 }
 
 /**
@@ -278,6 +280,12 @@ export async function packageApp(
       archive.append(asset.data, { name: asset.archivePath });
     }
 
+    // Include app icon if one was generated
+    const iconPath = join(getAppsDir(), appId, "icon.png");
+    if (existsSync(iconPath)) {
+      archive.append(readFileSync(iconPath), { name: "icon.png" });
+    }
+
     archive.finalize();
   });
 
@@ -319,5 +327,12 @@ export async function packageApp(
     );
   }
 
-  return { bundlePath, manifest };
+  // Read icon for inclusion in the response
+  let iconImageBase64: string | undefined;
+  const iconFilePath = join(getAppsDir(), appId, "icon.png");
+  if (existsSync(iconFilePath)) {
+    iconImageBase64 = readFileSync(iconFilePath).toString("base64");
+  }
+
+  return { bundlePath, manifest, iconImageBase64 };
 }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -121,7 +122,9 @@ extension MainWindowView {
             let previousHandler = daemonClient.onBundleAppResponse
             daemonClient.onBundleAppResponse = { response in
                 daemonClient.onBundleAppResponse = previousHandler
-                sharing.shareFileURL = Self.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
+                let url = Self.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
+                Self.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+                sharing.shareFileURL = url
                 sharing.isBundling = false
                 sharing.showSharePicker = true
             }
@@ -152,6 +155,62 @@ extension MainWindowView {
             return cleanURL
         } catch {
             return originalURL
+        }
+    }
+
+    /// Sets a custom icon on the file so the share sheet shows it instead of a blank document.
+    /// Prefers the AI-generated icon (base64 PNG), falls back to rendering the emoji or app initial.
+    static func applyFileIcon(to url: URL, iconBase64: String?, emojiIcon: String?, appName: String) {
+        if let base64 = iconBase64,
+           let data = Data(base64Encoded: base64),
+           let image = NSImage(data: data) {
+            NSWorkspace.shared.setIcon(image, forFile: url.path, options: [])
+            return
+        }
+
+        // Fallback: render the emoji or first letter as an icon
+        let glyph = (emojiIcon.flatMap { $0.isEmpty ? nil : $0 })
+            ?? String(appName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
+        if !glyph.isEmpty {
+            let image = renderEmojiIcon(emoji: glyph, size: 512)
+            NSWorkspace.shared.setIcon(image, forFile: url.path, options: [])
+        }
+    }
+
+    /// Renders a glyph (emoji or letter) as a square icon image with a gradient background.
+    /// Uses NSImage(size:flipped:drawingHandler:) to avoid deprecated lockFocus on macOS 14+.
+    private static func renderEmojiIcon(emoji: String, size: CGFloat) -> NSImage {
+        return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            let cornerRadius = size * 0.22
+            let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+
+            // Gradient background — use a stable hash for consistent colors per glyph
+            var hasher = Hasher()
+            hasher.combine(emoji)
+            let hash = abs(hasher.finalize())
+            let hue = CGFloat(hash % 360) / 360.0
+            let topColor = NSColor(hue: hue, saturation: 0.6, brightness: 0.85, alpha: 1.0)
+            let bottomColor = NSColor(
+                hue: (hue + 0.08).truncatingRemainder(dividingBy: 1.0),
+                saturation: 0.7, brightness: 0.65, alpha: 1.0
+            )
+            if let gradient = NSGradient(starting: topColor, ending: bottomColor) {
+                gradient.draw(in: path, angle: -90)
+            }
+
+            // Draw the glyph centered
+            let fontSize = size * 0.55
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: fontSize),
+            ]
+            let emojiString = NSAttributedString(string: emoji, attributes: attributes)
+            let emojiSize = emojiString.size()
+            let origin = NSPoint(
+                x: (size - emojiSize.width) / 2,
+                y: (size - emojiSize.height) / 2
+            )
+            emojiString.draw(at: origin)
+            return true
         }
     }
 }

@@ -584,11 +584,14 @@ public struct IPCBundleAppRequest: Codable, Sendable {
 public struct IPCBundleAppResponse: Codable, Sendable {
     public let type: String
     public let bundlePath: String
+    /// Base64-encoded PNG of the generated app icon, if available.
+    public let iconImageBase64: String?
     public let manifest: IPCBundleAppResponseManifest
 
-    public init(type: String, bundlePath: String, manifest: IPCBundleAppResponseManifest) {
+    public init(type: String, bundlePath: String, iconImageBase64: String? = nil, manifest: IPCBundleAppResponseManifest) {
         self.type = type
         self.bundlePath = bundlePath
+        self.iconImageBase64 = iconImageBase64
         self.manifest = manifest
     }
 }

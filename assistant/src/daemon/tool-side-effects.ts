@@ -9,13 +9,17 @@
 
 import { join } from "node:path";
 
+import { generateAppIcon } from "../media/app-icon-generator.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
 import type { ServerMessage } from "./ipc-protocol.js";
 import { refreshSurfacesForApp } from "./session-surfaces.js";
 import type { ToolSetupContext } from "./session-tool-setup.js";
+
+const log = getLogger("tool-side-effects");
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -65,16 +69,50 @@ function registerHook(
 
 // Broadcast app_files_changed when a new app is created so clients
 // (e.g. macOS "Things" sidebar) refresh their app list immediately.
+// Also kicks off async icon generation via Gemini.
 registerHook(
   "app_create",
   (_name, _input, result, { ctx, broadcastToAllClients }) => {
     try {
-      const parsed = JSON.parse(result.content) as { id?: string };
+      const parsed = JSON.parse(result.content) as {
+        id?: string;
+        name?: string;
+        description?: string;
+      };
       if (parsed.id) {
         handleAppChange(ctx, parsed.id, broadcastToAllClients);
+
+        // Fire-and-forget: generate an app icon in the background.
+        // When complete, broadcast again so clients pick up the new icon.
+        if (parsed.name) {
+          void generateAppIcon(parsed.id, parsed.name, parsed.description)
+            .then(() => {
+              broadcastToAllClients?.({
+                type: "app_files_changed",
+                appId: parsed.id!,
+              });
+            })
+            .catch((err) => {
+              log.warn(
+                { err, appId: parsed.id },
+                "Background icon generation failed",
+              );
+            });
+        }
       }
     } catch {
       // Result wasn't valid JSON — skip the broadcast.
+    }
+  },
+);
+
+// Broadcast app_files_changed when an icon is (re)generated so clients refresh.
+registerHook(
+  "app_generate_icon",
+  (_name, input, _result, { broadcastToAllClients }) => {
+    const appId = input.app_id as string | undefined;
+    if (appId) {
+      broadcastToAllClients?.({ type: "app_files_changed", appId });
     }
   },
 );

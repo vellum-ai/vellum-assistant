@@ -559,6 +559,7 @@ export async function handleBundleApp(
     ctx.send(socket, {
       type: "bundle_app_response",
       bundlePath: result.bundlePath,
+      iconImageBase64: result.iconImageBase64,
       manifest: result.manifest,
     });
   } catch (err) {

@@ -9,6 +9,7 @@
  */
 
 import { setHomeBaseAppLink } from "../../home-base/app-link-store.js";
+import { generateAppIcon } from "../../media/app-icon-generator.js";
 import type { AppDefinition } from "../../memory/app-store.js";
 import type { EditEngineResult } from "../../memory/app-store.js";
 
@@ -40,6 +41,7 @@ export interface AppStoreWriter {
   createApp(params: {
     name: string;
     description?: string;
+    icon?: string;
     schemaJson: string;
     htmlDefinition: string;
     pages?: Record<string, string>;
@@ -139,9 +141,13 @@ export async function executeAppCreate(
     }
   }
 
+  // Extract icon from preview if provided (emoji or URL)
+  const icon = preview?.icon as string | undefined;
+
   const app = store.createApp({
     name,
     description,
+    icon,
     schemaJson,
     htmlDefinition,
     pages,
@@ -403,5 +409,57 @@ export function executeAppFileWrite(
     content: JSON.stringify({ written: true, path: input.path }),
     isError: false,
     status: input.status,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// app_generate_icon
+// ---------------------------------------------------------------------------
+
+export interface AppGenerateIconInput {
+  app_id: string;
+  description?: string;
+}
+
+export async function executeAppGenerateIcon(
+  input: AppGenerateIconInput,
+  store: AppStoreReader,
+): Promise<ExecutorResult> {
+  const app = store.getApp(input.app_id);
+  if (!app) {
+    return {
+      content: JSON.stringify({ error: `App '${input.app_id}' not found` }),
+      isError: true,
+    };
+  }
+
+  // Remove existing icon so generateAppIcon doesn't skip
+  const { existsSync, unlinkSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { getAppsDir } = await import("../../memory/app-store.js");
+  const iconPath = join(getAppsDir(), input.app_id, "icon.png");
+  if (existsSync(iconPath)) {
+    unlinkSync(iconPath);
+  }
+
+  await generateAppIcon(
+    input.app_id,
+    app.name,
+    input.description ?? app.description,
+  );
+
+  if (existsSync(iconPath)) {
+    return {
+      content: JSON.stringify({ generated: true, appId: input.app_id }),
+      isError: false,
+    };
+  }
+
+  return {
+    content: JSON.stringify({
+      error:
+        "Icon generation failed. Make sure a Gemini API key is configured in Settings.",
+    }),
+    isError: true,
   };
 }

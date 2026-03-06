@@ -286,7 +286,9 @@ struct AppsGridView: View {
         let previousHandler = daemonClient.onBundleAppResponse
         daemonClient.onBundleAppResponse = { response in
             daemonClient.onBundleAppResponse = previousHandler
-            shareFileURL = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
+            let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
+            MainWindowView.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+            shareFileURL = url
             isBundling = false
             showShareSheet = true
         }

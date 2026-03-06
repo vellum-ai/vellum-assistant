@@ -20,6 +20,7 @@ import * as appFileEdit from "./bundled-skills/app-builder/tools/app-file-edit.j
 import * as appFileList from "./bundled-skills/app-builder/tools/app-file-list.js";
 import * as appFileRead from "./bundled-skills/app-builder/tools/app-file-read.js";
 import * as appFileWrite from "./bundled-skills/app-builder/tools/app-file-write.js";
+import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
 import * as appList from "./bundled-skills/app-builder/tools/app-list.js";
 import * as appQuery from "./bundled-skills/app-builder/tools/app-query.js";
 import * as appUpdate from "./bundled-skills/app-builder/tools/app-update.js";
@@ -190,6 +191,7 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["app-builder:tools/app-file-read.ts", appFileRead],
   ["app-builder:tools/app-file-edit.ts", appFileEdit],
   ["app-builder:tools/app-file-write.ts", appFileWrite],
+  ["app-builder:tools/app-generate-icon.ts", appGenerateIcon],
 
   // browser
   ["browser:tools/browser-navigate.ts", browserNavigate],
