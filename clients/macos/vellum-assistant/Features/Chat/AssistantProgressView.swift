@@ -12,7 +12,6 @@ private enum ProgressPhase: Equatable {
     case toolsCompleteThinking
     case processing
     case complete
-    case error
     case denied
 }
 
@@ -31,38 +30,21 @@ struct AssistantProgressView: View {
     let decidedConfirmations: [ToolConfirmationData]
     var onRehydrate: (() -> Void)?
 
+    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
     @State private var processingStartDate: Date?
 
     // MARK: - Derived State
 
-    /// Whether the permission was denied or timed out, meaning incomplete tools were blocked.
-    /// Checks both live confirmation (during streaming) and persisted per-tool-call data
-    /// (after history restore).
-    private var permissionWasDenied: Bool {
-        decidedConfirmations.contains { $0.state == .denied || $0.state == .timedOut }
-            || toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
-    }
-
     private var phase: ProgressPhase {
         let allComplete = !toolCalls.isEmpty && toolCalls.allSatisfy(\.isComplete)
         let hasTools = !toolCalls.isEmpty
         let hasIncompleteTools = hasTools && !allComplete
 
-        // Only enter error phase when ALL tools are done, at least one errored,
-        // the model hasn't already produced a text response (i.e. it recovered),
-        // the model is no longer streaming (it may still recover with text or new tools),
-        // and not still processing (composing a response after tools).
-        // While tools are still running, individual errors show as failed steps in the
-        // expanded list without changing the overall phase.
-        if allComplete && toolCalls.contains(where: { $0.isError }) && !hasText && !isStreaming && !isProcessing {
-            return .error
-        }
-
         // If confirmation was denied/timed out and tools are incomplete, those tools
         // will never finish — show the denied state instead of an indefinite spinner.
-        if permissionWasDenied && hasIncompleteTools {
+        if hasDeniedTools && hasIncompleteTools {
             return .denied
         }
 
@@ -78,7 +60,7 @@ struct AssistantProgressView: View {
 
         // All tools done but message still streaming with no text yet — more tools
         // may come. Show active "Thinking" state rather than premature "Completed N steps".
-        // Once text appears, fall through to .complete (which shows warning icon if errors).
+        // Once text appears, fall through to .complete (which shows warning icon if denied).
         if allComplete && isStreaming && !hasText {
             return .toolsCompleteThinking
         }
@@ -90,7 +72,7 @@ struct AssistantProgressView: View {
 
         // All done — either message finished (!isStreaming && !isProcessing) or
         // text is already visible while streaming (user can see the response).
-        // Uses warning icon + "Completed with N errors" if any tools failed.
+        // Uses warning icon + "Completed with N blocked permission(s)" if any tools were denied.
         if allComplete && (!isStreaming || hasText) && !isProcessing {
             return .complete
         }
@@ -111,20 +93,24 @@ struct AssistantProgressView: View {
         toolCalls.filter(\.isComplete).count
     }
 
-    private var hasAnyErrors: Bool {
-        toolCalls.contains(where: { $0.isError })
+    /// Single source of truth for denied state — used for both `.denied` phase gating
+    /// and `.complete` warning styling/copy. Checks live confirmations and persisted per-tool data.
+    private var hasDeniedTools: Bool {
+        decidedConfirmations.contains { $0.state == .denied || $0.state == .timedOut }
+            || toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
     }
 
-    private var isAllAppTools: Bool {
-        let appToolNames: Set<String> = ["app_create", "app_update", "app_file_edit", "app_file_write"]
-        return !toolCalls.isEmpty && toolCalls.allSatisfy { appToolNames.contains($0.toolName) }
+    /// Count of denied/timed-out tool calls. Counted exclusively from `toolCalls` (not
+    /// `decidedConfirmations`) because only tool calls carry a `toolUseId` for dedup.
+    private var deniedCount: Int {
+        toolCalls.filter { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }.count
     }
 
     private var isActive: Bool {
         switch phase {
         case .thinking, .toolRunning, .streamingCode, .toolsCompleteThinking, .processing:
             return true
-        case .complete, .error, .denied:
+        case .complete, .denied:
             return false
         }
     }
@@ -154,16 +140,17 @@ struct AssistantProgressView: View {
         case .processing:
             return ChatBubble.friendlyProcessingLabel(processingStatusText)
         case .complete:
-            if hasAnyErrors {
-                let errorCount = toolCalls.filter(\.isError).count
-                return "Completed with \(errorCount) error\(errorCount == 1 ? "" : "s")"
+            if hasDeniedTools {
+                if deniedCount > 0 {
+                    return "Completed with \(deniedCount) blocked permission\(deniedCount == 1 ? "" : "s")"
+                }
+                return "Completed with blocked permissions"
             }
-            if isAllAppTools {
-                return "Built your app"
+            // Use the last tool call's reason as a summary of what was done
+            if let lastReason = toolCalls.last(where: { $0.reasonDescription != nil && !$0.reasonDescription!.isEmpty })?.reasonDescription {
+                return lastReason
             }
             return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")"
-        case .error:
-            return "Something went wrong"
         case .denied:
             let uniqueNames = Array(Set(toolCalls.map(\.toolName))).sorted()
             let primary = uniqueNames.first ?? "Tool"
@@ -216,6 +203,22 @@ struct AssistantProgressView: View {
                 startDate = Date()
             }
         }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded, onRehydrate != nil {
+                // Trigger rehydrate when expanding if any complete tool call
+                // has been stripped (all detail fields cleared by stripHeavyContent).
+                let hasStrippedToolCall = toolCalls.contains { tc in
+                    tc.isComplete
+                        && tc.inputFull.isEmpty
+                        && tc.result == nil
+                        && tc.inputRawDict == nil
+                        && tc.cachedImage == nil
+                }
+                if hasStrippedToolCall {
+                    onRehydrate?()
+                }
+            }
+        }
         .onAppear {
             if phase == .processing && processingStartDate == nil {
                 processingStartDate = Date()
@@ -233,6 +236,7 @@ struct AssistantProgressView: View {
     private var headerRow: some View {
         Button(action: {
             guard hasChevron else { return }
+            suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
             }
@@ -273,15 +277,9 @@ struct AssistantProgressView: View {
         switch phase {
         case .complete:
             statusIconTile(
-                icon: hasAnyErrors ? .triangleAlert : .circleCheck,
-                iconColor: hasAnyErrors ? VColor.warning : VColor.iconAccent,
-                tileColor: hasAnyErrors ? Amber._200 : Forest._200
-            )
-        case .error:
-            statusIconTile(
-                icon: .circleAlert,
-                iconColor: VColor.error,
-                tileColor: Danger._200
+                icon: hasDeniedTools ? .triangleAlert : .circleCheck,
+                iconColor: hasDeniedTools ? VColor.warning : VColor.iconAccent,
+                tileColor: hasDeniedTools ? Amber._200 : Forest._200
             )
         case .denied:
             if decidedConfirmations.contains(where: { $0.state == .timedOut }) {
@@ -476,6 +474,7 @@ private struct StepDetailRow: View {
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
     /// Lazily resolved full input text.
     private var resolvedInputFull: String {
@@ -504,6 +503,7 @@ private struct StepDetailRow: View {
             // Row header
             Button {
                 guard hasDetails else { return }
+                suppressAutoScroll?()
                 withAnimation(VAnimation.fast) { isDetailExpanded.toggle() }
             } label: {
                 HStack(spacing: VSpacing.sm) {
@@ -614,10 +614,10 @@ private struct StepDetailRow: View {
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
             if newValue, cachedInputFull == nil {
-                if let dict = toolCall.inputRawDict {
-                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
-                } else if !toolCall.inputFull.isEmpty {
+                if !toolCall.inputFull.isEmpty {
                     cachedInputFull = toolCall.inputFull
+                } else if let dict = toolCall.inputRawDict {
+                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
                 }
             }
         }
@@ -725,15 +725,10 @@ private struct StepDetailRow: View {
 
                     ZStack(alignment: .topTrailing) {
                         ScrollView {
-                            VStack(alignment: .leading, spacing: 0) {
-                                ForEach(Array(result.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
-                                    Text(line)
-                                        .font(VFont.monoSmall)
-                                        .foregroundColor(diffLineColor(line, result: result, isError: toolCall.isError))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                            }
-                            .textSelection(.enabled)
+                            Text(coloredOutput(result, isError: toolCall.isError))
+                                .font(VFont.monoSmall)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
                         }
                         .frame(maxHeight: 200)
                         .padding(VSpacing.sm)
@@ -793,14 +788,33 @@ private struct StepDetailRow: View {
         )
     }
 
-    private func diffLineColor(_ line: String, result: String, isError: Bool) -> Color {
-        if isError { return VColor.error }
+    private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {
+        let lines = result.components(separatedBy: "\n")
         let isDiff = result.contains("@@") && result.contains("---") && result.contains("+++")
-        guard isDiff else { return VColor.textSecondary }
-        if line.hasPrefix("+") { return Emerald._400 }
-        if line.hasPrefix("-") { return Danger._400 }
-        if line.hasPrefix("@@") { return VColor.textMuted }
-        return VColor.textSecondary
+        var attributed = AttributedString()
+        for (index, line) in lines.enumerated() {
+            var part = AttributedString(line)
+            let color: Color
+            if isError {
+                color = VColor.error
+            } else if !isDiff {
+                color = VColor.textSecondary
+            } else if line.hasPrefix("+") {
+                color = Emerald._400
+            } else if line.hasPrefix("-") {
+                color = Danger._400
+            } else if line.hasPrefix("@@") {
+                color = VColor.textMuted
+            } else {
+                color = VColor.textSecondary
+            }
+            part.foregroundColor = color
+            attributed.append(part)
+            if index < lines.count - 1 {
+                attributed.append(AttributedString("\n"))
+            }
+        }
+        return attributed
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
@@ -934,7 +948,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
     }
 }
 
-#Preview("Error") {
+#Preview("Complete with Errors (no denied)") {
     ZStack {
         VColor.background.ignoresSafeArea()
         AssistantProgressView(

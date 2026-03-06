@@ -144,6 +144,11 @@ final class BundleConfirmationViewModel {
         trustTier == .tampered
     }
 
+    var isInstalling: Bool {
+        if case .installing = installState { return true }
+        return false
+    }
+
     // MARK: - Formatted Size
 
     var formattedSize: String {

@@ -74,6 +74,10 @@ extension ChatBubble {
             leading.backgroundColor = VColor.codeBackground
             result.insert(leading, at: range.lowerBound)
         }
+        // Underline links so they are visually distinct from plain text
+        for run in result.runs where result[run.range].link != nil {
+            result[run.range].underlineStyle = .single
+        }
         if isStreaming {
             lastStreamingInlineMarkdown = (text, result)
             return result
@@ -184,6 +188,10 @@ extension ChatBubble {
             var leading = AttributedString("\u{2009}")
             leading.backgroundColor = inlineCodeBgColor
             parsed.insert(leading, at: range.lowerBound)
+        }
+        // Underline links so they are visually distinct from plain text
+        for run in parsed.runs where parsed[run.range].link != nil {
+            parsed[run.range].underlineStyle = .single
         }
 
         // Highlight slash command token (e.g. /model) in blue

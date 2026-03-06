@@ -386,7 +386,7 @@ struct ComposerView: View {
                     label: "Stop generation",
                     icon: VIcon.square.rawValue,
                     iconOnly: true,
-                    variant: .filled(VColor.textPrimary),
+                    variant: .neutral,
                     size: composerActionButtonSize,
                     action: onStop
                 )
@@ -405,7 +405,7 @@ struct ComposerView: View {
                         label: "Send message",
                         icon: VIcon.arrowUp.rawValue,
                         iconOnly: true,
-                        variant: .filled(VColor.sendButton),
+                        variant: .primary,
                         size: composerActionButtonSize
                     ) {
                         composerFocus = true
@@ -475,7 +475,7 @@ struct ComposerView: View {
                     label: "End voice mode",
                     icon: VIcon.x.rawValue,
                     iconOnly: true,
-                    variant: .filled(VColor.error),
+                    variant: .danger,
                     size: composerActionButtonSize,
                     action: { onEndVoiceMode?() }
                 )

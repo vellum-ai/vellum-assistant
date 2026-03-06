@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -17,8 +18,24 @@ public final class MainWindowState: ObservableObject {
     @AppStorage("isAppChatOpen") private var isAppChatOpen = false
 
     /// The single source of truth for what the main content area displays.
+    let navigationHistory = NavigationHistory()
+
+    /// Forwards `navigationHistory.objectWillChange` so SwiftUI views
+    /// observing this state also update when back/forward stacks change.
+    private var navigationHistoryCancellable: AnyCancellable?
+
+    /// Tracks the last known selection for navigation history recording.
+    /// Captured at the start of `didSet` (before any side effects) to avoid
+    /// relying on `oldValue` or `willSet` with `@Published`, which can
+    /// behave unreliably.
+    private var _lastKnownSelection: ViewSelection?
+
     @Published var selection: ViewSelection? {
         didSet {
+            let previousSelection = _lastKnownSelection
+            _lastKnownSelection = selection
+
+            navigationHistory.recordTransition(from: previousSelection, to: selection, persistentThreadId: persistentThreadId)
             // When navigating to a thread, update the persistent thread tracker.
             // For overlays (app, appEditing, panel) and nil, leave persistentThreadId unchanged.
             if case .thread(let id) = selection {
@@ -79,8 +96,13 @@ public final class MainWindowState: ObservableObject {
         }
     }
 
-    /// Whether the main content area is showing a plain chat conversation
+    /// Whether the main content area is showing a plain, full-window chat
     /// (either an explicit `.thread` selection or `nil` which defaults to chat).
+    ///
+    /// This is **narrower** than ``isConversationVisible``: it excludes panels
+    /// (including the document editor) and app-editing mode, even when those
+    /// layouts contain a chat pane. Use ``isConversationVisible`` when you need
+    /// to know whether *any* conversation UI is on screen.
     var isShowingChat: Bool {
         switch selection {
         case .thread, .none: return true
@@ -140,6 +162,8 @@ public final class MainWindowState: ObservableObject {
     init(hasAPIKey: Bool = APIKeyManager.hasAnyKey()) {
         self.hasAPIKey = hasAPIKey
         self.layoutConfig = LayoutConfigStore.load()
+        self.navigationHistoryCancellable = navigationHistory.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     // MARK: - Selection Helpers
@@ -155,6 +179,52 @@ public final class MainWindowState: ObservableObject {
 
     func select(_ newSelection: ViewSelection) {
         selection = newSelection
+    }
+
+    func navigateBack() {
+        guard let destination = navigationHistory.popBack(
+            currentSelection: selection,
+            persistentThreadId: persistentThreadId
+        ) else { return }
+        navigationHistory.withRecordingSuppressed {
+            switch destination {
+            case .selection(let viewSelection):
+                self.selection = viewSelection
+            case .chatDefault(let threadSnapshot):
+                self.persistentThreadId = threadSnapshot
+                if let threadId = threadSnapshot {
+                    self.selection = .thread(threadId)
+                } else {
+                    self.selection = nil
+                }
+            }
+        }
+    }
+
+    func navigateForward() {
+        guard let destination = navigationHistory.popForward(
+            currentSelection: selection,
+            persistentThreadId: persistentThreadId
+        ) else { return }
+        navigationHistory.withRecordingSuppressed {
+            switch destination {
+            case .selection(let viewSelection):
+                self.selection = viewSelection
+            case .chatDefault(let threadSnapshot):
+                self.persistentThreadId = threadSnapshot
+                if let threadId = threadSnapshot {
+                    self.selection = .thread(threadId)
+                } else {
+                    self.selection = nil
+                }
+            }
+        }
+    }
+
+    func applySelectionCorrection(_ newSelection: ViewSelection?) {
+        navigationHistory.withRecordingSuppressed {
+            self.selection = newSelection
+        }
     }
 
     /// Whether an app is currently shown (either standalone or editing)
@@ -253,8 +323,9 @@ public final class MainWindowState: ObservableObject {
     func restoreLastActivePanel() {
         guard let savedPanelString = lastActivePanelString,
               let panel = SidePanelType(rawValue: savedPanelString) else { return }
-
-        selection = .panel(panel)
+        navigationHistory.withRecordingSuppressed {
+            selection = .panel(panel)
+        }
     }
 }
 

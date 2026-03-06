@@ -62,6 +62,7 @@ extension MainWindowView {
                     set: { windowState.isDynamicExpanded = $0 }
                 ),
                 daemonClient: daemonClient,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { surfaceMsg in
                     windowState.activeDynamicSurface = surfaceMsg
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
@@ -78,6 +79,7 @@ extension MainWindowView {
             AppsGridView(
                 appListManager: appListManager,
                 daemonClient: daemonClient,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
                     try? daemonClient.sendAppOpen(appId: appId)
                     windowState.selection = .app(appId)
@@ -311,14 +313,7 @@ extension MainWindowView {
                         }
                     )
                     .onAppear {
-                        // Ensure an active thread exists for the chat panel
-                        if threadManager.activeViewModel == nil {
-                            if let firstThread = threadManager.visibleThreads.first {
-                                threadManager.selectThread(id: firstThread.id)
-                            } else {
-                                threadManager.createThread()
-                            }
-                        }
+                        threadManager.ensureActiveThread()
                     }
                 } else {
                     HomeBaseContainerView(
@@ -350,6 +345,7 @@ extension MainWindowView {
                 AppsGridView(
                     appListManager: appListManager,
                     daemonClient: daemonClient,
+                    gatewayBaseURL: settingsStore.localGatewayTarget,
                     onOpenApp: { appId in
                         try? daemonClient.sendAppOpen(appId: appId)
                         windowState.selection = .app(appId)
@@ -371,6 +367,9 @@ extension MainWindowView {
                         )
                     }
                 )
+                .onAppear {
+                    threadManager.ensureActiveThread(preferredSessionId: documentManager.sessionId)
+                }
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
                 VSplitView(
@@ -387,13 +386,7 @@ extension MainWindowView {
                     }
                 )
                 .onAppear {
-                    if threadManager.activeViewModel == nil {
-                        if let firstThread = threadManager.visibleThreads.first {
-                            threadManager.selectThread(id: firstThread.id)
-                        } else {
-                            threadManager.createThread()
-                        }
-                    }
+                    threadManager.ensureActiveThread()
                 }
             } else {
                 // Full-window panels: settings, debug, identity
@@ -502,6 +495,7 @@ extension MainWindowView {
             AppsGridView(
                 appListManager: appListManager,
                 daemonClient: daemonClient,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
                     try? daemonClient.sendAppOpen(appId: appId)
                     windowState.selection = .app(appId)
@@ -583,6 +577,7 @@ extension MainWindowView {
                 trafficLightPadding: trafficLightPadding,
                 isSidebarOpen: sidebarExpanded,
                 sharing: sharing,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onPublishPage: publishPage,
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
@@ -828,6 +823,7 @@ struct DynamicWorkspaceWrapper: View {
     let trafficLightPadding: CGFloat
     let isSidebarOpen: Bool
     var sharing: SharingState
+    let gatewayBaseURL: String
     let onPublishPage: (String, String?, String?) -> Void
     let onBundleAndShare: (String) -> Void
     let isChatDockOpen: Bool
@@ -837,6 +833,7 @@ struct DynamicWorkspaceWrapper: View {
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
     @State private var showShareDrawer = false
+    @State private var shareButtonFrame: CGRect = .zero
 
     /// Corner radius for the WKWebView clipping container — no rounding needed since the
     /// outer page container handles corner rounding.
@@ -884,7 +881,7 @@ struct DynamicWorkspaceWrapper: View {
                     }
 
                     ZStack {
-                        if let appId = data.appId {
+                        if data.appId != nil {
                             if sharing.isBundling || sharing.isPublishing {
                                 ProgressView()
                                     .controlSize(.small)
@@ -893,18 +890,12 @@ struct DynamicWorkspaceWrapper: View {
                                 VIconButton(label: "Share", icon: VIcon.share.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Share") {
                                     showShareDrawer.toggle()
                                 }
-                                .popover(isPresented: $showShareDrawer, arrowEdge: .bottom) {
-                                    ShareDrawer(
-                                        onShare: {
-                                            showShareDrawer = false
-                                            onBundleAndShare(appId)
-                                        },
-                                        onPublish: {
-                                            showShareDrawer = false
-                                            onPublishPage(data.html, data.preview?.title, data.appId)
-                                        }
-                                    )
-                                }
+                                .background(GeometryReader { proxy in
+                                    Color.clear.onChange(of: showShareDrawer) { _, _ in
+                                        shareButtonFrame = proxy.frame(in: .named("appPageContainer"))
+                                    }
+                                    .onAppear { shareButtonFrame = proxy.frame(in: .named("appPageContainer")) }
+                                })
                                 .overlay {
                                     AppSharePanel(
                                         items: sharing.shareFileURL != nil ? [sharing.shareFileURL!] : [],
@@ -913,7 +904,9 @@ struct DynamicWorkspaceWrapper: View {
                                             set: { sharing.showSharePicker = $0 }
                                         ),
                                         appName: sharing.shareAppName,
-                                        appIcon: sharing.shareAppIcon
+                                        appIcon: sharing.shareAppIcon,
+                                        appId: sharing.shareAppId,
+                                        gatewayBaseURL: gatewayBaseURL
                                     )
                                     .allowsHitTesting(false)
                                 }
@@ -1021,6 +1014,35 @@ struct DynamicWorkspaceWrapper: View {
                 }
             }
         }
+        .coordinateSpace(name: "appPageContainer")
+        .overlay(alignment: .topLeading) {
+            if showShareDrawer {
+                // Dismiss backdrop
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { showShareDrawer = false }
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if showShareDrawer, let appId = data.appId {
+                ShareDrawer(
+                    onShare: {
+                        showShareDrawer = false
+                        onBundleAndShare(appId)
+                    },
+                    onPublish: {
+                        showShareDrawer = false
+                        onPublishPage(data.html, data.preview?.title, data.appId)
+                    }
+                )
+                .offset(
+                    x: shareButtonFrame.maxX - 180,
+                    y: shareButtonFrame.maxY + VSpacing.xs
+                )
+                .zIndex(10)
+                .transition(.opacity)
+            }
+        }
     }
 }
 
@@ -1094,6 +1116,13 @@ private struct ShareDrawer: View {
         }
         .padding(.vertical, VSpacing.xs)
         .frame(width: 180)
+        .background(VColor.surfaceSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
     }
 }
 

@@ -49,6 +49,7 @@ function isRateLimitedRoute(url: URL): boolean {
       url.pathname !== "/v1/calls/twilio/status" &&
       url.pathname !== "/v1/calls/twilio/connect-action" &&
       url.pathname !== "/v1/browser-relay" &&
+      url.pathname !== "/v1/browser-relay/token" &&
       url.pathname !== "/v1/calls/relay")
   );
 }

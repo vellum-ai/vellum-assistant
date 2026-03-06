@@ -372,6 +372,40 @@ final class AssistantCli {
         isRestarting = false
     }
 
+    /// Wake a specific assistant's daemon via the CLI.
+    func wake(name: String) async throws {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping wake (dev mode)")
+            return
+        }
+
+        log.info("Running wake via CLI for '\(name, privacy: .private)'")
+        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["wake", name])
+
+        if status != 0 {
+            log.error("CLI wake failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            throw CLIError.executionFailed(stderr)
+        }
+        log.info("CLI wake completed successfully for '\(name, privacy: .private)'")
+    }
+
+    /// Sleep a specific assistant's daemon via the CLI.
+    func sleep(name: String) async throws {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping sleep (dev mode)")
+            return
+        }
+
+        log.info("Running sleep via CLI for '\(name, privacy: .private)'")
+        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["sleep", name])
+
+        if status != 0 {
+            log.error("CLI sleep failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            throw CLIError.executionFailed(stderr)
+        }
+        log.info("CLI sleep completed successfully for '\(name, privacy: .private)'")
+    }
+
     // MARK: - Remote Hatch (pass-through to CLI)
 
     struct RemoteHatchConfig {

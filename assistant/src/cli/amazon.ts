@@ -5,8 +5,6 @@
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
-import * as net from "node:net";
-
 import { Command } from "commander";
 
 import {
@@ -16,22 +14,19 @@ import {
   getPaymentMethods,
   getProductDetails,
   placeOrder,
+  refreshSessionFromExtension,
   removeFromCart,
   search,
   selectFreshDeliverySlot,
   SessionExpiredError,
   viewCart,
 } from "../amazon/client.js";
-import { extractRequests, saveRequests } from "../amazon/request-extractor.js";
 import {
   clearSession,
   importFromRecording,
   loadSession,
   saveSession,
 } from "../amazon/session.js";
-import { createMessageParser, serialize } from "../daemon/ipc-protocol.js";
-import { loadRecording } from "../tools/browser/recording-store.js";
-import { getSocketPath, readSessionToken } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -174,94 +169,41 @@ Examples:
     });
 
   // =========================================================================
-  // refresh — start Ride Shotgun learn to capture fresh cookies
+  // refresh — grab Amazon cookies from Chrome via browser extension
   // =========================================================================
   amz
     .command("refresh")
     .description(
-      "Start a Ride Shotgun learn session to capture fresh Amazon cookies. " +
-        "Opens amazon.com in a separate Chrome window — sign in when prompted. " +
-        "Your existing Chrome and tabs are not affected.",
+      "Refresh Amazon session by grabbing cookies from Chrome via the browser extension. " +
+        "Requires the Vellum Chrome extension to be loaded and connected.",
     )
-    .option("--duration <seconds>", "Recording duration in seconds", "180")
     .addHelpText(
       "after",
       `
-Opens amazon.com in a separate Chrome window via Ride Shotgun and starts a
-learn session to capture session cookies. The user must sign into Amazon when
-prompted. The existing Chrome profile and open tabs are not affected — a
-separate Chrome instance is launched.
+Grabs Amazon session cookies directly from Chrome via the browser extension
+relay. Much faster than the old Ride Shotgun approach — no separate Chrome
+instance is launched. Requires the Vellum Chrome extension to be loaded
+and connected.
 
-The recording runs for --duration seconds (default: 180). After completion,
-captured cookies are automatically imported as the active session. Request
-templates are also extracted for self-healing capabilities.
-
-After cookie capture, the Chrome window is minimized automatically.
+If this fails, try "refresh-headless" which reads cookies from Chrome's
+local SQLite database instead.
 
 Examples:
   $ assistant amazon refresh
-  $ assistant amazon refresh --duration 120`,
+  $ assistant amazon refresh --json`,
     )
-    .action(async (opts: { duration: string }, cmd: Command) => {
+    .action(async (_opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
-      const duration = parseInt(opts.duration, 10);
-
       try {
-        // Restore minimized Chrome window so user can see the login page
-        try {
-          await restoreChromeWindow();
-        } catch {
-          /* best-effort */
-        }
-
-        const result = await startLearnSession(duration);
-        if (result.recordingPath) {
-          const session = importFromRecording(result.recordingPath);
-
-          // Also extract and save captured request templates for self-healing
-          let requestsCaptured = 0;
-          try {
-            const recording = loadRecording(result.recordingId ?? "");
-            if (recording) {
-              const requests = extractRequests(recording);
-              if (requests.length > 0) {
-                saveRequests(requests);
-                requestsCaptured = requests.length;
-              }
-            }
-          } catch {
-            // Non-fatal: request extraction is best-effort
-          }
-
-          // Best-effort: minimize Chrome window after capturing session
-          try {
-            await minimizeChromeWindow();
-            process.stderr.write("[amazon] Chrome window minimized\n");
-          } catch {
-            // Non-fatal: minimizing is best-effort
-          }
-
-          output(
-            {
-              ok: true,
-              message: "Session refreshed successfully",
-              cookieCount: session.cookies.length,
-              recordingId: result.recordingId,
-              requestsCaptured,
-            },
-            json,
-          );
-        } else {
-          output(
-            {
-              ok: false,
-              error: "Recording completed but no recording path returned",
-              recordingId: result.recordingId,
-            },
-            json,
-          );
-          process.exitCode = 1;
-        }
+        const session = await refreshSessionFromExtension();
+        output(
+          {
+            ok: true,
+            message: "Session refreshed from Chrome via browser extension",
+            cookieCount: session.cookies.length,
+          },
+          json,
+        );
       } catch (err) {
         outputError(err instanceof Error ? err.message : String(err));
       }
@@ -805,7 +747,7 @@ Examples:
 }
 
 // ---------------------------------------------------------------------------
-// Chrome CDP helpers (delegated to shared module)
+// Headless cookie extraction from Chrome's SQLite database
 // ---------------------------------------------------------------------------
 
 import { execSync } from "node:child_process";
@@ -817,16 +759,6 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
-
-import {
-  ensureChromeWithCdp,
-  minimizeChromeWindow,
-  restoreChromeWindow,
-} from "../tools/browser/chrome-cdp.js";
-
-// ---------------------------------------------------------------------------
-// Headless cookie extraction from Chrome's SQLite database
-// ---------------------------------------------------------------------------
 
 const CHROME_COOKIES_DB = pathJoin(
   homedir(),
@@ -990,111 +922,4 @@ async function extractSessionFromChromeCookies(): Promise<
     cookies,
     importedAt: new Date().toISOString(),
   };
-}
-
-// ---------------------------------------------------------------------------
-// Ride Shotgun learn session helper
-// ---------------------------------------------------------------------------
-
-interface LearnResult {
-  recordingId?: string;
-  recordingPath?: string;
-}
-
-async function startLearnSession(
-  durationSeconds: number,
-): Promise<LearnResult> {
-  await ensureChromeWithCdp({ startUrl: "https://www.amazon.com/" });
-
-  return new Promise((resolve, reject) => {
-    const socketPath = getSocketPath();
-    const sessionToken = readSessionToken();
-    const socket = net.createConnection(socketPath);
-    const parser = createMessageParser();
-
-    socket.on("error", (err) => {
-      reject(
-        new Error(
-          `Cannot connect to assistant: ${err.message}. Is the assistant running?`,
-        ),
-      );
-    });
-
-    const timeoutHandle = setTimeout(
-      () => {
-        socket.destroy();
-        reject(
-          new Error(`Learn session timed out after ${durationSeconds + 30}s`),
-        );
-      },
-      (durationSeconds + 30) * 1000,
-    );
-    timeoutHandle.unref();
-
-    let authenticated = !sessionToken;
-
-    const sendStartCommand = () => {
-      socket.write(
-        serialize({
-          type: "ride_shotgun_start",
-          durationSeconds,
-          intervalSeconds: 5,
-          mode: "learn",
-          targetDomain: "amazon.com",
-        } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
-      );
-    };
-
-    socket.on("data", (chunk) => {
-      const messages = parser.feed(chunk.toString("utf-8"));
-      for (const msg of messages) {
-        const m = msg as unknown as Record<string, unknown>;
-
-        if (!authenticated && m.type === "auth_result") {
-          if ((m as { success: boolean }).success) {
-            authenticated = true;
-            sendStartCommand();
-          } else {
-            clearTimeout(timeoutHandle);
-            socket.destroy();
-            reject(new Error("Authentication failed"));
-          }
-          continue;
-        }
-
-        if (m.type === "auth_result") {
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_error") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          reject(new Error((m as { message: string }).message));
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_result") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          resolve({
-            recordingId: m.recordingId as string | undefined,
-            recordingPath: m.recordingPath as string | undefined,
-          });
-        }
-      }
-    });
-
-    socket.on("connect", () => {
-      if (sessionToken) {
-        socket.write(
-          serialize({
-            type: "auth",
-            token: sessionToken,
-          } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
-        );
-      } else {
-        sendStartCommand();
-      }
-    });
-  });
 }

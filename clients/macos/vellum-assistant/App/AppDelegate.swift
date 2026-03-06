@@ -44,6 +44,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var quickInputEventHandlerRef: EventHandlerRef?
     var commandPaletteWindow: CommandPaletteWindow?
     var cmdKLocalMonitor: Any?
+    var navLocalMonitor: Any?
     public let services = AppServices()
     let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
@@ -244,6 +245,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupMenuBar()
         setupFileMenu()
         setupViewMenu()
+        registerNavigationMonitor()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()

@@ -132,6 +132,10 @@ export async function loadConfig(): Promise<GatewayConfig> {
   const telegramApiBaseUrl =
     process.env.TELEGRAM_API_BASE_URL || "https://api.telegram.org";
 
+  // Port-based routing: each gateway instance reads RUNTIME_HTTP_PORT to
+  // discover its co-located daemon's HTTP port. In multi-instance setups,
+  // the CLI passes a per-instance daemon port so each gateway proxies to
+  // the correct daemon process (see cli/src/lib/local.ts startGateway).
   const runtimePort = process.env.RUNTIME_HTTP_PORT || "7821";
   const assistantRuntimeBaseUrl =
     process.env.ASSISTANT_RUNTIME_BASE_URL || `http://localhost:${runtimePort}`;
@@ -304,13 +308,14 @@ export async function loadConfig(): Promise<GatewayConfig> {
   const twilioCreds = await readTwilioCredentials();
   const twilioAuthToken =
     process.env.TWILIO_AUTH_TOKEN || twilioCreds?.authToken || undefined;
-  const twilioAccountSid =
+  let twilioAccountSid =
     process.env.TWILIO_ACCOUNT_SID || twilioCreds?.accountSid || undefined;
 
   // Phone number: env var > config file sms.phoneNumber > credential store
   let twilioPhoneNumber: string | undefined =
     process.env.TWILIO_PHONE_NUMBER || undefined;
   let assistantPhoneNumbers: Record<string, string> | undefined;
+  let assistantEmail: string | undefined;
   try {
     const cfgPath = join(getRootDir(), "workspace", "config.json");
     const raw = readFileSync(cfgPath, "utf-8");
@@ -321,6 +326,13 @@ export async function loadConfig(): Promise<GatewayConfig> {
       typeof data.sms.phoneNumber === "string"
     ) {
       twilioPhoneNumber = data.sms.phoneNumber;
+    }
+    if (
+      !twilioAccountSid &&
+      data?.twilio?.accountSid &&
+      typeof data.twilio.accountSid === "string"
+    ) {
+      twilioAccountSid = data.twilio.accountSid;
     }
     const rawMapping = data?.sms?.assistantPhoneNumbers;
     if (
@@ -337,6 +349,9 @@ export async function loadConfig(): Promise<GatewayConfig> {
         }
       }
       assistantPhoneNumbers = normalized;
+    }
+    if (data?.email?.address && typeof data.email.address === "string") {
+      assistantEmail = data.email.address;
     }
   } catch {
     // config file may not exist yet
@@ -489,19 +504,6 @@ export async function loadConfig(): Promise<GatewayConfig> {
   const trustProxy = trustProxyRaw === "true";
 
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
-
-  // Assistant email from workspace config file
-  let assistantEmail: string | undefined;
-  try {
-    const cfgPath = join(getRootDir(), "workspace", "config.json");
-    const raw = readFileSync(cfgPath, "utf-8");
-    const data = JSON.parse(raw);
-    if (data?.email?.address && typeof data.email.address === "string") {
-      assistantEmail = data.email.address;
-    }
-  } catch {
-    // config file may not exist yet
-  }
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 

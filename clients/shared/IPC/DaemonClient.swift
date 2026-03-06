@@ -33,20 +33,13 @@ func resolveSocketPath(environment: [String: String]? = nil) -> String {
         let trimmed = envPath.trimmingCharacters(in: .whitespacesAndNewlines)
         return expandHomePath(trimmed)
     }
-    if let baseDir = env["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-        return expandHomePath(baseDir) + "/.vellum/vellum.sock"
-    }
-    return NSHomeDirectory() + "/.vellum/vellum.sock"
+    return resolveVellumDir(environment: environment) + "/vellum.sock"
 }
 
 /// Resolve the daemon session token path.
 /// Uses BASE_DATA_DIR when set to match daemon root resolution.
 func resolveSessionTokenPath(environment: [String: String]? = nil) -> String {
-    let env = environment ?? ProcessInfo.processInfo.environment
-    if let baseDir = env["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-        return expandHomePath(baseDir) + "/.vellum/session-token"
-    }
-    return NSHomeDirectory() + "/.vellum/session-token"
+    return resolveVellumDir(environment: environment) + "/session-token"
 }
 
 /// Read the daemon session token from disk.
@@ -76,7 +69,40 @@ public func resolveVellumDir(environment: [String: String]? = nil) -> String {
         let resolved = baseDir == "~" ? NSHomeDirectory() : (baseDir.hasPrefix("~/") ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2)) : baseDir)
         return resolved + "/.vellum"
     }
+    // Check the lockfile for instance-specific directory (multi-instance support)
+    if let instanceDir = resolveInstanceDirFromLockfile() {
+        return instanceDir + "/.vellum"
+    }
     return NSHomeDirectory() + "/.vellum"
+}
+
+/// Read the instanceDir from the latest lockfile entry's resources.
+private func resolveInstanceDirFromLockfile() -> String? {
+    guard let json = LockfilePaths.read(),
+          let assistants = json["assistants"] as? [[String: Any]],
+          !assistants.isEmpty else {
+        return nil
+    }
+    // Find the most recently hatched entry
+    let sorted = assistants.sorted { a, b in
+        let dateA = a["hatchedAt"] as? String ?? ""
+        let dateB = b["hatchedAt"] as? String ?? ""
+        return dateA > dateB
+    }
+    guard let latest = sorted.first,
+          let resources = latest["resources"] as? [String: Any],
+          let instanceDir = resources["instanceDir"] as? String,
+          !instanceDir.isEmpty else {
+        return nil
+    }
+    return instanceDir
+}
+
+/// Resolve the runtime HTTP bearer token path.
+/// Uses BASE_DATA_DIR when set to match daemon root resolution.
+/// Available on all platforms since HTTP transport is used on both macOS and iOS.
+public func resolveHttpTokenPath(environment: [String: String]? = nil) -> String {
+    return resolveVellumDir(environment: environment) + "/http-token"
 }
 
 /// Resolve the feature-flag bearer token path.
@@ -427,9 +453,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Called when the daemon sends a `share_app_cloud_response` message.
     public var onShareAppCloudResponse: ((ShareAppCloudResponseMessage) -> Void)?
-
-    /// Called when the daemon sends a `share_to_slack_response` message.
-    public var onShareToSlackResponse: ((ShareToSlackResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `slack_webhook_config_response` message.
     public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
@@ -1355,11 +1378,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Share a local app via a cloud link.
     public func sendShareAppCloud(appId: String) throws {
         try send(ShareAppCloudRequestMessage(appId: appId))
-    }
-
-    /// Share a local app to Slack via configured webhook.
-    public func sendShareToSlack(appId: String) throws {
-        try send(ShareToSlackRequestMessage(appId: appId))
     }
 
     /// Get or set the Slack webhook URL configuration.

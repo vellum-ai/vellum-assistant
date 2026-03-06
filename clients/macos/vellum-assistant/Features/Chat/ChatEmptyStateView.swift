@@ -116,7 +116,7 @@ struct ChatEmptyStateView: View {
                     onFileDrop: onFileDrop,
                     onDropImageData: onDropImageData,
                     onMicrophoneToggle: onMicrophoneToggle,
-                    placeholderText: placeholder,
+                    placeholderText: placeholder
                 )
             }
             .frame(maxWidth: 500)
@@ -221,7 +221,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                     onFileDrop: onFileDrop,
                     onDropImageData: onDropImageData,
                     onMicrophoneToggle: onMicrophoneToggle,
-                    placeholderText: "Ask anything...",
+                    placeholderText: "Ask anything..."
                 )
             }
 

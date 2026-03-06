@@ -126,14 +126,16 @@ function serveMultifileApp(appId: string, appName: string): Response {
     );
   }
 
-  // Rewrite relative asset paths to use the dist route so the WebView
-  // can load main.js and main.css via the HTTP server.
+  // Rewrite relative asset paths to absolute HTTP routes so browsers and
+  // HTTP-based consumers (e.g. /pages/:appId) can resolve them. The macOS
+  // WebView uses the vellumapp:// scheme handler which resolves on disk,
+  // but HTTP clients need the /v1/apps/:appId/dist/ route.
   let html = readFileSync(indexPath, "utf-8");
   html = html.replace(
-    /(?:src|href)="(main\.(js|css))"/g,
-    (_match, filename) => {
-      const attr = (filename as string).endsWith(".css") ? "href" : "src";
-      return `${attr}="/v1/apps/${appId}/dist/${filename}"`;
+    /(?:src|href)="(\.?\/?main\.(js|css))"/g,
+    (_match, _filename, ext) => {
+      const attr = ext === "css" ? "href" : "src";
+      return `${attr}="/v1/apps/${appId}/dist/main.${ext}"`;
     },
   );
 

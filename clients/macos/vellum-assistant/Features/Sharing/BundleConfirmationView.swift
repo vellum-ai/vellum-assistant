@@ -229,6 +229,7 @@ struct BundleConfirmationView: View {
                 VButton(label: "Install", style: .primary, size: .medium) {
                     viewModel.confirm()
                 }
+                .disabled(viewModel.isInstalling)
             }
         }
         .padding(.horizontal, VSpacing.lg)
@@ -245,6 +246,7 @@ struct BundleConfirmationView: View {
                 VButton(label: "Install Anyway", style: .danger, size: .medium) {
                     viewModel.confirm()
                 }
+                .disabled(viewModel.isInstalling)
             }
         } else {
             VButton(label: "Install", style: .ghost, size: .medium) {

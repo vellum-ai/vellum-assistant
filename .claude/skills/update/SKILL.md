@@ -67,10 +67,17 @@ The user may pass `$ARGUMENTS` as the branch name (e.g., `/update feature/phone-
    vellum wake
    ```
 
-8. Build and launch the macOS app with file-watching (`./build.sh run` builds synchronously before launching, so no stale build risk):
+8. Build the macOS app (foreground, so compilation errors are caught immediately):
    ```bash
    REPO_ROOT="$(pwd)"
-   cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &
+   cd clients/macos && VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh
+   ```
+
+   If the build fails, stop and report the error. Do not proceed to launch.
+
+   Then launch with file-watching in the background (the build is cached, so this just launches + watches):
+   ```bash
+   VELLUM_GATEWAY_DIR="$REPO_ROOT/gateway" ./build.sh run &
    ```
 
 9. Verify fresh state — run `vellum ps` to confirm processes are running:
@@ -86,4 +93,5 @@ Report:
 
 1. What was pulled (new commits).
 2. The startup summary block output (assistant health, gateway health).
-3. Note: the macOS app manages its own assistant and gateway. On first launch, the app will hatch and start them automatically.
+3. Whether the macOS app build succeeded or failed (and the error if it failed).
+4. Note: the macOS app manages its own assistant and gateway. On first launch, the app will hatch and start them automatically.

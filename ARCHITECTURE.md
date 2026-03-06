@@ -32,6 +32,112 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - **Assistant feature flags** control skill availability at runtime. The canonical key format is `feature_flags.<flagId>.enabled`; the legacy `skills.<id>.enabled` format is no longer supported. All declared flags live in the unified registry at `meta/feature-flags/feature-flag-registry.json`, scoped by `scope` (`assistant` or `macos`). Labels come from the registry. Bundled copies exist at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. The gateway owns the `/v1/feature-flags` REST API (see [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)); the daemon resolves effective flag state via the assistant feature-flag resolver (see [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md)). When a flag is OFF, the corresponding skill is excluded from all exposure surfaces: client skill lists, system prompt catalog, `skill_load`, runtime tool projection, and included child skills. Guard tests enforce that all flag keys in code use the canonical format and that all referenced flags are declared in the unified registry.
 - **Context overflow resilience**: The session loop implements a deterministic overflow convergence pipeline that recovers from context-too-large failures without surfacing errors to users. A preflight budget check catches overflow before provider calls; a tiered reducer (forced compaction, tool-result truncation, media stubbing, injection downgrade) iteratively shrinks the payload; and an overflow policy resolver gates latest-turn compression behind user approval for interactive sessions. Non-interactive sessions auto-compress; denied compression produces a graceful assistant explanation message (not a `session_error`). Config lives under `contextWindow.overflowRecovery`. See [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md#context-overflow-recovery) for the full design and [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md#context-compaction-and-overflow-recovery-interaction) for compaction interaction details.
 
+## Multi-Local Instance Isolation
+
+Multiple local assistant instances can run side-by-side on the same machine, each fully isolated. This enables development, testing, or running multiple assistants concurrently without conflicts.
+
+### Instance Directory Layout
+
+Each named instance gets its own directory tree under `~/.vellum/instances/<name>/`:
+
+```
+~/.vellum.lock.json                    # Global lockfile (all entries + activeAssistant)
+~/.vellum/
+├── instances/
+│   ├── alice/                     # Instance root (= BASE_DATA_DIR for this daemon)
+│   │   └── .vellum/              # Runtime dir (getRootDir() resolves here)
+│   │       ├── vellum.sock       # Unix domain socket
+│   │       ├── vellum.pid        # Daemon PID
+│   │       ├── gateway.pid       # Gateway PID
+│   │       ├── outbound-proxy.pid
+│   │       ├── http-token        # Bearer token for gateway auth
+│   │       ├── session-token
+│   │       └── workspace/
+│   │           ├── config.json
+│   │           ├── data/
+│   │           │   ├── db/assistant.db
+│   │           │   ├── qdrant/
+│   │           │   └── logs/
+│   │           └── skills/
+│   └── bob/
+│       └── .vellum/
+│           └── ...               # Same structure as alice
+└── ...                           # Legacy single-instance files (default instance)
+```
+
+The legacy single-instance layout (`~/.vellum/` directly) continues to work as the default. Named instances are created via `vellum hatch --name <name>` (the `--name` flag triggers multi-instance isolation).
+
+### Isolation Model
+
+Each instance gets its own:
+- **`BASE_DATA_DIR`**: Set to the instance directory (e.g. `~/.vellum/instances/alice/`). The daemon appends `.vellum` to this to derive `getRootDir()`, so all runtime files land under the instance.
+- **Daemon port** (`RUNTIME_HTTP_PORT`): Allocated by scanning from base port 7821.
+- **Gateway port** (`GATEWAY_PORT`): Allocated by scanning from base port 7830.
+- **Qdrant port** (`QDRANT_HTTP_PORT`): Allocated by scanning from base port 6333.
+- **Unix socket**: `<instanceDir>/.vellum/vellum.sock`
+- **PID file**: `<instanceDir>/.vellum/vellum.pid`
+- **SQLite database, logs, memory indices**: All under `<instanceDir>/.vellum/workspace/data/`
+
+### Port Allocation
+
+Ports are allocated sequentially by `allocateLocalResources()` in `cli/src/lib/assistant-config.ts`:
+
+1. Scan from `DEFAULT_DAEMON_PORT` (7821) upward to find the first available port.
+2. Scan from `DEFAULT_GATEWAY_PORT` (7830) upward, excluding the daemon port.
+3. Scan from `DEFAULT_QDRANT_PORT` (6333) upward, excluding both previously allocated ports.
+
+Availability is checked via TCP connect probe. Each scan range spans up to 100 ports. Allocated ports are persisted in the lockfile `resources` field so `wake`/`sleep` can restart instances on the same ports.
+
+### Lockfile Schema
+
+The global lockfile (`~/.vellum.lock.json`) tracks all instances:
+
+```jsonc
+{
+  "assistants": [
+    {
+      "assistantId": "alice",
+      "runtimeUrl": "http://localhost:7821",
+      "cloud": "local",
+      "hatchedAt": "2026-03-04T...",
+      "resources": {                    // Present for local multi-instance entries
+        "instanceDir": "~/.vellum/instances/alice",
+        "daemonPort": 7821,
+        "gatewayPort": 7830,
+        "qdrantPort": 6333,
+        "socketPath": "~/.vellum/instances/alice/.vellum/vellum.sock",
+        "pidFile": "~/.vellum/instances/alice/.vellum/vellum.pid"
+      }
+    },
+    {
+      "assistantId": "bob",
+      "runtimeUrl": "http://localhost:7822",
+      "cloud": "local",
+      "resources": { ... }
+    }
+  ],
+  "activeAssistant": "alice"           // Set by `vellum use <name>`
+}
+```
+
+- `resources` (`LocalInstanceResources`): Present on local entries in multi-instance setups. Legacy single-instance entries without `resources` are normalized to default paths at runtime.
+- `activeAssistant`: Determines which instance CLI commands target by default.
+- Remote assistants (`cloud: "gcp"`, `"aws"`, etc.) are unaffected and have no `resources` field.
+
+### Active Assistant Targeting
+
+CLI commands resolve which instance to target via `resolveTargetAssistant()`:
+
+1. **Explicit name argument** — `vellum sleep alice`
+2. **Active assistant** — set via `vellum use <name>`, stored as `activeAssistant` in lockfile
+3. **Sole local assistant** — when exactly one local instance exists
+
+`wake` and `sleep` guard against targeting remote assistants (they exit with an error for non-`local` entries).
+
+### Mixed Local/Remote
+
+The lockfile can contain both local and remote entries. Remote entries (cloud providers) carry connection metadata (`runtimeUrl`, `bearerToken`, etc.) but no `resources`. `wake` and `sleep` only operate on local instances (they error for remote entries). `retire` works on both local and remote instances, using cloud-specific teardown for GCP/AWS/custom entries.
+
 ## System Overview
 
 ```mermaid

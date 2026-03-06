@@ -159,19 +159,6 @@ struct MainWindowView: View {
         windowState.selection = .app(appId)
     }
 
-    /// Whether the chat bubble toggle is active (chat is open).
-    var isChatBubbleActive: Bool {
-        switch windowState.selection {
-        case .appEditing:
-            return true
-        case .panel(let panelType) where panelType != .documentEditor:
-            return isAppChatOpen
-        default:
-            return false
-        }
-    }
-
-
     /// Resolve display names for thread export.
     private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
         let assistantName = AssistantDisplayName.resolve(
@@ -216,7 +203,7 @@ struct MainWindowView: View {
         ThreadHeaderPresentation(
             activeThread: threadManager.activeThread,
             activeViewModel: threadManager.activeViewModel,
-            isConversationVisible: windowState.isShowingChat || isChatBubbleActive
+            isConversationVisible: windowState.isConversationVisible
         )
     }
 
@@ -272,9 +259,9 @@ struct MainWindowView: View {
                     } else {
                         // Thread was archived/deleted — fall back to the first visible thread
                         if let fallback = threadManager.visibleThreads.first {
-                            windowState.selection = .thread(fallback.id)
+                            windowState.applySelectionCorrection(.thread(fallback.id))
                         } else {
-                            windowState.selection = nil
+                            windowState.applySelectionCorrection(nil)
                         }
                     }
                 }
@@ -362,6 +349,18 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
+                VIconButton(label: "Back", icon: VIcon.chevronLeft.rawValue, iconOnly: true, tooltip: "Back (\u{2318}[)") {
+                    windowState.navigateBack()
+                }
+                .disabled(!windowState.navigationHistory.canGoBack)
+                .opacity(windowState.navigationHistory.canGoBack ? 1 : 0.35)
+
+                VIconButton(label: "Forward", icon: VIcon.chevronRight.rawValue, iconOnly: true, tooltip: "Forward (\u{2318}])") {
+                    windowState.navigateForward()
+                }
+                .disabled(!windowState.navigationHistory.canGoForward)
+                .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
+
                 VIconButton(label: "Sidebar", icon: VIcon.panelLeft.rawValue, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
@@ -382,7 +381,7 @@ struct MainWindowView: View {
                 .help("Search (\u{2318}K)")
             }
             Spacer()
-            if windowState.isShowingChat || isChatBubbleActive {
+            if windowState.isConversationVisible {
                 ThreadTitleActionsControl(
                     presentation: threadHeaderPresentation,
                     onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
@@ -418,7 +417,7 @@ struct MainWindowView: View {
                 settingsStore.pendingSettingsTab = .voice
                 windowState.selection = .panel(.settings)
             }
-            if windowState.isShowingChat || isChatBubbleActive {
+            if windowState.isConversationVisible {
                 // Voice mode toggle
                 VIconButton(
                     label: "Voice Mode",
@@ -728,15 +727,6 @@ struct MainWindowView: View {
                 windowState.selection = .app(reopenId)
                 try? daemonClient.sendAppOpen(appId: reopenId)
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .pinAppToHomebase)) { notification in
-            guard let appId = notification.userInfo?["appId"] as? String,
-                  let name = notification.userInfo?["name"] as? String else { return }
-            let icon = notification.userInfo?["icon"] as? String
-            let appType = notification.userInfo?["appType"] as? String
-            let description = notification.userInfo?["description"] as? String
-            appListManager.recordAppOpen(id: appId, name: name, icon: icon, appType: appType, description: description)
-            appListManager.pinApp(id: appId)
         }
         .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
             guard let appId = notification.userInfo?["appId"] as? String else { return }

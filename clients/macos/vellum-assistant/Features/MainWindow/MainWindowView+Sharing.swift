@@ -117,6 +117,7 @@ extension MainWindowView {
     func bundleAndShare(appId: String) {
         guard !sharing.isBundling else { return }
         sharing.isBundling = true
+        sharing.shareAppId = appId
 
         Task { @MainActor in
             let previousHandler = daemonClient.onBundleAppResponse

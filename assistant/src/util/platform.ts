@@ -85,6 +85,11 @@ export function readLockfile(): Record<string, unknown> | null {
  * inbound call path resolves phone numbers to config keys (typically
  * "self"). This function maps any known lockfile assistant ID to "self"
  * so both sides use a consistent DB key.
+ *
+ * Multi-instance safety: each daemon process runs with a scoped
+ * BASE_DATA_DIR, so readLockfile() only sees the lockfile for this
+ * instance. The mapping to "self" is correct because each daemon is
+ * single-tenant — it only manages its own instance's data.
  */
 export function normalizeAssistantId(assistantId: string): string {
   if (assistantId === "self") return "self";

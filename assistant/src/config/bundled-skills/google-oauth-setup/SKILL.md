@@ -1,9 +1,9 @@
 ---
 name: "Google OAuth Setup"
-description: "Set up Google Cloud OAuth credentials for Gmail and Calendar"
+description: "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation"
 user-invocable: true
 credential-setup-for: "gmail"
-includes: ["public-ingress", "browser"]
+includes: ["browser", "public-ingress"]
 metadata: { "vellum": { "emoji": "\ud83d\udd11" } }
 ---
 
@@ -11,10 +11,10 @@ You are helping your user set up Google Cloud OAuth credentials so Gmail and Goo
 
 ## Client Check
 
-Determine which setup path to use based on the user's client:
+Determine whether the user has browser automation available (macOS desktop app) or is on a non-interactive channel (Telegram, SMS, etc.).
 
-- **macOS desktop app**: Follow **Path B: CLI Setup** below.
-- **Telegram or other channel** (no browser automation): Follow **Path A: Manual Setup for Channels** below.
+- **macOS desktop app**: Follow the **Automated Setup** path below.
+- **Telegram or other channel** (no browser automation): Follow the **Manual Setup for Channels** path below.
 
 ---
 
@@ -88,7 +88,6 @@ Tell the user:
 >    - `https://www.googleapis.com/auth/calendar.readonly`
 >    - `https://www.googleapis.com/auth/calendar.events`
 >    - `https://www.googleapis.com/auth/userinfo.email`
->    - `https://www.googleapis.com/auth/contacts.readonly`
 >    - Click **Update**, then **Save and Continue**
 > 5. On the Test users page, add **your email**, click **Save and Continue**
 > 6. On the Summary page, click **Back to Dashboard**
@@ -195,265 +194,238 @@ After the user authorizes (they'll come back and say so, or you can suggest they
 
 ---
 
-# Path B: CLI Setup (macOS Desktop App)
+# Path B: Automated Setup (macOS Desktop App)
 
-**IMPORTANT: Always use `host_bash` (not `bash`) for all commands in this path.** The `gcloud` and `gws` CLIs need host access for Homebrew/npm installation, browser-based authentication, and interactive terminal prompts — none of which are available inside the sandbox.
-
-You will set up Google Cloud OAuth credentials using the `gcloud` and `gws` command-line tools plus browser automation. The user signs in once via the browser, the CLI handles project setup, and the browser automates credential creation — the user only needs to copy-paste the Client Secret.
+You will automate the entire GCP setup via the browser while the user watches in the Chrome window on the side. The user's only manual actions are: signing in to their Google account, and copy-pasting credentials from the Chrome window into secure prompts.
 
 ## Browser Interaction Principles
 
-Google Cloud Console's UI may change over time. Do NOT memorize or depend on specific element IDs, CSS selectors, or DOM structures. Instead:
+Google Cloud Console's UI changes frequently. Do NOT memorize or depend on specific element IDs, CSS selectors, or DOM structures. Instead:
 
-1. **Screenshot first, act second.** Before every interaction, take a `browser_screenshot` to see the current visual state. Use `browser_snapshot` to find interactive elements.
-2. **Adapt to what you see.** If a button's label or position differs from what you expect, use the screenshot to find the correct element.
-3. **Verify after every action.** After clicking, typing, or navigating, take a new screenshot to confirm the action succeeded.
-4. **Never assume DOM structure.** Use the snapshot to identify what's on the page and interact accordingly.
-5. **When stuck, screenshot and describe.** If you cannot find an expected element after 2 attempts, take a screenshot, describe what you see to the user, and ask for guidance.
+1. **Snapshot first, act second.** Before every interaction, use `browser_snapshot` to discover interactive elements and their IDs. This is your primary navigation tool; it gives you the accessibility tree with clickable/typeable element IDs. Use `browser_screenshot` for visual context when the snapshot alone isn't enough.
+2. **Adapt to what you see.** If an element's label or position differs from what you expect, use the snapshot to find the correct element. GCP may rename buttons, reorganize menus, or change form layouts at any time.
+3. **Verify after every action.** After clicking, typing, or navigating, take a new snapshot to confirm the action succeeded. If it didn't, try an alternative interaction (e.g., if a dropdown didn't open on click, try pressing Space or Enter on the element).
+4. **Never assume DOM structure.** Dropdowns may be `<select>`, `<mat-select>`, `<div role="listbox">`, or something else entirely. Use the snapshot to identify element types and interact accordingly.
+5. **When stuck after 2 attempts, describe and ask.** Take a screenshot, describe what you see to the user, and ask for guidance.
 
 ## Anti-Loop Guardrails
 
 Each step has a **retry budget of 3 attempts**. An attempt is one try at the step's primary action (e.g., clicking a button, filling a form). If a step fails after 3 attempts:
 
 1. **Stop trying.** Do not continue retrying the same approach.
-2. **Fall back to manual.** Tell the user what you were trying to do and ask them to complete that step manually in the browser. Give them the direct URL and clear text instructions.
+2. **Fall back to manual.** Tell the user what you were trying to do and ask them to complete that step manually in the Chrome window (which they can see on the side). Give them the direct URL and clear text instructions.
 3. **Resume automation** at the next step once the user confirms the manual step is done.
 
-If **two or more steps** require manual fallback, abandon the automated flow entirely and switch to giving the user the remaining steps as clear text instructions with links.
+If **two or more steps** require manual fallback, abandon the automated flow entirely and switch to giving the user the remaining steps as clear text instructions with links, using "Desktop app" as the OAuth application type.
 
-## Things That Do Not Work — Do Not Attempt
+## Things That Do Not Work: Do Not Attempt
 
-These actions are technically impossible in the browser automation environment:
+These actions are technically impossible in the browser automation environment. Attempting them wastes time and leads to loops:
 
-- **Downloading files.** `browser_click` on a Download button does not save files to disk. Do NOT click "Download JSON" in the OAuth client creation dialog.
-- **Reading the Client Secret from a screenshot.** The secret IS visible in the creation dialog, but you MUST NOT attempt to read it from a screenshot — it is too easy to misread characters, and the value must be exact. Always use the `credential_store prompt` approach to let the user copy-paste it accurately.
-- **Clipboard operations.** You cannot copy/paste via browser automation.
+- **Downloading files.** `browser_click` on a Download button does not save files to disk. There is NO JSON file to find at `~/Downloads` or anywhere else. Never click Download buttons.
+- **Clipboard operations.** You cannot copy/paste via browser automation. The user must manually copy values from the Chrome window.
+- **Deleting and recreating OAuth clients** to get a fresh secret. This orphans the stored client_id and causes `invalid_client` errors.
+- **Navigating away from the credential dialog** before both credentials are stored. You will lose the Client Secret display and cannot get it back without creating a new client.
 
-## Error Handling
+## Step 1: Single Upfront Confirmation
 
-- **Page load failures:** Retry navigation once. If it still fails, tell the user and ask them to check their internet connection.
-- **Element not found:** Take a fresh screenshot to re-assess. The GCP Console UI may have changed. Describe what you see and try alternative approaches. If stuck after 2 attempts, ask the user for guidance.
-- **OAuth client already exists with same name:** This is fine — GCP allows multiple clients with the same name. Proceed with creation.
-- **Any unexpected state:** Take a `browser_screenshot`, describe what you see, and ask the user for guidance.
-
-## CLI Step 1: Confirm
-
-Use `ui_show` with `surface_type: "confirmation"`:
+Use `ui_show` with `surface_type: "confirmation"`. Set `message` to just the title, and `detail` to the body:
 
 - **message:** `Set up Google Cloud for Gmail & Calendar`
 - **detail:**
   > Here's what will happen:
   >
-  > 1. **Install CLI tools** (`gcloud` and `gws`) if not already installed
-  > 2. **You sign in** to your Google account once via the browser
-  > 3. **CLI automates everything** — project creation, APIs, and consent screen
-  > 4. **I create OAuth credentials** in the browser — you just watch
-  > 5. **One quick copy-paste** — you copy the Client Secret into a secure prompt
-  > 6. **You authorize Vellum** with one click
+  > 1. **A browser opens on the side** so you can watch everything I do
+  > 2. **You sign in** to your Google account in the browser
+  > 3. **I automate everything** including project creation, APIs, OAuth config, and credentials
+  > 4. **One copy-paste** where I'll ask you to copy the Client Secret from the browser into a secure prompt
+  > 5. **You authorize Vellum** with one click
   >
-  > Takes about a minute after first-time setup. Ready?
+  > The whole thing takes 2-3 minutes. Ready?
 
-If the user declines, acknowledge and stop.
+If the user declines, acknowledge and stop. No further confirmations are needed after this point.
 
-## CLI Step 2: Install Prerequisites
+## Step 2: Open Google Cloud Console and Sign In
 
-Check for and install each prerequisite. If any installation fails (e.g., Homebrew not available, corporate restrictions), tell the user what went wrong and provide manual installation instructions.
+**Goal:** The user is signed in and the Google Cloud Console dashboard is loaded.
 
-### gcloud
+Navigate to `https://console.cloud.google.com/`.
 
-```bash
-which gcloud
-```
+Take a screenshot to check the page state:
 
-If missing:
+- **Sign-in page:** Tell the user: "Please sign in to your Google account in the Chrome window on the right side of your screen." Then auto-detect sign-in completion by polling with `browser_screenshot` every 5-10 seconds to check if the URL has moved away from `accounts.google.com` to `console.cloud.google.com`. Do NOT ask the user to "let me know when you're done"; detect it automatically. Once sign-in is detected, tell the user: "Signed in! Starting the automated setup now..."
+- **Already signed in:** Tell the user: "Already signed in, starting setup now..." and continue immediately.
+- **CAPTCHA:** The browser automation's built-in handoff will handle this. If it persists, tell the user: "There's a CAPTCHA in the browser, please complete it and I'll continue automatically."
 
-```bash
-brew install google-cloud-sdk
-```
+**What you should see when done:** URL contains `console.cloud.google.com` and no sign-in overlay is visible.
 
-After installation, verify it works:
+## Step 3: Create or Select a Project
 
-```bash
-gcloud --version
-```
+**Goal:** A GCP project named "Vellum Assistant" exists and is selected.
 
-### gws
+Tell the user: "Creating Google Cloud project..."
 
-```bash
-which gws
-```
+Navigate to `https://console.cloud.google.com/projectcreate`.
 
-If missing:
+Take a `browser_snapshot`. Find the project name input field (look for an element with label containing "Project name" or a text input near the top of the form). Type "Vellum Assistant" into it.
 
-```bash
-npm install -g @googleworkspace/cli
-```
+Look for a "Create" button in the snapshot and click it. Wait 10-15 seconds for project creation, then take a screenshot to check for:
 
-After installation, verify it works:
+- **Success message** or redirect to the new project dashboard. Note the project ID from the URL or page content.
+- **"Project name already in use" error**: that's fine. Navigate to `https://console.cloud.google.com/cloud-resource-manager` to find and select the existing "Vellum Assistant" project. Use `browser_extract` to read the project ID from the page.
+- **Organization restriction or quota error**: tell the user what happened and ask them to resolve it.
 
-```bash
-gws --version
-```
+**What you should see when done:** The project selector in the top bar shows the project name, and you have the project ID (something like `vellum-assistant-12345`).
 
-## CLI Step 3: Sign In to Google
+Tell the user: "Project created!"
 
-Tell the user: "Opening your browser so you can sign in to Google..."
+## Step 4: Enable Gmail and Calendar APIs
 
-```bash
-gcloud auth login
-```
+**Goal:** Both the Gmail API and Google Calendar API are enabled for the project.
 
-This opens the browser for Google sign-in. Wait for the command to complete — it prints the authenticated account email on success.
+Tell the user: "Enabling Gmail and Calendar APIs..."
 
-If the user is already authenticated (`gcloud auth list` shows an active account), skip this step and tell the user: "Already signed in, continuing setup..."
+Navigate to each API's library page and enable it if not already enabled:
 
-## CLI Step 4: GCP Project Setup
+1. `https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=PROJECT_ID`
+2. `https://console.cloud.google.com/apis/library/calendar-json.googleapis.com?project=PROJECT_ID`
 
-Tell the user: "Setting up your Google Cloud project, APIs, and credentials..."
+For each page: take a `browser_snapshot`. Look for:
 
-### Primary: `gws auth setup`
+- **"Enable" button**: click it, wait a few seconds, take another snapshot to confirm.
+- **"Manage" button or "API enabled" text**: the API is already enabled. Skip it.
 
-```bash
-gws auth setup
-```
+**What you should see when done:** Both API pages show "Manage" or "API enabled" status.
 
-This command automates:
+Tell the user: "APIs enabled!"
 
-- GCP project creation (or selection of an existing one)
-- OAuth consent screen configuration
-- OAuth credential creation
+## Step 5: Configure OAuth Consent Screen
 
-Wait for the command to complete. It may have interactive prompts — let them run in the terminal and the user can respond if needed.
+**Goal:** An OAuth consent screen is configured with External user type, the required scopes, and the user added as a test user.
 
-If `gws auth setup` **succeeds**, note the **project ID** from the output and continue to **CLI Step 5**.
-
-### Fallback: `gcloud` CLI + browser automation
-
-If `gws auth setup` **fails** (common with personal Google accounts due to workspace-admin scope errors), use `gcloud` CLI and browser automation instead.
-
-**Step 4f-1: Create GCP project**
-
-Generate a unique suffix (4-6 random alphanumeric characters):
-
-```bash
-gcloud projects create vellum-assistant-SUFFIX --name="Vellum Assistant"
-```
-
-If the project already exists, use it. Note the **project ID**.
-
-**Step 4f-2: Enable APIs**
-
-```bash
-gcloud services enable gmail.googleapis.com --project=PROJECT_ID
-gcloud services enable calendar-json.googleapis.com --project=PROJECT_ID
-gcloud services enable people.googleapis.com --project=PROJECT_ID
-```
-
-**Step 4f-3: Configure OAuth consent screen via browser**
+Tell the user: "Setting up OAuth consent screen. This is the longest step but it's fully automated..."
 
 Navigate to `https://console.cloud.google.com/apis/credentials/consent?project=PROJECT_ID`.
 
-Take a screenshot and snapshot, then:
+Take a `browser_snapshot` and `browser_screenshot`. Check the page state:
 
-1. Select **"External"** user type, click **Create**
-2. Fill in the app registration form:
-   - App name: **"Vellum Assistant"**
-   - User support email: select the authenticated email from the dropdown
-   - Developer contact email: type the same email
-   - Click **Save and Continue**
-3. On the Scopes page, click **Save and Continue** (scopes are not needed for test-mode apps)
-4. On the Test users page:
-   - Click **+ Add Users**
-   - Enter the authenticated email address
-   - Click **Add**, then **Save and Continue**
-5. On the Summary page, click **Back to Dashboard**
+### If the consent screen is already configured
 
-**Verify:** Take a screenshot. The consent screen should show "Testing" publishing status.
+You'll see a dashboard showing the app name ("Vellum Assistant" or similar) with an "Edit App" button. **Skip to Step 6.**
 
-After the fallback completes, skip CLI Step 5 (APIs already enabled above) and CLI Step 5c (test user already added above) — continue directly to **CLI Step 6**.
+### If you see a user type selection (External / Internal)
 
-## CLI Step 5: Enable Additional APIs
+Select **"External"** and click **Create** or **Get Started**.
 
-`gws auth setup` enables the APIs it needs, but Vellum also requires the Calendar and People APIs. Enable them explicitly using the project ID from step 4:
+### Consent screen form (wizard or single-page)
 
-```bash
-gcloud services enable calendar-json.googleapis.com --project=PROJECT_ID
-gcloud services enable people.googleapis.com --project=PROJECT_ID
-```
+Google Cloud uses either a multi-page wizard or a single-page form. Adapt to what you see:
 
-If either command reports the API is already enabled, that's fine — continue.
+**App information section:**
 
-## CLI Step 5c: Add Test User
+- **App name**: Type "Vellum Assistant" in the app name field.
+- **User support email**: This is typically a dropdown showing the signed-in user's email. Use `browser_snapshot` to find a `<select>` or clickable dropdown element near "User support email". Select the user's email.
+- **Developer contact email**: Type the user's email into this field. (Use the same email visible in the support email dropdown if you can read it, or use `browser_extract` to find the email shown on the page.)
+- Click **Save and Continue** if on a multi-page wizard.
 
-`gws auth setup` does not add test users to the consent screen, and there is no CLI/API for it. Use browser automation to add the authenticated email as a test user.
+**Scopes section:**
 
-Navigate to `https://console.cloud.google.com/apis/credentials/consent?project=PROJECT_ID`.
+- Click **"Add or Remove Scopes"** (or similar button).
+- In the scope picker dialog, look for a text input labeled **"Manually add scopes"** or **"Filter"** at the bottom or top of the dialog.
+- Paste all 6 scopes at once as a comma-separated string into that input:
+  ```
+  https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email
+  ```
+- Click **"Add to Table"** or **"Update"** to confirm the scopes.
+- If no manual input is available, you'll need to search for and check each scope individually using the scope tree. Search for each scope URL in the filter box and check its checkbox.
+- Click **Save and Continue** (or **Update** then **Save and Continue**).
 
-Take a screenshot and snapshot. Find the **Test users** section (you may need to click **Edit App** or navigate to the consent screen edit flow):
+**Test users section:**
 
-1. Find and click the option to add test users (e.g., **+ Add Users** button)
-2. Enter the authenticated email address (from `gcloud auth list`)
-3. Click **Add** or **Save**
+- Click **"Add Users"** or similar.
+- Enter the user's email address.
+- Click **Add** then **Save and Continue**.
 
-**Verify:** Take a screenshot confirming the email appears in the test users list.
+**Summary section:**
 
-If the user is already listed as a test user, skip this step.
+- Click **"Back to Dashboard"** or **"Submit"**.
 
-## CLI Step 6: Create OAuth Credentials via Browser
+**What you should see when done:** A consent screen dashboard showing "Vellum Assistant" as the app name.
 
-**Goal:** Create a Desktop OAuth client in GCP Console and capture both credentials.
+Tell the user: "Consent screen configured!"
 
-Navigate to `https://console.cloud.google.com/apis/credentials?project=PROJECT_ID` (substitute the actual project ID from step 4).
+## Step 6: Create OAuth Credentials and Capture Them
 
-Take a screenshot and snapshot to check the page state:
+**Goal:** A "Desktop app" OAuth client exists, and both its Client ID and Client Secret are stored in the vault.
 
-- **Sign-in page:** Tell the user: "Please sign in to your Google account in the browser." Then auto-detect sign-in completion by polling screenshots every 5-10 seconds. Once signed in, continue.
-- **Already signed in / Credentials page loaded:** Continue immediately.
+Tell the user: "Creating OAuth credentials..."
 
-### Step 6a: Create the OAuth Client
+### 6a: Create the credential
 
-1. Take a screenshot and snapshot. Find and click **+ Create Credentials**, then select **OAuth client ID**.
-2. On the creation form:
-   - Application type: Select **"Desktop app"**
-   - Name: **"Vellum Assistant"**
-   - Click **Create**
-3. **Verify:** Take a screenshot. A dialog should appear showing both the **Client ID** and **Client Secret**.
+Navigate to `https://console.cloud.google.com/apis/credentials?project=PROJECT_ID`.
 
-### Step 6b: Extract Client ID
+Take a `browser_snapshot`. Find and click a button labeled **"Create Credentials"** or **"+ Create Credentials"**. A dropdown menu should appear. Take another snapshot and click **"OAuth client ID"**.
 
-Use `browser_extract` to read the Client ID from the creation dialog. It looks like `123456789-xxxxx.apps.googleusercontent.com`.
+On the creation form (take a snapshot to see the fields):
 
-Store it immediately:
+- **Application type**: Find the dropdown and select **"Desktop app"**. This may be a `<select>` element or a custom dropdown. Use the snapshot to identify it. You might need to click the dropdown first, then take another snapshot to see the options, then click "Desktop app".
+- **Name**: Type "Vellum Assistant" in the name field.
+- Do NOT add any redirect URIs. The desktop app flow doesn't need them.
+
+Click **"Create"** to submit the form.
+
+### 6b: Capture credentials from the dialog
+
+After creation, a dialog will display the **Client ID** and **Client Secret**. This is the critical step.
+
+**First**, try to auto-read the **Client ID** using `browser_extract`. The Client ID matches the pattern `*.apps.googleusercontent.com`. Search the extracted text for this pattern. If found, store it:
 
 ```
 credential_store store:
   service: "integration:gmail"
   field: "client_id"
-  value: "<the extracted Client ID>"
+  value: "<the Client ID extracted from the page>"
 ```
 
-### Step 6c: Capture Client Secret via Secure Prompt
+If `browser_extract` fails to find the Client ID, prompt the user instead:
 
-The Client Secret is visible in the same dialog. Do NOT attempt to read it from the screenshot — use a secure prompt so the user copies it accurately.
+```
+credential_store prompt:
+  service: "integration:gmail"
+  field: "client_id"
+  label: "Google OAuth Client ID"
+  description: "Copy the Client ID from the dialog in the Chrome window and paste it here. It looks like 123456789-xxxxx.apps.googleusercontent.com"
+  placeholder: "xxxxx.apps.googleusercontent.com"
+```
 
-Tell the user: "Your OAuth credentials have been created! Please copy the **Client Secret** shown in the dialog and paste it into the secure prompt below."
+**Then**, whether the Client ID was auto-read or prompted, tell the user:
+
+> "Got the Client ID! Now I need the Client Secret. You can see it in the dialog in the Chrome window. It starts with `GOCSPX-`. Please copy it and paste it into the secure prompt below."
+
+And present the secure prompt:
 
 ```
 credential_store prompt:
   service: "integration:gmail"
   field: "client_secret"
   label: "Google OAuth Client Secret"
-  description: "Copy the Client Secret from the dialog on screen. It starts with GOCSPX-"
+  description: "Copy the Client Secret from the Google Cloud Console dialog and paste it here."
   placeholder: "GOCSPX-..."
 ```
 
-**CRITICAL — do NOT dismiss the creation dialog before the user has copied the secret.** Wait for the secure prompt to be completed before clicking OK or navigating away.
+Wait for the user to complete the prompt. **Do not take any other browser actions until the user has pasted the secret.** The dialog must stay open so they can see and copy the value.
 
-After the secret is stored, you may close the dialog.
+If the user has trouble locating the secret, take a `browser_screenshot` and describe where the secret field is on the screen, but do NOT attempt to read the secret value yourself. It must come from the user for accuracy.
 
-## CLI Step 7: Authorize
+**What you should see when done:** `credential_store list` shows both `client_id` and `client_secret` for `integration:gmail`.
 
-Tell the user: "Starting the authorization flow — a Google sign-in page will open. Just click 'Allow' when it appears."
+Tell the user: "Credentials stored securely!"
+
+## Step 7: OAuth2 Authorization
+
+**Goal:** The user authorizes Vellum to access their Gmail and Calendar via OAuth.
+
+Tell the user: "Starting the authorization flow — a Google sign-in page will open in a few seconds. Just click 'Allow' when it appears."
 
 Use `credential_store` with:
 
@@ -468,6 +440,15 @@ This auto-reads client_id and client_secret from the secure store and auto-fills
 
 **Verify:** The `oauth2_connect` call returns a success message with the connected account email.
 
-## CLI Step 8: Done!
+## Step 8: Done!
 
 Tell the user: "**Gmail and Calendar are connected!** You can now read, search, and send emails, plus view and manage your calendar. Try asking me to check your inbox or show your upcoming events!"
+
+## Error Handling
+
+- **Page load failures:** Retry navigation once. If it still fails, tell the user and ask them to check their internet connection.
+- **Permission errors in GCP:** The user may need billing enabled or organization-level permissions. Explain clearly and ask them to resolve it.
+- **Consent screen already configured:** Don't overwrite. Skip to credential creation.
+- **Element not found:** Take a fresh `browser_snapshot` to re-assess. The GCP UI may have changed. Describe what you see and try alternative approaches. If stuck after 2 attempts, ask the user for guidance. They can see the Chrome window too.
+- **OAuth flow timeout or failure:** Offer to retry. The credentials are already stored, so reconnecting only requires re-running the authorization flow.
+- **Any unexpected state:** Take a `browser_screenshot`, describe what you see, and ask the user for guidance.

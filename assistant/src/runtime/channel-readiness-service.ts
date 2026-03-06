@@ -1,6 +1,7 @@
 import {
   getPhoneNumberSid,
   getTollFreeVerificationStatus,
+  getTwilioCredentials,
   hasTwilioCredentials,
 } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
@@ -99,9 +100,13 @@ const smsProbe: ChannelProbe = {
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
     if (!hasTwilioCredentials()) return [];
 
-    const accountSid = getSecureKey("credential:twilio:account_sid");
-    const authToken = getSecureKey("credential:twilio:auth_token");
-    if (!accountSid || !authToken) return [];
+    let accountSid: string;
+    let authToken: string;
+    try {
+      ({ accountSid, authToken } = getTwilioCredentials());
+    } catch {
+      return [];
+    }
 
     const phoneNumber = resolveSmsPhoneNumber();
     if (!phoneNumber) return [];

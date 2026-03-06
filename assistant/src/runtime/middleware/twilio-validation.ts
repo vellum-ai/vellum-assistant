@@ -71,10 +71,10 @@ export async function validateTwilioWebhook(
 
   const authToken = TwilioConversationRelayProvider.getAuthToken();
 
-  // Fail-closed: reject if no auth token is configured
   if (!authToken) {
     log.error(
-      "Twilio auth token not configured — rejecting webhook request (fail-closed)",
+      "Twilio auth token not found in secure key store — cannot verify webhook HMAC signature. " +
+        "Rejecting request. Set credential:twilio:auth_token via the credential_store tool.",
     );
     return httpError("FORBIDDEN", "Forbidden", 403);
   }

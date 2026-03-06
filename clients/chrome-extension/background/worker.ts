@@ -20,6 +20,9 @@ let reconnectDelay = RECONNECT_BASE_MS;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let shouldConnect = false;
 
+/** WebSocket close codes that represent intentional, non-error closures. */
+const NORMAL_CLOSE_CODES = new Set([1000, 1001]);
+
 // ── Storage helpers ─────────────────────────────────────────────────
 
 async function getBearerToken(): Promise<string | null> {
@@ -36,6 +39,26 @@ async function getRelayPort(): Promise<number> {
     if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
   }
   return DEFAULT_RELAY_PORT;
+}
+
+/**
+ * Fetch a fresh bearer token from the gateway's localhost-only endpoint
+ * and persist it for future connections.
+ */
+async function refreshToken(): Promise<boolean> {
+  try {
+    const port = await getRelayPort();
+    const resp = await fetch(`http://127.0.0.1:${port}/v1/browser-relay/token`);
+    if (!resp.ok) return false;
+    const data = await resp.json();
+    if (typeof data.token !== 'string') return false;
+    await chrome.storage.local.set({ bearerToken: data.token });
+    console.log('[vellum-relay] Token refreshed from gateway');
+    return true;
+  } catch {
+    console.warn('[vellum-relay] Failed to refresh token from gateway');
+    return false;
+  }
 }
 
 // ── WebSocket lifecycle ─────────────────────────────────────────────
@@ -66,7 +89,13 @@ async function connect(): Promise<void> {
     stopHeartbeat();
     ws = null;
     if (shouldConnect) {
-      scheduleReconnect();
+      if (!NORMAL_CLOSE_CODES.has(event.code)) {
+        // Any unexpected close (including 1006 from failed HTTP 401 handshakes,
+        // 1008, 4001, etc.) — attempt a token refresh before reconnecting.
+        refreshToken().then(() => scheduleReconnect());
+      } else {
+        scheduleReconnect();
+      }
     }
   });
 
@@ -316,10 +345,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-// Auto-connect on service worker start if previously connected
-chrome.storage.local.get('autoConnect').then((result) => {
+// Auto-connect on service worker start if previously connected.
+// Refresh the token first so we don't reconnect with stale credentials.
+chrome.storage.local.get('autoConnect').then(async (result) => {
   if (result.autoConnect === true) {
     shouldConnect = true;
+    await refreshToken();
     connect();
   }
 });

@@ -229,8 +229,9 @@ public final class SettingsStore: ObservableObject {
 
     @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
-    /// Read-only gateway target derived from daemon config (GATEWAY_PORT env var, default 7830).
-    @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
+    /// Read-only gateway target derived from daemon config.
+    /// Initial value reads env var > lockfile > default 7830; updated by IPC.
+    @Published var localGatewayTarget: String = "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
 
     /// Set to `true` once the first ingress config IPC response arrives, so the
     /// view layer can defer diagnostics until the real config values are available.
@@ -1284,8 +1285,7 @@ public final class SettingsStore: ObservableObject {
             return (httpTransport.baseURL, httpTransport.bearerToken)
         }
         // Local mode: call the gateway directly.
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
+        let gatewayPort = LockfilePaths.resolveGatewayPort()
         let baseURL = "http://127.0.0.1:\(gatewayPort)"
         let bearerToken = ActorTokenManager.getToken()
         return (baseURL, bearerToken)
@@ -2288,10 +2288,10 @@ public final class SettingsStore: ObservableObject {
         ingressPublicBaseUrl
     }
 
-    /// LAN pairing URL for the gateway (port 7830), or nil if no LAN IP available.
+    /// LAN pairing URL for the gateway, or nil if no LAN IP available.
     var lanPairingUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        return "http://\(ip):7830"
+        return "http://\(ip):\(LockfilePaths.resolveGatewayPort())"
     }
 
     // MARK: - Dev Mode Actions
