@@ -238,6 +238,7 @@ struct MessageListView: View {
             if anchorMessageId == nil {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
+            log.debug("Scroll restore: stage 0 (immediate)")
 
             // Stage 1: ~3 frames — handles most thread switches.
             try? await Task.sleep(nanoseconds: 50_000_000)
@@ -245,6 +246,7 @@ struct MessageListView: View {
             if anchorMessageId == nil {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
+            log.debug("Scroll restore: stage 1 (50ms)")
 
             // Stage 2: ~9 frames — catches slower layout/materialization.
             // scrollLanded is computed after the full wait so it reflects
@@ -252,8 +254,12 @@ struct MessageListView: View {
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
             let scrollLanded = hasFreshAnchorMeasurement && anchorTracker.isVisible
+            log.debug("Scroll restore: stage 2 check — scrollLanded=\(scrollLanded) hasReceivedScrollEvent=\(hasReceivedScrollEvent)")
             if anchorMessageId == nil && !hasReceivedScrollEvent && !scrollLanded {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                log.debug("Scroll restore: stage 2 (200ms) — retrying scrollTo")
+            } else {
+                log.debug("Scroll restore: stage 2 skipped")
             }
             if !Task.isCancelled { scrollRestoreTask = nil }
         }
@@ -785,8 +791,13 @@ struct MessageListView: View {
                 restoreScrollToBottom(proxy: proxy)
             }
             .onChange(of: anchorMessageId) {
-                scrollRestoreTask?.cancel()
-                scrollRestoreTask = nil
+                // Only cancel scroll restore when a new anchor is set (non-nil).
+                // The nil transition fires during thread switches (stale anchor
+                // cleanup) and must not cancel the restore just started.
+                if anchorMessageId != nil {
+                    scrollRestoreTask?.cancel()
+                    scrollRestoreTask = nil
+                }
                 // Record the timestamp when a new anchor is set so the
                 // pagination-exhaustion guard can measure elapsed time.
                 anchorSetTime = anchorMessageId != nil ? Date() : nil
