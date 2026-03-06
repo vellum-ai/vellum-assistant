@@ -118,6 +118,7 @@ struct MessageListView: View {
     @State private var hoverExitDebounceTask: Task<Void, Never>?
     @State private var threadSwitchSuppressionTask: Task<Void, Never>?
     @State private var suppressScrollbarDuringThreadSwitch: Bool = false
+    @State private var expandSuppressionTask: Task<Void, Never>?
     /// Tracks the last pending confirmation request ID that triggered an
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
     /// resign first responder exactly once per new confirmation appearance.
@@ -449,8 +450,10 @@ struct MessageListView: View {
             .scrollDisabled(messages.isEmpty && !isSending)
             .environment(\.suppressAutoScroll, { [self] in
                 isSuppressingBottomScroll = true
-                Task { @MainActor in
+                expandSuppressionTask?.cancel()
+                expandSuppressionTask = Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 200_000_000)
+                    guard !Task.isCancelled else { return }
                     isSuppressingBottomScroll = false
                 }
             })
@@ -564,6 +567,8 @@ struct MessageListView: View {
                 anchorTimeoutTask = nil
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
+                expandSuppressionTask?.cancel()
+                expandSuppressionTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -698,6 +703,8 @@ struct MessageListView: View {
                 scrollDebounceTask = nil
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
+                expandSuppressionTask?.cancel()
+                expandSuppressionTask = nil
                 isPaginationInFlight = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true

@@ -628,10 +628,7 @@ private struct StepDetailRow: View {
                             if !toolCall.inputFull.isEmpty {
                                 cachedInputFull = toolCall.inputFull
                             } else if let dict = toolCall.inputRawDict {
-                                let rawDict = dict
-                                Task { @MainActor in
-                                    cachedInputFull = ToolCallData.formatAllToolInput(rawDict)
-                                }
+                                cachedInputFull = ToolCallData.formatAllToolInput(dict)
                             }
                         }
                         if isTruncated {
@@ -646,10 +643,7 @@ private struct StepDetailRow: View {
                 if !toolCall.inputFull.isEmpty {
                     cachedInputFull = toolCall.inputFull
                 } else if let dict = toolCall.inputRawDict {
-                    let rawDict = dict
-                    Task { @MainActor in
-                        cachedInputFull = ToolCallData.formatAllToolInput(rawDict)
-                    }
+                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
                 }
             }
         }
