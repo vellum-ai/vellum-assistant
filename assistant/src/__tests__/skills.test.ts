@@ -30,6 +30,7 @@ mock.module("../util/platform.js", () => ({
   getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},
+  readLockfile: () => null,
 }));
 
 mock.module("../util/logger.js", () => ({
