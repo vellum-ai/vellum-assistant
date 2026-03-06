@@ -279,13 +279,36 @@ struct AppSharePanelView: View {
             return ""
         }
         if isDirectory.boolValue {
-            return "App Bundle"
+            return directorySize(at: fileURL)
+                .map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+                ?? "App Bundle"
         }
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
               let size = attrs[.size] as? UInt64 else {
             return ""
         }
         return ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+    }
+
+    /// Recursively computes the total size of all files within a directory.
+    private func directorySize(at url: URL) -> UInt64? {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+        var total: UInt64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey]),
+                  resourceValues.isDirectory != true,
+                  let fileSize = resourceValues.fileSize else {
+                continue
+            }
+            total += UInt64(fileSize)
+        }
+        return total
     }
 
     private func handleSlackShare() {
