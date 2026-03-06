@@ -167,21 +167,6 @@ struct AppsGridView: View {
                 )
                 .overlay(alignment: .topTrailing) {
                     ZStack {
-                        AppSharePanel(
-                            items: shareFileURL != nil && sharingAppId == app.id ? [shareFileURL!] : [],
-                            isPresented: Binding(
-                                get: { showShareSheet && sharingAppId == app.id },
-                                set: { newValue in
-                                    showShareSheet = newValue
-                                    if !newValue { sharingAppId = nil }
-                                }
-                            ),
-                            appName: shareAppName,
-                            appIcon: shareAppIcon
-                        )
-                        .frame(width: 0, height: 0)
-                        .opacity(0)
-
                         VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary), size: 24) {}
                             .allowsHitTesting(false)
                         Menu {
@@ -231,6 +216,21 @@ struct AppsGridView: View {
                     .opacity(isHovered ? 1 : 0)
                     .allowsHitTesting(isHovered)
                     .animation(VAnimation.fast, value: isHovered)
+                    .overlay {
+                        AppSharePanel(
+                            items: shareFileURL != nil && sharingAppId == app.id ? [shareFileURL!] : [],
+                            isPresented: Binding(
+                                get: { showShareSheet && sharingAppId == app.id },
+                                set: { newValue in
+                                    showShareSheet = newValue
+                                    if !newValue { sharingAppId = nil }
+                                }
+                            ),
+                            appName: shareAppName,
+                            appIcon: shareAppIcon
+                        )
+                        .allowsHitTesting(false)
+                    }
                 }
 
 
