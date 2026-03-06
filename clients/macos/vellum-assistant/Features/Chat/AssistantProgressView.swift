@@ -12,7 +12,6 @@ private enum ProgressPhase: Equatable {
     case toolsCompleteThinking
     case processing
     case complete
-    case error
     case denied
 }
 
@@ -37,32 +36,14 @@ struct AssistantProgressView: View {
 
     // MARK: - Derived State
 
-    /// Whether the permission was denied or timed out, meaning incomplete tools were blocked.
-    /// Checks both live confirmation (during streaming) and persisted per-tool-call data
-    /// (after history restore).
-    private var permissionWasDenied: Bool {
-        decidedConfirmations.contains { $0.state == .denied || $0.state == .timedOut }
-            || toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
-    }
-
     private var phase: ProgressPhase {
         let allComplete = !toolCalls.isEmpty && toolCalls.allSatisfy(\.isComplete)
         let hasTools = !toolCalls.isEmpty
         let hasIncompleteTools = hasTools && !allComplete
 
-        // Only enter error phase when ALL tools are done, at least one errored,
-        // the model hasn't already produced a text response (i.e. it recovered),
-        // the model is no longer streaming (it may still recover with text or new tools),
-        // and not still processing (composing a response after tools).
-        // While tools are still running, individual errors show as failed steps in the
-        // expanded list without changing the overall phase.
-        if allComplete && toolCalls.contains(where: { $0.isError }) && !hasText && !isStreaming && !isProcessing {
-            return .error
-        }
-
         // If confirmation was denied/timed out and tools are incomplete, those tools
         // will never finish — show the denied state instead of an indefinite spinner.
-        if permissionWasDenied && hasIncompleteTools {
+        if hasDeniedTools && hasIncompleteTools {
             return .denied
         }
 
@@ -78,7 +59,7 @@ struct AssistantProgressView: View {
 
         // All tools done but message still streaming with no text yet — more tools
         // may come. Show active "Thinking" state rather than premature "Completed N steps".
-        // Once text appears, fall through to .complete (which shows warning icon if errors).
+        // Once text appears, fall through to .complete (which shows warning icon if denied).
         if allComplete && isStreaming && !hasText {
             return .toolsCompleteThinking
         }
@@ -90,7 +71,7 @@ struct AssistantProgressView: View {
 
         // All done — either message finished (!isStreaming && !isProcessing) or
         // text is already visible while streaming (user can see the response).
-        // Uses warning icon + "Completed with N errors" if any tools failed.
+        // Uses warning icon + "Completed with N blocked permission(s)" if any tools were denied.
         if allComplete && (!isStreaming || hasText) && !isProcessing {
             return .complete
         }
@@ -111,20 +92,24 @@ struct AssistantProgressView: View {
         toolCalls.filter(\.isComplete).count
     }
 
-    private var hasAnyErrors: Bool {
-        toolCalls.contains(where: { $0.isError })
+    /// Single source of truth for denied state — used for both `.denied` phase gating
+    /// and `.complete` warning styling/copy. Checks live confirmations and persisted per-tool data.
+    private var hasDeniedTools: Bool {
+        decidedConfirmations.contains { $0.state == .denied || $0.state == .timedOut }
+            || toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
     }
 
-    private var isAllAppTools: Bool {
-        let appToolNames: Set<String> = ["app_create", "app_update", "app_file_edit", "app_file_write"]
-        return !toolCalls.isEmpty && toolCalls.allSatisfy { appToolNames.contains($0.toolName) }
+    /// Count of denied/timed-out tool calls. Counted exclusively from `toolCalls` (not
+    /// `decidedConfirmations`) because only tool calls carry a `toolUseId` for dedup.
+    private var deniedCount: Int {
+        toolCalls.filter { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }.count
     }
 
     private var isActive: Bool {
         switch phase {
         case .thinking, .toolRunning, .streamingCode, .toolsCompleteThinking, .processing:
             return true
-        case .complete, .error, .denied:
+        case .complete, .denied:
             return false
         }
     }
@@ -154,16 +139,13 @@ struct AssistantProgressView: View {
         case .processing:
             return ChatBubble.friendlyProcessingLabel(processingStatusText)
         case .complete:
-            if hasAnyErrors {
-                let errorCount = toolCalls.filter(\.isError).count
-                return "Completed with \(errorCount) error\(errorCount == 1 ? "" : "s")"
-            }
-            if isAllAppTools {
-                return "Built your app"
+            if hasDeniedTools {
+                if deniedCount > 0 {
+                    return "Completed with \(deniedCount) blocked permission\(deniedCount == 1 ? "" : "s")"
+                }
+                return "Completed with blocked permissions"
             }
             return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")"
-        case .error:
-            return "Something went wrong"
         case .denied:
             let uniqueNames = Array(Set(toolCalls.map(\.toolName))).sorted()
             let primary = uniqueNames.first ?? "Tool"
@@ -274,15 +256,9 @@ struct AssistantProgressView: View {
         switch phase {
         case .complete:
             statusIconTile(
-                systemName: hasAnyErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
-                iconColor: hasAnyErrors ? VColor.warning : VColor.iconAccent,
-                tileColor: hasAnyErrors ? Amber._200 : Forest._200
-            )
-        case .error:
-            statusIconTile(
-                systemName: "exclamationmark.circle.fill",
-                iconColor: VColor.error,
-                tileColor: Danger._200
+                systemName: hasDeniedTools ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
+                iconColor: hasDeniedTools ? VColor.warning : VColor.iconAccent,
+                tileColor: hasDeniedTools ? Amber._200 : Forest._200
             )
         case .denied:
             if decidedConfirmations.contains(where: { $0.state == .timedOut }) {
@@ -941,7 +917,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
     }
 }
 
-#Preview("Error") {
+#Preview("Complete with Errors (no denied)") {
     ZStack {
         VColor.background.ignoresSafeArea()
         AssistantProgressView(
