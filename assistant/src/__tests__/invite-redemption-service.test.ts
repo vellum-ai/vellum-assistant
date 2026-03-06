@@ -34,7 +34,9 @@ import {
 import {
   type InviteRedemptionOutcome,
   redeemInvite,
+  redeemInviteByCode,
 } from "../runtime/invite-redemption-service.js";
+import { hashVoiceCode } from "../util/voice-code.js";
 
 initializeDb();
 
@@ -94,6 +96,33 @@ describe("invite-redemption-service", () => {
     const result = findContactChannel({
       channelType: "telegram",
       externalUserId: "user-1",
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.channel.verifiedAt).toBeGreaterThan(0);
+    expect(result!.channel.verifiedVia).toBe("invite");
+    expect(result!.channel.status).toBe("active");
+  });
+
+  test("marks channel as verified via invite on 6-digit code redemption", () => {
+    const inviteCode = "123456";
+    createInvite({
+      sourceChannel: "telegram",
+      maxUses: 1,
+      inviteCodeHash: hashVoiceCode(inviteCode),
+    });
+
+    const outcome = redeemInviteByCode({
+      code: inviteCode,
+      sourceChannel: "telegram",
+      externalUserId: "code-user-1",
+    });
+
+    expect(outcome.ok).toBe(true);
+
+    const result = findContactChannel({
+      channelType: "telegram",
+      externalUserId: "code-user-1",
     });
 
     expect(result).not.toBeNull();
