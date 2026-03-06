@@ -58,14 +58,12 @@ graph TB
         SLACK_ADAPTER["Slack Adapter<br/>messaging/providers/slack/"]
         GMAIL_ADAPTER["Gmail Adapter<br/>messaging/providers/gmail/"]
         TELEGRAM_ADAPTER["Telegram Adapter<br/>messaging/providers/telegram-bot/"]
-        SMS_ADAPTER["SMS Adapter (Twilio)<br/>messaging/providers/sms/"]
     end
 
     subgraph "External APIs"
         SLACK_API["Slack Web API"]
         GMAIL_API["Gmail REST API"]
         TELEGRAM_API["Telegram Bot API"]
-        TWILIO_API["Twilio REST API"]
     end
 
     SHARED --> REGISTRY
@@ -73,11 +71,9 @@ graph TB
     SLACK_ADAPTER -.->|implements| PROVIDER_IF
     GMAIL_ADAPTER -.->|implements| PROVIDER_IF
     TELEGRAM_ADAPTER -.->|implements| PROVIDER_IF
-    SMS_ADAPTER -.->|implements| PROVIDER_IF
     SLACK_ADAPTER --> SLACK_API
     GMAIL_ADAPTER --> GMAIL_API
     TELEGRAM_ADAPTER --> TELEGRAM_API
-    SMS_ADAPTER --> TWILIO_API
     AUTH_TEST --> SHARED
     LIST --> SHARED
     SEARCH --> SHARED

@@ -161,6 +161,7 @@ export function deliverVerificationSms(
           Authorization: `Bearer ${bearerToken}`,
         },
         body: JSON.stringify({ to, text, assistantId }),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!resp.ok) {
         const body = await resp.text().catch(() => "<unreadable>");
