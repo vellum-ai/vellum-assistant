@@ -502,8 +502,11 @@ Use --status to narrow results to a specific lifecycle stage:
   pending   — created but not yet approved
   approved  — approved and queued for sending
   sent      — successfully delivered
+  rejected  — delivery failed by the provider (e.g. bounce or send error)
 
-Note: rejected drafts are permanently deleted and will not appear here.
+Note: drafts rejected via "draft reject" are permanently deleted and will
+not appear here. The "rejected" status only applies to provider-side
+delivery failures.
 
 Examples:
   $ vellum email draft list
