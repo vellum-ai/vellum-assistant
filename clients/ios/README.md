@@ -5,10 +5,10 @@ The iOS app is built via a native Xcode project (`vellum-assistant-ios.xcodeproj
 ## Features
 
 - **Standalone mode** — connects directly to Anthropic API using your API key (no Mac required)
-- **Connected to Mac mode** — proxies through the Vellum daemon running on your Mac over TCP
+- **Connected to Mac mode** — connects through the HTTP gateway with bearer token authentication
 - Chat interface with streaming responses, markdown rendering, and code blocks
 - Multiple threads with persistence, search, rename, timestamps, and archive
-- Daemon-synced threads in Connected mode (shared with macOS)
+- Assistant-synced threads in Connected mode (shared with macOS)
 - Model picker, model list, and command list rendering (shared components)
 - Subagent status chips with real-time state updates
 - Skill invocation chips in message bubbles
@@ -75,7 +75,7 @@ cd clients/ios
 
 ### Connected to Mac Mode
 
-Requires the Vellum daemon running on your Mac (via the macOS desktop app or `vellum wake` from the CLI). The iOS app connects to the daemon through an HTTP gateway using a bearer token for authentication.
+Requires the Vellum assistant running on your Mac (via the macOS desktop app or `vellum wake` from the CLI). The iOS app connects through the HTTP gateway using a bearer token for authentication.
 
 **QR Code Pairing:**
 
@@ -91,7 +91,7 @@ The QR code uses a v4 payload with a one-time pairing secret (no bearer token in
 
 ### iOS Integration Tests
 
-The `vellum-assistant-iosTests` target contains 70 iOS-specific integration tests:
+The `vellum-assistant-iosTests` target contains iOS-specific integration tests:
 
 ```bash
 cd clients/ios
@@ -99,10 +99,11 @@ cd clients/ios
 ```
 
 Test files in `clients/ios/Tests/`:
-- `ChatViewModelIOSTests.swift` — message send/receive flow, streaming, error handling (30 tests)
-- `ThreadLifecycleIOSTests.swift` — session creation, backfill, thread isolation (12 tests)
-- `ChatTranscriptFormatterIOSTests.swift` — markdown formatting, plain text extraction (11 tests)
-- `AttachmentFlowIOSTests.swift` — attachment limits, send flow, thumbnails (17 tests)
+- `AttachmentFlowIOSTests.swift` — attachment limits, send flow, thumbnails
+- `ChatTranscriptFormatterIOSTests.swift` — markdown formatting, plain text extraction
+- `ChatViewModelIOSTests.swift` — message send/receive flow, streaming, error handling
+- `ThreadLifecycleIOSTests.swift` — session creation, backfill, thread isolation
+- `UsageDashboardViewTests.swift` — usage dashboard state, data loading, formatting
 
 ### Shared Tests
 
@@ -138,7 +139,7 @@ The iOS app depends only on `VellumAssistantShared`. It must **not** import `Vel
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "Cannot connect" | Daemon not running or wrong gateway URL | Start the macOS app, verify gateway URL in Settings → Connect |
+| "Cannot connect" | Assistant not running or wrong gateway URL | Start the macOS app, verify gateway URL in Settings → Connect |
 | "Connection failed" after QR scan | Gateway unreachable from iPhone | Ensure both devices are on the same network; check firewall settings |
 | "Pairing was denied" | User tapped Deny on Mac | Show a new QR code and approve the pairing |
 | "Pairing request expired" | QR code older than 5 minutes | Show a new QR code on your Mac |
