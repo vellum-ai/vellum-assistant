@@ -187,7 +187,7 @@ extension MainWindowView {
             // Gradient background — use a stable hash for consistent colors per glyph
             var hasher = Hasher()
             hasher.combine(emoji)
-            let hash = abs(hasher.finalize())
+            let hash = hasher.finalize() & Int.max
             let hue = CGFloat(hash % 360) / 360.0
             let topColor = NSColor(hue: hue, saturation: 0.6, brightness: 0.85, alpha: 1.0)
             let bottomColor = NSColor(
