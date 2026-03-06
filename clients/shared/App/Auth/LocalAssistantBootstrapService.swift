@@ -88,7 +88,7 @@ public final class LocalAssistantBootstrapService {
             } catch let error as LocalBootstrapError {
                 throw error
             } catch let error as PlatformAPIError {
-                throw mapPlatformError(error)
+                throw mapPlatformError(error, context: .registration)
             } catch {
                 throw LocalBootstrapError.registrationFailed(error.localizedDescription)
             }
@@ -104,7 +104,7 @@ public final class LocalAssistantBootstrapService {
                 clientPlatform: clientPlatform
             )
         } catch let error as PlatformAPIError {
-            throw mapPlatformError(error)
+            throw mapPlatformError(error, context: .registration)
         } catch {
             throw LocalBootstrapError.registrationFailed(error.localizedDescription)
         }
@@ -130,7 +130,7 @@ public final class LocalAssistantBootstrapService {
                 clientPlatform: clientPlatform
             )
         } catch let error as PlatformAPIError {
-            throw mapPlatformError(error)
+            throw mapPlatformError(error, context: .provisioning)
         } catch {
             throw LocalBootstrapError.provisioningFailed(error.localizedDescription)
         }
@@ -173,18 +173,30 @@ public final class LocalAssistantBootstrapService {
         }
     }
 
-    private func mapPlatformError(_ error: PlatformAPIError) -> LocalBootstrapError {
-        switch error {
-        case .authenticationRequired:
-            return .authenticationRequired
-        case .networkError(let message):
-            return .registrationFailed(message)
-        case .serverError(_, let detail):
-            return .registrationFailed(detail ?? error.localizedDescription)
-        case .invalidURL:
-            return .registrationFailed("Invalid URL configuration")
-        case .decodingError(let message):
-            return .registrationFailed("Unexpected response: \(message)")
+    private enum ErrorContext {
+        case registration
+        case provisioning
+    }
+
+    private func mapPlatformError(_ error: Error, context: ErrorContext) -> LocalBootstrapError {
+        if let platformErr = error as? PlatformAPIError {
+            switch platformErr {
+            case .authenticationRequired:
+                return .authenticationRequired
+            default:
+                switch context {
+                case .registration:
+                    return .registrationFailed(platformErr.localizedDescription)
+                case .provisioning:
+                    return .provisioningFailed(platformErr.localizedDescription)
+                }
+            }
+        }
+        switch context {
+        case .registration:
+            return .registrationFailed(error.localizedDescription)
+        case .provisioning:
+            return .provisioningFailed(error.localizedDescription)
         }
     }
 }
