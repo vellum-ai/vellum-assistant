@@ -12,14 +12,14 @@ You are helping your user configure Twilio for voice calls and SMS messaging. Tw
 
 ```bash
 # 1. Check current status
-vellum integrations twilio config --json
+assistant integrations twilio config --json
 # 2. Store credentials (after collecting via credential_store prompt)
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
   -d '{"accountSid":"ACxxx","authToken":"xxx"}'
 # 3. Get credential ID and Account SID for proxied calls
 credential_store action=list  # → note credential_id for twilio/account_sid
-vellum integrations twilio config --json | jq -r '.accountSid'
+assistant integrations twilio config --json | jq -r '.accountSid'
 # 4. Search and provision via Twilio API (proxy injects auth automatically)
 #    bash network_mode=proxied credential_ids=["<cred_id>"]
 curl -s "https://api.twilio.com/2010-04-01/Accounts/<SID>/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true"
@@ -41,7 +41,7 @@ This skill manages the full Twilio lifecycle:
 - **Phone number assignment** — Assign an existing Twilio number to the assistant
 - **Status checking** — Verify credentials and assigned number
 
-Number search and purchase use proxied calls to the Twilio REST API (`bash` with `network_mode: "proxied"`). Local bookkeeping (assign, webhook sync) uses gateway control-plane endpoints. Status/list retrieval uses `vellum integrations ...` CLI reads.
+Number search and purchase use proxied calls to the Twilio REST API (`bash` with `network_mode: "proxied"`). Local bookkeeping (assign, webhook sync) uses gateway control-plane endpoints. Status/list retrieval uses `assistant integrations ...` CLI reads.
 
 ### Multi-Assistant Setups
 
@@ -72,7 +72,7 @@ All HTTP examples below include the optional `assistantId` query parameter in as
 First, check whether Twilio is already configured:
 
 ```bash
-vellum integrations twilio config --json
+assistant integrations twilio config --json
 ```
 
 The response includes:
@@ -128,7 +128,7 @@ Find the entry with `service: "twilio"` and `field: "account_sid"`. Note its `cr
 Then retrieve the Account SID (needed for Twilio URL paths):
 
 ```bash
-vellum integrations twilio config --json | jq -r '.accountSid'
+assistant integrations twilio config --json | jq -r '.accountSid'
 ```
 
 **3b. Search for available numbers (proxied Twilio API):**
@@ -230,8 +230,8 @@ Twilio needs a publicly reachable URL for voice webhooks, ConversationRelay WebS
 Check if ingress is already configured:
 
 ```bash
-vellum config get ingress.publicBaseUrl
-vellum config get ingress.enabled
+assistant config get ingress.publicBaseUrl
+assistant config get ingress.enabled
 ```
 
 If not configured, load and run the public-ingress skill:
@@ -254,7 +254,7 @@ Webhook URLs are automatically configured on the Twilio phone number when provis
 After configuration, verify by checking the config endpoint again.
 
 ```bash
-vellum integrations twilio config --json
+assistant integrations twilio config --json
 ```
 
 Confirm:
@@ -290,7 +290,7 @@ After the guardian-verify-setup skill completes (or the user skips), continue to
 To re-check guardian status later:
 
 ```bash
-vellum integrations guardian status --channel voice --json
+assistant integrations guardian status --channel voice --json
 ```
 
 ## Step 6: Enable Features
@@ -300,7 +300,7 @@ Now that Twilio is configured, the user can enable the features that depend on i
 **For voice calls:**
 
 ```bash
-vellum config set calls.enabled true
+assistant config set calls.enabled true
 ```
 
 **For SMS messaging:**

@@ -24,9 +24,9 @@ plaintext. Each key is identified by provider name.
 Known providers: ${API_KEY_PROVIDERS.join(", ")}
 
 Examples:
-  $ vellum keys list
-  $ vellum keys set anthropic sk-ant-...
-  $ vellum keys delete openai`,
+  $ assistant keys list
+  $ assistant keys set anthropic sk-ant-...
+  $ assistant keys delete openai`,
   );
 
   keys
@@ -40,7 +40,7 @@ names of providers that have a stored key. Providers without a stored key are
 omitted from the output.
 
 Examples:
-  $ vellum keys list`,
+  $ assistant keys list`,
     )
     .action(() => {
       const stored: string[] = [];
@@ -59,7 +59,7 @@ Examples:
 
   keys
     .command("set <provider> <key>")
-    .description("Store an API key (e.g. vellum keys set anthropic sk-ant-...)")
+    .description("Store an API key (e.g. assistant keys set anthropic sk-ant-...)")
     .addHelpText(
       "after",
       `
@@ -70,9 +70,9 @@ Arguments:
 If a key already exists for the given provider, it is silently overwritten.
 
 Examples:
-  $ vellum keys set anthropic sk-ant-abc123
-  $ vellum keys set openai sk-proj-xyz789
-  $ vellum keys set fireworks fw-abc123`,
+  $ assistant keys set anthropic sk-ant-abc123
+  $ assistant keys set openai sk-proj-xyz789
+  $ assistant keys set fireworks fw-abc123`,
     )
     .action((provider: string, key: string) => {
       if (setSecureKey(provider, key)) {
@@ -96,8 +96,8 @@ Removes the API key for the given provider from secure local storage. If
 no key exists for the provider, exits with an error.
 
 Examples:
-  $ vellum keys delete openai
-  $ vellum keys delete anthropic`,
+  $ assistant keys delete openai
+  $ assistant keys delete anthropic`,
     )
     .action((provider: string) => {
       const result = deleteSecureKey(provider);

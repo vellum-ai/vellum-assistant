@@ -99,7 +99,7 @@ Trusted contacts control who is allowed to send messages to the assistant throug
 Use this to show the user who currently has access, or to look up a specific contact.
 
 ```bash
-vellum contacts list --json
+assistant contacts list --json
 ```
 
 Optional query parameters for filtering:
@@ -111,7 +111,7 @@ Optional query parameters for filtering:
 Example:
 
 ```bash
-vellum contacts list --role contact --json
+assistant contacts list --role contact --json
 ```
 
 The response contains `{ ok: true, contacts: [...] }` where each contact has:
@@ -172,7 +172,7 @@ Use this when the user wants to remove someone's access. **Always confirm with t
 
 Ask the user: _"I'll revoke access for [name/identifier]. They will no longer be able to message the assistant. Should I proceed?"_
 
-First, list contacts to find the channel's `id` (each entry in a contact's `channels` array has an `id` field -- visible in `GET /v1/contacts` or `vellum contacts list --json` output), then revoke:
+First, list contacts to find the channel's `id` (each entry in a contact's `channels` array has an `id` field -- visible in `GET /v1/contacts` or `assistant contacts list --json` output), then revoke:
 
 **Important**: Before revoking, check the channel's current `status`. If the channel is **blocked**, do not attempt to revoke it -- blocking is stronger than revoking. Inform the user that the contact is already blocked and revoking is not applicable. Only channels with `active` or `pending` status can be revoked.
 
@@ -198,14 +198,14 @@ curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/contact-channels/<channel_id>" \
   -d '{"status": "blocked", "reason": "<optional reason>"}'
 ```
 
-Replace `<channel_id>` with the channel's `id` from the contact's `channels` array (visible in `GET /v1/contacts` or `vellum contacts list --json` output).
+Replace `<channel_id>` with the channel's `id` from the contact's `channels` array (visible in `GET /v1/contacts` or `assistant contacts list --json` output).
 
 ## Channel Readiness
 
 Before creating an invite for any channel, check whether that channel is ready to accept messages. Creating an invite for an unready channel produces an unusable invite — the invitee redeems the code but cannot actually reach the assistant.
 
 ```bash
-vellum channels readiness --json
+assistant channels readiness --json
 ```
 
 The response contains `{ success: true, snapshots: [...] }` where each snapshot has:
@@ -262,7 +262,7 @@ fi
 
 # Prefer backend-provided canonical link when available.
 if [ -z "$INVITE_URL" ]; then
-  BOT_CONFIG_JSON=$(vellum integrations telegram config --json)
+  BOT_CONFIG_JSON=$(assistant integrations telegram config --json)
   BOT_USERNAME=$(printf '%s' "$BOT_CONFIG_JSON" | tr -d '\n' | sed -n 's/.*"botUsername"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
   if [ -z "$BOT_USERNAME" ]; then
     echo "error:no_share_url_or_bot_username"
@@ -496,22 +496,22 @@ If the Slack bot is not available (Slack credentials not configured), tell the g
 Use this to show the guardian their active (and optionally all) invite links.
 
 ```bash
-vellum contacts invites list --source-channel telegram --json
+assistant contacts invites list --source-channel telegram --json
 ```
 
 For voice invites:
 
 ```bash
-vellum contacts invites list --source-channel voice --json
+assistant contacts invites list --source-channel voice --json
 ```
 
 For email, WhatsApp, SMS, or Slack invites:
 
 ```bash
-vellum contacts invites list --source-channel email --json
-vellum contacts invites list --source-channel whatsapp --json
-vellum contacts invites list --source-channel sms --json
-vellum contacts invites list --source-channel slack --json
+assistant contacts invites list --source-channel email --json
+assistant contacts invites list --source-channel whatsapp --json
+assistant contacts invites list --source-channel sms --json
+assistant contacts invites list --source-channel slack --json
 ```
 
 Optional query parameters:

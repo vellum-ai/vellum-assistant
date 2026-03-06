@@ -24,9 +24,9 @@ a scope, a decision (allow or deny), and a priority. Rules are stored in
 assistant invokes a tool.
 
 Examples:
-  $ vellum trust list
-  $ vellum trust remove abc123
-  $ vellum trust clear`,
+  $ assistant trust list
+  $ assistant trust remove abc123
+  $ assistant trust clear`,
   );
 
   trust
@@ -49,7 +49,7 @@ IDs are shown truncated to 8 characters. Use the full ID or any unique
 prefix with "trust remove".
 
 Examples:
-  $ vellum trust list`,
+  $ assistant trust list`,
     )
     .action(() => {
       const rules = getAllRules();
@@ -104,9 +104,9 @@ no rule matches, exits with an error. Use "trust list" to see rule IDs
 (shown truncated to 8 chars).
 
 Examples:
-  $ vellum trust remove abc12345
-  $ vellum trust remove abc1
-  $ vellum trust remove a1b2c3d4-e5f6-7890-abcd-ef1234567890`,
+  $ assistant trust remove abc12345
+  $ assistant trust remove abc1
+  $ assistant trust remove a1b2c3d4-e5f6-7890-abcd-ef1234567890`,
     )
     .action((id: string) => {
       const rules = getAllRules();
@@ -148,7 +148,7 @@ confirmation before proceeding (y/N). This action is irreversible — all
 rules must be re-created manually after clearing.
 
 Examples:
-  $ vellum trust clear`,
+  $ assistant trust clear`,
     )
     .action(async () => {
       const rules = getAllRules();

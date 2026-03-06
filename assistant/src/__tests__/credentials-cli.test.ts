@@ -243,7 +243,7 @@ function seedMetadataOnly(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("vellum credentials CLI", () => {
+describe("assistant credentials CLI", () => {
   beforeEach(() => {
     secureKeyStore = new Map();
     metadataStore = [];

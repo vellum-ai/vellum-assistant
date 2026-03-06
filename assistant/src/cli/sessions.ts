@@ -31,10 +31,10 @@ communicate via IPC), while "export" and "clear" operate on the local SQLite
 database directly.
 
 Examples:
-  $ vellum sessions list
-  $ vellum sessions new "Project planning"
-  $ vellum sessions export
-  $ vellum sessions clear`,
+  $ assistant sessions list
+  $ assistant sessions new "Project planning"
+  $ assistant sessions export
+  $ assistant sessions clear`,
   );
 
   sessions
@@ -50,7 +50,7 @@ Requires the assistant to be running — communicates via IPC. If auto-start is
 enabled, the assistant will be started automatically.
 
 Examples:
-  $ vellum sessions list`,
+  $ assistant sessions list`,
     )
     .action(async () => {
       if (shouldAutoStartDaemon()) await ensureDaemonRunning();
@@ -82,9 +82,9 @@ Creates a new conversation session and prints its title and ID. Requires the
 assistant to be running — communicates via IPC.
 
 Examples:
-  $ vellum sessions new
-  $ vellum sessions new "Project planning"
-  $ vellum sessions new "Bug triage 2026-03-05"`,
+  $ assistant sessions new
+  $ assistant sessions new "Project planning"
+  $ assistant sessions new "Bug triage 2026-03-05"`,
     )
     .action(async (title?: string) => {
       if (shouldAutoStartDaemon()) await ensureDaemonRunning();
@@ -121,9 +121,9 @@ Two output formats are available:
 Operates on the local SQLite database directly — does not require the assistant.
 
 Examples:
-  $ vellum sessions export
-  $ vellum sessions export --format json -o conversation.json
-  $ vellum sessions export abc123 --format md`,
+  $ assistant sessions export
+  $ assistant sessions export --format json -o conversation.json
+  $ assistant sessions export abc123 --format md`,
     )
     .action(
       async (
@@ -204,7 +204,7 @@ the assistant, but will notify it if running.
 Intended for development use. This action cannot be undone.
 
 Examples:
-  $ vellum sessions clear`,
+  $ assistant sessions clear`,
     )
     .action(async () => {
       log.info(

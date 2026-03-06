@@ -1,5 +1,5 @@
 /**
- * CLI command group: `vellum influencer`
+ * CLI command group: `assistant influencer`
  *
  * Research influencers on Instagram, TikTok, and X/Twitter via the Chrome extension relay.
  * All commands output JSON to stdout. Use --json for machine-readable output.
@@ -71,9 +71,9 @@ platform (Instagram, TikTok, X/Twitter) in Chrome for the relay to work.
 Supported platforms: instagram, tiktok, twitter (X).
 
 Examples:
-  $ vellum influencer search "fitness coach" --platforms instagram,tiktok
-  $ vellum influencer profile natgeo --platform instagram
-  $ vellum influencer compare instagram:nike twitter:nike tiktok:nike`,
+  $ assistant influencer search "fitness coach" --platforms instagram,tiktok
+  $ assistant influencer profile natgeo --platform instagram
+  $ assistant influencer compare instagram:nike twitter:nike tiktok:nike`,
   );
 
   // =========================================================================
@@ -120,9 +120,9 @@ Plain integers are also accepted (e.g. 50000).
 --verified restricts results to verified/blue-check accounts only.
 
 Examples:
-  $ vellum influencer search "vegan food" --min-followers 10k --max-followers 1m
-  $ vellum influencer search "tech reviewer" --platforms tiktok --limit 5 --verified
-  $ vellum influencer search "streetwear" --platforms instagram,twitter --min-followers 50k`,
+  $ assistant influencer search "vegan food" --min-followers 10k --max-followers 1m
+  $ assistant influencer search "tech reviewer" --platforms tiktok --limit 5 --verified
+  $ assistant influencer search "streetwear" --platforms instagram,twitter --min-followers 50k`,
     )
     .action(
       async (
@@ -196,9 +196,9 @@ Returns detailed profile data including follower count, bio, engagement
 metrics, and recent post statistics.
 
 Examples:
-  $ vellum influencer profile natgeo --platform instagram
-  $ vellum influencer profile charlidamelio --platform tiktok
-  $ vellum influencer profile elonmusk --platform twitter`,
+  $ assistant influencer profile natgeo --platform instagram
+  $ assistant influencer profile charlidamelio --platform tiktok
+  $ assistant influencer profile elonmusk --platform twitter`,
     )
     .action(
       async (username: string, opts: { platform: string }, cmd: Command) => {
@@ -255,9 +255,9 @@ useful for comparing follower counts, engagement rates, and content
 metrics across platforms or between competing accounts.
 
 Examples:
-  $ vellum influencer compare instagram:nike twitter:nike tiktok:nike
-  $ vellum influencer compare instagram:natgeo instagram:discoverearth
-  $ vellum influencer compare tiktok:charlidamelio tiktok:addisonre`,
+  $ assistant influencer compare instagram:nike twitter:nike tiktok:nike
+  $ assistant influencer compare instagram:natgeo instagram:discoverearth
+  $ assistant influencer compare tiktok:charlidamelio tiktok:addisonre`,
     )
     .action(async (influencers: string[], _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {

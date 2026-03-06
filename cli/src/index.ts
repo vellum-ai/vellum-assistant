@@ -1,11 +1,5 @@
 #!/usr/bin/env bun
 
-import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-
 import cliPkg from "../package.json";
 import { client } from "./commands/client";
 import { hatch } from "./commands/hatch";
@@ -39,31 +33,6 @@ const commands = {
 
 type CommandName = keyof typeof commands;
 
-function resolveAssistantEntry(): string | undefined {
-  // When installed globally, resolve from node_modules
-  try {
-    const require = createRequire(import.meta.url);
-    const assistantPkgPath =
-      require.resolve("@vellumai/assistant/package.json");
-    return join(dirname(assistantPkgPath), "src", "index.ts");
-  } catch {
-    // For local development, resolve from sibling directory
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    const localPath = join(
-      __dirname,
-      "..",
-      "..",
-      "assistant",
-      "src",
-      "index.ts",
-    );
-    if (existsSync(localPath)) {
-      return localPath;
-    }
-  }
-  return undefined;
-}
-
 async function main() {
   const args = process.argv.slice(2);
   const commandName = args[0];
@@ -77,11 +46,7 @@ async function main() {
     console.log("Usage: assistant <command> [options]");
     console.log("");
     console.log("Commands:");
-    console.log("  autonomy View and configure autonomy tiers");
     console.log("  client   Connect to a hatched assistant");
-    console.log("  config   Manage configuration");
-    console.log("  contacts Manage assistant contacts");
-    console.log("  email    Email operations (provider-agnostic)");
     console.log("  hatch    Create a new assistant instance");
     console.log("  login    Log in to the Vellum platform");
     console.log("  logout   Log out of the Vellum platform");
@@ -103,20 +68,8 @@ async function main() {
   const command = commands[commandName as CommandName];
 
   if (!command) {
-    const assistantEntry = resolveAssistantEntry();
-    if (assistantEntry) {
-      const child = spawn("bun", ["run", assistantEntry, ...args], {
-        stdio: "inherit",
-      });
-      child.on("exit", (code) => {
-        process.exit(code ?? 1);
-      });
-    } else {
-      console.error(`Unknown command: ${commandName}`);
-      console.error("Install the full stack with: bun install -g vellum");
-      process.exit(1);
-    }
-    return;
+    console.error(`Unknown command: ${commandName}`);
+    process.exit(1);
   }
 
   try {

@@ -1,5 +1,5 @@
 /**
- * CLI command group: `vellum amazon`
+ * CLI command group: `assistant amazon`
  *
  * Shop on Amazon and Amazon Fresh via the command line.
  * All commands output JSON to stdout. Use --json for machine-readable output.
@@ -115,11 +115,11 @@ WARNING: "order place" is IRREVERSIBLE — it charges the user's payment method 
 places a real Amazon order. Always confirm with the user before running it.
 
 Examples:
-  $ vellum amazon status
-  $ vellum amazon refresh
-  $ vellum amazon search "AA batteries" --limit 5
-  $ vellum amazon cart add --asin B07XXXXX --quantity 2
-  $ vellum amazon order place --payment-method-id pm_abc123`,
+  $ assistant amazon status
+  $ assistant amazon refresh
+  $ assistant amazon search "AA batteries" --limit 5
+  $ assistant amazon cart add --asin B07XXXXX --quantity 2
+  $ assistant amazon order place --payment-method-id pm_abc123`,
   );
 
   // =========================================================================
@@ -138,8 +138,8 @@ session. Typically used to restore a session from a saved recording rather than
 re-authenticating via "refresh".
 
 Examples:
-  $ vellum amazon login --recording /path/to/recording.json
-  $ vellum amazon login --recording ~/recordings/amazon-2024-01-15.json`,
+  $ assistant amazon login --recording /path/to/recording.json
+  $ assistant amazon login --recording ~/recordings/amazon-2024-01-15.json`,
     )
     .action(async (opts: { recording: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -166,7 +166,7 @@ all shopping commands will fail until a new session is established via
 "refresh", "refresh-headless", or "login".
 
 Examples:
-  $ vellum amazon logout`,
+  $ assistant amazon logout`,
     )
     .action((_opts: unknown, cmd: Command) => {
       clearSession();
@@ -199,8 +199,8 @@ templates are also extracted for self-healing capabilities.
 After cookie capture, the Chrome window is minimized automatically.
 
 Examples:
-  $ vellum amazon refresh
-  $ vellum amazon refresh --duration 120`,
+  $ assistant amazon refresh
+  $ assistant amazon refresh --duration 120`,
     )
     .action(async (opts: { duration: string }, cmd: Command) => {
       const json = getJson(cmd);
@@ -293,8 +293,8 @@ interfering with Chrome's WAL journaling. Required cookies (session-id,
 ubid-main, and at-main or x-main) are validated after extraction.
 
 Examples:
-  $ vellum amazon refresh-headless
-  $ vellum amazon refresh-headless --json`,
+  $ assistant amazon refresh-headless
+  $ assistant amazon refresh-headless --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
@@ -330,8 +330,8 @@ session exists, returns loggedIn: false.
 Use this to verify session health before running shopping commands.
 
 Examples:
-  $ vellum amazon status
-  $ vellum amazon status --json`,
+  $ assistant amazon status
+  $ assistant amazon status --json`,
     )
     .action((_opts: unknown, cmd: Command) => {
       const session = loadSession();
@@ -375,9 +375,9 @@ The --fresh flag restricts results to Amazon Fresh grocery items. The
 --limit flag controls the maximum number of results returned (default: 20).
 
 Examples:
-  $ vellum amazon search "AA batteries"
-  $ vellum amazon search "whole milk" --fresh --limit 10
-  $ vellum amazon search "USB-C cable" --limit 5 --json`,
+  $ assistant amazon search "AA batteries"
+  $ assistant amazon search "whole milk" --fresh --limit 10
+  $ assistant amazon search "USB-C cable" --limit 5 --json`,
     )
     .action(
       async (
@@ -415,9 +415,9 @@ description, images, and available variations. Use --fresh if the product
 is an Amazon Fresh grocery item.
 
 Examples:
-  $ vellum amazon product B07XXXXX
-  $ vellum amazon product B08YYYYY --fresh
-  $ vellum amazon product B07XXXXX --json`,
+  $ assistant amazon product B07XXXXX
+  $ assistant amazon product B08YYYYY --fresh
+  $ assistant amazon product B07XXXXX --json`,
     )
     .action(async (asin: string, opts: { fresh?: boolean }, cmd: Command) => {
       await run(cmd, async () => {
@@ -447,8 +447,8 @@ Each variation includes dimension labels (e.g. "Size: Large", "Color: Blue")
 and its own ASIN for use with "product" or "cart add".
 
 Examples:
-  $ vellum amazon variations B07XXXXX
-  $ vellum amazon variations B07XXXXX --json`,
+  $ assistant amazon variations B07XXXXX
+  $ assistant amazon variations B07XXXXX --json`,
     )
     .action(async (asin: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -477,9 +477,9 @@ The cart is shared between regular Amazon and Amazon Fresh items. Use
 --fresh when adding grocery items to route them through the Fresh workflow.
 
 Examples:
-  $ vellum amazon cart view
-  $ vellum amazon cart add --asin B07XXXXX --quantity 2
-  $ vellum amazon cart remove --cart-item-id CXYZ123`,
+  $ assistant amazon cart view
+  $ assistant amazon cart add --asin B07XXXXX --quantity 2
+  $ assistant amazon cart remove --cart-item-id CXYZ123`,
   );
 
   // cart view
@@ -494,8 +494,8 @@ price, and cart-item-id. Use the cart-item-id with "cart remove" to delete
 individual items.
 
 Examples:
-  $ vellum amazon cart view
-  $ vellum amazon cart view --json`,
+  $ assistant amazon cart view
+  $ assistant amazon cart view --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -526,9 +526,9 @@ Options:
                      failures. Includes raw Amazon API response data.
 
 Examples:
-  $ vellum amazon cart add --asin B07XXXXX
-  $ vellum amazon cart add --asin B08YYYYY --quantity 3 --fresh
-  $ vellum amazon cart add --asin B07XXXXX --verbose`,
+  $ assistant amazon cart add --asin B07XXXXX
+  $ assistant amazon cart add --asin B08YYYYY --quantity 3 --fresh
+  $ assistant amazon cart add --asin B07XXXXX --verbose`,
     )
     .action(
       async (
@@ -601,8 +601,8 @@ Options:
                         line-item ID.
 
 Examples:
-  $ vellum amazon cart remove --cart-item-id CXYZ123
-  $ vellum amazon cart remove --cart-item-id CXYZ123 --json`,
+  $ assistant amazon cart remove --cart-item-id CXYZ123
+  $ assistant amazon cart remove --cart-item-id CXYZ123 --json`,
     )
     .action(async (opts: { cartItemId: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -626,11 +626,11 @@ delivery slot must be selected. Use "delivery-slots" to list available time
 windows, then "select-slot" to reserve one.
 
 Fresh items must also be added to cart with the --fresh flag:
-  $ vellum amazon cart add --asin B08YYYYY --fresh
+  $ assistant amazon cart add --asin B08YYYYY --fresh
 
 Examples:
-  $ vellum amazon fresh delivery-slots
-  $ vellum amazon fresh select-slot --slot-id slot_abc123`,
+  $ assistant amazon fresh delivery-slots
+  $ assistant amazon fresh select-slot --slot-id slot_abc123`,
   );
 
   // fresh delivery-slots
@@ -648,8 +648,8 @@ Slot availability changes frequently. Re-check before placing an order if
 significant time has passed since the last query.
 
 Examples:
-  $ vellum amazon fresh delivery-slots
-  $ vellum amazon fresh delivery-slots --json`,
+  $ assistant amazon fresh delivery-slots
+  $ assistant amazon fresh delivery-slots --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -674,8 +674,8 @@ must be obtained from "fresh delivery-slots". A slot must be selected before
 placing an Amazon Fresh order via "order place".
 
 Examples:
-  $ vellum amazon fresh select-slot --slot-id slot_abc123
-  $ vellum amazon fresh select-slot --slot-id slot_abc123 --json`,
+  $ assistant amazon fresh select-slot --slot-id slot_abc123
+  $ assistant amazon fresh select-slot --slot-id slot_abc123 --json`,
     )
     .action(async (opts: { slotId: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -702,8 +702,8 @@ If no --payment-method-id is passed to "order place", Amazon uses the
 account's default payment method.
 
 Examples:
-  $ vellum amazon payment-methods
-  $ vellum amazon payment-methods --json`,
+  $ assistant amazon payment-methods
+  $ assistant amazon payment-methods --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -729,8 +729,8 @@ Use this to review the order before committing with "order place". This
 command is read-only and does not charge or modify the cart.
 
 Examples:
-  $ vellum amazon checkout
-  $ vellum amazon checkout --json`,
+  $ assistant amazon checkout
+  $ assistant amazon checkout --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -754,8 +754,8 @@ method and submits a real Amazon order that cannot be undone via this CLI.
 Always confirm with the user and review checkout summary first.
 
 Examples:
-  $ vellum amazon checkout
-  $ vellum amazon order place`,
+  $ assistant amazon checkout
+  $ assistant amazon order place`,
   );
 
   // order place
@@ -781,18 +781,18 @@ Options:
                              account's default payment method.
 
 For Amazon Fresh orders, select a delivery slot before placing the order:
-  $ vellum amazon fresh select-slot --slot-id slot_abc123
+  $ assistant amazon fresh select-slot --slot-id slot_abc123
 
 Recommended workflow before placing an order:
-  1. vellum amazon cart view          (verify cart contents)
-  2. vellum amazon checkout           (review totals and shipping)
+  1. assistant amazon cart view          (verify cart contents)
+  2. assistant amazon checkout           (review totals and shipping)
   3. Confirm with the user
-  4. vellum amazon order place
+  4. assistant amazon order place
 
 Examples:
-  $ vellum amazon order place
-  $ vellum amazon order place --payment-method-id pm_abc123
-  $ vellum amazon order place --json`,
+  $ assistant amazon order place
+  $ assistant amazon order place --payment-method-id pm_abc123
+  $ assistant amazon order place --json`,
     )
     .action(async (opts: { paymentMethodId?: string }, cmd: Command) => {
       await run(cmd, async () => {

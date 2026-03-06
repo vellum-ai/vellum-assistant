@@ -16,7 +16,7 @@ Only proceed if the user explicitly asks you to create or set up **your own** (t
 Before doing anything, check whether you already have an email address configured:
 
 ```bash
-vellum email status
+assistant email status
 ```
 
 Inspect `addresses` in the response. If at least one address exists, tell the user the existing address and stop — do NOT create another one.
@@ -26,7 +26,7 @@ Inspect `addresses` in the response. If at least one address exists, tell the us
 Create a new inbox through the CLI:
 
 ```bash
-vellum email inbox create --username <your-username>
+assistant email inbox create --username <your-username>
 ```
 
 For `<your-username>`, use your assistant name (lowercased, alphanumeric only). Check your identity from `IDENTITY.md` or `USER.md` to determine your name. If you don't have a name yet, ask the user what username they'd like for your email.
@@ -36,7 +36,7 @@ Use the returned `inbox.address` (or `inbox.id` if `address` is empty) as the cr
 ## Step 3: Verify Status
 
 ```bash
-vellum email status
+assistant email status
 ```
 
 Confirm the created inbox appears in `addresses`.
@@ -53,7 +53,7 @@ After the inbox is created and visible in status:
 - **One-time only.** If an inbox already exists (Step 1), do not create another. Inform the user of the existing address.
 - **User-initiated only.** Never run this skill unless the user asks you to set up or create an email.
 - **No custom domains.** Use the default provider domain. Do not attempt domain setup.
-- **No API key prompting.** The email API key should already be configured. If the `vellum email` command fails with an API key error, tell the user the email integration is not yet configured and ask them to set it up.
+- **No API key prompting.** The email API key should already be configured. If the `assistant email` command fails with an API key error, tell the user the email integration is not yet configured and ask them to set it up.
 
 ## Troubleshooting
 

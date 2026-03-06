@@ -308,7 +308,7 @@ const emailProbe: ChannelProbe = {
           passed: hasInbox,
           message: hasInbox
             ? `Inbox address is configured (${address})`
-            : "No inbox address configured — create one with: vellum email setup inboxes",
+            : "No inbox address configured — create one with: assistant email setup inboxes",
         },
       ];
     } catch (err) {

@@ -217,9 +217,9 @@ Integration categories:
   voice        Voice/call readiness and ElevenLabs voice ID (config-only)
 
 Examples:
-  $ vellum integrations telegram config
-  $ vellum integrations twilio numbers
-  $ vellum integrations guardian status --channel sms`,
+  $ assistant integrations telegram config
+  $ assistant integrations twilio numbers
+  $ assistant integrations guardian status --channel sms`,
   );
 
   const telegram = integrations
@@ -233,8 +233,8 @@ Checks the Telegram bot configuration status through the gateway API.
 Requires the assistant to be running.
 
 Examples:
-  $ vellum integrations telegram config
-  $ vellum integrations telegram config --json`,
+  $ assistant integrations telegram config
+  $ assistant integrations telegram config --json`,
   );
 
   telegram
@@ -250,8 +250,8 @@ The response includes whether a bot token is configured, the current webhook
 endpoint, and the bot's Telegram username.
 
 Examples:
-  $ vellum integrations telegram config
-  $ vellum integrations telegram config --json`,
+  $ assistant integrations telegram config
+  $ assistant integrations telegram config --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () =>
@@ -271,8 +271,8 @@ contacts on each channel have completed identity verification. Requires
 the assistant to be running.
 
 Examples:
-  $ vellum integrations guardian status
-  $ vellum integrations guardian status --channel voice`,
+  $ assistant integrations guardian status
+  $ assistant integrations guardian status --channel voice`,
   );
 
   guardian
@@ -290,10 +290,10 @@ not specified. The response includes whether guardian verification is active
 and the current verification state for that channel.
 
 Examples:
-  $ vellum integrations guardian status
-  $ vellum integrations guardian status --channel telegram
-  $ vellum integrations guardian status --channel voice
-  $ vellum integrations guardian status --channel sms --json`,
+  $ assistant integrations guardian status
+  $ assistant integrations guardian status --channel telegram
+  $ assistant integrations guardian status --channel voice
+  $ assistant integrations guardian status --channel sms --json`,
     )
     .action(async (opts: { channel?: GuardianChannel }, cmd: Command) => {
       const channel = opts.channel ?? "telegram";
@@ -321,9 +321,9 @@ Subcommands:
   sms compliance  Check SMS regulatory compliance status
 
 Examples:
-  $ vellum integrations twilio config
-  $ vellum integrations twilio numbers
-  $ vellum integrations twilio sms compliance`,
+  $ assistant integrations twilio config
+  $ assistant integrations twilio numbers
+  $ assistant integrations twilio sms compliance`,
   );
 
   twilio
@@ -339,8 +339,8 @@ The response includes whether the Twilio account SID and auth token are
 configured, and the currently assigned phone number.
 
 Examples:
-  $ vellum integrations twilio config
-  $ vellum integrations twilio config --json`,
+  $ assistant integrations twilio config
+  $ assistant integrations twilio config --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () =>
@@ -361,8 +361,8 @@ Returns an array of phone number objects with their SID, phone number,
 friendly name, and capabilities.
 
 Examples:
-  $ vellum integrations twilio numbers
-  $ vellum integrations twilio numbers --json`,
+  $ assistant integrations twilio numbers
+  $ assistant integrations twilio numbers --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () =>
@@ -382,8 +382,8 @@ Subcommands:
   compliance   Check SMS regulatory compliance status
 
 Examples:
-  $ vellum integrations twilio sms compliance
-  $ vellum integrations twilio sms compliance --json`,
+  $ assistant integrations twilio sms compliance
+  $ assistant integrations twilio sms compliance --json`,
   );
 
   twilioSms
@@ -399,8 +399,8 @@ Returns the current compliance state, including whether the account is
 approved for SMS messaging and any outstanding compliance requirements.
 
 Examples:
-  $ vellum integrations twilio sms compliance
-  $ vellum integrations twilio sms compliance --json`,
+  $ assistant integrations twilio sms compliance
+  $ assistant integrations twilio sms compliance --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () =>
@@ -410,16 +410,16 @@ Examples:
 
   twilio
     .command("sms-compliance")
-    .description('Alias for "vellum integrations twilio sms compliance"')
+    .description('Alias for "assistant integrations twilio sms compliance"')
     .addHelpText(
       "after",
       `
-Shortcut alias for "vellum integrations twilio sms compliance". Prefer
+Shortcut alias for "assistant integrations twilio sms compliance". Prefer
 the canonical path for scripts and documentation.
 
 Examples:
-  $ vellum integrations twilio sms-compliance
-  $ vellum integrations twilio sms compliance   # canonical form`,
+  $ assistant integrations twilio sms-compliance
+  $ assistant integrations twilio sms compliance   # canonical form`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () =>
@@ -438,7 +438,7 @@ Shows the public ingress URL and local gateway target URL. Reads from the
 local config file and does not require the gateway to be running.
 
 Examples:
-  $ vellum integrations ingress config`,
+  $ assistant integrations ingress config`,
   );
 
   ingress
@@ -455,8 +455,8 @@ URL (if any), and the local gateway target address. Ingress is considered
 enabled if explicitly set to true or if a publicBaseUrl is configured.
 
 Examples:
-  $ vellum integrations ingress config
-  $ vellum integrations ingress config --json`,
+  $ assistant integrations ingress config
+  $ assistant integrations ingress config --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () => readIngressConfig());
@@ -471,7 +471,7 @@ Shows voice and call readiness configuration. Reads from the local config
 file and does not require the gateway to be running.
 
 Examples:
-  $ vellum integrations voice config`,
+  $ assistant integrations voice config`,
   );
 
   voice
@@ -488,8 +488,8 @@ ID (falls back to default if not configured), whether a custom voice ID is
 set, and whether the default voice is in use.
 
 Examples:
-  $ vellum integrations voice config
-  $ vellum integrations voice config --json`,
+  $ assistant integrations voice config
+  $ assistant integrations voice config --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () => readVoiceConfig());

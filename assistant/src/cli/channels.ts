@@ -18,9 +18,9 @@ that the assistant uses to send and receive messages.
 The assistant must be running — channel status is read from the live gateway.
 
 Examples:
-  $ vellum channels readiness
-  $ vellum channels readiness --channel telegram
-  $ vellum channels readiness --json`,
+  $ assistant channels readiness
+  $ assistant channels readiness --channel telegram
+  $ assistant channels readiness --json`,
   );
 
   channels
@@ -39,8 +39,8 @@ configured channels are returned. Common channel types include: telegram,
 voice, sms, email, slack, vellum.
 
 Examples:
-  $ vellum channels readiness
-  $ vellum channels readiness --channel telegram`,
+  $ assistant channels readiness
+  $ assistant channels readiness --channel telegram`,
     )
     .action(async (opts: { channel?: string }, cmd: Command) => {
       const query = toQueryString({ channel: opts.channel });

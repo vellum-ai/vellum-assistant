@@ -1,5 +1,5 @@
 /**
- * CLI command: `vellum map <domain>`
+ * CLI command: `assistant map <domain>`
  *
  * Launches Chrome with CDP, starts a Ride Shotgun learn session to auto-navigate
  * the given domain, then analyzes captured network traffic into a deduplicated API map.
@@ -309,9 +309,9 @@ How it works:
 The assistant must be running (the learn session is coordinated through it).
 
 Examples:
-  $ vellum map example.com
-  $ vellum map open.spotify.com --duration 180
-  $ vellum map garmin.com --manual`,
+  $ assistant map example.com
+  $ assistant map open.spotify.com --duration 180
+  $ assistant map garmin.com --manual`,
     )
     .action(
       async (

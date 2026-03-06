@@ -1,5 +1,5 @@
 /**
- * CLI command group: `vellum email`
+ * CLI command group: `assistant email`
  *
  * Provider-agnostic email operations routed through the service facade.
  * All commands output JSON to stdout. Use --json for machine-readable output.
@@ -86,11 +86,11 @@ enforced at send time. If a guardrail blocks sending, exit code 2 is returned.
 Exit codes: 0 = success, 1 = error, 2 = guardrail blocked.
 
 Examples:
-  $ vellum email status
-  $ vellum email draft create --from hello@example.com --to user@test.com --subject "Hello" --body "Hi there"
-  $ vellum email draft approve-send --draft-id d_abc123 --confirm
-  $ vellum email guardrails set --daily-cap 50
-  $ vellum email setup domain --domain example.com`,
+  $ assistant email status
+  $ assistant email draft create --from hello@example.com --to user@test.com --subject "Hello" --body "Hi there"
+  $ assistant email draft approve-send --draft-id d_abc123 --confirm
+  $ assistant email guardrails set --daily-cap 50
+  $ assistant email setup domain --domain example.com`,
   );
 
   const svc = getEmailService();
@@ -110,8 +110,8 @@ configuration. The active provider determines which backend handles domain
 setup, inbox creation, DNS records, and message delivery.
 
 Examples:
-  $ vellum email provider get
-  $ vellum email provider set agentmail`,
+  $ assistant email provider get
+  $ assistant email provider set agentmail`,
   );
 
   provider
@@ -125,8 +125,8 @@ resend). Use this to confirm which backend is handling email operations
 before making changes.
 
 Examples:
-  $ vellum email provider get
-  $ vellum email provider get --json`,
+  $ assistant email provider get
+  $ assistant email provider get --json`,
     )
     .action((_opts: unknown, cmd: Command) => {
       output({ ok: true, provider: svc.getProviderName() }, getJson(cmd));
@@ -147,7 +147,7 @@ Persists the provider selection to config. All subsequent email commands
 (setup, inbox, draft, guardrails) will route through the selected provider.
 
 Examples:
-  $ vellum email provider set agentmail`,
+  $ assistant email provider set agentmail`,
     )
     .action((name: string, _opts: unknown, cmd: Command) => {
       if (!SUPPORTED_PROVIDERS.includes(name as SupportedProvider)) {
@@ -176,8 +176,8 @@ status, configured inboxes with their addresses, and current guardrail state
 Use this to verify the email stack is fully configured before sending.
 
 Examples:
-  $ vellum email status
-  $ vellum email status --json`,
+  $ assistant email status
+  $ assistant email status --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -206,9 +206,9 @@ The setup workflow configures the email stack in order:
 Run each step in sequence. "verify" will fail until DNS records propagate.
 
 Examples:
-  $ vellum email setup domain --domain example.com
-  $ vellum email setup dns --domain example.com
-  $ vellum email setup verify --domain example.com`,
+  $ assistant email setup domain --domain example.com
+  $ assistant email setup dns --domain example.com
+  $ assistant email setup verify --domain example.com`,
   );
 
   setup
@@ -226,8 +226,8 @@ Use --dry-run to preview the registration without creating it. This returns
 the DNS records that would need to be configured without committing changes.
 
 Examples:
-  $ vellum email setup domain --domain example.com
-  $ vellum email setup domain --domain example.com --dry-run`,
+  $ assistant email setup domain --domain example.com
+  $ assistant email setup domain --domain example.com --dry-run`,
     )
     .action(
       async (opts: { domain: string; dryRun?: boolean }, cmd: Command) => {
@@ -252,8 +252,8 @@ behalf of your domain and improve deliverability.
 Add all returned records to your DNS provider before running "setup verify".
 
 Examples:
-  $ vellum email setup dns --domain example.com
-  $ vellum email setup dns --domain example.com --json`,
+  $ assistant email setup dns --domain example.com
+  $ assistant email setup dns --domain example.com --json`,
     )
     .action(async (opts: { domain: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -277,7 +277,7 @@ Run this after adding all records returned by "setup dns". If verification
 fails, wait for propagation and retry.
 
 Examples:
-  $ vellum email setup verify --domain example.com`,
+  $ assistant email setup verify --domain example.com`,
     )
     .action(async (opts: { domain: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -299,7 +299,7 @@ specified domain. Idempotent — re-running skips already existing inboxes.
 The domain must be registered and verified before creating inboxes.
 
 Examples:
-  $ vellum email setup inboxes --domain example.com`,
+  $ assistant email setup inboxes --domain example.com`,
     )
     .action(async (opts: { domain: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -324,8 +324,8 @@ secret so you can verify authenticity. If omitted, the provider may generate
 one automatically (provider-dependent).
 
 Examples:
-  $ vellum email setup webhook --url https://example.com/api/email/inbound
-  $ vellum email setup webhook --url https://example.com/api/email/inbound --secret whsec_abc123`,
+  $ assistant email setup webhook --url https://example.com/api/email/inbound
+  $ assistant email setup webhook --url https://example.com/api/email/inbound --secret whsec_abc123`,
     )
     .action(async (opts: { url: string; secret?: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -347,8 +347,8 @@ configured provider. Each inbox has a username (local part), domain, and
 optional display name.
 
 Examples:
-  $ vellum email inbox list
-  $ vellum email inbox create --username sam --domain example.com --display-name "Samwise"`,
+  $ assistant email inbox list
+  $ assistant email inbox create --username sam --domain example.com --display-name "Samwise"`,
   );
 
   inbox
@@ -370,9 +370,9 @@ The --display-name sets the friendly name shown in the "From" header
 (e.g. "Samwise <sam@example.com>").
 
 Examples:
-  $ vellum email inbox create --username sam --domain example.com
-  $ vellum email inbox create --username support --domain example.com --display-name "Support Team"
-  $ vellum email inbox create --username hello`,
+  $ assistant email inbox create --username sam --domain example.com
+  $ assistant email inbox create --username support --domain example.com --display-name "Support Team"
+  $ assistant email inbox create --username hello`,
     )
     .action(
       async (
@@ -403,8 +403,8 @@ Use this to verify which inboxes are available before creating drafts or
 configuring inbound webhooks.
 
 Examples:
-  $ vellum email inbox list
-  $ vellum email inbox list --json`,
+  $ assistant email inbox list
+  $ assistant email inbox list --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -431,9 +431,9 @@ Drafts can also be listed, inspected by ID, or deleted. Use "draft list
 --status pending" to see drafts awaiting approval.
 
 Examples:
-  $ vellum email draft create --from hello@example.com --to user@test.com --subject "Hi" --body "Hello"
-  $ vellum email draft list --status pending
-  $ vellum email draft approve-send --draft-id d_abc123 --confirm`,
+  $ assistant email draft create --from hello@example.com --to user@test.com --subject "Hi" --body "Hello"
+  $ assistant email draft list --status pending
+  $ assistant email draft approve-send --draft-id d_abc123 --confirm`,
   );
 
   draft
@@ -462,9 +462,9 @@ Optional fields:
   --in-reply-to  Message ID of the email being replied to (for threading)
 
 Examples:
-  $ vellum email draft create --from hello@example.com --to user@test.com --subject "Hello" --body "Hi there"
-  $ vellum email draft create --from hello@example.com --to user@test.com --subject "Re: Question" --body "Sure thing" --in-reply-to msg_abc123
-  $ vellum email draft create --from hello@example.com --to user@test.com --subject "Update" --body "FYI" --cc manager@test.com`,
+  $ assistant email draft create --from hello@example.com --to user@test.com --subject "Hello" --body "Hi there"
+  $ assistant email draft create --from hello@example.com --to user@test.com --subject "Re: Question" --body "Sure thing" --in-reply-to msg_abc123
+  $ assistant email draft create --from hello@example.com --to user@test.com --subject "Update" --body "FYI" --cc manager@test.com`,
     )
     .action(
       async (
@@ -509,9 +509,9 @@ not appear here. The "rejected" status only applies to provider-side
 delivery failures.
 
 Examples:
-  $ vellum email draft list
-  $ vellum email draft list --status pending
-  $ vellum email draft list --status sent --json`,
+  $ assistant email draft list
+  $ assistant email draft list --status pending
+  $ assistant email draft list --status sent --json`,
     )
     .action(async (opts: { status?: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -535,9 +535,9 @@ status, and timestamps. Use --inbox to scope the lookup in multi-inbox
 setups.
 
 Examples:
-  $ vellum email draft get d_abc123
-  $ vellum email draft get d_abc123 --inbox inbox_456
-  $ vellum email draft get d_abc123 --json`,
+  $ assistant email draft get d_abc123
+  $ assistant email draft get d_abc123 --inbox inbox_456
+  $ assistant email draft get d_abc123 --json`,
     )
     .action(async (draftId: string, opts: { inbox?: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -568,8 +568,8 @@ pending state and can be retried after adjusting guardrails.
 Aliases: "draft send", "draft approve"
 
 Examples:
-  $ vellum email draft approve-send --draft-id d_abc123 --confirm
-  $ vellum email draft approve-send --draft-id d_abc123 --confirm --json`,
+  $ assistant email draft approve-send --draft-id d_abc123 --confirm
+  $ assistant email draft approve-send --draft-id d_abc123 --confirm --json`,
     )
     .action(
       async (
@@ -605,9 +605,9 @@ sent. The --reason flag is accepted for logging but the draft itself is
 removed from the provider and cannot be recovered.
 
 Examples:
-  $ vellum email draft reject --draft-id d_abc123
-  $ vellum email draft reject --draft-id d_abc123 --reason "Wrong recipient"
-  $ vellum email draft reject --draft-id d_abc123 --inbox inbox_456`,
+  $ assistant email draft reject --draft-id d_abc123
+  $ assistant email draft reject --draft-id d_abc123 --reason "Wrong recipient"
+  $ assistant email draft reject --draft-id d_abc123 --inbox inbox_456`,
     )
     .action(
       async (
@@ -636,8 +636,8 @@ result in permanent deletion; use "reject" when you want to log a reason
 for not sending. Use --inbox to scope the deletion in multi-inbox setups.
 
 Examples:
-  $ vellum email draft delete d_abc123
-  $ vellum email draft delete d_abc123 --inbox inbox_456`,
+  $ assistant email draft delete d_abc123
+  $ assistant email draft delete d_abc123 --inbox inbox_456`,
     )
     .action(async (draftId: string, opts: { inbox?: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -661,9 +661,9 @@ Use "inbound list" to browse received messages and "inbound get" to
 retrieve the full content of a specific message.
 
 Examples:
-  $ vellum email inbound list
-  $ vellum email inbound list --thread-id thr_abc123
-  $ vellum email inbound get msg_def456`,
+  $ assistant email inbound list
+  $ assistant email inbound list --thread-id thr_abc123
+  $ assistant email inbound get msg_def456`,
   );
 
   inbound
@@ -679,10 +679,10 @@ thread ID to see only messages belonging to a specific conversation, or
 by inbox ID to scope to a particular inbox.
 
 Examples:
-  $ vellum email inbound list
-  $ vellum email inbound list --thread-id thr_abc123
-  $ vellum email inbound list --inbox inbox_456
-  $ vellum email inbound list --json`,
+  $ assistant email inbound list
+  $ assistant email inbound list --thread-id thr_abc123
+  $ assistant email inbound list --inbox inbox_456
+  $ assistant email inbound list --json`,
     )
     .action(
       async (opts: { threadId?: string; inbox?: string }, cmd: Command) => {
@@ -706,8 +706,8 @@ Returns the full inbound message including sender, recipients, subject,
 body, headers, and timestamps.
 
 Examples:
-  $ vellum email inbound get msg_abc123
-  $ vellum email inbound get msg_abc123 --json`,
+  $ assistant email inbound get msg_abc123
+  $ assistant email inbound get msg_abc123 --json`,
     )
     .action(async (messageId: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -731,8 +731,8 @@ Use "thread list" to browse all threads and "thread get" to retrieve
 the full conversation history for a specific thread.
 
 Examples:
-  $ vellum email thread list
-  $ vellum email thread get thr_abc123`,
+  $ assistant email thread list
+  $ assistant email thread get thr_abc123`,
   );
 
   thread
@@ -745,8 +745,8 @@ Lists all email threads. Each thread entry includes its ID, subject,
 participant addresses, message count, and timestamps.
 
 Examples:
-  $ vellum email thread list
-  $ vellum email thread list --json`,
+  $ assistant email thread list
+  $ assistant email thread list --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -768,8 +768,8 @@ Returns the full thread including all messages (inbound and outbound),
 participants, subject, and timestamps. Messages are ordered chronologically.
 
 Examples:
-  $ vellum email thread get thr_abc123
-  $ vellum email thread get thr_abc123 --json`,
+  $ assistant email thread get thr_abc123
+  $ assistant email thread get thr_abc123 --json`,
     )
     .action(async (threadId: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -799,10 +799,10 @@ When a guardrail blocks a send, exit code 2 is returned with the specific
 guardrail error in the response.
 
 Examples:
-  $ vellum email guardrails get
-  $ vellum email guardrails set --paused true
-  $ vellum email guardrails set --daily-cap 100
-  $ vellum email guardrails block "*@spam.com"`,
+  $ assistant email guardrails get
+  $ assistant email guardrails set --paused true
+  $ assistant email guardrails set --daily-cap 100
+  $ assistant email guardrails block "*@spam.com"`,
   );
 
   guardrails
@@ -817,8 +817,8 @@ daily send cap, today's send count, and a summary of address rules.
 Use this to verify guardrail settings before sending emails.
 
 Examples:
-  $ vellum email guardrails get
-  $ vellum email guardrails get --json`,
+  $ assistant email guardrails get
+  $ assistant email guardrails get --json`,
     )
     .action((_opts: unknown, cmd: Command) => {
       output({ ok: true, ...svc.getGuardrails() }, getJson(cmd));
@@ -841,9 +841,9 @@ value unchanged.
                         calendar day. Set to 0 to disable sending entirely.
 
 Examples:
-  $ vellum email guardrails set --paused true
-  $ vellum email guardrails set --paused false --daily-cap 50
-  $ vellum email guardrails set --daily-cap 0`,
+  $ assistant email guardrails set --paused true
+  $ assistant email guardrails set --paused false --daily-cap 50
+  $ assistant email guardrails set --daily-cap 0`,
     )
     .action((opts: { paused?: string; dailyCap?: string }, cmd: Command) => {
       const updates: { paused?: boolean; dailyCap?: number } = {};
@@ -877,8 +877,8 @@ pattern will be rejected with exit code 2. Rules are evaluated in order;
 block rules take precedence over allow rules for the same address.
 
 Examples:
-  $ vellum email guardrails block "*@spam.com"
-  $ vellum email guardrails block "marketing@*"`,
+  $ assistant email guardrails block "*@spam.com"
+  $ assistant email guardrails block "marketing@*"`,
     )
     .action((pattern: string, _opts: unknown, cmd: Command) => {
       const rule = svc.addRule("block", pattern);
@@ -900,8 +900,8 @@ address-rule guardrail check during "approve-send". Note that block rules
 take precedence over allow rules for the same address.
 
 Examples:
-  $ vellum email guardrails allow "*@partner.com"
-  $ vellum email guardrails allow "vip@example.com"`,
+  $ assistant email guardrails allow "*@partner.com"
+  $ assistant email guardrails allow "vip@example.com"`,
     )
     .action((pattern: string, _opts: unknown, cmd: Command) => {
       const rule = svc.addRule("allow", pattern);
@@ -920,8 +920,8 @@ entry includes its ID, type (block or allow), and the glob pattern.
 Use the rule ID with "guardrails unrule" to remove a specific rule.
 
 Examples:
-  $ vellum email guardrails rules
-  $ vellum email guardrails rules --json`,
+  $ assistant email guardrails rules
+  $ assistant email guardrails rules --json`,
     )
     .action((_opts: unknown, cmd: Command) => {
       output({ ok: true, rules: svc.listAddressRules() }, getJson(cmd));
@@ -941,8 +941,8 @@ Permanently removes a block or allow rule. The rule takes effect immediately —
 subsequent "approve-send" calls will no longer be affected by the removed rule.
 
 Examples:
-  $ vellum email guardrails unrule rule_abc123
-  $ vellum email guardrails rules   # list rules to find the ID first`,
+  $ assistant email guardrails unrule rule_abc123
+  $ assistant email guardrails rules   # list rules to find the ID first`,
     )
     .action((ruleId: string, _opts: unknown, cmd: Command) => {
       if (svc.removeRule(ruleId)) {

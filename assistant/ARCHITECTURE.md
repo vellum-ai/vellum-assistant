@@ -1407,19 +1407,19 @@ Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKIL
 
 ### Bundled Skill Retrieval Contract (CLI-First)
 
-Config/status retrieval instructions in bundled `SKILL.md` files are CLI-first. Retrieval should flow through canonical `vellum` CLI surfaces (`vellum config get` for generic settings, secure credential surfaces for secrets, and domain reads where available) instead of direct gateway curl snippets or keychain lookups.
+Config/status retrieval instructions in bundled `SKILL.md` files are CLI-first. Retrieval should flow through canonical `vellum` CLI surfaces (`assistant config get` for generic settings, secure credential surfaces for secrets, and domain reads where available) instead of direct gateway curl snippets or keychain lookups.
 
 ```mermaid
 graph LR
     SKILL["SKILL.md retrieval instruction"] --> BASH["bash tool"]
-    BASH --> CLI["vellum config get / secure credential surfaces / domain reads"]
+    BASH --> CLI["assistant config get / secure credential surfaces / domain reads"]
     CLI --> GW["Gateway read route (when needed)"]
     GW --> RT["Runtime handler/config service"]
 ```
 
 Rules enforced by guard tests:
 
-- Retrieval reads use `bash` + canonical CLI surfaces (`vellum config get` and domain read commands where available).
+- Retrieval reads use `bash` + canonical CLI surfaces (`assistant config get` and domain read commands where available).
 - Direct gateway `curl` + manual bearer headers are for control-plane writes/actions, not retrieval reads.
 - Bundled skill docs must not instruct direct keychain lookups (`security find-generic-password`, `secret-tool`) for retrieval.
 - `host_bash` is not used for Vellum CLI retrieval commands unless intentionally allowlisted.

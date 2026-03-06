@@ -55,7 +55,7 @@ Diagnostic checks performed:
   13. Sandbox diagnostics        Reports sandbox backend status and configuration
 
 Examples:
-  $ vellum doctor`,
+  $ assistant doctor`,
     )
     .action(async () => {
       const pass = (label: string) => log.info(`  \u2713 ${label}`);
@@ -109,7 +109,7 @@ Examples:
         fail(
           "API key configured",
           envVar
-            ? `set ${envVar} or run: vellum config set apiKeys.${provider} <key>`
+            ? `set ${envVar} or run: assistant config set apiKeys.${provider} <key>`
             : `set API key for provider "${provider}"`,
         );
       }

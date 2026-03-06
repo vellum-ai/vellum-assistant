@@ -9,7 +9,7 @@ export function registerCompletionsCommand(program: Command): void {
     .command("completions")
     .argument("<shell>", "Shell type: bash, zsh, or fish")
     .description(
-      "Generate shell completion script (e.g. vellum completions bash >> ~/.bashrc)",
+      "Generate shell completion script (e.g. assistant completions bash >> ~/.bashrc)",
     )
     .addHelpText(
       "after",
@@ -17,23 +17,23 @@ export function registerCompletionsCommand(program: Command): void {
 Arguments:
   shell   Shell to generate completions for: bash, zsh, or fish
 
-Generates a completion script that enables tab-completion for common vellum
+Generates a completion script that enables tab-completion for common assistant
 commands, subcommands, and flags. The script is written to stdout so you
 can redirect it to a file or eval it directly.
 
 Installation per shell:
   bash   Append to ~/.bashrc or eval in your shell profile:
-           eval "$(vellum completions bash)"
+           eval "$(assistant completions bash)"
   zsh    Append to ~/.zshrc or eval in your shell profile:
-           eval "$(vellum completions zsh)"
+           eval "$(assistant completions zsh)"
   fish   Pipe to source or save to the fish completions directory:
-           vellum completions fish | source
-           vellum completions fish > ~/.config/fish/completions/vellum.fish
+           assistant completions fish | source
+           assistant completions fish > ~/.config/fish/completions/assistant.fish
 
 Examples:
-  $ vellum completions bash >> ~/.bashrc
-  $ eval "$(vellum completions zsh)"
-  $ vellum completions fish | source`,
+  $ assistant completions bash >> ~/.bashrc
+  $ eval "$(assistant completions zsh)"
+  $ assistant completions fish | source`,
     )
     .action((shell: string) => {
       const subcommands: Record<string, string[]> = {
@@ -94,9 +94,9 @@ function generateBashCompletion(
     )
     .join("\n");
 
-  return `# vellum bash completion
-# Add to ~/.bashrc: eval "$(vellum completions bash)"
-_vellum_completions() {
+  return `# assistant bash completion
+# Add to ~/.bashrc: eval "$(assistant completions bash)"
+_assistant_completions() {
     local cur prev words cword
     _init_completion || return
 
@@ -113,7 +113,7 @@ ${subcmdCases}
         completions) COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
     esac
 }
-complete -F _vellum_completions vellum
+complete -F _assistant_completions assistant
 `;
 }
 
@@ -125,10 +125,10 @@ function generateZshCompletion(
     .map(([cmd, subs]) => `        ${cmd}) compadd ${subs.join(" ")} ;;`)
     .join("\n");
 
-  return `#compdef vellum
-# vellum zsh completion
-# Add to ~/.zshrc: eval "$(vellum completions zsh)"
-_vellum() {
+  return `#compdef assistant
+# assistant zsh completion
+# Add to ~/.zshrc: eval "$(assistant completions zsh)"
+_assistant() {
     local -a commands
     commands=(
         'dev:Run assistant in dev mode with auto-restart'
@@ -158,7 +158,7 @@ ${subcmdCases}
         completions) compadd bash zsh fish ;;
     esac
 }
-compdef _vellum vellum
+compdef _assistant assistant
 `;
 }
 
@@ -166,11 +166,11 @@ function generateFishCompletion(
   topLevel: string[],
   subcommands: Record<string, string[]>,
 ): string {
-  let script = `# vellum fish completion
-# Add to ~/.config/fish/completions/vellum.fish or eval: vellum completions fish | source
+  let script = `# assistant fish completion
+# Add to ~/.config/fish/completions/assistant.fish or eval: assistant completions fish | source
 `;
 
-  script += `complete -c vellum -f\n`;
+  script += `complete -c assistant -f\n`;
 
   const descriptions: Record<string, string> = {
     dev: "Run assistant in dev mode with auto-restart",
@@ -190,19 +190,19 @@ function generateFishCompletion(
 
   for (const cmd of topLevel) {
     const desc = descriptions[cmd] ?? "";
-    script += `complete -c vellum -n '__fish_use_subcommand' -a '${cmd}' -d '${desc}'\n`;
+    script += `complete -c assistant -n '__fish_use_subcommand' -a '${cmd}' -d '${desc}'\n`;
   }
-  script += `complete -c vellum -n '__fish_use_subcommand' -l help -d 'Show help'\n`;
-  script += `complete -c vellum -n '__fish_use_subcommand' -l version -d 'Show version'\n`;
+  script += `complete -c assistant -n '__fish_use_subcommand' -l help -d 'Show help'\n`;
+  script += `complete -c assistant -n '__fish_use_subcommand' -l version -d 'Show version'\n`;
 
   for (const [cmd, subs] of Object.entries(subcommands)) {
     for (const sub of subs) {
-      script += `complete -c vellum -n '__fish_seen_subcommand_from ${cmd}' -a '${sub}'\n`;
+      script += `complete -c assistant -n '__fish_seen_subcommand_from ${cmd}' -a '${sub}'\n`;
     }
   }
 
-  script += `complete -c vellum -n '__fish_seen_subcommand_from audit' -s l -l limit -d 'Number of entries'\n`;
-  script += `complete -c vellum -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'\n`;
+  script += `complete -c assistant -n '__fish_seen_subcommand_from audit' -s l -l limit -d 'Number of entries'\n`;
+  script += `complete -c assistant -n '__fish_seen_subcommand_from completions' -a 'bash zsh fish'\n`;
 
   return script;
 }

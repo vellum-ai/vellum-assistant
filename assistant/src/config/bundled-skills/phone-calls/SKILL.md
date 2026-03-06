@@ -41,11 +41,11 @@ The user's assistant gets its own personal phone number through Twilio. All impl
 Check whether Twilio credentials, phone number, and public ingress are already configured:
 
 ```bash
-vellum integrations twilio config --json
+assistant integrations twilio config --json
 ```
 
 ```bash
-vellum config get calls.enabled
+assistant config get calls.enabled
 ```
 
 If `hasCredentials` is `true`, `phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Outbound Calls** section.
@@ -61,13 +61,13 @@ Once twilio-setup completes, return here to enable calls.
 Enable the calls feature:
 
 ```bash
-vellum config set calls.enabled true
+assistant config set calls.enabled true
 ```
 
 Verify:
 
 ```bash
-vellum config get calls.enabled
+assistant config get calls.enabled
 ```
 
 ## Step 3: Choose a Voice
@@ -81,7 +81,7 @@ The shared config key `elevenlabs.voiceId` is the single source of truth for Ele
 Before presenting the voice list, check the current shared voice:
 
 ```bash
-vellum config get elevenlabs.voiceId
+assistant config get elevenlabs.voiceId
 ```
 
 **If a non-default voice is already set**, the user chose it during voice-setup or a previous session. Tell them:
@@ -137,7 +137,7 @@ voice_config_update setting="tts_voice_id" value="<selected-voice-id>"
 
 Before making real calls, offer a quick verification:
 
-1. Confirm credentials are stored: run `vellum integrations twilio config --json` and verify `hasCredentials: true` plus `phoneNumber`
+1. Confirm credentials are stored: run `assistant integrations twilio config --json` and verify `hasCredentials: true` plus `phoneNumber`
 2. Confirm ingress is running: `ingress.publicBaseUrl` must be set and the tunnel active
 3. Confirm calls are enabled: `calls.enabled` must be `true`
 4. Confirm voice is configured: `elevenlabs.voiceId` should be set
@@ -265,13 +265,13 @@ Fine-tune how the selected voice sounds. These parameters apply to all ElevenLab
 
 ```bash
 # Playback speed (0.7 = slower, 1.0 = normal, 1.2 = faster)
-vellum config set elevenlabs.speed 1.0
+assistant config set elevenlabs.speed 1.0
 
 # Stability (0.0 = more expressive/variable, 1.0 = more consistent/monotone)
-vellum config set elevenlabs.stability 0.5
+assistant config set elevenlabs.stability 0.5
 
 # Similarity boost (0.0 = more creative, 1.0 = closer to original voice)
-vellum config set elevenlabs.similarityBoost 0.75
+assistant config set elevenlabs.similarityBoost 0.75
 ```
 
 Lower stability makes the voice more expressive but less predictable — good for conversational calls. Higher stability is better for scripted/formal calls.
@@ -283,7 +283,7 @@ By default, the system sends a **bare** `voiceId` to Twilio ConversationRelay (n
 If you want to force Twilio's extended voice spec, you can optionally set a model ID:
 
 ```bash
-vellum config set elevenlabs.voiceModelId "flash_v2_5"
+assistant config set elevenlabs.voiceModelId "flash_v2_5"
 ```
 
 When `voiceModelId` is set, the emitted voice string becomes:
@@ -537,7 +537,7 @@ The `context` field is powerful — use it to give the agent background that hel
 
 ## Configuration Reference
 
-All call-related settings can be managed via `vellum config`:
+All call-related settings can be managed via `assistant config`:
 
 | Setting                                     | Description                                                                                                                   | Default                                                                                                  |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -562,16 +562,16 @@ All call-related settings can be managed via `vellum config`:
 
 ```bash
 # Increase max call duration to 2 hours
-vellum config set calls.maxDurationSeconds 7200
+assistant config set calls.maxDurationSeconds 7200
 
 # Disable AI disclosure (check local regulations first)
-vellum config set calls.disclosure.enabled false
+assistant config set calls.disclosure.enabled false
 
 # Custom disclosure message
-vellum config set calls.disclosure.text "Just so you know, this is an assistant calling on behalf of my human."
+assistant config set calls.disclosure.text "Just so you know, this is an assistant calling on behalf of my human."
 
 # Give more time for user consultation
-vellum config set calls.userConsultTimeoutSeconds 300
+assistant config set calls.userConsultTimeoutSeconds 300
 ```
 
 ## Troubleshooting
@@ -582,7 +582,7 @@ Load the `twilio-setup` skill to store your Account SID and Auth Token.
 
 ### "Calls feature is disabled"
 
-Run `vellum config set calls.enabled true`.
+Run `assistant config set calls.enabled true`.
 
 ### "No public base URL configured"
 
@@ -606,7 +606,7 @@ The user's phone number is not owned by or verified with the Twilio account. The
 
 ### "Per-call caller identity override is disabled"
 
-The setting `calls.callerIdentity.allowPerCallOverride` is set to `false`, so per-call `caller_identity_mode` selection is not allowed. Re-enable overrides with `vellum config set calls.callerIdentity.allowPerCallOverride true`.
+The setting `calls.callerIdentity.allowPerCallOverride` is set to `false`, so per-call `caller_identity_mode` selection is not allowed. Re-enable overrides with `assistant config set calls.callerIdentity.allowPerCallOverride true`.
 
 ### Caller identity call fails on trial account
 
@@ -621,7 +621,7 @@ Emergency numbers (911, 112, 999, 000, 110, 119) are permanently blocked for saf
 If you restarted ngrok, the public URL has changed. Update it:
 
 ```bash
-vellum config set ingress.publicBaseUrl "<new-url>"
+assistant config set ingress.publicBaseUrl "<new-url>"
 ```
 
 Or re-run the public-ingress skill to auto-detect and save the new URL.
@@ -640,4 +640,4 @@ The system has a 30-second silence timeout. If nobody speaks for 30 seconds duri
 - This often means ConversationRelay rejected voice configuration after TwiML fetch
 - Keep `elevenlabs.voiceModelId` empty first (bare `voiceId` mode)
 - If you set `voiceModelId`, try clearing it and retesting:
-  `vellum config set elevenlabs.voiceModelId ""`
+  `assistant config set elevenlabs.voiceModelId ""`

@@ -72,10 +72,10 @@ Changes to MCP server configuration require an assistant restart to take effect
 (vellum sleep && vellum wake).
 
 Examples:
-  $ vellum mcp list
-  $ vellum mcp add my-server -t stdio -c npx -a my-mcp-server
-  $ vellum mcp auth my-server
-  $ vellum mcp remove my-server`,
+  $ assistant mcp list
+  $ assistant mcp add my-server -t stdio -c npx -a my-mcp-server
+  $ assistant mcp auth my-server
+  $ assistant mcp remove my-server`,
   );
 
   mcp
@@ -103,8 +103,8 @@ In non-TTY mode (piped), checks run sequentially. With --json, outputs raw
 server config without running health checks.
 
 Examples:
-  $ vellum mcp list
-  $ vellum mcp list --json`,
+  $ assistant mcp list
+  $ assistant mcp list --json`,
     )
     .action(async (opts: { json?: boolean }) => {
       const raw = loadRawConfig();
@@ -278,12 +278,12 @@ The --risk flag sets the default risk level for all tools from this server
 --disabled is passed.
 
 If a server with the same name already exists, the command fails. Remove the
-existing server first with "vellum mcp remove <name>".
+existing server first with "assistant mcp remove <name>".
 
 Examples:
-  $ vellum mcp add my-server -t stdio -c npx -a my-mcp-server
-  $ vellum mcp add remote-api -t streamable-http -u https://api.example.com/mcp -r medium
-  $ vellum mcp add legacy-sse -t sse -u https://old.example.com/events --disabled`,
+  $ assistant mcp add my-server -t stdio -c npx -a my-mcp-server
+  $ assistant mcp add remote-api -t streamable-http -u https://api.example.com/mcp -r medium
+  $ assistant mcp add legacy-sse -t sse -u https://old.example.com/events --disabled`,
     )
     .action(
       (
@@ -305,7 +305,7 @@ Examples:
 
         if (servers[name]) {
           log.error(
-            `MCP server "${name}" already exists. Remove it first with: vellum mcp remove ${name}`,
+            `MCP server "${name}" already exists. Remove it first with: assistant mcp remove ${name}`,
           );
           process.exitCode = 1;
           return;
@@ -388,8 +388,8 @@ After successful authentication, restart the assistant for changes to take effec
 (vellum sleep && vellum wake).
 
 Examples:
-  $ vellum mcp auth my-server
-  $ vellum mcp auth remote-api`,
+  $ assistant mcp auth my-server
+  $ assistant mcp auth remote-api`,
     )
     .action(async (name: string) => {
       const raw = loadRawConfig();
@@ -399,7 +399,7 @@ Examples:
 
       if (!serverConfig) {
         log.error(
-          `MCP server "${name}" not found. Add it first with: vellum mcp add`,
+          `MCP server "${name}" not found. Add it first with: assistant mcp add`,
         );
         process.exitCode = 1;
         return;
@@ -508,7 +508,7 @@ Examples:
           log.error(`Authorization cancelled for "${name}".`);
         } else if (message.includes("timed out")) {
           log.error(
-            `Authorization timed out for "${name}". Try again with: vellum mcp auth ${name}`,
+            `Authorization timed out for "${name}". Try again with: assistant mcp auth ${name}`,
           );
         } else {
           log.error(`Authorization failed for "${name}": ${message}`);
@@ -567,8 +567,8 @@ After removal, restart the assistant for changes to take effect
 (vellum sleep && vellum wake).
 
 Examples:
-  $ vellum mcp remove my-server
-  $ vellum mcp remove legacy-sse`,
+  $ assistant mcp remove my-server
+  $ assistant mcp remove legacy-sse`,
     )
     .action(async (name: string) => {
       const raw = loadRawConfig();
