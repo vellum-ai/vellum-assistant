@@ -253,6 +253,18 @@ export async function handleSetTwilioCredentials(
           separator: ":",
         },
       },
+      {
+        hostPattern: "messaging.twilio.com",
+        injectionType: "header" as const,
+        headerName: "Authorization",
+        valuePrefix: "Basic ",
+        valueTransform: "base64" as const,
+        composeWith: {
+          service: "twilio",
+          field: "auth_token",
+          separator: ":",
+        },
+      },
     ],
   });
   upsertCredentialMetadata("twilio", "auth_token", {});
