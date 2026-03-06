@@ -126,6 +126,15 @@ function outputJson(data: unknown): void {
   process.stdout.write(JSON.stringify(data) + "\n");
 }
 
+function getJson(cmd: Command): boolean {
+  let c: Command | null = cmd;
+  while (c) {
+    if ((c.opts() as { json?: boolean }).json) return true;
+    c = c.parent;
+  }
+  return false;
+}
+
 function formatConfigForHuman(config: AutonomyConfig): string {
   const lines: string[] = [`  Default tier: ${config.defaultTier}`];
 
@@ -169,15 +178,16 @@ function formatConfigForHuman(config: AutonomyConfig): string {
 export function registerAutonomyCommand(program: Command): void {
   const autonomy = program
     .command("autonomy")
-    .description("View and configure autonomy tiers");
+    .description("View and configure autonomy tiers")
+    .option("--json", "Machine-readable JSON output");
 
   autonomy
     .command("get")
     .description("Show current autonomy configuration")
-    .option("--json", "Machine-readable JSON output")
-    .action((opts: { json?: boolean }) => {
+    .action((_opts: Record<string, unknown>, cmd: Command) => {
+      const json = getJson(cmd);
       const config = loadConfig();
-      if (opts.json) {
+      if (json) {
         outputJson({ ok: true, config });
       } else {
         process.stdout.write("Autonomy configuration:\n\n");
@@ -188,21 +198,24 @@ export function registerAutonomyCommand(program: Command): void {
   autonomy
     .command("set")
     .description("Set autonomy tier for default, channel, category, or contact")
-    .option("--json", "Machine-readable JSON output")
     .option("--default <tier>", "Set the global default tier")
     .option("--channel <channel>", "Channel to configure")
     .option("--category <category>", "Category to configure")
     .option("--contact <contactId>", "Contact to configure")
     .option("--tier <tier>", "Tier to set (auto, draft, notify)")
     .action(
-      (opts: {
-        json?: boolean;
-        default?: string;
-        channel?: string;
-        category?: string;
-        contact?: string;
-        tier?: string;
-      }) => {
+      (
+        opts: {
+          default?: string;
+          channel?: string;
+          category?: string;
+          contact?: string;
+          tier?: string;
+        },
+        cmd: Command,
+      ) => {
+        const json = getJson(cmd);
+
         if (opts.default) {
           if (!isValidTier(opts.default)) {
             outputJson({
@@ -213,7 +226,7 @@ export function registerAutonomyCommand(program: Command): void {
             return;
           }
           const config = applyUpdate({ defaultTier: opts.default });
-          if (opts.json) {
+          if (json) {
             outputJson({ ok: true, config });
           } else {
             log.info(`Set global default tier to "${opts.default}".`);
@@ -242,7 +255,7 @@ export function registerAutonomyCommand(program: Command): void {
           const config = applyUpdate({
             channelDefaults: { [opts.channel]: opts.tier },
           });
-          if (opts.json) {
+          if (json) {
             outputJson({ ok: true, config });
           } else {
             log.info(
@@ -256,7 +269,7 @@ export function registerAutonomyCommand(program: Command): void {
           const config = applyUpdate({
             categoryOverrides: { [opts.category]: opts.tier },
           });
-          if (opts.json) {
+          if (json) {
             outputJson({ ok: true, config });
           } else {
             log.info(
@@ -270,7 +283,7 @@ export function registerAutonomyCommand(program: Command): void {
           const config = applyUpdate({
             contactOverrides: { [opts.contact]: opts.tier },
           });
-          if (opts.json) {
+          if (json) {
             outputJson({ ok: true, config });
           } else {
             log.info(
