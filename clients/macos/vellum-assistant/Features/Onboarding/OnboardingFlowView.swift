@@ -139,10 +139,12 @@ struct OnboardingFlowView: View {
                         Task {
                             await performManagedBootstrap()
                         }
-                    } else {
+                    } else if !assistant.isRemote {
                         Task {
                             await performLocalBootstrap(assistant: assistant)
                         }
+                    } else {
+                        onComplete()
                     }
                 } else if managedBootstrapEnabled {
                     Task {
