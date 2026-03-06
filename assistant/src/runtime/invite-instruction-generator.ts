@@ -122,6 +122,10 @@ export async function generateInviteInstruction(params: {
     }
     if (params.hasShareUrl) {
       parts.push("A share link is available (displayed separately in the UI).");
+    } else {
+      parts.push(
+        "No share link is available for this channel. Do NOT mention sharing a link or URL.",
+      );
     }
     parts.push(
       "",
