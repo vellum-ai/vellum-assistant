@@ -29,7 +29,7 @@ mock.module("../util/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { _setStorePath } from "../security/encrypted-store.js";
-import { _resetBackend, _setBackend } from "../security/secure-keys.js";
+import { _resetBackend } from "../security/secure-keys.js";
 
 const TEST_DIR = join(
   tmpdir(),
@@ -489,7 +489,7 @@ describe("credential_store tool", () => {
       expect(gmail.injection_templates).toBeUndefined();
     });
 
-    test("works with keychain backend (reads from metadata store)", async () => {
+    test("works with metadata store fallback when listing secrets", async () => {
       // Store a credential first (on encrypted backend)
       await credentialStoreTool.execute(
         {
@@ -500,9 +500,6 @@ describe("credential_store tool", () => {
         },
         _ctx,
       );
-
-      // Switch to keychain backend — list should still work via metadata
-      _setBackend("keychain");
 
       const result = await credentialStoreTool.execute(
         { action: "list" },
