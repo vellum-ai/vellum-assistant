@@ -22,9 +22,36 @@ const log = getCliLogger("cli");
 export function registerSessionsCommand(program: Command): void {
   const sessions = program.command("sessions").description("Manage sessions");
 
+  sessions.addHelpText(
+    "after",
+    `
+Sessions represent conversation threads with the assistant. Each session has a
+unique ID and a title. The daemon must be running for "list" and "new" (they
+communicate via IPC), while "export" and "clear" operate on the local SQLite
+database directly.
+
+Examples:
+  $ vellum sessions list
+  $ vellum sessions new "Project planning"
+  $ vellum sessions export
+  $ vellum sessions clear`,
+  );
+
   sessions
     .command("list")
     .description("List all sessions")
+    .addHelpText(
+      "after",
+      `
+Shows all sessions with their ID, title, and a relative timestamp (e.g.
+"3 hours ago"). Sessions are listed in order of most recently updated.
+
+Requires the daemon to be running — communicates via IPC. If auto-start is
+enabled, the daemon will be started automatically.
+
+Examples:
+  $ vellum sessions list`,
+    )
     .action(async () => {
       if (shouldAutoStartDaemon()) await ensureDaemonRunning();
       const response = await sendOneMessage({ type: "session_list" });
@@ -44,6 +71,21 @@ export function registerSessionsCommand(program: Command): void {
   sessions
     .command("new [title]")
     .description("Create a new session")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  title   Optional session title (string). If omitted, a default title is
+          assigned by the daemon.
+
+Creates a new conversation session and prints its title and ID. Requires the
+daemon to be running — communicates via IPC.
+
+Examples:
+  $ vellum sessions new
+  $ vellum sessions new "Project planning"
+  $ vellum sessions new "Bug triage 2026-03-05"`,
+    )
     .action(async (title?: string) => {
       if (shouldAutoStartDaemon()) await ensureDaemonRunning();
       const response = await sendOneMessage({
@@ -62,6 +104,27 @@ export function registerSessionsCommand(program: Command): void {
     .description("Export a conversation as markdown or JSON")
     .option("-f, --format <format>", "Output format: md or json", "md")
     .option("-o, --output <file>", "Write to file instead of stdout")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  sessionId   Optional session ID (or unique prefix). Defaults to the most
+              recent session. Supports prefix matching — e.g. "abc123" matches
+              the first session whose ID starts with "abc123".
+
+Two output formats are available:
+  md    Markdown conversation transcript (default). Human-readable rendering
+        of messages with role headers.
+  json  Structured JSON export with full metadata, message content arrays,
+        and timestamps.
+
+Operates on the local SQLite database directly — does not require the daemon.
+
+Examples:
+  $ vellum sessions export
+  $ vellum sessions export --format json -o conversation.json
+  $ vellum sessions export abc123 --format md`,
+    )
     .action(
       async (
         sessionId?: string,
@@ -126,6 +189,22 @@ export function registerSessionsCommand(program: Command): void {
     .command("clear")
     .description(
       "Clear all conversations, messages, and vector data (dev only)",
+    )
+    .addHelpText(
+      "after",
+      `
+Permanently deletes ALL conversations, messages, and Qdrant vector data.
+Prompts for confirmation (y/N) before proceeding. After clearing the local
+database, notifies the running daemon (if any) to invalidate its in-memory
+sessions so it does not serve stale history.
+
+Operates on the local SQLite database and Qdrant directly — does not require
+the daemon, but will notify it if running.
+
+Intended for development use. This action cannot be undone.
+
+Examples:
+  $ vellum sessions clear`,
     )
     .action(async () => {
       log.info(
