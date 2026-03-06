@@ -6,9 +6,9 @@ import {
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
 import {
-  deleteSecureKey,
+  deleteSecureKeyAsync,
   getSecureKey,
-  setSecureKey,
+  setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import {
   deleteCredentialMetadata,
@@ -130,8 +130,11 @@ export async function setTelegramConfig(
     };
   }
 
-  // Store bot token securely
-  const stored = setSecureKey("credential:telegram:bot_token", resolvedToken);
+  // Store bot token securely (async — writes broker + encrypted store)
+  const stored = await setSecureKeyAsync(
+    "credential:telegram:bot_token",
+    resolvedToken,
+  );
   if (!stored) {
     return {
       success: false,
@@ -152,7 +155,7 @@ export async function setTelegramConfig(
   if (!hasWebhookSecret) {
     const { randomUUID } = await import("node:crypto");
     const webhookSecret = randomUUID();
-    const secretStored = setSecureKey(
+    const secretStored = await setSecureKeyAsync(
       "credential:telegram:webhook_secret",
       webhookSecret,
     );
@@ -164,7 +167,7 @@ export async function setTelegramConfig(
       // When the token came from secure storage it was already valid
       // configuration; deleting it would destroy working state.
       if (isNewToken) {
-        deleteSecureKey("credential:telegram:bot_token");
+        await deleteSecureKeyAsync("credential:telegram:bot_token");
         deleteCredentialMetadata("telegram", "bot_token");
       }
       return {
@@ -226,9 +229,9 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
     }
   }
 
-  deleteSecureKey("credential:telegram:bot_token");
+  await deleteSecureKeyAsync("credential:telegram:bot_token");
   deleteCredentialMetadata("telegram", "bot_token");
-  deleteSecureKey("credential:telegram:webhook_secret");
+  await deleteSecureKeyAsync("credential:telegram:webhook_secret");
   deleteCredentialMetadata("telegram", "webhook_secret");
 
   // Trigger reconcile to deregister webhook

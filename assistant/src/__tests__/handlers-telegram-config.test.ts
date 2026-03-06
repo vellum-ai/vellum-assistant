@@ -66,20 +66,27 @@ let secureKeyStore: Record<string, string> = {};
 let setSecureKeyOverride: ((account: string, value: string) => boolean) | null =
   null;
 
+function syncSet(account: string, value: string): boolean {
+  if (setSecureKeyOverride) return setSecureKeyOverride(account, value);
+  secureKeyStore[account] = value;
+  return true;
+}
+
+function syncDelete(account: string): "deleted" | "not-found" {
+  if (account in secureKeyStore) {
+    delete secureKeyStore[account];
+    return "deleted";
+  }
+  return "not-found";
+}
+
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
-  setSecureKey: (account: string, value: string) => {
-    if (setSecureKeyOverride) return setSecureKeyOverride(account, value);
-    secureKeyStore[account] = value;
-    return true;
-  },
-  deleteSecureKey: (account: string) => {
-    if (account in secureKeyStore) {
-      delete secureKeyStore[account];
-      return "deleted";
-    }
-    return "not-found";
-  },
+  setSecureKey: syncSet,
+  deleteSecureKey: syncDelete,
+  setSecureKeyAsync: async (account: string, value: string) =>
+    syncSet(account, value),
+  deleteSecureKeyAsync: async (account: string) => syncDelete(account),
   listSecureKeys: () => Object.keys(secureKeyStore),
   getBackendType: () => "encrypted",
   isDowngradedFromKeychain: () => false,

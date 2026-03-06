@@ -61,20 +61,27 @@ let secureKeyStore: Record<string, string> = {};
 let setSecureKeyOverride: ((account: string, value: string) => boolean) | null =
   null;
 
+function syncSet(account: string, value: string): boolean {
+  if (setSecureKeyOverride) return setSecureKeyOverride(account, value);
+  secureKeyStore[account] = value;
+  return true;
+}
+
+function syncDelete(account: string): "deleted" | "not-found" {
+  if (account in secureKeyStore) {
+    delete secureKeyStore[account];
+    return "deleted";
+  }
+  return "not-found";
+}
+
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
-  setSecureKey: (account: string, value: string) => {
-    if (setSecureKeyOverride) return setSecureKeyOverride(account, value);
-    secureKeyStore[account] = value;
-    return true;
-  },
-  deleteSecureKey: (account: string) => {
-    if (account in secureKeyStore) {
-      delete secureKeyStore[account];
-      return "deleted";
-    }
-    return "not-found";
-  },
+  setSecureKey: syncSet,
+  deleteSecureKey: syncDelete,
+  setSecureKeyAsync: async (account: string, value: string) =>
+    syncSet(account, value),
+  deleteSecureKeyAsync: async (account: string) => syncDelete(account),
   listSecureKeys: () => Object.keys(secureKeyStore),
   getBackendType: () => "encrypted",
   isDowngradedFromKeychain: () => false,
@@ -134,10 +141,25 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 
 import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
 import type {
+  ClientMessage,
   ServerMessage,
   TwitterIntegrationConfigRequest,
 } from "../daemon/ipc-contract.js";
 import { DebouncerMap } from "../util/debounce.js";
+
+/**
+ * Wrapper around handleMessage that flushes the microtask queue so async
+ * handlers complete before assertions run. handleMessage() returns void
+ * and swallows the promise, so we need a macrotask tick to settle.
+ */
+async function handleMessageAsync(
+  msg: ClientMessage,
+  socket: net.Socket,
+  ctx: HandlerContext,
+): Promise<void> {
+  handleMessage(msg, socket, ctx);
+  await new Promise<void>((r) => setTimeout(r, 0));
+}
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
   const sent: ServerMessage[] = [];
@@ -259,7 +281,7 @@ describe("Twitter integration config handler", () => {
     expect(saveRawConfigCalls[0]!.twitterIntegrationMode).toBe("managed");
   });
 
-  test("set_local_client stores credentials in secure storage", () => {
+  test("set_local_client stores credentials in secure storage", async () => {
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
       action: "set_local_client",
@@ -268,7 +290,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -288,14 +310,14 @@ describe("Twitter integration config handler", () => {
     ).toBe("my-client-secret");
   });
 
-  test("set_local_client without clientId returns error", () => {
+  test("set_local_client without clientId returns error", async () => {
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
       action: "set_local_client",
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as { type: string; success: boolean; error: string };
@@ -303,7 +325,7 @@ describe("Twitter integration config handler", () => {
     expect(res.error).toContain("clientId is required");
   });
 
-  test("clear_local_client removes credentials", () => {
+  test("clear_local_client removes credentials", async () => {
     secureKeyStore["credential:integration:twitter:oauth_client_id"] =
       "my-client-id";
     secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
@@ -315,7 +337,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -336,7 +358,7 @@ describe("Twitter integration config handler", () => {
     ).toBeUndefined();
   });
 
-  test("clear_local_client also disconnects if connected", () => {
+  test("clear_local_client also disconnects if connected", async () => {
     secureKeyStore["credential:integration:twitter:oauth_client_id"] =
       "my-client-id";
     secureKeyStore["credential:integration:twitter:access_token"] =
@@ -355,7 +377,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -378,7 +400,7 @@ describe("Twitter integration config handler", () => {
     });
   });
 
-  test("disconnect removes tokens and metadata", () => {
+  test("disconnect removes tokens and metadata", async () => {
     secureKeyStore["credential:integration:twitter:oauth_client_id"] =
       "my-client-id";
     secureKeyStore["credential:integration:twitter:access_token"] =
@@ -397,7 +419,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -426,7 +448,7 @@ describe("Twitter integration config handler", () => {
     });
   });
 
-  test("set_local_client returns error when setSecureKey fails for client ID", () => {
+  test("set_local_client returns error when setSecureKey fails for client ID", async () => {
     // Override setSecureKey to return false (storage unavailable, not throwing)
     setSecureKeyOverride = () => false;
 
@@ -438,7 +460,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -453,7 +475,7 @@ describe("Twitter integration config handler", () => {
     expect(res.error).toContain("Failed to store client ID");
   });
 
-  test("set_local_client returns error when setSecureKey fails for client secret", () => {
+  test("set_local_client returns error when setSecureKey fails for client secret", async () => {
     // Override setSecureKey to fail only for the secret
     setSecureKeyOverride = (account: string, value: string) => {
       if (account.includes("client_secret")) return false;
@@ -469,7 +491,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -484,7 +506,7 @@ describe("Twitter integration config handler", () => {
     expect(res.error).toContain("Failed to store client secret");
   });
 
-  test("set_local_client without secret clears stale secret", () => {
+  test("set_local_client without secret clears stale secret", async () => {
     // Pre-populate an old client secret
     secureKeyStore["credential:integration:twitter:oauth_client_id"] = "old-id";
     secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
@@ -497,7 +519,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -576,7 +598,7 @@ describe("Twitter integration config handler", () => {
     expect((sent4[0] as { mode: string }).mode).toBe("local_byo");
   });
 
-  test("set_local_client with only clientId (no secret)", () => {
+  test("set_local_client with only clientId (no secret)", async () => {
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
       action: "set_local_client",
@@ -584,7 +606,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -604,7 +626,7 @@ describe("Twitter integration config handler", () => {
     ).toBeUndefined();
   });
 
-  test("set_local_client overwrites existing credentials", () => {
+  test("set_local_client overwrites existing credentials", async () => {
     // Set initial credentials
     secureKeyStore["credential:integration:twitter:oauth_client_id"] = "old-id";
     secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
@@ -618,7 +640,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -638,7 +660,7 @@ describe("Twitter integration config handler", () => {
     ).toBe("new-secret");
   });
 
-  test("clear_local_client when no credentials exist (idempotent)", () => {
+  test("clear_local_client when no credentials exist (idempotent)", async () => {
     // No credentials set at all
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
@@ -646,7 +668,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -661,7 +683,7 @@ describe("Twitter integration config handler", () => {
     expect(res.connected).toBe(false);
   });
 
-  test("disconnect when not connected (idempotent) preserves client credentials", () => {
+  test("disconnect when not connected (idempotent) preserves client credentials", async () => {
     // Only client credentials, no access token
     secureKeyStore["credential:integration:twitter:oauth_client_id"] =
       "my-client-id";
@@ -674,7 +696,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -696,7 +718,7 @@ describe("Twitter integration config handler", () => {
     ).toBe("my-client-secret");
   });
 
-  test("disconnect preserves client credentials when access token exists", () => {
+  test("disconnect preserves client credentials when access token exists", async () => {
     // Set up both client credentials and tokens
     secureKeyStore["credential:integration:twitter:oauth_client_id"] =
       "my-client-id";
@@ -718,7 +740,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -752,7 +774,7 @@ describe("Twitter integration config handler", () => {
     });
   });
 
-  test("clear_local_client cascades to remove tokens and metadata", () => {
+  test("clear_local_client cascades to remove tokens and metadata", async () => {
     // Set up client credentials, tokens, and metadata
     secureKeyStore["credential:integration:twitter:oauth_client_id"] =
       "my-client-id";
@@ -774,7 +796,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -860,7 +882,7 @@ describe("Twitter integration config handler", () => {
     expect(res.connected).toBe(false);
   });
 
-  test("error in secure storage throws and returns error response", () => {
+  test("error in secure storage throws and returns error response", async () => {
     // Override setSecureKey to throw an error, simulating a storage failure
     setSecureKeyOverride = () => {
       throw new Error("Keychain access denied");
@@ -874,7 +896,7 @@ describe("Twitter integration config handler", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleMessage(msg, {} as net.Socket, ctx);
+    await handleMessageAsync(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as { type: string; success: boolean; error?: string };

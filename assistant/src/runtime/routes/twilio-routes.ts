@@ -37,9 +37,9 @@ import { getReadinessService } from "../../daemon/handlers/config-channels.js";
 import { syncTwilioWebhooks } from "../../daemon/handlers/config-ingress.js";
 import type { IngressConfig } from "../../inbound/public-ingress-urls.js";
 import {
-  deleteSecureKey,
+  deleteSecureKeyAsync,
   getSecureKey,
-  setSecureKey,
+  setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import {
   deleteCredentialMetadata,
@@ -213,8 +213,8 @@ export async function handleSetTwilioCredentials(
     });
   }
 
-  // Store credentials securely
-  const sidStored = setSecureKey(
+  // Store credentials securely (async — writes broker + encrypted store)
+  const sidStored = await setSecureKeyAsync(
     "credential:twilio:account_sid",
     body.accountSid,
   );
@@ -226,12 +226,12 @@ export async function handleSetTwilioCredentials(
     });
   }
 
-  const tokenStored = setSecureKey(
+  const tokenStored = await setSecureKeyAsync(
     "credential:twilio:auth_token",
     body.authToken,
   );
   if (!tokenStored) {
-    deleteSecureKey("credential:twilio:account_sid");
+    await deleteSecureKeyAsync("credential:twilio:account_sid");
     return Response.json({
       success: false,
       hasCredentials: false,
@@ -275,9 +275,9 @@ export async function handleSetTwilioCredentials(
 /**
  * DELETE /v1/integrations/twilio/credentials
  */
-export function handleClearTwilioCredentials(): Response {
-  deleteSecureKey("credential:twilio:account_sid");
-  deleteSecureKey("credential:twilio:auth_token");
+export async function handleClearTwilioCredentials(): Promise<Response> {
+  await deleteSecureKeyAsync("credential:twilio:account_sid");
+  await deleteSecureKeyAsync("credential:twilio:auth_token");
   deleteCredentialMetadata("twilio", "account_sid");
   deleteCredentialMetadata("twilio", "auth_token");
 
@@ -347,7 +347,7 @@ export async function handleProvisionTwilioNumber(
     available[0].phoneNumber,
   );
 
-  const phoneStored = setSecureKey(
+  const phoneStored = await setSecureKeyAsync(
     "credential:twilio:phone_number",
     purchased.phoneNumber,
   );
@@ -403,7 +403,7 @@ export async function handleAssignTwilioNumber(
     );
   }
 
-  const phoneStored = setSecureKey(
+  const phoneStored = await setSecureKeyAsync(
     "credential:twilio:phone_number",
     body.phoneNumber,
   );
@@ -486,7 +486,7 @@ export async function handleReleaseTwilioNumber(
 
   const storedPhone = getSecureKey("credential:twilio:phone_number");
   if (storedPhone === phoneNumber) {
-    deleteSecureKey("credential:twilio:phone_number");
+    await deleteSecureKeyAsync("credential:twilio:phone_number");
   }
 
   return Response.json({
@@ -1178,7 +1178,7 @@ export function twilioRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "integrations/twilio/credentials",
       method: "DELETE",
-      handler: () => handleClearTwilioCredentials(),
+      handler: async () => handleClearTwilioCredentials(),
     },
     {
       endpoint: "integrations/twilio/numbers",

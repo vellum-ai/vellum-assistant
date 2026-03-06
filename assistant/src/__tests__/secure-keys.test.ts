@@ -303,6 +303,84 @@ describe("secure-keys", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Stale-value prevention — broker-first reads after credential updates
+  // -----------------------------------------------------------------------
+  describe("stale-value prevention", () => {
+    test("setSecureKeyAsync updates broker so broker-first read returns new value", async () => {
+      mockBrokerAvailable = true;
+      // Simulate broker holding an old value
+      mockBrokerStore.set("api-key", "old-broker-value");
+      setSecureKey("api-key", "old-encrypted-value");
+
+      // Update via async path (writes both broker + encrypted)
+      const ok = await setSecureKeyAsync("api-key", "new-value");
+      expect(ok).toBe(true);
+
+      // Broker-first read should return the new value, not stale old value
+      const value = await getSecureKeyAsync("api-key");
+      expect(value).toBe("new-value");
+      // Both stores should agree
+      expect(mockBrokerStore.get("api-key")).toBe("new-value");
+      expect(getSecureKey("api-key")).toBe("new-value");
+    });
+
+    test("deleteSecureKeyAsync removes from broker so broker-first read falls through", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerStore.set("api-key", "old-broker-value");
+      setSecureKey("api-key", "old-encrypted-value");
+
+      // Delete via async path (deletes from both broker + encrypted)
+      const result = await deleteSecureKeyAsync("api-key");
+      expect(result).toBe("deleted");
+
+      // Broker-first read should not find the key in either store
+      const value = await getSecureKeyAsync("api-key");
+      expect(value).toBeUndefined();
+    });
+
+    test("sync setSecureKey does NOT update broker — stale read demonstrates the problem", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerStore.set("api-key", "old-broker-value");
+
+      // Sync write only updates encrypted store, NOT broker
+      setSecureKey("api-key", "new-encrypted-value");
+
+      // Broker-first read still returns the stale broker value
+      const value = await getSecureKeyAsync("api-key");
+      expect(value).toBe("old-broker-value");
+      // This is the exact bug that async migration fixes
+    });
+
+    test("setSecureKeyAsync failure leaves both stores unchanged", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerSetError = true;
+      mockBrokerStore.set("api-key", "original-value");
+      setSecureKey("api-key", "original-value");
+
+      const ok = await setSecureKeyAsync("api-key", "new-value");
+      expect(ok).toBe(false);
+
+      // Both stores should retain original value — no partial update
+      expect(mockBrokerStore.get("api-key")).toBe("original-value");
+      expect(getSecureKey("api-key")).toBe("original-value");
+    });
+
+    test("deleteSecureKeyAsync failure leaves both stores unchanged", async () => {
+      mockBrokerAvailable = true;
+      mockBrokerDelError = true;
+      mockBrokerStore.set("api-key", "value");
+      setSecureKey("api-key", "value");
+
+      const result = await deleteSecureKeyAsync("api-key");
+      expect(result).toBe("error");
+
+      // Both stores should retain the key — no partial deletion
+      expect(mockBrokerStore.has("api-key")).toBe(true);
+      expect(getSecureKey("api-key")).toBe("value");
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // _setBackend / _resetBackend (no-ops kept for test compat)
   // -----------------------------------------------------------------------
   describe("_setBackend", () => {

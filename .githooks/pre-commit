@@ -80,6 +80,9 @@ declare -a SAFE_LINE_PATTERNS=(
     # the full `key: obj.prop,` expression before the dotted-ref strips only
     # the RHS (which would leave `key: obj` still looking suspicious).
     "[Cc]lient[_-]?[Ss]ecret[[:space:]]*[:=][[:space:]]*[a-zA-Z_][a-zA-Z0-9_.?]*[[:space:]]*((\?\?|\|\|)[[:space:]]*(undefined))?[[:space:]]*([;,)]|$)"
+    # TS/JS: clientSecret assigned from a dotted/optional property with `as` type assertion.
+    # E.g. `const clientSecret = meta?.oauth2ClientSecret as string | undefined;`
+    "[Cc]lient[_-]?[Ss]ecret[[:space:]]*[:=][[:space:]]*[a-zA-Z_][a-zA-Z0-9_.?]*[[:space:]]+as[[:space:]]+(string|String|number|unknown|any)[[:space:]]*([|][[:space:]]*(undefined|null))?[[:space:]]*[;,]"
     # TS/JS: camelCase property names containing clientSecret used as identifiers
     # (typeof checks, null/undefined comparisons, variable/property references).
     # Avoids false positives like `oauth2ClientSecret: typeof record.oauth2ClientSecret`.
@@ -260,6 +263,8 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_NAMED_ARG='                clientSecret: trimmedSecret'
     # Swift named argument passing a variable for privateKey (false positive to whitelist)
     SAFE_SWIFT_PRIVATE_KEY_ARG='            sshPrivateKey: state.sshPrivateKey,'
+    # TS type assertion of clientSecret from dotted property (false positive to whitelist)
+    SAFE_TS_TYPE_ASSERTION_SECRET='  const clientSecret = meta?.oauth2ClientSecret as string | undefined;'
     # AWS well-known example key (false positive to whitelist)
     SAFE_AWS_EXAMPLE_KEY='const EXAMPLE_KEY = "AKIAIOSFODNN7EXAMPLE";'
     # Swift storage key constant (safe — UserDefaults key, not a secret)
@@ -513,6 +518,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_AWS_EXAMPLE_KEY" && ! matches_safe_line_pattern "$SAFE_AWS_EXAMPLE_KEY"; then
         echo -e "${RED}Self-test failed:${NC} AWS well-known example key false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_TS_TYPE_ASSERTION_SECRET" && ! matches_safe_line_pattern "$SAFE_TS_TYPE_ASSERTION_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} TS type-assertion clientSecret false positive"
         exit 1
     fi
     if matches_safe_line_pattern "$SAFE_SWIFT_STORAGE_KEY"; then
