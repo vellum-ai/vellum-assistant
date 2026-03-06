@@ -493,35 +493,72 @@ Examples:
     });
 
   // -------------------------------------------------------------------------
-  // reveal (intentionally not implemented)
+  // reveal
   // -------------------------------------------------------------------------
 
   credential
     .command("reveal <name>")
-    .description(
-      "Print the plaintext value of a credential (not yet implemented)",
-    )
+    .description("Print the plaintext value of a credential")
     .addHelpText(
       "after",
       `
 Arguments:
   name   Credential name in service:field format, or a credential UUID
 
-This command is reserved for future use. It will print the raw secret value
-to stdout for piping into other tools. Currently disabled as a safeguard
-against the assistant inadvertently reading credential plaintext.
+Prints the raw secret value to stdout for piping into other tools. In JSON
+mode the value is returned as {"ok": true, "value": "..."}. In human mode
+only the bare secret is printed (no labels or decoration) so it can be
+captured with shell substitution, e.g. $(vellum credentials reveal twilio:auth_token).
 
-Use "inspect" to view a masked preview of the value instead.`,
+Examples:
+  $ vellum credentials reveal twilio:auth_token
+  $ vellum credentials reveal 7a3b1c2d-4e5f-6789-abcd-ef0123456789
+  $ vellum credentials reveal --json twilio:account_sid
+  $ export TWILIO_TOKEN=$(vellum credentials reveal twilio:auth_token)`,
     )
-    .action((_name: string, _opts: unknown, cmd: Command) => {
-      // Intentionally not implemented. We want to avoid the assistant being able to
-      // fetch credential plaintext via CLI. If a legitimate use case emerges that
-      // requires programmatic plaintext access, this is the command we'll use.
-      writeOutput(cmd, {
-        ok: false,
-        error:
-          "Not implemented. Credential plaintext retrieval is intentionally disabled.",
-      });
-      process.exitCode = 1;
+    .action((name: string, _opts: unknown, cmd: Command) => {
+      try {
+        let storageKey: string;
+
+        if (name.includes(":")) {
+          const parsed = parseCredentialName(name);
+          if (!parsed) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Invalid credential name "${name}". Expected service:field format (e.g. twilio:account_sid)`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+          storageKey = `credential:${parsed.service}:${parsed.field}`;
+        } else {
+          const metadata = getCredentialMetadataById(name);
+          if (metadata) {
+            storageKey = `credential:${metadata.service}:${metadata.field}`;
+          } else {
+            writeOutput(cmd, { ok: false, error: "Credential not found" });
+            process.exitCode = 1;
+            return;
+          }
+        }
+
+        const secret = getSecureKey(storageKey);
+
+        if (secret == null || secret.length === 0) {
+          writeOutput(cmd, { ok: false, error: "Credential not found" });
+          process.exitCode = 1;
+          return;
+        }
+
+        writeOutput(cmd, { ok: true, value: secret });
+
+        if (!shouldOutputJson(cmd)) {
+          log.info(secret);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeOutput(cmd, { ok: false, error: message });
+        process.exitCode = 1;
+      }
     });
 }
