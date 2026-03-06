@@ -34,7 +34,6 @@ import {
   createTwilioRelayWebsocketHandler,
   getRelayWebsocketHandlers,
 } from "./http/routes/twilio-relay-websocket.js";
-import { createTwilioSmsWebhookHandler } from "./http/routes/twilio-sms-webhook.js";
 import { createSmsDeliverHandler } from "./http/routes/sms-deliver.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
@@ -139,8 +138,6 @@ async function main() {
   const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
-  const { handler: handleTwilioSmsWebhook, dedupCache: smsDedupCache } =
-    createTwilioSmsWebhookHandler(config);
   const handleSmsDeliver = createSmsDeliverHandler(config);
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config);
@@ -231,10 +228,6 @@ async function main() {
     {
       path: "/v1/calls/twilio/connect-action",
       handler: (req) => handleTwilioConnectActionWebhook(req),
-    },
-    {
-      path: "/webhooks/twilio/sms",
-      handler: (req) => handleTwilioSmsWebhook(req),
     },
     {
       path: "/webhooks/whatsapp",
@@ -809,7 +802,6 @@ async function main() {
 
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();
-  smsDedupCache.startCleanup();
   whatsappDedupCache.startCleanup();
 
   function registerTelegramCommands(): void {
@@ -931,7 +923,6 @@ async function main() {
     credentialWatcher.stop();
     configFileWatcher.stop();
     telegramDedupCache.stopCleanup();
-    smsDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
     if (slackSocketClient) {
       slackSocketClient.stop();
