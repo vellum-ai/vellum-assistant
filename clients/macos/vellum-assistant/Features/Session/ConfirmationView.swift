@@ -10,8 +10,7 @@ struct ConfirmationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack(spacing: VSpacing.md) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.title2)
+                VIconView(.triangleAlert, size: 20)
                     .foregroundStyle(VColor.warning)
                 Text("Action Requires Confirmation")
                     .font(VFont.headline)

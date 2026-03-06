@@ -157,9 +157,8 @@ struct GuardianVerificationFlowView: View {
                 // Verification Code label + code box
                 if let outboundCode = state.outboundCode {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "checkmark.circle.fill")
+                        VIconView(.circleCheck, size: 12)
                             .foregroundColor(VColor.success)
-                            .font(.system(size: 12))
                         Text("Verification Code Sent")
                             .font(VFont.caption)
                             .foregroundColor(VColor.success)
@@ -186,8 +185,7 @@ struct GuardianVerificationFlowView: View {
                             }
                         } label: {
                             HStack(spacing: VSpacing.xs) {
-                                Image(systemName: codeCopied ? "checkmark" : "doc.on.doc")
-                                    .font(.system(size: 12, weight: .medium))
+                                VIconView(codeCopied ? .check : .copy, size: 12)
                                 Text(codeCopied ? "Copied" : "Copy")
                                     .font(VFont.caption)
                             }
@@ -258,8 +256,7 @@ struct GuardianVerificationFlowView: View {
                             NSWorkspace.shared.open(url)
                         } label: {
                             HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "arrow.up.right.square")
-                                    .font(.system(size: 12))
+                                VIconView(.externalLink, size: 12)
                                 Text("Open in Telegram")
                                     .font(VFont.caption)
                             }
@@ -327,8 +324,7 @@ struct GuardianVerificationFlowView: View {
                         }
                     } label: {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: commandCopied ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 12, weight: .medium))
+                            VIconView(commandCopied ? .check : .copy, size: 12)
                             Text(commandCopied ? "Copied" : "Copy")
                                 .font(VFont.caption)
                         }

@@ -210,19 +210,19 @@ final class DictationOverlayWindow {
             return s
 
         case .transforming:
-            return makeSymbolView("wand.and.stars", color: VColor.accent)
+            return makeSymbolView(.wand, color: VColor.accent)
 
         case .done:
-            return makeSymbolView("checkmark.circle.fill", color: VColor.success)
+            return makeSymbolView(.circleCheck, color: VColor.success)
 
         case .error:
-            return makeSymbolView("exclamationmark.triangle.fill", color: VColor.error)
+            return makeSymbolView(.triangleAlert, color: VColor.error)
         }
     }
 
-    private func makeSymbolView(_ name: String, color: Color) -> NSView {
+    private func makeSymbolView(_ icon: VIcon, color: Color) -> NSView {
         let imageView = NSImageView()
-        if let img = NSImage(systemSymbolName: name, accessibilityDescription: nil) {
+        if let img = icon.nsImage(size: 16) {
             imageView.image = img
             imageView.contentTintColor = NSColor(color)
         }

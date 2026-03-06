@@ -149,13 +149,54 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 ### Use shared components first
 - Before building any new UI element, check `clients/shared/DesignSystem/` for an existing component.
 - The design system is organized into layers:
-  - **Tokens** — `Tokens/` contains primitive values: `ColorTokens`, `SpacingTokens`, `TypographyTokens`, `RadiusTokens`, `ShadowTokens`, `AnimationTokens`. Always use tokens instead of raw literals.
-  - **Core** — `Core/` contains foundational controls: `VButton`, `VIconButton`, `VTextField`, `VTextEditor`, `VToggle`, `VSlider`, `VDropdown`, `VSearchBar`, `VBadge`, `VToast`, `VLoadingIndicator`, `VListRow`, `VDisclosureSection`, `VTab`, etc.
+  - **Tokens** — `Tokens/` contains primitive values: `ColorTokens`, `SpacingTokens`, `TypographyTokens`, `RadiusTokens`, `ShadowTokens`, `AnimationTokens`, `IconTokens` (`VIcon` enum), `IconBundle`. Always use tokens instead of raw literals.
+  - **Core** — `Core/` contains foundational controls: `VButton`, `VIconButton`, `VIconView`, `VTextField`, `VTextEditor`, `VToggle`, `VSlider`, `VDropdown`, `VSearchBar`, `VBadge`, `VToast`, `VLoadingIndicator`, `VListRow`, `VDisclosureSection`, `VTab`, etc.
   - **Components** — `Components/` contains composed, higher-level components: `VCard`, `VEmptyState`, `VSplitView`, `VSidePanel`, `VToolbar`, `VTabBar`, `VSegmentedControl`, `VWaveformView`, etc.
   - **Modifiers** — `Modifiers/` contains reusable view modifiers: `CardModifier`, `HoverEffect`, `PanelBackground`, `InlineWidgetCardModifier`.
   - **Gallery** — `Gallery/` is a live preview catalog of all components. Update it when adding new components.
 - Use the `V`-prefixed components (for example `VButton`, `VCard`, `VTextField`) rather than rolling custom equivalents.
-- Use design tokens (`VColor.*`, `VSpacing.*`, `VRadius.*`, `VFont.*`, `VShadow.*`) instead of hardcoded values.
+- Use design tokens (`VColor.*`, `VSpacing.*`, `VRadius.*`, `VFont.*`, `VShadow.*`, `VIcon.*`) instead of hardcoded values.
+
+### Icons — use `VIconView` and `VIcon`, not `Image(systemName:)`
+
+All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enum and `VIconView`. Do not use `Image(systemName:)`, `Label(..., systemImage:)`, or `NSImage(systemSymbolName:)` for new UI work.
+
+**How to use icons:**
+- **Direct rendering:** `VIconView(.search, size: 14)` — drop-in replacement for `Image(systemName:)`.
+- **In components that take icon strings:** Pass `VIcon.xxx.rawValue` (e.g., `VButton(label: "Save", leftIcon: VIcon.check.rawValue)`). Components use `VIcon.resolve()` internally, which handles both Lucide raw values and legacy SF Symbol names via `SFSymbolMapping`.
+- **Dynamic icons from IPC/daemon:** Use `SFSymbolMapping.icon(forSFSymbol: name, fallback: .puzzle)` at the render boundary.
+- **AppKit contexts:** Use `VIcon.xxx.nsImage` or `VIcon.xxx.nsImage(size: 16)`.
+- **Resolving unknown icon strings:** `VIcon.resolve("some-icon")` tries Lucide raw value first, then `SFSymbolMapping`, then falls back to `.puzzle`.
+
+**Adding new icons:**
+1. Add the Lucide icon name to `clients/shared/Resources/lucide-icon-manifest.json`
+2. Add a new case to `VIcon` in `clients/shared/DesignSystem/Tokens/IconTokens.swift` with raw value `"lucide-{name}"`
+3. If the icon replaces an SF Symbol, add the mapping in `clients/shared/DesignSystem/Tokens/SFSymbolMapping.swift`
+4. Run `clients/scripts/sync-lucide-icons.sh` to generate the PDF asset
+5. Browse available icons at [lucide.dev/icons](https://lucide.dev/icons)
+
+**Common VIcon cases** (see `IconTokens.swift` for full list):
+| Use case | VIcon |
+|----------|-------|
+| Close/dismiss | `.x` |
+| Add/create | `.plus` |
+| Search | `.search` |
+| Settings/gear | `.settings` |
+| Edit | `.pencil` or `.squarePen` |
+| Delete | `.trash` |
+| Copy | `.copy` |
+| Confirm/success | `.check` or `.circleCheck` |
+| Error/warning | `.triangleAlert` or `.circleAlert` |
+| Info | `.info` |
+| Navigation arrows | `.chevronDown`, `.chevronRight`, `.arrowUp`, etc. |
+| Download/export | `.arrowDownToLine` |
+| Share | `.share` |
+| Pin/unpin | `.pin` / `.pinOff` |
+
+**Exclusions** (remain on SF Symbols):
+- `VAppIconGenerator`, `AppIconPickerSheet`, `AppListManager.sfSymbol` — curated SF Symbol set for deterministic icon generation
+- `AppsGridView` placeholder thumbnails — renders dynamic SF Symbols from app data
+- Views using `.symbolEffect(.pulse)` — SF-Symbol-specific animation (e.g., mic recording indicator, ambient scanning)
 
 ### Adding new shared components
 - If a needed component does not exist, add it to the appropriate `DesignSystem/` subdirectory (`Core/` for primitives, `Components/` for composed elements, `Modifiers/` for view modifiers).

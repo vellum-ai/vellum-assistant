@@ -83,8 +83,7 @@ struct InlineAppCreatedCard: View {
 
                 if let onShareApp = onShareApp {
                     Button(action: onShareApp) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 13, weight: .medium))
+                        VIconView(.share, size: 13)
                             .foregroundColor(cardTextSecondary)
                     }
                     .buttonStyle(.plain)

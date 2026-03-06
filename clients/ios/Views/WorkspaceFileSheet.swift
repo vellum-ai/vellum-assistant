@@ -23,8 +23,7 @@ struct WorkspaceFileSheet: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error {
                     VStack(spacing: VSpacing.md) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 36))
+                        VIconView(.triangleAlert, size: 36)
                             .foregroundColor(VColor.textMuted)
                             .accessibilityHidden(true)
                         Text(error)

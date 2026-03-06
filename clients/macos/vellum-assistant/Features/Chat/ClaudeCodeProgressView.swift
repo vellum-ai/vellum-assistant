@@ -40,8 +40,7 @@ struct ClaudeCodeProgressView: View {
                             .frame(width: 8, height: 8)
                             .modifier(PulsingModifier())
                     } else {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 12))
+                        VIconView(.circleCheck, size: 12)
                             .foregroundColor(VColor.success)
                     }
 
@@ -65,8 +64,7 @@ struct ClaudeCodeProgressView: View {
                     Spacer()
 
                     // Chevron
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                    VIconView(.chevronRight, size: 9)
                         .foregroundColor(VColor.textMuted)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
@@ -81,8 +79,7 @@ struct ClaudeCodeProgressView: View {
                     ForEach(visibleSteps) { step in
                         HStack(spacing: VSpacing.sm) {
                             // Tool icon + name
-                            Image(systemName: step.toolIcon)
-                                .font(.system(size: 10))
+                            VIconView(step.toolIcon, size: 10)
                                 .foregroundColor(VColor.textMuted)
                                 .frame(width: 14)
 

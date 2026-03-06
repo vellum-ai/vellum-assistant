@@ -67,7 +67,7 @@ private struct DeveloperSettingsSectionContent: View {
                     selectedSessionId = traceStore.mostRecentSessionId
                     showDebugPanel = true
                 } label: {
-                    Label("Open Debug Panel", systemImage: "ladybug")
+                    Label { Text("Open Debug Panel") } icon: { VIconView(.bug, size: 14) }
                 }
             }
 
@@ -75,7 +75,7 @@ private struct DeveloperSettingsSectionContent: View {
                 Button {
                     showUsageDashboard = true
                 } label: {
-                    Label("Usage Dashboard", systemImage: "chart.bar")
+                    Label { Text("Usage Dashboard") } icon: { VIconView(.barChart, size: 14) }
                 }
             }
 

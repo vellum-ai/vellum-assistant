@@ -13,8 +13,7 @@ struct DocumentReopenWidget: View {
     var body: some View {
         HStack(spacing: VSpacing.md) {
             // Document icon
-            Image(systemName: "doc.text.fill")
-                .font(.system(size: 16, weight: .medium))
+            VIconView(.fileText, size: 16)
                 .foregroundColor(VColor.accent)
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
@@ -46,8 +45,7 @@ struct DocumentReopenWidget: View {
 
             // Dismiss button
             Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .medium))
+                VIconView(.x, size: 11)
                     .foregroundColor(VColor.textMuted)
                     .frame(width: 20, height: 20)
             }

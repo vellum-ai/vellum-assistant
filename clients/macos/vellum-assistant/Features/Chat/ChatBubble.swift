@@ -263,8 +263,7 @@ struct ChatBubble: View {
                 Button {
                     copyMessageText()
                 } label: {
-                    Image(systemName: showCopyConfirmation ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 11, weight: .medium))
+                    VIconView(showCopyConfirmation ? .check : .copy, size: 11)
                         .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
@@ -277,8 +276,7 @@ struct ChatBubble: View {
                 Button {
                     onReportMessage(message.daemonMessageId)
                 } label: {
-                    Image(systemName: "ladybug")
-                        .font(.system(size: 11, weight: .medium))
+                    VIconView(.bug, size: 11)
                         .foregroundColor(VColor.textMuted)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
@@ -305,8 +303,7 @@ struct ChatBubble: View {
 
                 if message.isError && hasText {
                     HStack(alignment: .top, spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 14 * conversationZoomScale, weight: .medium))
+                        VIconView(.triangleAlert, size: 14 * conversationZoomScale)
                             .foregroundColor(VColor.error)
                             .padding(.top, 1)
                         Text(message.text)

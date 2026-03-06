@@ -154,8 +154,7 @@ struct VoiceSettingsView: View {
                     // Show info note when a regular key (not modifier-only, not off) is selected
                     if currentActivator.kind == .key {
                         HStack(alignment: .top, spacing: VSpacing.xs) {
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 10))
+                            VIconView(.info, size: 10)
                                 .foregroundColor(VColor.textMuted)
                             Text("This key will still type in other apps while held. For seamless use, a dedicated key (F-key, mouse button) is recommended.")
                                 .font(VFont.caption)
@@ -357,8 +356,7 @@ struct VoiceSettingsView: View {
 
                 // Privacy note
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 10))
+                    VIconView(.lock, size: 10)
                         .foregroundColor(VColor.textMuted)
                     Text("Uses on-device speech recognition \u{2014} no data leaves your Mac.")
                         .font(VFont.caption)
@@ -419,7 +417,7 @@ struct VoiceSettingsView: View {
 
             if store.hasElevenLabsKey {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                     VButton(label: "Disconnect", style: .danger) {
                         store.clearElevenLabsKey()
                         elevenLabsKeyText = ""
@@ -438,8 +436,7 @@ struct VoiceSettingsView: View {
                         .foregroundColor(VColor.textPrimary)
 
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 10))
+                        VIconView(.lock, size: 10)
                             .foregroundColor(VColor.textMuted)
                         Text("Your API key is stored securely in the macOS Keychain.")
                             .font(VFont.caption)

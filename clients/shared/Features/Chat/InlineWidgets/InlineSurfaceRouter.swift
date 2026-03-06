@@ -105,8 +105,7 @@ public struct InlineSurfaceRouter: View {
                         )
                     }
                 } label: {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 10, weight: .semibold))
+                    VIconView(.arrowUpRight, size: 10)
                         .foregroundColor(VColor.textSecondary)
                         .padding(VSpacing.xs)
                         .background(
@@ -125,8 +124,7 @@ public struct InlineSurfaceRouter: View {
                             userInfo: ["documentSurfaceId": data.surfaceId]
                         )
                     } label: {
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10, weight: .semibold))
+                        VIconView(.arrowUpRight, size: 10)
                             .foregroundColor(VColor.textSecondary)
                             .padding(VSpacing.xs)
                             .background(
@@ -178,8 +176,7 @@ public struct InlineSurfaceRouter: View {
     @ViewBuilder
     private var strippedFailedPlaceholder: some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 12))
+            VIconView(.triangleAlert, size: 12)
                 .foregroundColor(VColor.textSecondary)
             Text("Failed to load surface")
                 .font(VFont.caption)
@@ -333,8 +330,7 @@ public struct InlineSurfaceRouter: View {
             HStack(spacing: VSpacing.sm) {
                 Spacer()
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(VFont.caption)
+                    VIconView(.circleCheck, size: 12)
                         .foregroundColor(VColor.success)
                     Text(label)
                         .font(VFont.captionMedium)

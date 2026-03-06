@@ -473,8 +473,7 @@ struct MessageListView: View {
                         }
                     }) {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "arrow.down")
-                                .font(.system(size: 10, weight: .semibold))
+                            VIconView(.arrowDown, size: 10)
                             Text("Scroll to latest")
                                 .font(VFont.monoSmall)
                         }

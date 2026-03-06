@@ -48,8 +48,7 @@ public struct CurrentStepIndicator: View {
             HStack(spacing: VSpacing.sm) {
                 // Spinner or checkmark
                 if let current = current, current.isComplete {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14))
+                    VIconView(.circleCheck, size: 14)
                         .foregroundColor(VColor.accent)
                 } else {
                     ProgressView()
@@ -85,8 +84,7 @@ public struct CurrentStepIndicator: View {
                 Spacer()
 
                 // Chevron to indicate it's clickable
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
+                VIconView(.chevronRight, size: 10)
                     .foregroundColor(VColor.textMuted)
             }
             .padding(.horizontal, VSpacing.md)

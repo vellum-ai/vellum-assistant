@@ -66,10 +66,11 @@ struct ChatTabView: View {
                     showCopiedConfirmation = false
                 }
             } label: {
-                Label(
-                    showCopiedConfirmation ? "Copied!" : "Copy as Markdown",
-                    systemImage: showCopiedConfirmation ? "checkmark" : "doc.on.doc"
-                )
+                Label {
+                    Text(showCopiedConfirmation ? "Copied!" : "Copy as Markdown")
+                } icon: {
+                    VIconView(showCopiedConfirmation ? .check : .copy, size: 14)
+                }
             }
 
             Button {
@@ -78,10 +79,10 @@ struct ChatTabView: View {
                 shareMarkdown = markdown
                 showShareSheet = true
             } label: {
-                Label("Share\u{2026}", systemImage: "square.and.arrow.up")
+                Label { Text("Share\u{2026}") } icon: { VIconView(.share, size: 14) }
             }
         } label: {
-            Image(systemName: showCopiedConfirmation ? "checkmark" : "square.and.arrow.up")
+            VIconView(showCopiedConfirmation ? .check : .share, size: 20)
                 .foregroundColor(showCopiedConfirmation ? VColor.success : VColor.textMuted)
         }
         .disabled(!hasTextMessages)

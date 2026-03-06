@@ -42,8 +42,7 @@ struct IOSTaskOutputDetailView: View {
         case .error(let message):
             VStack(spacing: VSpacing.lg) {
                 Spacer()
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 40))
+                VIconView(.triangleAlert, size: 40)
                     .foregroundColor(VColor.warning)
                 Text(message)
                     .font(VFont.body)
@@ -88,8 +87,7 @@ struct IOSTaskOutputDetailView: View {
 
             if let completedAt = output.completedAt {
                 HStack(spacing: 4) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 11))
+                    VIconView(.clock, size: 11)
                     Text(formattedDate(from: completedAt))
                         .font(VFont.caption)
                 }

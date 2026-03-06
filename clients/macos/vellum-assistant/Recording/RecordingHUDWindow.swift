@@ -152,9 +152,8 @@ struct RecordingHUDView: View {
         HStack(spacing: VSpacing.sm) {
             if let failure = viewModel.failureMessage {
                 // Failure state
-                Image(systemName: "exclamationmark.triangle.fill")
+                VIconView(.triangleAlert, size: 12)
                     .foregroundColor(VColor.error)
-                    .font(.system(size: 12))
 
                 Text(failure)
                     .font(VFont.caption)
@@ -191,8 +190,7 @@ struct RecordingHUDView: View {
 
                 // Pause/Resume toggle button
                 Button(action: { viewModel.togglePauseResume() }) {
-                    Image(systemName: viewModel.isPaused ? "play.fill" : "pause.fill")
-                        .font(.system(size: 10))
+                    VIconView(viewModel.isPaused ? .play : .square, size: 10)
                         .foregroundColor(.white)
                         .frame(width: 24, height: 24)
                         .background(
@@ -205,8 +203,7 @@ struct RecordingHUDView: View {
 
                 // Stop button
                 Button(action: { viewModel.stop() }) {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 10))
+                    VIconView(.square, size: 10)
                         .foregroundColor(.white)
                         .frame(width: 24, height: 24)
                         .background(

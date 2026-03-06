@@ -31,9 +31,8 @@ struct CrashReportView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            VIconView(.triangleAlert, size: 22)
                 .foregroundColor(VColor.warning)
-                .font(.system(size: 22))
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text("The app crashed last session")
                     .font(VFont.headline)
@@ -62,7 +61,7 @@ struct CrashReportView: View {
 
     private var sentConfirmation: some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: "checkmark.circle.fill")
+            VIconView(.circleCheck, size: 14)
                 .foregroundColor(VColor.success)
             Text("Crash report sent. Thank you!")
                 .font(VFont.caption)

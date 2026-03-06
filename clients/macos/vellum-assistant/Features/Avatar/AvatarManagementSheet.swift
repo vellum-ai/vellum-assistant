@@ -18,8 +18,7 @@ struct AvatarManagementSheet: View {
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
                 Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
+                    VIconView(.x, size: 12)
                         .foregroundColor(VColor.textMuted)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
@@ -67,7 +66,7 @@ struct AvatarManagementSheet: View {
                         .padding(.horizontal, VSpacing.xl)
 
                     actionRow(
-                        icon: "trash",
+                        icon: VIcon.trash.rawValue,
                         label: "Delete Avatar",
                         subtitle: "Revert to the default avatar",
                         destructive: true
@@ -94,8 +93,7 @@ struct AvatarManagementSheet: View {
     ) -> some View {
         Button(action: action) {
             HStack(spacing: VSpacing.md) {
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .medium))
+                VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 14)
                     .foregroundColor(destructive ? VColor.error : VColor.textSecondary)
                     .frame(width: 24, alignment: .center)
 
@@ -110,8 +108,7 @@ struct AvatarManagementSheet: View {
 
                 Spacer()
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .medium))
+                VIconView(.chevronRight, size: 11)
                     .foregroundColor(VColor.textMuted)
             }
             .padding(.horizontal, VSpacing.xl)

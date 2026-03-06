@@ -1,0 +1,256 @@
+import SwiftUI
+#if canImport(AppKit) && !targetEnvironment(macCatalyst)
+import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
+
+/// Centralized icon token backed by vendored Lucide PDF assets.
+/// Raw values match PDF filenames in the `LucideIcons` resource directory.
+public enum VIcon: String, CaseIterable, Sendable {
+
+    // MARK: - Navigation
+
+    case chevronDown = "lucide-chevron-down"
+    case chevronUp = "lucide-chevron-up"
+    case chevronLeft = "lucide-chevron-left"
+    case chevronRight = "lucide-chevron-right"
+    case arrowUp = "lucide-arrow-up"
+    case arrowDown = "lucide-arrow-down"
+    case arrowRight = "lucide-arrow-right"
+    case arrowUpRight = "lucide-arrow-up-right"
+    case arrowDownToLine = "lucide-arrow-down-to-line"
+    case externalLink = "lucide-external-link"
+    case refreshCw = "lucide-refresh-cw"
+    case rotateCcw = "lucide-rotate-ccw"
+    case panelLeft = "lucide-panel-left"
+
+    // MARK: - Actions
+
+    case x = "lucide-x"
+    case plus = "lucide-plus"
+    case check = "lucide-check"
+    case search = "lucide-search"
+    case copy = "lucide-copy"
+    case trash = "lucide-trash-2"
+    case pencil = "lucide-pencil"
+    case pin = "lucide-pin"
+    case pinOff = "lucide-pin-off"
+    case archive = "lucide-archive"
+    case upload = "lucide-upload"
+    case send = "lucide-send"
+    case share = "lucide-share-2"
+    case ellipsis = "lucide-ellipsis"
+    case squarePen = "lucide-square-pen"
+    case wand = "lucide-wand"
+    case paintbrush = "lucide-paintbrush"
+    case link = "lucide-link"
+    case paperclip = "lucide-paperclip"
+    case logOut = "lucide-log-out"
+
+    // MARK: - Status
+
+    case circleCheck = "lucide-circle-check"
+    case circleX = "lucide-circle-x"
+    case triangleAlert = "lucide-triangle-alert"
+    case info = "lucide-info"
+    case circle = "lucide-circle"
+    case circleDot = "lucide-circle-dot"
+    case circleDashed = "lucide-circle-dashed"
+    case circleAlert = "lucide-circle-alert"
+    case circleStop = "lucide-circle-stop"
+    case badgeCheck = "lucide-badge-check"
+    case badgeX = "lucide-badge-x"
+    case circleArrowUp = "lucide-circle-arrow-up"
+    case circleArrowDown = "lucide-circle-arrow-down"
+    case circlePlay = "lucide-circle-play"
+
+    // MARK: - Security
+
+    case shield = "lucide-shield"
+    case shieldCheck = "lucide-shield-check"
+    case shieldAlert = "lucide-shield-alert"
+    case shieldOff = "lucide-shield-off"
+    case lock = "lucide-lock"
+    case lockOpen = "lucide-lock-open"
+    case keyRound = "lucide-key-round"
+
+    // MARK: - Files & Documents
+
+    case file = "lucide-file"
+    case fileText = "lucide-file-text"
+    case filePlus = "lucide-file-plus"
+    case fileCode = "lucide-file-code"
+    case fileArchive = "lucide-file-archive"
+    case folder = "lucide-folder"
+    case folderSearch = "lucide-folder-search"
+    case clipboard = "lucide-clipboard"
+    case clipboardList = "lucide-clipboard-list"
+    case scrollText = "lucide-scroll-text"
+    case bookOpen = "lucide-book-open"
+    case table = "lucide-table-2"
+
+    // MARK: - Media
+
+    case image = "lucide-image"
+    case film = "lucide-film"
+    case play = "lucide-play"
+    case square = "lucide-square"
+    case mic = "lucide-mic"
+    case micOff = "lucide-mic-off"
+    case volume2 = "lucide-volume-2"
+    case audioWaveform = "lucide-audio-waveform"
+    case video = "lucide-video"
+    case maximize = "lucide-maximize-2"
+    case minimize = "lucide-minimize-2"
+    case scan = "lucide-scan"
+
+    // MARK: - Communication
+
+    case messageCircle = "lucide-message-circle"
+    case messageSquare = "lucide-message-square"
+    case messagesSquare = "lucide-messages-square"
+    case messageCirclePlus = "lucide-message-circle-plus"
+    case mail = "lucide-mail"
+    case phone = "lucide-phone"
+    case phoneCall = "lucide-phone-call"
+    case bell = "lucide-bell"
+    case bellDot = "lucide-bell-dot"
+    case hash = "lucide-hash"
+
+    // MARK: - People
+
+    case users = "lucide-users"
+    case user = "lucide-user"
+    case circleUser = "lucide-circle-user"
+    case contact = "lucide-contact"
+
+    // MARK: - System
+
+    case terminal = "lucide-terminal"
+    case globe = "lucide-globe"
+    case wifi = "lucide-wifi"
+    case wifiOff = "lucide-wifi-off"
+    case monitor = "lucide-monitor"
+    case smartphone = "lucide-smartphone"
+    case laptop = "lucide-laptop"
+    case qrCode = "lucide-qr-code"
+    case layoutGrid = "lucide-layout-grid"
+    case squareDashed = "lucide-square-dashed"
+    case appWindow = "lucide-app-window"
+    case power = "lucide-power"
+    case settings = "lucide-settings"
+    case slidersHorizontal = "lucide-sliders-horizontal"
+    case cpu = "lucide-cpu"
+    case hardDrive = "lucide-hard-drive"
+    case network = "lucide-network"
+    case keyboard = "lucide-keyboard"
+    case mousePointerClick = "lucide-mouse-pointer-click"
+    case eye = "lucide-eye"
+    case eyeOff = "lucide-eye-off"
+    case layers = "lucide-layers"
+
+    // MARK: - Time
+
+    case calendar = "lucide-calendar"
+    case clock = "lucide-clock"
+    case clockAlert = "lucide-clock-alert"
+    case history = "lucide-history"
+
+    // MARK: - Weather
+
+    case sun = "lucide-sun"
+    case moon = "lucide-moon"
+    case cloud = "lucide-cloud"
+    case cloudRain = "lucide-cloud-rain"
+    case cloudLightning = "lucide-cloud-lightning"
+    case cloudFog = "lucide-cloud-fog"
+    case cloudSun = "lucide-cloud-sun"
+    case cloudMoon = "lucide-cloud-moon"
+    case cloudOff = "lucide-cloud-off"
+    case snowflake = "lucide-snowflake"
+    case wind = "lucide-wind"
+    case droplets = "lucide-droplets"
+    case thermometer = "lucide-thermometer"
+
+    // MARK: - Objects
+
+    case tag = "lucide-tag"
+    case wrench = "lucide-wrench"
+    case inbox = "lucide-inbox"
+    case package = "lucide-package"
+    case creditCard = "lucide-credit-card"
+    case car = "lucide-car"
+    case stethoscope = "lucide-stethoscope"
+    case receipt = "lucide-receipt"
+    case star = "lucide-star"
+    case lightbulb = "lucide-lightbulb"
+
+    // MARK: - Misc
+
+    case sparkles = "lucide-sparkles"
+    case sparkle = "lucide-sparkle"
+    case bug = "lucide-bug"
+    case puzzle = "lucide-puzzle"
+    case zap = "lucide-zap"
+    case list = "lucide-list"
+    case listChecks = "lucide-list-checks"
+    case barChart = "lucide-chart-bar"
+    case trendingUp = "lucide-trending-up"
+    case binoculars = "lucide-binoculars"
+    case brain = "lucide-brain"
+    case gitBranch = "lucide-git-branch"
+    case compass = "lucide-compass"
+    case house = "lucide-house"
+    case zoomIn = "lucide-zoom-in"
+    case zoomOut = "lucide-zoom-out"
+
+    // MARK: - Resolution
+
+    /// Resolves an icon name that may be a Lucide raw value (`"lucide-x"`)
+    /// or an SF Symbol name (`"xmark"`). Falls back to `.puzzle`.
+    public static func resolve(_ name: String) -> VIcon {
+        VIcon(rawValue: name) ?? SFSymbolMapping.icon(forSFSymbol: name) ?? .puzzle
+    }
+
+    // MARK: - Image Resolution
+
+    /// URL of the PDF file inside the resource bundle's `LucideIcons` directory.
+    private var pdfURL: URL? {
+        Bundle.vellumShared.url(forResource: rawValue, withExtension: "pdf", subdirectory: "LucideIcons")
+    }
+
+    /// SwiftUI `Image` resolved from the vendored PDF.
+    public var image: Image {
+        #if canImport(AppKit) && !targetEnvironment(macCatalyst)
+        guard let url = pdfURL, let ns = NSImage(contentsOf: url) else {
+            return Image(systemName: "questionmark.square")
+        }
+        ns.isTemplate = true
+        return Image(nsImage: ns)
+        #elseif canImport(UIKit)
+        guard let url = pdfURL, let ui = UIImage(contentsOfFile: url.path) else {
+            return Image(systemName: "questionmark.square")
+        }
+        return Image(uiImage: ui.withRenderingMode(.alwaysTemplate))
+        #else
+        return Image(systemName: "questionmark.square")
+        #endif
+    }
+
+    #if canImport(AppKit) && !targetEnvironment(macCatalyst)
+    /// AppKit `NSImage` resolved from the vendored PDF.
+    public var nsImage: NSImage? {
+        guard let url = pdfURL, let img = NSImage(contentsOf: url) else { return nil }
+        img.isTemplate = true
+        return img
+    }
+
+    /// Convenience returning a sized `NSImage`.
+    public func nsImage(size: CGFloat) -> NSImage? {
+        guard let img = nsImage else { return nil }
+        img.size = NSSize(width: size, height: size)
+        return img
+    }
+    #endif
+}

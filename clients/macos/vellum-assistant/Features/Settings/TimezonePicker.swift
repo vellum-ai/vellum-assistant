@@ -62,9 +62,8 @@ struct TimezonePicker: View {
         VStack(alignment: .leading, spacing: 0) {
             // Search field
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "magnifyingglass")
+                VIconView(.search, size: 12)
                     .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 12))
                 TextField("Search timezones...", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(VFont.body)
@@ -73,9 +72,8 @@ struct TimezonePicker: View {
                     Button {
                         searchText = ""
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        VIconView(.circleX, size: 12)
                             .foregroundColor(VColor.textMuted)
-                            .font(.system(size: 12))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear search")
@@ -98,9 +96,8 @@ struct TimezonePicker: View {
                 onSelect(systemTimezoneIdentifier)
             } label: {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "desktopcomputer")
+                    VIconView(.monitor, size: 12)
                         .foregroundColor(VColor.accent)
-                        .font(.system(size: 12))
                     Text("Use system: \(systemTimezoneIdentifier)")
                         .font(VFont.body)
                         .foregroundColor(VColor.accent)

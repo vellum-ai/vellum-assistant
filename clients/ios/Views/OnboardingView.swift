@@ -111,7 +111,7 @@ struct ChoosePathStep: View {
                                 .foregroundColor(VColor.textSecondary)
                         }
                         Spacer()
-                        Image(systemName: "cloud")
+                        VIconView(.cloud, size: 20)
                             .foregroundColor(VColor.accent)
                     }
                     .padding(VSpacing.lg)
@@ -134,7 +134,7 @@ struct ChoosePathStep: View {
                                 .foregroundColor(VColor.textSecondary)
                         }
                         Spacer()
-                        Image(systemName: "desktopcomputer")
+                        VIconView(.monitor, size: 20)
                             .foregroundColor(VColor.accent)
                     }
                     .padding(VSpacing.lg)
@@ -180,8 +180,7 @@ struct DaemonSetupStep: View {
                 showingQRPairing = true
             } label: {
                 HStack(spacing: VSpacing.md) {
-                    Image(systemName: "qrcode.viewfinder")
-                        .font(.system(size: 24))
+                    VIconView(.qrCode, size: 24)
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text("Scan QR Code")
                             .font(VFont.bodyBold)

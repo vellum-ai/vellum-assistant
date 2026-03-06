@@ -26,54 +26,54 @@ struct SettingsView: View {
                     NavigationLink {
                         DaemonConnectionSection()
                     } label: {
-                        Label("Connect", systemImage: "desktopcomputer")
+                        Label { Text("Connect") } icon: { VIconView(.monitor, size: 14) }
                     }
                     NavigationLink {
                         TwilioSettingsSection()
                     } label: {
-                        Label("Twilio", systemImage: "phone")
+                        Label { Text("Twilio") } icon: { VIconView(.phone, size: 14) }
                     }
                     NavigationLink {
                         IntegrationsSection()
                     } label: {
-                        Label("Integrations", systemImage: "link")
+                        Label { Text("Integrations") } icon: { VIconView(.link, size: 14) }
                     }
                     NavigationLink {
                         SchedulesSection()
                     } label: {
-                        Label("Scheduled Tasks", systemImage: "clock")
+                        Label { Text("Scheduled Tasks") } icon: { VIconView(.clock, size: 14) }
                     }
                     NavigationLink {
                         TrustRulesSection()
                     } label: {
-                        Label("Trust Rules", systemImage: "shield.lefthalf.filled")
+                        Label { Text("Trust Rules") } icon: { VIconView(.shieldAlert, size: 14) }
                     }
                     NavigationLink {
                         RemindersSection()
                     } label: {
-                        Label("Reminders", systemImage: "bell")
+                        Label { Text("Reminders") } icon: { VIconView(.bell, size: 14) }
                     }
                     NavigationLink {
                         PrivateThreadsSection(store: threadStore)
                     } label: {
-                        Label("Private Threads", systemImage: "lock.shield.fill")
+                        Label { Text("Private Threads") } icon: { VIconView(.shield, size: 14) }
                     }
                     NavigationLink {
                         MediaEmbedSettingsSection()
                     } label: {
-                        Label("Media Embeds", systemImage: "play.rectangle")
+                        Label { Text("Media Embeds") } icon: { VIconView(.video, size: 14) }
                     }
                     NavigationLink {
                         VoiceSettingsSection()
                     } label: {
-                        Label("Voice", systemImage: "waveform")
+                        Label { Text("Voice") } icon: { VIconView(.audioWaveform, size: 14) }
                     }
                 }
 
                 NavigationLink {
                     AppearanceSection()
                 } label: {
-                    Label("Appearance", systemImage: "paintbrush")
+                    Label { Text("Appearance") } icon: { VIconView(.paintbrush, size: 14) }
                 }
 
                 Section("Permissions") {
@@ -102,7 +102,7 @@ struct SettingsView: View {
                         NavigationLink {
                             DeveloperSettingsSection()
                         } label: {
-                            Label("Debug Panel", systemImage: "ladybug")
+                            Label { Text("Debug Panel") } icon: { VIconView(.bug, size: 14) }
                         }
                     }
                 }

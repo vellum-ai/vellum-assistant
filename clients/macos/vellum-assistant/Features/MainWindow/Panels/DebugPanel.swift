@@ -54,7 +54,7 @@ struct DebugPanel: View {
                     value: "\(traceStore.requestCount(sessionId: sessionId))"
                 )
                 metric(
-                    icon: "brain",
+                    icon: VIcon.brain.rawValue,
                     label: "LLM Calls",
                     value: "\(traceStore.llmCallCount(sessionId: sessionId))"
                 )
@@ -120,7 +120,7 @@ struct DebugPanel: View {
                         value: formatWhole(memory.conflictsResolved)
                     )
                     metric(
-                        icon: "clock.arrow.circlepath",
+                        icon: VIcon.history.rawValue,
                         label: "Oldest Pending",
                         value: formatDurationMs(memory.oldestPendingConflictAgeMs)
                     )
@@ -145,8 +145,7 @@ struct DebugPanel: View {
     private func metric(icon: String, label: String, value: String, color: Color = Emerald._400) -> some View {
         VStack(spacing: VSpacing.xxs) {
             HStack(spacing: VSpacing.xs) {
-                Image(systemName: icon)
-                    .font(.system(size: 10))
+                VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
                     .foregroundColor(color)
                 Text(value)
                     .font(VFont.captionMedium)

@@ -318,8 +318,7 @@ struct CloudCredentialsStepView: View {
         if fileName.isEmpty {
             Button(action: onPick) {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "doc.badge.plus")
-                        .font(.system(size: 14))
+                    VIconView(.filePlus, size: 14)
                         .foregroundColor(VColor.textSecondary)
                     Text(prompt)
                         .font(.system(size: 14, weight: .medium))
@@ -338,8 +337,7 @@ struct CloudCredentialsStepView: View {
             }
         } else {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "doc.fill")
-                    .font(.system(size: 14))
+                VIconView(.file, size: 14)
                     .foregroundColor(adaptiveColor(light: Stone._900, dark: Forest._600))
                 Text(fileName)
                     .font(.system(size: 14, weight: .medium, design: .monospaced))
@@ -349,8 +347,7 @@ struct CloudCredentialsStepView: View {
                     .textSelection(.enabled)
                 Spacer()
                 Button(action: onClear) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
+                    VIconView(.circleX, size: 14)
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)

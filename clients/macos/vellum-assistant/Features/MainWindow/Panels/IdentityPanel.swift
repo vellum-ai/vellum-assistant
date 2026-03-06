@@ -291,16 +291,14 @@ private struct WorkspaceFileSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                Image(systemName: "doc.text.fill")
-                    .font(.system(size: 13))
+                VIconView(.fileText, size: 13)
                     .foregroundColor(Amber._400)
                 Text(fileName)
                     .font(VFont.cardTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
                 Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
+                    VIconView(.x, size: 12)
                         .foregroundColor(VColor.textMuted)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())

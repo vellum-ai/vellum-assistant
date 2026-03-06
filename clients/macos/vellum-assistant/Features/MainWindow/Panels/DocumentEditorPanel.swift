@@ -24,11 +24,11 @@ struct DocumentEditorPanelView: View {
                 if documentManager.isSaving {
                     ProgressView().controlSize(.small).scaleEffect(0.7)
                 } else {
-                    VIconButton(label: "Export", icon: "square.and.arrow.down", isActive: false, iconOnly: true) {
+                    VIconButton(label: "Export", icon: VIcon.arrowDownToLine.rawValue, isActive: false, iconOnly: true) {
                         documentManager.exportToFile()
                     }
                 }
-                VIconButton(label: "Close", icon: "xmark", isActive: false, iconOnly: true, action: onClose)
+                VIconButton(label: "Close", icon: VIcon.x.rawValue, isActive: false, iconOnly: true, action: onClose)
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)

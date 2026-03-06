@@ -103,13 +103,15 @@ struct SettingsPanel: View {
         VStack(spacing: 0) {
             // Header: back chevron + title
             HStack(spacing: VSpacing.md) {
-                VIconButton(
-                    label: "Back",
-                    icon: "chevron.left",
-                    iconOnly: true,
-                    variant: .outlined,
-                    action: onClose
-                )
+                Button(action: onClose) {
+                    VIconView(.chevronLeft, size: 16)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(VColor.textSecondary)
+                .pointerCursor()
+                .accessibilityLabel("Back")
 
                 Text("Settings")
                     .font(VFont.panelTitle)
@@ -313,7 +315,7 @@ struct SettingsPanel: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                         VButton(label: "Clear", style: .danger) {
                             store.clearAPIKey()
                             apiKeyText = ""
@@ -379,7 +381,7 @@ struct SettingsPanel: View {
 
                 if store.hasPerplexityKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                         VButton(label: "Clear", style: .danger) {
                             store.clearPerplexityKey()
                             perplexityKeyText = ""
@@ -445,7 +447,7 @@ struct SettingsPanel: View {
 
                 if store.hasBraveKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                         VButton(label: "Clear", style: .danger) {
                             store.clearBraveKey()
                             braveKeyText = ""
@@ -511,7 +513,7 @@ struct SettingsPanel: View {
 
                 if store.hasImageGenKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                         VButton(label: "Clear", style: .danger) {
                             store.clearImageGenKey()
                             imageGenKeyText = ""
@@ -643,7 +645,7 @@ struct SettingsPanel: View {
             // Managed mode "coming soon"
             if store.twitterMode == "managed" {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "info.circle")
+                    VIconView(.info, size: 14)
                         .foregroundStyle(VColor.textSecondary)
                     Text("Managed mode is coming soon. Switch to Local (BYO App) to connect now.")
                         .font(VFont.caption)
@@ -656,7 +658,7 @@ struct SettingsPanel: View {
                 if store.twitterConnected {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                            VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                             VButton(label: "Disconnect", style: .danger) {
                                 store.disconnectTwitter()
                             }
@@ -912,9 +914,8 @@ struct SettingsPanel: View {
                 Spacer()
 
                 if integration.connected {
-                    Image(systemName: "checkmark.circle.fill")
+                    VIconView(.circleCheck, size: 14)
                         .foregroundColor(VColor.success)
-                        .font(.system(size: 14))
                     VButton(label: "Disconnect", style: .danger) {
                         try? daemonClient?.sendIntegrationDisconnect(integrationId: integration.id)
                     }

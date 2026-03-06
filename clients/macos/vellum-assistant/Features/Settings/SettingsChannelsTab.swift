@@ -139,9 +139,8 @@ struct SettingsChannelsTab: View {
 
             if let email = store.assistantEmail {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
+                    VIconView(.circleCheck, size: 14)
                         .foregroundColor(VColor.success)
-                        .font(.system(size: 14))
                     Text(email)
                         .font(VFont.mono)
                         .foregroundColor(VColor.textPrimary)
@@ -156,8 +155,7 @@ struct SettingsChannelsTab: View {
                             emailCopied = false
                         }
                     } label: {
-                        Image(systemName: emailCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 12, weight: .medium))
+                        VIconView(emailCopied ? .check : .copy, size: 12)
                             .foregroundColor(emailCopied ? VColor.success : VColor.textSecondary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
@@ -168,9 +166,8 @@ struct SettingsChannelsTab: View {
                 }
             } else {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "exclamationmark.triangle")
+                    VIconView(.triangleAlert, size: 12)
                         .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
                     Text("Not configured — run the Email Setup skill to assign an address")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textMuted)
@@ -199,7 +196,7 @@ struct SettingsChannelsTab: View {
             // Bot credential row
             if store.telegramHasBotToken {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                     VButton(label: "Disconnect", style: .danger, isDisabled: store.telegramSaveInProgress) {
                         store.clearTelegramCredentials()
                         telegramBotTokenText = ""
@@ -350,7 +347,7 @@ struct SettingsChannelsTab: View {
 
             if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                     VButton(label: "Disconnect", style: .danger, isDisabled: store.slackChannelSaveInProgress) {
                         store.clearSlackChannelConfig()
                         slackChannelBotTokenInput = ""
@@ -513,7 +510,7 @@ struct SettingsChannelsTab: View {
             // Credentials row
             if store.twilioHasCredentials {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                     VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                     }
@@ -588,7 +585,7 @@ struct SettingsChannelsTab: View {
             // Credentials row
             if store.twilioHasCredentials {
                 HStack(spacing: VSpacing.sm) {
-                    VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                    VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
                     VButton(label: "Disconnect", style: .danger, isDisabled: store.twilioSaveInProgress) {
                         store.clearTwilioCredentials()
                     }
@@ -777,9 +774,8 @@ struct SettingsChannelsTab: View {
                     .foregroundColor(VColor.textSecondary)
                     .frame(width: labelColumnWidth, alignment: .leading)
 
-                Image(systemName: icon)
+                VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
                     .foregroundColor(iconColor)
-                    .font(.system(size: 12))
 
                 if let url = valueURL {
                     Link(value, destination: url)
@@ -868,17 +864,15 @@ struct SettingsChannelsTab: View {
 
                     ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
                         HStack(spacing: VSpacing.sm) {
-                            Image(systemName: "iphone")
+                            VIconView(.smartphone, size: 12)
                                 .foregroundColor(VColor.success)
-                                .font(.system(size: 12))
                             Text(device.deviceName)
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)
                             Button {
                                 store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
                             } label: {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 12, weight: .medium))
+                                VIconView(.trash, size: 12)
                                     .foregroundColor(VColor.error)
                                     .padding(VSpacing.xs)
                                     .contentShape(Rectangle())
@@ -908,15 +902,14 @@ struct SettingsChannelsTab: View {
 
         if !hasGateway {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
+                VIconView(.triangleAlert, size: 12)
                     .foregroundColor(VColor.warning)
-                    .font(.system(size: 12))
                 Text("Configure a gateway URL to enable pairing")
                     .font(VFont.body)
                     .foregroundColor(VColor.warning)
             }
         } else {
-            VButton(label: "Pair Device", leftIcon: "qrcode", style: .primary) {
+            VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary) {
                 showingPairingQR = true
             }
         }

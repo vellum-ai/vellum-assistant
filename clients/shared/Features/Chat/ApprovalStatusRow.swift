@@ -23,7 +23,6 @@ public struct ApprovalStatusRow: View {
     public var body: some View {
         HStack(spacing: VSpacing.sm) {
             outcomeIcon
-                .font(.system(size: 12))
 
             Text(label)
                 .font(VFont.caption)
@@ -37,13 +36,13 @@ public struct ApprovalStatusRow: View {
     private var outcomeIcon: some View {
         switch outcome {
         case .approved:
-            Image(systemName: "checkmark.circle.fill")
+            VIconView(.circleCheck, size: 12)
                 .foregroundColor(VColor.success)
         case .denied:
-            Image(systemName: "xmark.circle.fill")
+            VIconView(.circleX, size: 12)
                 .foregroundColor(VColor.error)
         case .stale, .timedOut:
-            Image(systemName: "clock.fill")
+            VIconView(.clock, size: 12)
                 .foregroundColor(VColor.textMuted)
         }
     }

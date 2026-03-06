@@ -92,9 +92,8 @@ struct PairingQRCodeSheet: View {
                 // State indicator
                 if canGenerateQR {
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "checkmark.circle.fill")
+                        VIconView(.circleCheck, size: 14)
                             .foregroundColor(VColor.success)
-                            .font(.system(size: 14))
                         Text("Ready to pair with iOS")
                             .font(VFont.body)
                             .foregroundColor(VColor.success)
@@ -102,9 +101,8 @@ struct PairingQRCodeSheet: View {
 
                     if localLanUrl != nil {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "wifi")
+                            VIconView(.wifi, size: 12)
                                 .foregroundColor(VColor.textMuted)
-                                .font(.system(size: 12))
                             Text("LAN pairing available")
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
@@ -145,8 +143,7 @@ struct PairingQRCodeSheet: View {
 
     private func errorContent(_ message: String) -> some View {
         VStack(spacing: VSpacing.sm) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 32))
+            VIconView(.triangleAlert, size: 32)
                 .foregroundColor(VColor.error)
             Text(message)
                 .font(VFont.body)

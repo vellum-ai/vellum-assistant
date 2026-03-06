@@ -255,8 +255,7 @@ struct AssistantProgressView: View {
 
                 // Chevron (only if tools exist)
                 if hasChevron {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                    VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
                         .foregroundColor(VColor.textMuted)
                 }
             }
@@ -274,26 +273,26 @@ struct AssistantProgressView: View {
         switch phase {
         case .complete:
             statusIconTile(
-                systemName: hasAnyErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
+                icon: hasAnyErrors ? .triangleAlert : .circleCheck,
                 iconColor: hasAnyErrors ? VColor.warning : VColor.iconAccent,
                 tileColor: hasAnyErrors ? Amber._200 : Forest._200
             )
         case .error:
             statusIconTile(
-                systemName: "exclamationmark.circle.fill",
+                icon: .circleAlert,
                 iconColor: VColor.error,
                 tileColor: Danger._200
             )
         case .denied:
             if decidedConfirmations.contains(where: { $0.state == .timedOut }) {
                 statusIconTile(
-                    systemName: "clock.fill",
+                    icon: .clock,
                     iconColor: VColor.textMuted,
                     tileColor: Moss._200
                 )
             } else {
                 statusIconTile(
-                    systemName: "exclamationmark.circle.fill",
+                    icon: .circleAlert,
                     iconColor: VColor.error,
                     tileColor: Danger._200
                 )
@@ -306,9 +305,8 @@ struct AssistantProgressView: View {
         }
     }
 
-    private func statusIconTile(systemName: String, iconColor: Color, tileColor: Color) -> some View {
-        Image(systemName: systemName)
-            .font(.system(size: 14))
+    private func statusIconTile(icon: VIcon, iconColor: Color, tileColor: Color) -> some View {
+        VIconView(icon, size: 14)
             .foregroundColor(iconColor)
             .padding(VSpacing.sm)
             .background(
@@ -434,19 +432,18 @@ struct AssistantProgressView: View {
             Group {
                 switch confirmation.state {
                 case .approved:
-                    Image(systemName: "checkmark.circle.fill")
+                    VIconView(.circleCheck, size: 12)
                         .foregroundColor(chipColor)
                 case .denied:
-                    Image(systemName: "exclamationmark.circle.fill")
+                    VIconView(.circleAlert, size: 12)
                         .foregroundColor(chipColor)
                 case .timedOut:
-                    Image(systemName: "clock.fill")
+                    VIconView(.clock, size: 12)
                         .foregroundColor(chipColor)
                 default:
                     EmptyView()
                 }
             }
-            .font(.system(size: 12))
 
             Text(isApproved ? "\(confirmation.toolCategory) Allowed" :
                  isDenied ? "\(confirmation.toolCategory) Denied" : "Timed Out")
@@ -512,13 +509,11 @@ private struct StepDetailRow: View {
                 HStack(spacing: VSpacing.sm) {
                     // Status icon
                     if toolCall.isComplete {
-                        Image(systemName: toolCall.isError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                            .font(.system(size: 14))
+                        VIconView(toolCall.isError ? .circleAlert : .circleCheck, size: 14)
                             .foregroundColor(toolCall.isError ? VColor.error : VColor.iconAccent)
                             .frame(width: 16)
                     } else if phase == .denied {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.system(size: 14))
+                        VIconView(.circleAlert, size: 14)
                             .foregroundColor(VColor.textMuted)
                             .frame(width: 16)
                     } else {
@@ -580,8 +575,7 @@ private struct StepDetailRow: View {
                         }
 
                         if hasDetails {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .semibold))
+                            VIconView(.chevronRight, size: 9)
                                 .foregroundColor(VColor.textMuted)
                                 .rotationEffect(.degrees(isDetailExpanded ? 90 : 0))
                         }
@@ -754,8 +748,7 @@ private struct StepDetailRow: View {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(result, forType: .string)
                         } label: {
-                            Image(systemName: "doc.on.doc")
-                                .font(.system(size: 10, weight: .medium))
+                            VIconView(.copy, size: 10)
                                 .foregroundColor(VColor.textMuted)
                                 .frame(width: 24, height: 24)
                                 .background(VColor.backgroundSubtle)

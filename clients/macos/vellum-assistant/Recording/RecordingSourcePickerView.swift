@@ -171,8 +171,7 @@ struct RecordingSourcePickerView: View {
                     size: rowThumbnailSize
                 )
 
-                Image(systemName: "macwindow")
-                    .font(.system(size: 16))
+                VIconView(.appWindow, size: 16)
                     .foregroundColor(isSelected ? VColor.accent : VColor.textSecondary)
                     .frame(width: 24)
 
@@ -192,8 +191,7 @@ struct RecordingSourcePickerView: View {
                 Spacer()
 
                 if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18))
+                    VIconView(.circleCheck, size: 18)
                         .foregroundColor(VColor.accent)
                 }
             }
@@ -254,8 +252,7 @@ struct RecordingSourcePickerView: View {
                 Spacer()
 
                 if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18))
+                    VIconView(.circleCheck, size: 18)
                         .foregroundColor(VColor.accent)
                 }
             }
@@ -283,8 +280,7 @@ struct RecordingSourcePickerView: View {
 
     private func emptyState(_ message: String) -> some View {
         VStack(spacing: VSpacing.sm) {
-            Image(systemName: "rectangle.dashed")
-                .font(.system(size: 32))
+            VIconView(.squareDashed, size: 32)
                 .foregroundColor(VColor.textMuted)
             Text(message)
                 .font(VFont.body)
@@ -300,7 +296,7 @@ struct RecordingSourcePickerView: View {
         VStack(spacing: VSpacing.lg) {
             // Audio toggles — icon + text left, toggle right (space-between)
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "speaker.wave.2")
+                VIconView(.volume2, size: 14)
                     .foregroundColor(VColor.textSecondary)
                     .frame(width: 20)
                 Text("System audio")
@@ -314,7 +310,7 @@ struct RecordingSourcePickerView: View {
 
             if #available(macOS 14, *) {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "mic")
+                    VIconView(.mic, size: 14)
                         .foregroundColor(VColor.textSecondary)
                         .frame(width: 20)
                     Text("Microphone")

@@ -93,7 +93,7 @@ struct ButtonsGallerySection: View {
             // MARK: - VIconButton
             GallerySectionHeader(
                 title: "VIconButton",
-                description: "Compact button with SF Symbol icon and optional label."
+                description: "Compact button with icon and optional label."
             )
 
             VCard {
@@ -106,9 +106,9 @@ struct ButtonsGallerySection: View {
                     Divider().background(VColor.surfaceBorder)
 
                     HStack(spacing: VSpacing.lg) {
-                        VIconButton(label: "Settings", icon: "gear", isActive: isActive, iconOnly: iconOnly) {}
-                        VIconButton(label: "Refresh", icon: "arrow.clockwise", isActive: isActive, iconOnly: iconOnly) {}
-                        VIconButton(label: "Add", icon: "plus", isActive: isActive, iconOnly: iconOnly) {}
+                        VIconButton(label: "Settings", icon: VIcon.settings.rawValue, isActive: isActive, iconOnly: iconOnly) {}
+                        VIconButton(label: "Refresh", icon: VIcon.refreshCw.rawValue, isActive: isActive, iconOnly: iconOnly) {}
+                        VIconButton(label: "Add", icon: VIcon.plus.rawValue, isActive: isActive, iconOnly: iconOnly) {}
                     }
                 }
             }
@@ -122,19 +122,19 @@ struct ButtonsGallerySection: View {
                 HStack(spacing: VSpacing.xl) {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Default").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Edit", icon: "pencil") {}
+                        VIconButton(label: "Edit", icon: VIcon.pencil.rawValue) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Active").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Edit", icon: "pencil", isActive: true) {}
+                        VIconButton(label: "Edit", icon: VIcon.pencil.rawValue, isActive: true) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Icon Only").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Edit", icon: "pencil", iconOnly: true) {}
+                        VIconButton(label: "Edit", icon: VIcon.pencil.rawValue, iconOnly: true) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Active + Icon Only").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Edit", icon: "pencil", isActive: true, iconOnly: true) {}
+                        VIconButton(label: "Edit", icon: VIcon.pencil.rawValue, isActive: true, iconOnly: true) {}
                     }
                 }
             }
@@ -151,15 +151,15 @@ struct ButtonsGallerySection: View {
                 HStack(spacing: VSpacing.xl) {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Primary").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "More", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary)) {}
+                        VIconButton(label: "More", icon: VIcon.ellipsis.rawValue, iconOnly: true, variant: .filled(VColor.buttonPrimary)) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Accent").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Add", icon: "plus", iconOnly: true, variant: .filled(VColor.accent)) {}
+                        VIconButton(label: "Add", icon: VIcon.plus.rawValue, iconOnly: true, variant: .filled(VColor.accent)) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Error").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Delete", icon: "trash", iconOnly: true, variant: .filled(VColor.error)) {}
+                        VIconButton(label: "Delete", icon: VIcon.trash.rawValue, iconOnly: true, variant: .filled(VColor.error)) {}
                     }
                 }
             }
@@ -176,15 +176,15 @@ struct ButtonsGallerySection: View {
                 HStack(spacing: VSpacing.xl) {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Close").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Close", icon: "xmark", iconOnly: true, variant: .outlined) {}
+                        VIconButton(label: "Close", icon: VIcon.x.rawValue, iconOnly: true, variant: .outlined) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("History").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "History", icon: "clock.arrow.circlepath", iconOnly: true, variant: .outlined) {}
+                        VIconButton(label: "History", icon: VIcon.history.rawValue, iconOnly: true, variant: .outlined) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Publish").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Publish", icon: "arrow.up.right", iconOnly: true, variant: .outlined) {}
+                        VIconButton(label: "Publish", icon: VIcon.arrowUpRight.rawValue, iconOnly: true, variant: .outlined) {}
                     }
                 }
             }
@@ -201,19 +201,19 @@ struct ButtonsGallerySection: View {
                 HStack(spacing: VSpacing.xl) {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Add").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Add", icon: "plus", iconOnly: true) {}
+                        VIconButton(label: "Add", icon: VIcon.plus.rawValue, iconOnly: true) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Call").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Call", icon: "phone.fill", iconOnly: true) {}
+                        VIconButton(label: "Call", icon: VIcon.phoneCall.rawValue, iconOnly: true) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Record").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Record", icon: "mic.fill", iconOnly: true) {}
+                        VIconButton(label: "Record", icon: VIcon.mic.rawValue, iconOnly: true) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Close").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Close", icon: "xmark", iconOnly: true) {}
+                        VIconButton(label: "Close", icon: VIcon.x.rawValue, iconOnly: true) {}
                     }
                 }
             }

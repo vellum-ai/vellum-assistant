@@ -51,8 +51,7 @@ public struct InlineListWidget: View {
             Spacer()
 
             if data.selectionMode != .none {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 14))
+                VIconView(isSelected ? .circleCheck : .circle, size: 14)
                     .foregroundColor(isSelected ? VColor.accent : VColor.textMuted)
             }
         }

@@ -26,12 +26,12 @@ public struct SubagentThreadView: View {
         }
     }
 
-    private var statusIcon: String {
+    private var statusIcon: VIcon {
         switch subagent.status {
-        case .completed: return "checkmark.circle.fill"
-        case .failed: return "xmark.circle.fill"
-        case .aborted: return "stop.circle.fill"
-        default: return "circle.dotted"
+        case .completed: return .circleCheck
+        case .failed: return .circleX
+        case .aborted: return .circleStop
+        default: return .circleDot
         }
     }
 
@@ -99,8 +99,7 @@ public struct SubagentThreadView: View {
                 .foregroundColor(isHovered ? VColor.iconAccent : VColor.textPrimary)
 
             // Status icon
-            Image(systemName: statusIcon)
-                .font(.system(size: 9))
+            VIconView(statusIcon, size: 9)
                 .foregroundColor(statusColor)
 
             // Animated dots while running
@@ -124,8 +123,7 @@ public struct SubagentThreadView: View {
 
             // Abort button
             if isRunning, let onAbort {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                VIconView(.x, size: 9)
                     .foregroundColor(VColor.textMuted)
                     .padding(VSpacing.xs)
                     .contentShape(Rectangle())
@@ -135,8 +133,7 @@ public struct SubagentThreadView: View {
             }
 
             // View thread arrow
-            Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
+            VIconView(.chevronRight, size: 9)
                 .foregroundColor(isHovered ? VColor.iconAccent : VColor.textMuted)
         }
         .padding(.horizontal, VSpacing.sm)

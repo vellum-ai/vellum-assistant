@@ -29,8 +29,7 @@ struct ChatsDisconnectedView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: VSpacing.lg) {
-                Image(systemName: "message")
-                    .font(.system(size: 48))
+                VIconView(.messageSquare, size: 48)
                     .foregroundColor(VColor.textMuted)
                     .accessibilityHidden(true)
                 Text("Chats Require Connection")
@@ -216,7 +215,7 @@ struct ThreadListView: View {
                             selectedThreadId = activeThreads.first?.id
                         }
                     } label: {
-                        Label("Delete", systemImage: "trash")
+                        Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                     }
                     Button {
                         store.archiveThread(thread)
@@ -224,7 +223,7 @@ struct ThreadListView: View {
                             selectedThreadId = activeThreads.first?.id
                         }
                     } label: {
-                        Label("Archive", systemImage: "archivebox")
+                        Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                     }
                     .tint(VColor.warning)
                 }
@@ -233,7 +232,7 @@ struct ThreadListView: View {
                         renamingThreadId = thread.id
                         renameText = thread.title
                     } label: {
-                        Label("Rename", systemImage: "pencil")
+                        Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
                     }
                     .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                 }
@@ -258,12 +257,12 @@ struct ThreadListView: View {
                                         selectedThreadId = activeThreads.first?.id
                                     }
                                 } label: {
-                                    Label("Delete", systemImage: "trash")
+                                    Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                                 }
                                 Button {
                                     store.unarchiveThread(thread)
                                 } label: {
-                                    Label("Unarchive", systemImage: "tray.and.arrow.up")
+                                    Label { Text("Unarchive") } icon: { VIconView(.inbox, size: 14) }
                                 }
                                 .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                             }
@@ -303,8 +302,8 @@ struct ThreadListView: View {
                         navigationPath = [thread.id]
                     }
                 } label: {
-                    Image(systemName: "square.and.pencil")
-                }
+                    VIconView(.squarePen, size: 20)
+}
             }
         }
         .alert("Rename Chat", isPresented: Binding(
@@ -348,7 +347,7 @@ struct ThreadListView: View {
                         selectedThreadId = activeThreads.first?.id
                     }
                 } label: {
-                    Label("Delete", systemImage: "trash")
+                    Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                 }
                 Button {
                     store.archiveThread(thread)
@@ -356,7 +355,7 @@ struct ThreadListView: View {
                         selectedThreadId = activeThreads.first?.id
                     }
                 } label: {
-                    Label("Archive", systemImage: "archivebox")
+                    Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                 }
                 .tint(VColor.warning)
             }
@@ -365,7 +364,7 @@ struct ThreadListView: View {
                     renamingThreadId = thread.id
                     renameText = thread.title
                 } label: {
-                    Label("Rename", systemImage: "pencil")
+                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
                 }
                 .tint(.blue) // Intentional: system blue for non-destructive swipe actions
             }
@@ -383,7 +382,7 @@ struct ThreadListView: View {
                                 selectedThreadId = activeThreads.first?.id
                             }
                         } label: {
-                            Label("Delete", systemImage: "trash")
+                            Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                         }
                         Button {
                             store.archiveThread(thread)
@@ -391,7 +390,7 @@ struct ThreadListView: View {
                                 selectedThreadId = activeThreads.first?.id
                             }
                         } label: {
-                            Label("Archive", systemImage: "archivebox")
+                            Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                         }
                         .tint(VColor.warning)
                     }
@@ -400,16 +399,15 @@ struct ThreadListView: View {
                             renamingThreadId = thread.id
                             renameText = thread.title
                         } label: {
-                            Label("Rename", systemImage: "pencil")
+                            Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
                         }
                         .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                     }
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "bubble.left")
+                    VIconView(.messageCircle, size: 12)
                         .foregroundStyle(.secondary)
-                        .font(.caption)
                     Text(group.label)
                         .lineLimit(1)
                     Text("\(group.threads.count)")
@@ -433,9 +431,8 @@ struct ThreadListView: View {
     private func threadRow(_ thread: IOSThread) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Image(systemName: "bubble.left")
+                VIconView(.messageCircle, size: 12)
                     .foregroundStyle(.secondary)
-                    .font(.caption)
                 Text(thread.title)
                     .lineLimit(1)
                 Spacer()
@@ -481,7 +478,7 @@ struct ThreadChatView: View {
                         Button {
                             showDebugPanel = true
                         } label: {
-                            Image(systemName: "ladybug")
+                            VIconView(.bug, size: 20)
                                 .foregroundColor(VColor.textMuted)
                         }
                     }
@@ -518,10 +515,11 @@ struct ThreadChatView: View {
                     showCopiedConfirmation = false
                 }
             } label: {
-                Label(
-                    showCopiedConfirmation ? "Copied!" : "Copy as Markdown",
-                    systemImage: showCopiedConfirmation ? "checkmark" : "doc.on.doc"
-                )
+                Label {
+                    Text(showCopiedConfirmation ? "Copied!" : "Copy as Markdown")
+                } icon: {
+                    VIconView(showCopiedConfirmation ? .check : .copy, size: 14)
+                }
             }
 
             Button {
@@ -530,10 +528,10 @@ struct ThreadChatView: View {
                 shareMarkdown = markdown
                 showShareSheet = true
             } label: {
-                Label("Share\u{2026}", systemImage: "square.and.arrow.up")
+                Label { Text("Share\u{2026}") } icon: { VIconView(.share, size: 14) }
             }
         } label: {
-            Image(systemName: showCopiedConfirmation ? "checkmark" : "square.and.arrow.up")
+            VIconView(showCopiedConfirmation ? .check : .share, size: 20)
                 .foregroundColor(showCopiedConfirmation ? VColor.success : VColor.textMuted)
         }
         .disabled(!hasTextMessages)

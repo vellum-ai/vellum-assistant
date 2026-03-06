@@ -71,7 +71,7 @@ private struct RideShotgunProgressView: View {
                 Button {
                     onStop()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    VIconView(.circleX, size: 14)
                         .foregroundStyle(VColor.textMuted)
                 }
                 .buttonStyle(.plain)

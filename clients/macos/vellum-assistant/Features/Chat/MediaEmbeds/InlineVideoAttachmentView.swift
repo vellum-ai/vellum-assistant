@@ -144,8 +144,7 @@ struct InlineVideoAttachmentView: View {
                         ProgressView()
                             .controlSize(.small)
                     } else {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 24))
+                        VIconView(.arrowDownToLine, size: 24)
                             .foregroundStyle(.white)
                             .shadow(radius: 2)
                     }
@@ -184,8 +183,7 @@ struct InlineVideoAttachmentView: View {
             }
 
             VStack(spacing: VSpacing.sm) {
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 44))
+                VIconView(.play, size: 44)
                     .foregroundStyle(thumbnailImage != nil ? .white : VColor.textSecondary)
                     .shadow(radius: thumbnailImage != nil ? 4 : 0)
 
@@ -221,12 +219,10 @@ struct InlineVideoAttachmentView: View {
     private func failedView(_ failure: VideoPlaybackFailure) -> some View {
         VStack(spacing: VSpacing.xs) {
             if case .port_missing = failure {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 20))
+                VIconView(.refreshCw, size: 20)
                     .foregroundStyle(VColor.textSecondary)
             } else {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 20))
+                VIconView(.triangleAlert, size: 20)
                     .foregroundStyle(VColor.textSecondary)
             }
 

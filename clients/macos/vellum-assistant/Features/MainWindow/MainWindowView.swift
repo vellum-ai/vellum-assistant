@@ -362,7 +362,7 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VIconButton(label: "Sidebar", icon: "sidebar.left", iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                VIconButton(label: "Sidebar", icon: VIcon.panelLeft.rawValue, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
                     }
@@ -372,8 +372,7 @@ struct MainWindowView: View {
                     AppDelegate.shared?.toggleCommandPalette()
                 } label: {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 12, weight: .medium))
+                        VIconView(.search, size: 13)
                             .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
                         VShortcutTag("\u{2318}K")
                     }

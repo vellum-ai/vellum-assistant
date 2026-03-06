@@ -13,7 +13,7 @@ struct RideShotgunSummarySheet: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Header
             HStack {
-                Image(systemName: summary.recordingId != nil ? "record.circle" : "binoculars.fill")
+                VIconView(summary.recordingId != nil ? .circle : .binoculars, size: 16)
                     .foregroundStyle(VColor.accent)
                     .accessibilityHidden(true)
                 Text(summary.recordingId != nil ? "Recording saved" : "Here's what I noticed")
@@ -23,9 +23,8 @@ struct RideShotgunSummarySheet: View {
                 Button {
                     onDismiss()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    VIconView(.circleX, size: 22)
                         .foregroundStyle(VColor.textMuted)
-                        .font(.title3)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Dismiss summary")

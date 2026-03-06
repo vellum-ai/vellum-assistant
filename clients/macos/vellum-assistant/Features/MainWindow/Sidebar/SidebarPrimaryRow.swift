@@ -17,8 +17,7 @@ struct SidebarPrimaryRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: isExpanded ? VSpacing.xs : 0) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
+                VIconView(.resolve(icon), size: 13)
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
                     .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
                 Text(label)
@@ -33,8 +32,7 @@ struct SidebarPrimaryRow: View {
                 if isExpanded {
                     Spacer()
                     if let trailingIcon {
-                        Image(systemName: trailingIcon)
-                            .font(.system(size: 10, weight: .semibold))
+                        VIconView(.resolve(trailingIcon), size: 10)
                             .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
                     }
                 }

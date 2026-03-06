@@ -40,8 +40,7 @@ public struct InlineTableWidget: View {
                     Button {
                         toggleSelectAll()
                     } label: {
-                        Image(systemName: allSelected ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 14))
+                        VIconView(allSelected ? .circleCheck : .circle, size: 14)
                             .foregroundColor(allSelected ? VColor.accent : VColor.textMuted)
                     }
                     .buttonStyle(.plain)
@@ -94,8 +93,7 @@ public struct InlineTableWidget: View {
                 Button {
                     toggleSelection(row.id)
                 } label: {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 14))
+                    VIconView(isSelected ? .circleCheck : .circle, size: 14)
                         .foregroundColor(isSelected ? VColor.accent : VColor.textMuted)
                 }
                 .buttonStyle(.plain)
@@ -125,9 +123,9 @@ public struct InlineTableWidget: View {
     @ViewBuilder
     private func cellView(_ value: TableCellValue?, width: Int?) -> some View {
         HStack(spacing: VSpacing.xs) {
-            if let icon = value?.icon {
-                Image(systemName: icon)
-                    .font(.system(size: 12))
+            if let icon = value?.icon,
+               let vIcon = SFSymbolMapping.icon(forSFSymbol: icon) {
+                VIconView(vIcon, size: 12)
                     .foregroundColor(resolveIconColor(value?.iconColor))
             }
             Text(value?.text ?? "")

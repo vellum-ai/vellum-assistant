@@ -132,21 +132,17 @@ struct BundleConfirmationView: View {
     private var trustBadgeIcon: some View {
         switch viewModel.trustTier {
         case .verified:
-            Image(systemName: "checkmark.seal.fill")
+            VIconView(.badgeCheck, size: 14)
                 .foregroundColor(VColor.success)
-                .font(.system(size: 14))
         case .signed:
-            Image(systemName: "checkmark.seal.fill")
+            VIconView(.badgeCheck, size: 14)
                 .foregroundColor(VColor.accent)
-                .font(.system(size: 14))
         case .unsigned:
-            Image(systemName: "lock.open")
+            VIconView(.lockOpen, size: 12)
                 .foregroundColor(VColor.textSecondary)
-                .font(.system(size: 12))
         case .tampered:
-            Image(systemName: "xmark.seal.fill")
+            VIconView(.badgeX, size: 14)
                 .foregroundColor(VColor.error)
-                .font(.system(size: 14))
         }
     }
 
@@ -191,15 +187,13 @@ struct BundleConfirmationView: View {
                 }
             }) {
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "exclamationmark.triangle")
+                    VIconView(.triangleAlert, size: 10)
                         .foregroundColor(VColor.warning)
-                        .font(.system(size: 10))
                     Text("\(viewModel.scanResult.warnings.count) warning\(viewModel.scanResult.warnings.count == 1 ? "" : "s")")
                         .font(VFont.caption)
                         .foregroundColor(VColor.textSecondary)
-                    Image(systemName: viewModel.warningsExpanded ? "chevron.up" : "chevron.down")
+                    VIconView(viewModel.warningsExpanded ? .chevronUp : .chevronDown, size: 8)
                         .foregroundColor(VColor.textMuted)
-                        .font(.system(size: 8))
                 }
             }
             .buttonStyle(.plain)
@@ -286,8 +280,7 @@ struct BundleConfirmationView: View {
         VStack(spacing: VSpacing.lg) {
             Spacer()
 
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 56))
+            VIconView(.circleX, size: 56)
                 .foregroundColor(VColor.error)
 
             Text("Installation Failed")
@@ -316,8 +309,7 @@ struct BundleConfirmationView: View {
         VStack(spacing: VSpacing.lg) {
             Spacer()
 
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 56))
+            VIconView(.circleCheck, size: 56)
                 .foregroundColor(VColor.success)
 
             Text("Installed")

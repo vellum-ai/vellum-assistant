@@ -62,8 +62,7 @@ struct ContactsContainerView: View {
             } else {
                 // True empty state — contacts loaded but none selected
                 VStack(spacing: VSpacing.md) {
-                    Image(systemName: "person.2.fill")
-                        .font(.system(size: 36))
+                    VIconView(.users, size: 36)
                         .foregroundColor(VColor.textMuted)
                     Text("Select a contact")
                         .font(VFont.headline)

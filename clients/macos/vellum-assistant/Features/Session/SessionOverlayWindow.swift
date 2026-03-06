@@ -141,7 +141,7 @@ final class SessionOverlayWindow {
         hstack.spacing = 8
 
         let icon = NSImageView()
-        if let img = NSImage(systemSymbolName: "cursorarrow.click.2", accessibilityDescription: nil) {
+        if let img = VIcon.mousePointerClick.nsImage(size: 16) {
             icon.image = img
             icon.contentTintColor = NSColor(VColor.accent)
         }
@@ -286,7 +286,7 @@ final class SessionOverlayWindow {
         warningRow.spacing = 4
 
         let warningIcon = NSImageView()
-        if let img = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil) {
+        if let img = VIcon.triangleAlert.nsImage(size: 14) {
             warningIcon.image = img
             warningIcon.contentTintColor = NSColor(VColor.warning)
         }
@@ -335,7 +335,7 @@ final class SessionOverlayWindow {
         hstack.spacing = 6
 
         let icon = NSImageView()
-        if let img = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil) {
+        if let img = VIcon.circleCheck.nsImage(size: 14) {
             icon.image = img
             icon.contentTintColor = NSColor(VColor.success)
         }
@@ -371,7 +371,7 @@ final class SessionOverlayWindow {
         headerRow.spacing = 6
 
         let icon = NSImageView()
-        if let img = NSImage(systemSymbolName: "text.bubble.fill", accessibilityDescription: nil) {
+        if let img = VIcon.messageCircle.nsImage(size: 14) {
             icon.image = img
             icon.contentTintColor = NSColor(VColor.accent)
         }
@@ -422,7 +422,7 @@ final class SessionOverlayWindow {
         hstack.spacing = 6
 
         let icon = NSImageView()
-        if let img = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil) {
+        if let img = VIcon.circleX.nsImage(size: 14) {
             icon.image = img
             icon.contentTintColor = NSColor(VColor.error)
         }
@@ -545,7 +545,7 @@ final class SessionOverlayWindow {
         self.guidanceField = field
 
         let sendBtn = NSButton()
-        if let img = NSImage(systemSymbolName: "arrow.up.circle.fill", accessibilityDescription: "Send guidance") {
+        if let img = VIcon.circleArrowUp.nsImage(size: 20) {
             sendBtn.image = img
         }
         sendBtn.isBordered = false
@@ -692,7 +692,7 @@ final class SessionOverlayWindow {
         btn.controlSize = .small
         btn.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         btn.bezelStyle = .rounded
-        if let img = NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil) {
+        if let img = VIcon.rotateCcw.nsImage(size: 12) {
             btn.image = img
             btn.imagePosition = .imageLeading
         }
@@ -708,8 +708,8 @@ final class SessionOverlayWindow {
         btn.controlSize = .small
         btn.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         btn.bezelStyle = .rounded
-        let symbolName = session.autoApproveTools ? "checkmark.shield.fill" : "shield"
-        if let img = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) {
+        let autoApproveIcon: VIcon = session.autoApproveTools ? .shieldCheck : .shield
+        if let img = autoApproveIcon.nsImage(size: 12) {
             btn.image = img
             btn.imagePosition = .imageLeading
         }
