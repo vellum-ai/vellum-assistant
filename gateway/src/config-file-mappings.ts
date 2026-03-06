@@ -12,6 +12,12 @@ type ConfigFileMapping =
       field: string;
       configField: keyof GatewayConfig;
       type: "record";
+    }
+  | {
+      key: string;
+      field: string;
+      configField: keyof GatewayConfig;
+      type: "normalized-record";
     };
 
 export const CONFIG_FILE_MAPPINGS: ConfigFileMapping[] = [
@@ -25,7 +31,7 @@ export const CONFIG_FILE_MAPPINGS: ConfigFileMapping[] = [
     key: "sms",
     field: "assistantPhoneNumbers",
     configField: "assistantPhoneNumbers",
-    type: "record",
+    type: "normalized-record",
   },
   {
     key: "email",
@@ -47,6 +53,31 @@ export const CONFIG_FILE_MAPPINGS: ConfigFileMapping[] = [
   },
 ];
 
+/** Iterate entries and keep only those whose value is a non-empty, non-whitespace string. */
+function normalizeRecord(raw: unknown): Record<string, string> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const result: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === "string" && v.trim() !== "") {
+      result[k] = v;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function resolveRawValue(mapping: ConfigFileMapping, raw: unknown): unknown {
+  switch (mapping.type) {
+    case "string":
+      return typeof raw === "string" ? raw || undefined : undefined;
+    case "record":
+      return raw && typeof raw === "object" && !Array.isArray(raw)
+        ? raw
+        : undefined;
+    case "normalized-record":
+      return normalizeRecord(raw);
+  }
+}
+
 export function applyConfigFileMappings(
   data: Record<string, unknown>,
   changedKeys: Set<string>,
@@ -56,13 +87,10 @@ export function applyConfigFileMappings(
     if (!changedKeys.has(mapping.key)) continue;
     const section = data[mapping.key] as Record<string, unknown> | undefined;
     const raw = section?.[mapping.field];
-    if (mapping.type === "string") {
-      (config as Record<string, unknown>)[mapping.configField] =
-        typeof raw === "string" ? raw || undefined : undefined;
-    } else {
-      (config as Record<string, unknown>)[mapping.configField] =
-        raw && typeof raw === "object" && !Array.isArray(raw) ? raw : undefined;
-    }
+    (config as Record<string, unknown>)[mapping.configField] = resolveRawValue(
+      mapping,
+      raw,
+    );
   }
 }
 
@@ -73,13 +101,7 @@ export function readConfigFileDefaults(
   for (const mapping of CONFIG_FILE_MAPPINGS) {
     const section = data[mapping.key] as Record<string, unknown> | undefined;
     const raw = section?.[mapping.field];
-    if (mapping.type === "string") {
-      defaults[mapping.configField] =
-        typeof raw === "string" ? raw || undefined : undefined;
-    } else {
-      defaults[mapping.configField] =
-        raw && typeof raw === "object" && !Array.isArray(raw) ? raw : undefined;
-    }
+    defaults[mapping.configField] = resolveRawValue(mapping, raw);
   }
   return defaults;
 }
