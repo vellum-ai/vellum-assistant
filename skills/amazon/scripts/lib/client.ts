@@ -100,7 +100,7 @@ export async function sendRelayCommand(
     const text = await response.text();
     if (response.status === 401 || response.status === 403) {
       throw new Error(
-        "Authentication failed with daemon. Make sure the assistant is running.",
+        "Authentication failed with assistant. Make sure the assistant is running.",
       );
     }
     throw new Error(

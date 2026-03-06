@@ -35,10 +35,9 @@ export function readSessionToken(): string | null {
 }
 
 /**
- * Get the base URL for the daemon's HTTP API.
- * Defaults to http://localhost:7821 unless VELLUM_HTTP_PORT is set.
+ * Get the base URL for the gateway's HTTP API.
  */
 export function getHttpBaseUrl(): string {
-  const port = process.env.VELLUM_HTTP_PORT?.trim() || "7821";
+  const port = process.env.VELLUM_GATEWAY_PORT?.trim() || "7822";
   return `http://localhost:${port}`;
 }
