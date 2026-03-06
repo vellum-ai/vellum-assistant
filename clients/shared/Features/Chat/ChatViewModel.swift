@@ -62,6 +62,16 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Flush any pending coalesced publish immediately.
+    /// Used after clearing `inputText` in `sendMessage()` so the TextField
+    /// binding updates without the 100ms delay — preventing the field editor
+    /// from writing stale text back through the binding.
+    private func flushCoalescedPublish() {
+        subManagerPublishTask?.cancel()
+        subManagerPublishTask = nil
+        objectWillChange.send()
+    }
+
     // MARK: - Debug publish-rate counters
 
     #if DEBUG
@@ -1004,11 +1014,13 @@ public final class ChatViewModel: ObservableObject {
                 secretBlockedActiveSurfaceId = nil
                 secretBlockedCurrentPage = nil
                 currentTurnUserText = rawText
+                flushCoalescedPublish()
                 return
             }
             pendingSkillInvocation = nil
             inputText = ""
             pendingAttachments = []
+            flushCoalescedPublish()
             return
         }
 
@@ -1054,6 +1066,7 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedAttachments = nil
         secretBlockedActiveSurfaceId = nil
         secretBlockedCurrentPage = nil
+        flushCoalescedPublish()
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
