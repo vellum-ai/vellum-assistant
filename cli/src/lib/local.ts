@@ -701,6 +701,7 @@ export async function startLocalDaemon(watch: boolean = false): Promise<void> {
         "VELLUM_DAEMON_TCP_PORT",
         "VELLUM_DAEMON_TCP_HOST",
         "VELLUM_DAEMON_SOCKET",
+        "VELLUM_KEYCHAIN_BROKER_SOCKET",
         "VELLUM_DEBUG",
         "SENTRY_DSN",
         "TMPDIR",
