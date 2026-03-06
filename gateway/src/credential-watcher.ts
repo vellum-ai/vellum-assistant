@@ -103,6 +103,7 @@ export class CredentialWatcher {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+    this.pendingPoll = false;
     if (this.watcher) {
       this.watcher.close();
       this.watcher = null;
