@@ -46,8 +46,10 @@ public final class LocalAssistantBootstrapService {
 
     private let authService: AuthService
 
-    /// The keychain/UserDefaults storage provider name for the provisioned credential.
-    private static let credentialProvider = "vellum_assistant_credential"
+    /// Returns the keychain/UserDefaults storage provider name for the provisioned credential, scoped to the assistant.
+    private static func credentialProvider(for runtimeAssistantId: String) -> String {
+        "vellum_assistant_credential_\(runtimeAssistantId)"
+    }
 
     public init(authService: AuthService? = nil) {
         self.authService = authService ?? AuthService.shared
@@ -113,7 +115,7 @@ public final class LocalAssistantBootstrapService {
         log.info("Registered local assistant: \(platformAssistantId, privacy: .public)")
 
         // Step 2: Check if we already have the key stored locally
-        if let existingKey = APIKeyManager.shared.getAPIKey(provider: Self.credentialProvider), !existingKey.isEmpty {
+        if let existingKey = APIKeyManager.shared.getAPIKey(provider: Self.credentialProvider(for: runtimeAssistantId)), !existingKey.isEmpty {
             // Key exists locally — re-sync to daemon (it may have restarted)
             try await injectKeyIntoDaemon(key: existingKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
             log.info("Re-synced existing API key to daemon")
@@ -139,7 +141,7 @@ public final class LocalAssistantBootstrapService {
         log.info("Provisioned new API key for assistant: \(platformAssistantId, privacy: .public)")
 
         // Step 4: Store locally for future sign-ins
-        _ = APIKeyManager.shared.setAPIKey(rawKey, provider: Self.credentialProvider)
+        _ = APIKeyManager.shared.setAPIKey(rawKey, provider: Self.credentialProvider(for: runtimeAssistantId))
 
         // Step 5: Inject into daemon
         try await injectKeyIntoDaemon(key: rawKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)

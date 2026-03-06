@@ -305,10 +305,8 @@ struct OnboardingFlowView: View {
             )
 
             switch outcome {
-            case .registeredWithExistingKey(let assistantId):
-                UserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
-            case .registeredAndProvisioned(let assistantId):
-                UserDefaults.standard.set(assistantId, forKey: "connectedAssistantId")
+            case .registeredWithExistingKey, .registeredAndProvisioned:
+                UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
             }
 
             isBootstrappingLocal = false
