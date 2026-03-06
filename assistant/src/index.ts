@@ -22,6 +22,7 @@ import { registerKeysCommand } from "./cli/keys.js";
 import { registerMapCommand } from "./cli/map.js";
 import { registerMcpCommand } from "./cli/mcp.js";
 import { registerMemoryCommand } from "./cli/memory.js";
+import { registerNotificationsCommand } from "./cli/notifications.js";
 import { registerSequenceCommand } from "./cli/sequence.js";
 import { registerSessionsCommand } from "./cli/sessions.js";
 import { registerTrustCommand } from "./cli/trust.js";
@@ -54,6 +55,7 @@ registerChannelsCommand(program);
 registerAmazonCommand(program);
 registerAutonomyCommand(program);
 registerCompletionsCommand(program);
+registerNotificationsCommand(program);
 
 registerTwitterCommand(program);
 registerMapCommand(program);
