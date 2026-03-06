@@ -14,12 +14,8 @@ export interface ResolvedSkill {
 }
 
 // Skill IDs whose feature flag key differs from the default
-// `feature_flags.<skillId>.enabled` derivation. The sms-setup skill is
-// gated by the `sms` flag so that the macOS Settings SMS toggle controls
-// both the channel UI and the setup skill.
-const SKILL_FLAG_KEY_OVERRIDES: Record<string, string> = {
-  "sms-setup": "feature_flags.sms.enabled",
-};
+// `feature_flags.<skillId>.enabled` derivation.
+const SKILL_FLAG_KEY_OVERRIDES: Record<string, string> = {};
 
 /**
  * Derive the feature flag key for a given skill ID, respecting overrides.
