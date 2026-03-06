@@ -50,6 +50,7 @@ mock.module("../util/platform.js", () => ({
   isLinux: () => true,
   isWindows: () => false,
   normalizeAssistantId: (id: string) => id,
+  readLockfile: () => null,
 }));
 
 mock.module("../tools/executor.js", () => ({
