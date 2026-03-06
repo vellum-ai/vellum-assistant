@@ -12,21 +12,21 @@ You are helping your user configure Twilio for voice calls and SMS messaging. Tw
 
 ```bash
 # 1. Check current status
-vellum credentials inspect twilio:account_sid --json
-vellum config get sms.phoneNumber
+assistant credentials inspect twilio:account_sid --json
+assistant config get sms.phoneNumber
 # 2. Store credentials (after collecting via credential_store prompt)
-vellum credentials set twilio:account_sid "ACxxx"
-vellum credentials set twilio:auth_token "xxx"
+assistant credentials set twilio:account_sid "ACxxx"
+assistant credentials set twilio:auth_token "xxx"
 # 3. Get credential ID and Account SID for proxied calls
-vellum credentials inspect twilio:account_sid --json  # -> note credentialId
-vellum credentials reveal twilio:account_sid  # -> note Account SID value
+assistant credentials inspect twilio:account_sid --json  # -> note credentialId
+assistant credentials reveal twilio:account_sid  # -> note Account SID value
 # 4. Search and provision via Twilio API (proxy injects auth automatically)
 #    bash network_mode=proxied credential_ids=["<cred_id>"]
 curl -s "https://api.twilio.com/2010-04-01/Accounts/<SID>/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true"
 curl -s -X POST "https://api.twilio.com/2010-04-01/Accounts/<SID>/IncomingPhoneNumbers.json" -d "PhoneNumber=+1xxx"
 # 5. Assign locally (saves to credential store + config)
-vellum credentials set twilio:phone_number "+1xxx"
-vellum config set sms.phoneNumber "+1xxx"
+assistant credentials set twilio:phone_number "+1xxx"
+assistant config set sms.phoneNumber "+1xxx"
 ```
 
 For voice call setup after Twilio is configured, use `phone-calls` + `call_start`.
@@ -35,12 +35,12 @@ For voice call setup after Twilio is configured, use `phone-calls` + `call_start
 
 This skill manages the full Twilio lifecycle:
 
-- **Credential storage** — Account SID and Auth Token via `vellum credentials set/delete`
+- **Credential storage** — Account SID and Auth Token via `assistant credentials set/delete`
 - **Direct Twilio API access** — Search and purchase numbers via proxied calls to the Twilio REST API (the proxy injects authentication automatically)
-- **Phone number assignment** — Assign an existing Twilio number to the assistant via `vellum credentials set` + `vellum config set`
-- **Status checking** — Verify credentials and assigned number via `vellum credentials inspect` + `vellum config get`
+- **Phone number assignment** — Assign an existing Twilio number to the assistant via `assistant credentials set` + `assistant config set`
+- **Status checking** — Verify credentials and assigned number via `assistant credentials inspect` + `assistant config get`
 
-Number search and purchase use proxied calls to the Twilio REST API (`bash` with `network_mode: "proxied"`). Local bookkeeping (credential storage, phone number assignment, config updates) uses CLI credential and config commands. Status/list retrieval uses `vellum credentials inspect` and `vellum config get`.
+Number search and purchase use proxied calls to the Twilio REST API (`bash` with `network_mode: "proxied"`). Local bookkeeping (credential storage, phone number assignment, config updates) uses CLI credential and config commands. Status/list retrieval uses `assistant credentials inspect` and `assistant config get`.
 
 ### Multi-Assistant Setups
 
@@ -48,13 +48,13 @@ In a multi-assistant environment (multiple assistants sharing the same runtime),
 
 **Global actions** (credentials are shared across all assistants):
 
-- `vellum credentials set twilio:account_sid` / `vellum credentials set twilio:auth_token` -- Stores Account SID and Auth Token in global secure storage. All assistants share the same Twilio account credentials.
-- `vellum credentials delete twilio:account_sid` / `vellum credentials delete twilio:auth_token` -- Removes the globally stored Account SID and Auth Token. This affects all assistants.
+- `assistant credentials set twilio:account_sid` / `assistant credentials set twilio:auth_token` -- Stores Account SID and Auth Token in global secure storage. All assistants share the same Twilio account credentials.
+- `assistant credentials delete twilio:account_sid` / `assistant credentials delete twilio:auth_token` -- Removes the globally stored Account SID and Auth Token. This affects all assistants.
 
 **Assistant-scoped actions** (phone number configuration is scoped per assistant via local config):
 
-- `vellum credentials inspect twilio:account_sid --json` / `vellum config get sms.phoneNumber` -- Returns credential status and the phone number assigned to the current assistant.
-- `vellum credentials set twilio:phone_number` / `vellum config set sms.phoneNumber` -- Assigns a phone number to the current assistant.
+- `assistant credentials inspect twilio:account_sid --json` / `assistant config get sms.phoneNumber` -- Returns credential status and the phone number assigned to the current assistant.
+- `assistant credentials set twilio:phone_number` / `assistant config set sms.phoneNumber` -- Assigns a phone number to the current assistant.
 - Proxied Twilio API calls (search/list/purchase numbers) -- Use global credentials to interact with the shared Twilio account.
 
 CLI commands operate on the local assistant's config directly, so no `assistantId` parameter is needed. In multi-assistant setups, ensure you are running commands in the correct assistant's context.
@@ -65,15 +65,15 @@ First, check whether Twilio is already configured:
 
 ```bash
 # Check if Twilio credentials are stored
-vellum credentials inspect twilio:account_sid --json
+assistant credentials inspect twilio:account_sid --json
 # -> look at "hasSecret" field (true = credentials exist)
 
 # Check if auth token is also stored
-vellum credentials inspect twilio:auth_token --json
+assistant credentials inspect twilio:auth_token --json
 # -> look at "hasSecret" field
 
 # Check assigned phone number
-vellum config get sms.phoneNumber
+assistant config get sms.phoneNumber
 ```
 
 If `hasSecret` is `true` on both `twilio:account_sid` and `twilio:auth_token`, credentials are stored. If `sms.phoneNumber` also returns a phone number, Twilio is fully configured. Tell the user Twilio is already configured and offer to show the current status or reconfigure.
@@ -95,8 +95,8 @@ If credentials are not yet stored, guide the user through Twilio account setup:
 After both credentials are collected, store them using CLI commands:
 
 ```bash
-vellum credentials set twilio:account_sid "<value from credential_store for twilio/account_sid>"
-vellum credentials set twilio:auth_token "<value from credential_store for twilio/auth_token>"
+assistant credentials set twilio:account_sid "<value from credential_store for twilio/account_sid>"
+assistant credentials set twilio:auth_token "<value from credential_store for twilio/auth_token>"
 ```
 
 Both values are required. If credentials are invalid, proxied Twilio API calls (Step 3b) will fail -- tell the user and ask them to re-enter via the secure prompt.
@@ -118,7 +118,7 @@ If the user wants to buy a new number through Twilio:
 **3a. Get the credential ID and Account SID:**
 
 ```bash
-vellum credentials inspect twilio:account_sid --json
+assistant credentials inspect twilio:account_sid --json
 ```
 
 Note the `credentialId` field from the response (needed for proxied calls).
@@ -126,7 +126,7 @@ Note the `credentialId` field from the response (needed for proxied calls).
 Then retrieve the Account SID value (needed for Twilio URL paths):
 
 ```bash
-vellum credentials reveal twilio:account_sid
+assistant credentials reveal twilio:account_sid
 ```
 
 **3b. Search for available numbers (proxied Twilio API):**
@@ -161,13 +161,13 @@ The response includes the purchased number's `phone_number` and `sid`.
 **3d. Assign locally (saves to credential store + config):**
 
 ```bash
-vellum credentials set twilio:phone_number "+14155551234"
-vellum config set sms.phoneNumber "+14155551234"
+assistant credentials set twilio:phone_number "+14155551234"
+assistant config set sms.phoneNumber "+14155551234"
 ```
 
 This stores the phone number in both secure credential storage and config.
 
-**Note:** Webhook auto-configuration (voice, status callback, SMS) is not performed by these CLI commands -- this is a known gap requiring a future CLI command (e.g., `vellum integrations twilio sync-webhooks`). Webhooks must be configured manually in the Twilio Console or will be set up when a future CLI command is available.
+**Note:** Webhook auto-configuration (voice, status callback, SMS) is not performed by these CLI commands -- this is a known gap requiring a future CLI command (e.g., `assistant integrations twilio sync-webhooks`). Webhooks must be configured manually in the Twilio Console or will be set up when a future CLI command is available.
 
 **Webhook URLs (manual configuration required until CLI support is added):** When `ingress.publicBaseUrl` is configured, the following webhooks should be set on the Twilio phone number:
 
@@ -194,8 +194,8 @@ The response includes an `incoming_phone_numbers` array with each number's `phon
 Then assign the chosen number:
 
 ```bash
-vellum credentials set twilio:phone_number "+14155551234"
-vellum config set sms.phoneNumber "+14155551234"
+assistant credentials set twilio:phone_number "+14155551234"
+assistant config set sms.phoneNumber "+14155551234"
 ```
 
 The phone number must be in E.164 format. **Note:** Webhook auto-configuration is not performed by these CLI commands -- this is a known gap. See Step 3d for webhook URLs to configure manually.
@@ -205,8 +205,8 @@ The phone number must be in E.164 format. **Note:** Webhook auto-configuration i
 If the user wants to enter a number directly (e.g., they know it already), assign it using CLI commands:
 
 ```bash
-vellum credentials set twilio:phone_number "+14155551234"
-vellum config set sms.phoneNumber "+14155551234"
+assistant credentials set twilio:phone_number "+14155551234"
+assistant config set sms.phoneNumber "+14155551234"
 ```
 
 **Note:** Webhook auto-configuration is not performed by these CLI commands -- this is a known gap. See Step 3d for webhook URLs to configure manually.
@@ -235,16 +235,16 @@ skill_load skill=public-ingress
 - ConversationRelay WebSocket: `{publicBaseUrl}/webhooks/twilio/relay` (wss://)
 - SMS webhook: `{publicBaseUrl}/webhooks/twilio/sms`
 
-Webhook URLs must be manually configured on the Twilio phone number in the Twilio Console. A future CLI command (e.g., `vellum integrations twilio sync-webhooks`) will automate this.
+Webhook URLs must be manually configured on the Twilio phone number in the Twilio Console. A future CLI command (e.g., `assistant integrations twilio sync-webhooks`) will automate this.
 
 ## Step 5: Verify Setup
 
 After configuration, verify by checking credential and config status:
 
 ```bash
-vellum credentials inspect twilio:account_sid --json
-vellum credentials inspect twilio:auth_token --json
-vellum config get sms.phoneNumber
+assistant credentials inspect twilio:account_sid --json
+assistant credentials inspect twilio:auth_token --json
+assistant config get sms.phoneNumber
 ```
 
 Confirm:
@@ -301,8 +301,8 @@ SMS is available automatically once Twilio is configured -- no additional featur
 If the user wants to disconnect Twilio:
 
 ```bash
-vellum credentials delete twilio:account_sid
-vellum credentials delete twilio:auth_token
+assistant credentials delete twilio:account_sid
+assistant credentials delete twilio:auth_token
 ```
 
 This deletes both the encrypted secret and associated metadata for each credential. Phone number assignments are preserved. Voice calls and SMS will stop working until credentials are reconfigured.
@@ -346,7 +346,7 @@ do not yet have CLI equivalents:
    against the Twilio API. Verify manually by attempting a proxied API call.
 2. **Injection template registration** -- Proxied Twilio API calls require
    injection templates to auto-inject HTTP Basic auth. These are not set up
-   by `vellum credentials set`. If proxied calls fail, templates may need
+   by `assistant credentials set`. If proxied calls fail, templates may need
    to be registered via a future CLI command.
 3. **Webhook auto-configuration** -- Voice, status callback, and SMS webhook
    URLs are not automatically set on the Twilio phone number. Configure
