@@ -8,6 +8,19 @@ metadata: { "vellum": { "emoji": "\ud83d\udcf1" } }
 
 You are helping your user configure Twilio for voice calls. Walk through each step below.
 
+## Value Classification
+
+Before you begin, understand how each Twilio value is stored:
+
+| Value        | Type       | Storage method                                | Secret? |
+| ------------ | ---------- | --------------------------------------------- | ------- |
+| Account SID  | Config     | `assistant config set twilio.accountSid`      | No      |
+| Auth Token   | Credential | `assistant credentials set twilio:auth_token` | **Yes** |
+| Phone Number | Config     | `assistant config set twilio.phoneNumber`     | No      |
+
+- **Config values** (Account SID, Phone Number) are non-sensitive identifiers. Collect them via normal conversation -- the user can paste them in chat or you can use `AskUserQuestion`.
+- **Credential values** (Auth Token) are secrets. Collect them securely via `credential_store` -- never accept them pasted in plaintext chat.
+
 ## Retrieving Twilio Credentials
 
 Many steps below require the Account SID and Auth Token. Retrieve them with:
@@ -34,18 +47,26 @@ Tell the user: **"You'll need a Twilio account. Sign up at https://www.twilio.co
 
 They need two values from the Twilio Console dashboard (https://console.twilio.com):
 
-- **Account SID**
-- **Auth Token** (click "Show" to reveal)
+- **Account SID** -- visible on the dashboard, starts with `AC`
+- **Auth Token** -- click "Show" to reveal (this is the only secret)
 
-Collect them securely -- never accept credentials pasted in plaintext chat:
+### Collect Account SID (non-secret config value)
 
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "account_sid"`, `label: "Twilio Account SID"`, `description: "Enter your Account SID from the Twilio Console dashboard"`, `placeholder: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"`.
-- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard"`, `placeholder: "your_auth_token"`.
-
-Then store them:
+Ask the user for their Account SID. They can paste it directly in chat since it is not a secret. Use `AskUserQuestion` or accept it from a message. Then store it:
 
 ```bash
-assistant config set twilio.accountSid "<value from credential_store for twilio/account_sid>"
+assistant config set twilio.accountSid "<Account SID from user>"
+```
+
+### Collect Auth Token (secret credential)
+
+The Auth Token is the only secret value. Collect it securely:
+
+- Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard (click 'Show' to reveal it)"`, `placeholder: "your_auth_token"`.
+
+Then store it:
+
+```bash
 assistant credentials set twilio:auth_token "<value from credential_store for twilio/auth_token>"
 ```
 
@@ -96,11 +117,11 @@ Present the `incoming_phone_numbers` array. Let the user choose.
 
 ### Option C: Manual Entry
 
-If the user already knows their number, skip the API calls.
+If the user already knows their number, skip the API calls. They can paste it directly in chat.
 
 ### Save the phone number
 
-After choosing a number via any option:
+After choosing a number via any option, store it as a config value (not a secret):
 
 ```bash
 assistant config set twilio.phoneNumber "+14155551234"
