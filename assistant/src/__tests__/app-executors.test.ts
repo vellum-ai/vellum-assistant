@@ -72,15 +72,19 @@ function mockStore(
       if (!(path in files)) throw new Error(`File not found: ${path}`);
       const content = files[path];
       if (!content.includes(oldStr)) {
-        return {
-          ok: false,
-          error: "old_string not found",
-          updatedContent: content,
-        };
+        return { ok: false as const, reason: "not_found" as const };
       }
       const updated = content.replace(oldStr, newStr);
       files[path] = updated;
-      return { ok: true, updatedContent: updated };
+      return {
+        ok: true as const,
+        updatedContent: updated,
+        matchCount: 1,
+        matchMethod: "exact" as const,
+        similarity: 1,
+        actualOld: oldStr,
+        actualNew: newStr,
+      };
     },
   };
 }
