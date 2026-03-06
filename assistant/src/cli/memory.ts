@@ -298,9 +298,7 @@ Examples:
         dryRun?: boolean;
       }) => {
         if (!opts.all && !opts.pattern) {
-          log.info(
-            "Usage: vellum memory dismiss-conflicts --all  OR  --pattern <regex>",
-          );
+          log.info("At least one of --all or --pattern must be provided.");
           log.info("Use --dry-run to preview without making changes.");
           return;
         }
