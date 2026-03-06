@@ -337,7 +337,5 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     public func performZoomIn() { zoomManager.zoomIn() }
     public func performZoomOut() { zoomManager.zoomOut() }
     public func performZoomReset() { zoomManager.resetZoom() }
-    public func performNavigateBack() { mainWindow?.windowState.navigateBack() }
-    public func performNavigateForward() { mainWindow?.windowState.navigateForward() }
 
 }

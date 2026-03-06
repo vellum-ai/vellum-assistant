@@ -309,7 +309,7 @@ extension AppDelegate {
             CommandPaletteAction(id: "zoom-out", icon: "minus.magnifyingglass", label: "Zoom Out", shortcutHint: "\u{2318}-") { [weak self] in
                 self?.zoomManager.zoomOut()
             },
-            CommandPaletteAction(id: "zoom-reset", icon: "1.magnifyingglass", label: "Actual Size", shortcutHint: "\u{2318}0") { [weak self] in
+            CommandPaletteAction(id: "zoom-reset", icon: "magnifyingglass", label: "Actual Size", shortcutHint: "\u{2318}0") { [weak self] in
                 self?.zoomManager.resetZoom()
             },
         ]
