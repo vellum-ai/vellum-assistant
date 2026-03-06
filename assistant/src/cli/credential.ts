@@ -7,6 +7,7 @@ import {
 } from "../security/secure-keys.js";
 import {
   type CredentialMetadata,
+  assertMetadataWritable,
   deleteCredentialMetadata,
   getCredentialMetadata,
   getCredentialMetadataById,
@@ -274,6 +275,8 @@ Examples:
           const { service, field } = parsed;
           const storageKey = `credential:${service}:${field}`;
 
+          assertMetadataWritable();
+
           const stored = setSecureKey(storageKey, value);
           if (!stored) {
             writeOutput(cmd, {
@@ -348,6 +351,8 @@ Examples:
 
         const { service, field } = parsed;
         const storageKey = `credential:${service}:${field}`;
+
+        assertMetadataWritable();
 
         const secretDeleted = deleteSecureKey(storageKey);
         const metadataDeleted = deleteCredentialMetadata(service, field);
