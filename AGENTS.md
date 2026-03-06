@@ -62,7 +62,7 @@ When your PR establishes a new mandatory pattern, convention, or architectural c
 
 ## Slash Commands
 
-Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/`. See `.claude/README.md` for the full list. The `/update` command uses `vellum ps`, `vellum sleep`, and `vellum wake` to manage assistant and gateway lifecycle.
+Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks. Repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/`. See `.claude/README.md` for the full list. The `/update` command uses `assistant ps`, `assistant sleep`, and `assistant wake` to manage assistant and gateway lifecycle.
 
 ## Linear Ticket Hygiene
 
