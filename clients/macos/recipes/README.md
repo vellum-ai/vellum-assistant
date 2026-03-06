@@ -14,7 +14,7 @@ recipes/
 
 ### How It Works
 
-1. `RecipeExecutor` dynamically loads a recipe markdown file from this directory
+1. `RecipeExecutor` dynamically loads a recipe markdown file from the app bundle (source files live in `vellum-assistant/Resources/Recipes/`)
 2. It parses the structured steps and builds a task prompt with context interpolation (assistant name, target repo, etc.)
 3. The prompt is handed to a `ComputerUseSession`, which executes the steps via the standard computer-use pipeline (perceive → infer → verify → execute)
 4. Captured credentials are stored securely (Keychain on macOS)
@@ -58,9 +58,9 @@ These recipe files do not exist yet:
 
 ## Extending: Adding a New Recipe
 
-1. Create `recipes/{service}-setup.md` in this directory
+1. Create `{service}-setup.md` in `vellum-assistant/Resources/Recipes/` (the app bundle resource directory)
 2. Follow the structure in `github-app-setup.md`
-3. `RecipeExecutor` dynamically loads recipes by filename — no registration step is needed
+3. `RecipeExecutor` dynamically loads recipes by filename from the bundle — no registration step is needed
 
 ### Recipe Step DSL
 
