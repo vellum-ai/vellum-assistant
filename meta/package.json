@@ -9,7 +9,8 @@
     "test": "bun test"
   },
   "files": [
-    "bin"
+    "bin",
+    "Dockerfile"
   ],
   "dependencies": {
     "@vellumai/assistant": "0.4.41",
