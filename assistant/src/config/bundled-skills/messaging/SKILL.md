@@ -77,12 +77,12 @@ The telegram-setup skill also includes **guardian verification**, which links yo
 
 ### SMS (Twilio)
 
-SMS messaging uses Twilio as the telephony provider. Twilio credentials and phone number configuration are shared with the **phone-calls** skill. Load the **sms-setup** skill for complete SMS configuration including compliance and testing:
+SMS messaging uses Twilio as the telephony provider. Twilio credentials and phone number configuration are shared with the **phone-calls** skill. Load the **twilio-setup** skill for Twilio configuration:
 
-- Call `skill_load` with `skill: "sms-setup"` to load the dependency skill.
-- Tell the user: _"I've loaded the SMS setup guide. It will walk you through configuring Twilio, handling compliance requirements, and testing SMS delivery."_
+- Call `skill_load` with `skill: "twilio-setup"` to load the dependency skill.
+- Tell the user: _"I've loaded the Twilio setup guide. It will walk you through configuring credentials, provisioning a phone number, and setting up webhooks."_
 
-The sms-setup skill handles: Twilio credential storage (Account SID + Auth Token), phone number provisioning or assignment, public ingress setup, SMS compliance verification, and end-to-end test sending. Once SMS is set up, messaging is available automatically — no additional feature flag is needed.
+The twilio-setup skill handles: Twilio credential storage (Account SID + Auth Token), phone number provisioning or assignment, public ingress setup, and webhook configuration. Once Twilio is configured, SMS messaging is available automatically — no additional feature flag is needed.
 
 ### Guardian Verification (Voice or Telegram)
 

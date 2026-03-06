@@ -52,12 +52,6 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
     ],
   },
   {
-    skillPath: "sms-setup/SKILL.md",
-    bannedSnippets: [
-      'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/sms/compliance"',
-    ],
-  },
-  {
     skillPath: "contacts/SKILL.md",
     bannedSnippets: [
       'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/ingress/members',
