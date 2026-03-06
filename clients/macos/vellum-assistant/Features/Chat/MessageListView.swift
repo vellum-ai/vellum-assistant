@@ -454,7 +454,12 @@ struct MessageListView: View {
                 expandSuppressionTask = Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 200_000_000)
                     guard !Task.isCancelled else { return }
-                    isSuppressingBottomScroll = false
+                    // Only clear if no other mechanism (resize, pagination) still needs suppression.
+                    let resizeActive = resizeScrollTask != nil && !resizeScrollTask!.isCancelled
+                    let paginationActive = isPaginationInFlight
+                    if !resizeActive && !paginationActive {
+                        isSuppressingBottomScroll = false
+                    }
                 }
             })
             .onHover { hovering in
