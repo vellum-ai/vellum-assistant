@@ -204,7 +204,7 @@ The `/channels/inbound` endpoint requires a JWT with the `svc_gateway` principal
 
 ## Twilio Setup Primitive
 
-Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through HTTP control-plane endpoints exposed by the runtime and proxied by the gateway. For SMS-specific onboarding (including compliance verification and test sending), the `sms-setup` skill provides a guided conversational flow that layers on top of `twilio-setup`.
+Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through HTTP control-plane endpoints exposed by the runtime and proxied by the gateway. The `twilio-setup` skill provides a guided conversational flow for credential storage, phone number provisioning, and webhook configuration.
 
 ### Twilio HTTP Control-Plane Endpoints
 
