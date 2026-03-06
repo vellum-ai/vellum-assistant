@@ -100,8 +100,12 @@ export async function getSecureKeyAsync(
 
 /**
  * Async version of `setSecureKey`. When the broker is available the key
- * is written there first; the encrypted store is always updated as well
- * so that sync callers have a consistent view.
+ * is written there **and** to the encrypted store so that sync callers
+ * have a consistent view. Returns `true` only when both stores succeed.
+ *
+ * If the broker is available but `broker.set()` fails we return `false`
+ * immediately — falling through to an encrypted-store-only write would
+ * leave the broker with stale data that async readers would still see.
  */
 export async function setSecureKeyAsync(
   account: string,
@@ -109,30 +113,33 @@ export async function setSecureKeyAsync(
 ): Promise<boolean> {
   const broker = getBroker();
   if (broker.isAvailable()) {
-    const ok = await broker.set(account, value);
-    if (ok) {
-      // Also persist to encrypted store so sync callers stay consistent.
-      encryptedStore.setKey(account, value);
-      return true;
-    }
+    const brokerOk = await broker.set(account, value);
+    if (!brokerOk) return false;
+    // Broker succeeded — also persist to encrypted store for sync callers.
+    const encOk = encryptedStore.setKey(account, value);
+    return encOk;
   }
   return encryptedStore.setKey(account, value);
 }
 
 /**
  * Async version of `deleteSecureKey`. When the broker is available the
- * key is deleted there first; the encrypted store entry is always removed
- * as well so that sync callers have a consistent view.
+ * key is deleted there **and** from the encrypted store so that sync
+ * callers have a consistent view. Returns `true` only when both stores
+ * succeed.
+ *
+ * If the broker is available but `broker.del()` fails we return `false`
+ * immediately — falling through to an encrypted-store-only delete would
+ * leave the broker with the key, and async readers would still see it.
  */
 export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
   const broker = getBroker();
   if (broker.isAvailable()) {
-    const ok = await broker.del(account);
-    if (ok) {
-      // Also remove from encrypted store so sync callers stay consistent.
-      encryptedStore.deleteKey(account);
-      return true;
-    }
+    const brokerOk = await broker.del(account);
+    if (!brokerOk) return false;
+    // Broker succeeded — also remove from encrypted store for sync callers.
+    const encOk = encryptedStore.deleteKey(account);
+    return encOk;
   }
   return encryptedStore.deleteKey(account);
 }
