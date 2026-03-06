@@ -15,6 +15,10 @@
  */
 
 import {
+  getTwilioCredentials,
+  hasTwilioCredentials,
+} from "../../../calls/twilio-rest.js";
+import {
   getGatewayInternalBaseUrl,
   getTwilioPhoneNumberEnv,
 } from "../../../config/env.js";
@@ -46,14 +50,6 @@ function getGatewayUrl(): string {
 /** Mint a short-lived JWT for authenticating with the gateway. */
 function getBearerToken(): string {
   return mintDaemonDeliveryToken();
-}
-
-/** Check whether Twilio credentials are stored. */
-function hasTwilioCredentials(): boolean {
-  return (
-    !!getSecureKey("credential:twilio:account_sid") &&
-    !!getSecureKey("credential:twilio:auth_token")
-  );
 }
 
 /** Resolve the configured SMS phone number. */
@@ -118,7 +114,7 @@ export const smsMessagingProvider: MessagingProvider = {
           | Record<string, string>
           | undefined;
         if (mappings && Object.keys(mappings).length > 0) {
-          const accountSid = getSecureKey("credential:twilio:account_sid")!;
+          const accountSid = getTwilioCredentials().accountSid;
           return {
             connected: true,
             user: "assistant-scoped",
@@ -143,7 +139,7 @@ export const smsMessagingProvider: MessagingProvider = {
       };
     }
 
-    const accountSid = getSecureKey("credential:twilio:account_sid")!;
+    const accountSid = getTwilioCredentials().accountSid;
 
     return {
       connected: true,
