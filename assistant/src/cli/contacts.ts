@@ -8,7 +8,10 @@ import {
 } from "../contacts/contact-store.js";
 import type { ContactRole } from "../contacts/types.js";
 import { initializeDb } from "../memory/db.js";
-import { listIngressInvites } from "../runtime/invite-service.js";
+import {
+  listIngressInvites,
+  revokeIngressInvite,
+} from "../runtime/invite-service.js";
 import { writeOutput } from "./integrations.js";
 
 export function registerContactsCommand(program: Command): void {
@@ -115,4 +118,14 @@ export function registerContactsCommand(program: Command): void {
         }
       },
     );
+
+  invites
+    .command("revoke <inviteId>")
+    .description("Revoke an active invite")
+    .action(async (inviteId: string, _opts: unknown, cmd: Command) => {
+      initializeDb();
+      const result = revokeIngressInvite(inviteId);
+      writeOutput(cmd, result);
+      if (!result.ok) process.exitCode = 1;
+    });
 }
