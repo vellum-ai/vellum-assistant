@@ -34,6 +34,8 @@ struct AssistantProgressView: View {
     @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
     @State private var processingStartDate: Date?
+    @State private var isOverflowPopoverShown: Bool = false
+    @State private var suppressNextExpand: Bool = false
 
     // MARK: - Derived State
 
@@ -146,10 +148,6 @@ struct AssistantProgressView: View {
                 }
                 return "Completed with blocked permissions"
             }
-            // Use the last tool call's reason as a summary of what was done
-            if let lastReason = toolCalls.last(where: { $0.reasonDescription != nil && !$0.reasonDescription!.isEmpty })?.reasonDescription {
-                return lastReason
-            }
             return "Completed \(toolCalls.count) step\(toolCalls.count == 1 ? "" : "s")"
         case .denied:
             let uniqueNames = Array(Set(toolCalls.map(\.toolName))).sorted()
@@ -169,21 +167,14 @@ struct AssistantProgressView: View {
             // Header row (always visible)
             headerRow
 
-            // Permission chips below header (when not expanded)
-            if !isExpanded {
-                permissionChips
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.bottom, VSpacing.sm)
-            }
-
             // Expanded content
             if isExpanded {
                 expandedContent
+                    .padding(.bottom, VSpacing.xs)
 
                 // Permission chips at bottom of expanded list
                 permissionChips
                     .padding(.horizontal, VSpacing.sm)
-                    .padding(.top, VSpacing.sm)
                     .padding(.bottom, VSpacing.sm)
             }
 
@@ -191,12 +182,11 @@ struct AssistantProgressView: View {
             if phase == .streamingCode, let code = streamingCodePreview {
                 CodePreviewView(code: code)
                     .padding(.horizontal, VSpacing.sm)
-                    .padding(.bottom, VSpacing.sm)
+                    .padding(.bottom, VSpacing.xs)
             }
         }
-        .padding(.bottom, isExpanded ? VSpacing.sm : 0)
         .background(VColor.surface.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .onChange(of: phase) { _, newPhase in
             if newPhase == .processing {
                 processingStartDate = Date()
@@ -235,6 +225,10 @@ struct AssistantProgressView: View {
 
     private var headerRow: some View {
         Button(action: {
+            if suppressNextExpand {
+                suppressNextExpand = false
+                return
+            }
             guard hasChevron else { return }
             suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
@@ -247,6 +241,11 @@ struct AssistantProgressView: View {
 
                 // Headline text with cross-fade
                 headlineLabel
+
+                // Inline permission chips (collapsed only, max 2 + overflow)
+                if !isExpanded {
+                    inlinePermissionChips
+                }
 
                 Spacer()
 
@@ -267,7 +266,7 @@ struct AssistantProgressView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
     }
 
     // MARK: - Status Icon
@@ -276,24 +275,15 @@ struct AssistantProgressView: View {
     private var statusIcon: some View {
         switch phase {
         case .complete:
-            statusIconTile(
-                icon: hasDeniedTools ? .triangleAlert : .circleCheck,
-                iconColor: hasDeniedTools ? VColor.warning : VColor.iconAccent,
-                tileColor: hasDeniedTools ? Amber._200 : Forest._200
-            )
+            VIconView(hasDeniedTools ? .triangleAlert : .circleCheck, size: 12)
+                .foregroundColor(hasDeniedTools ? VColor.warning : VColor.iconAccent)
         case .denied:
             if decidedConfirmations.contains(where: { $0.state == .timedOut }) {
-                statusIconTile(
-                    icon: .clock,
-                    iconColor: VColor.textMuted,
-                    tileColor: Moss._200
-                )
+                VIconView(.clock, size: 12)
+                    .foregroundColor(VColor.textMuted)
             } else {
-                statusIconTile(
-                    icon: .circleAlert,
-                    iconColor: VColor.error,
-                    tileColor: Danger._200
-                )
+                VIconView(.circleAlert, size: 12)
+                    .foregroundColor(VColor.error)
             }
         default:
             Circle()
@@ -301,16 +291,6 @@ struct AssistantProgressView: View {
                 .frame(width: 8, height: 8)
                 .modifier(AssistantProgressPulsingModifier())
         }
-    }
-
-    private func statusIconTile(icon: VIcon, iconColor: Color, tileColor: Color) -> some View {
-        VIconView(icon, size: 14)
-            .foregroundColor(iconColor)
-            .padding(VSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(tileColor)
-            )
     }
 
     // MARK: - Headline Label
@@ -413,9 +393,59 @@ struct AssistantProgressView: View {
     private var permissionChips: some View {
         let resolved = decidedConfirmations.filter { $0.state != .pending }
         if !resolved.isEmpty {
-            HStack(spacing: VSpacing.xs) {
+            FlowLayout(spacing: VSpacing.xs) {
                 ForEach(Array(resolved.enumerated()), id: \.offset) { _, confirmation in
                     compactPermissionChip(confirmation)
+                }
+            }
+        }
+    }
+
+    // MARK: - Inline Permission Chips (Collapsed Header)
+
+    @ViewBuilder
+    private var inlinePermissionChips: some View {
+        let resolved = decidedConfirmations.filter { $0.state != .pending }
+        if !resolved.isEmpty {
+            // Vertical divider
+            Divider()
+                .frame(height: 16)
+
+            // Show up to 2 chips inline
+            let visible = Array(resolved.prefix(2))
+            let overflow = resolved.count - visible.count
+
+            ForEach(Array(visible.enumerated()), id: \.offset) { _, confirmation in
+                compactPermissionChip(confirmation)
+            }
+
+            // +N overflow badge with popover
+            if overflow > 0 {
+                Button(action: {
+                    suppressNextExpand = true
+                    isOverflowPopoverShown.toggle()
+                }) {
+                    Text("+\(overflow)")
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textSecondary)
+                        .padding(.horizontal, VSpacing.xs)
+                        .padding(.vertical, VSpacing.xxs)
+                        .background(
+                            Capsule().fill(VColor.backgroundSubtle)
+                        )
+                        .overlay(
+                            Capsule().stroke(VColor.surfaceBorder, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(overflow) more permissions")
+                .popover(isPresented: $isOverflowPopoverShown, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                        ForEach(Array(resolved.dropFirst(2).enumerated()), id: \.offset) { _, confirmation in
+                            compactPermissionChip(confirmation)
+                        }
+                    }
+                    .padding(VSpacing.sm)
                 }
             }
         }
@@ -509,11 +539,11 @@ private struct StepDetailRow: View {
                 HStack(spacing: VSpacing.sm) {
                     // Status icon
                     if toolCall.isComplete {
-                        VIconView(toolCall.isError ? .circleAlert : .circleCheck, size: 14)
+                        VIconView(toolCall.isError ? .circleAlert : .circleCheck, size: 12)
                             .foregroundColor(toolCall.isError ? VColor.error : VColor.iconAccent)
                             .frame(width: 16)
                     } else if phase == .denied {
-                        VIconView(.circleAlert, size: 14)
+                        VIconView(.circleAlert, size: 12)
                             .foregroundColor(VColor.textMuted)
                             .frame(width: 16)
                     } else {
@@ -837,6 +867,64 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
                 value: isPulsing
             )
             .onAppear { isPulsing = true }
+    }
+}
+
+// MARK: - Flow Layout
+
+/// A simple wrapping layout that arranges children left-to-right and wraps
+/// to the next row when the available width is exceeded.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = VSpacing.xs
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        let height = rows.enumerated().reduce(CGFloat.zero) { total, pair in
+            let rowHeight = pair.element.map(\.size.height).max() ?? 0
+            return total + rowHeight + (pair.offset > 0 ? spacing : 0)
+        }
+        let width: CGFloat = proposal.width ?? rows.map { row in
+            row.enumerated().reduce(CGFloat.zero) { total, pair in
+                total + pair.element.size.width + (pair.offset > 0 ? spacing : 0)
+            }
+        }.max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        var y = bounds.minY
+        for row in rows {
+            let rowHeight = row.map(\.size.height).max() ?? 0
+            var x = bounds.minX
+            for item in row {
+                item.subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(item.size))
+                x += item.size.width + spacing
+            }
+            y += rowHeight + spacing
+        }
+    }
+
+    private struct LayoutItem {
+        let subview: LayoutSubview
+        let size: CGSize
+    }
+
+    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [[LayoutItem]] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [[LayoutItem]] = [[]]
+        var rowWidth: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let needed = rowWidth > 0 ? size.width + spacing : size.width
+            if rowWidth + needed > maxWidth && !rows[rows.count - 1].isEmpty {
+                rows.append([])
+                rowWidth = 0
+            }
+            rows[rows.count - 1].append(LayoutItem(subview: subview, size: size))
+            rowWidth += rowWidth > 0 ? size.width + spacing : size.width
+        }
+        return rows
     }
 }
 
