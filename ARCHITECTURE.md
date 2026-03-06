@@ -249,7 +249,6 @@ graph TB
     end
 
     subgraph "macOS Local Storage"
-        KEYCHAIN["Keychain<br/>(via broker SecItem*)"]
         ENC_STORE["Encrypted Store<br/>(~/.vellum/protected/keys.enc)"]
         USERDEFAULTS["UserDefaults<br/>preferences / state"]
         APP_SUPPORT["~/Library/App Support/<br/>vellum-assistant/"]
