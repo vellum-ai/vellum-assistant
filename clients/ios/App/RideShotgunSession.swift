@@ -66,7 +66,7 @@ final class RideShotgunSession: ObservableObject, Identifiable {
                     await MainActor.run { self.handleWatchStarted(msg) }
                 case .rideShotgunError(let error):
                     await MainActor.run {
-                        guard error.watchId == self.expectedWatchId else { return }
+                        guard self.expectedWatchId == nil || error.watchId == self.expectedWatchId else { return }
                         log.error("Ride shotgun bootstrap failure: \(error.message)")
                         self.state = .failed(error.message)
                         self.cleanup()

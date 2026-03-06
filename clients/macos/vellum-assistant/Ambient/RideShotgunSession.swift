@@ -70,7 +70,7 @@ public final class RideShotgunSession: ObservableObject {
                 case .watchStarted(let started):
                     self.handleWatchStarted(started, daemonClient: daemonClient)
                 case .rideShotgunError(let error):
-                    guard error.watchId == self.expectedWatchId else { break }
+                    guard self.expectedWatchId == nil || error.watchId == self.expectedWatchId else { break }
                     log.error("Ride shotgun bootstrap failure: \(error.message)")
                     self.state = .failed(error.message)
                     self.cleanup()
