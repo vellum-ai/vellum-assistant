@@ -81,18 +81,18 @@ bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 
 ### CLI commands
 
-| Command                                    | Description                                      |
-| ------------------------------------------ | ------------------------------------------------ |
-| `vellum wake`                              | Start assistant + gateway from current checkout  |
-| `vellum sleep`                             | Stop assistant + gateway processes               |
-| `vellum ps`                                | List assistants and per-assistant process status |
-| `vellum`                                   | Launch interactive CLI session                   |
-| `vellum dev`                               | Run assistant with auto-restart on file changes  |
-| `vellum sessions list\|new\|export\|clear` | Manage conversation sessions                     |
-| `vellum config set\|get\|list`             | Manage configuration                             |
-| `vellum keys set\|list\|delete`            | Manage API keys in secure storage                |
-| `vellum trust list\|remove\|clear`         | Manage trust rules                               |
-| `vellum doctor`                            | Run diagnostic checks                            |
+| Command                                       | Description                                      |
+| --------------------------------------------- | ------------------------------------------------ |
+| `vellum wake`                                 | Start assistant + gateway from current checkout  |
+| `vellum sleep`                                | Stop assistant + gateway processes               |
+| `vellum ps`                                   | List assistants and per-assistant process status |
+| `assistant`                                   | Launch interactive CLI session                   |
+| `assistant dev`                               | Run assistant with auto-restart on file changes  |
+| `assistant sessions list\|new\|export\|clear` | Manage conversation sessions                     |
+| `assistant config set\|get\|list`             | Manage configuration                             |
+| `assistant keys set\|list\|delete`            | Manage API keys in secure storage                |
+| `assistant trust list\|remove\|clear`         | Manage trust rules                               |
+| `assistant doctor`                            | Run diagnostic checks                            |
 
 ## Project Structure
 
@@ -485,7 +485,7 @@ docker run --rm -p 3001:3001 \
   vellum-assistant:local
 ```
 
-The image exposes port `3001` and bundles the `vellum` CLI binary.
+The image exposes port `3001` and bundles the `assistant` CLI binary.
 
 ## Ride Shotgun
 
