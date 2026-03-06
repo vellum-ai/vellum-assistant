@@ -11,6 +11,29 @@ import { getCliLogger } from "../util/logger.js";
 
 const log = getCliLogger("cli");
 
+/**
+ * Flatten a nested config object into dotted key paths.
+ * E.g. `{ a: { b: 1, c: 2 } }` becomes `{ "a.b": 1, "a.c": 2 }`.
+ */
+function flattenConfig(
+  obj: Record<string, unknown>,
+  prefix = "",
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value != null && typeof value === "object" && !Array.isArray(value)) {
+      Object.assign(
+        result,
+        flattenConfig(value as Record<string, unknown>, path),
+      );
+    } else {
+      result[path] = value;
+    }
+  }
+  return result;
+}
+
 export function registerConfigCommand(program: Command): void {
   const config = program.command("config").description("Manage configuration");
 
@@ -101,21 +124,53 @@ Examples:
   config
     .command("list")
     .description("List all config values")
+    .option(
+      "--search <query>",
+      "Filter config entries by case-insensitive substring match on key name",
+    )
     .addHelpText(
       "after",
       `
 Dumps the full raw configuration from config.json as pretty-printed JSON.
 If no configuration has been set, prints "No configuration set".
 
+The --search flag filters results by case-insensitive substring match against
+flattened dotted key paths. For example, --search api matches apiKeys.anthropic,
+apiKeys.openai, and any other key containing "api".
+
 Examples:
-  $ vellum config list`,
+  $ vellum config list
+  $ vellum config list --search api
+  $ vellum config list --search calls`,
     )
-    .action(() => {
+    .action((opts: { search?: string }) => {
       const raw = loadRawConfig();
       if (Object.keys(raw).length === 0) {
         log.info("No configuration set");
-      } else {
+        return;
+      }
+
+      if (!opts.search) {
         log.info(JSON.stringify(raw, null, 2));
+        return;
+      }
+
+      const flat = flattenConfig(raw);
+      const query = opts.search.toLowerCase();
+      const matched = Object.fromEntries(
+        Object.entries(flat).filter(([key]) =>
+          key.toLowerCase().includes(query),
+        ),
+      );
+
+      if (Object.keys(matched).length === 0) {
+        log.info(`No config keys matching "${opts.search}"`);
+      } else {
+        for (const [key, value] of Object.entries(matched)) {
+          log.info(
+            `${key} = ${typeof value === "object" ? JSON.stringify(value) : String(value)}`,
+          );
+        }
       }
     });
 
