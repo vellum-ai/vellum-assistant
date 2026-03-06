@@ -45,7 +45,7 @@ Then start the gateway again using whatever method the user's deployment uses (e
 
 ## Step 4: Restart the assistant
 
-Use `assistant sleep` to stop the running assistant and gateway, then `assistant wake` to start them again from the updated binary:
+Use `vellum sleep` to stop the running assistant and gateway, then `vellum wake` to start them again from the updated binary:
 
 ```bash
 vellum sleep && vellum wake

@@ -12,7 +12,7 @@ You are helping your user connect a Slack bot to the Vellum Assistant gateway vi
 
 Before beginning setup, verify these conditions are met:
 
-1. **Gateway API base URL is set and reachable:** Use the injected `INTERNAL_GATEWAY_BASE_URL`, then run `curl -sf "$INTERNAL_GATEWAY_BASE_URL/healthz"` — it should return gateway health JSON (for example `{"status":"ok"}`). If it fails, tell the user to start the assistant with `assistant wake` and wait for it to become healthy before continuing.
+1. **Gateway API base URL is set and reachable:** Use the injected `INTERNAL_GATEWAY_BASE_URL`, then run `curl -sf "$INTERNAL_GATEWAY_BASE_URL/healthz"` — it should return gateway health JSON (for example `{"status":"ok"}`). If it fails, tell the user to start the assistant with `vellum wake` and wait for it to become healthy before continuing.
 2. **Use gateway control-plane routes only.** Slack setup/config actions in this skill must call gateway endpoints under `/v1/integrations/slack/channel/*` — never call the assistant runtime port directly.
 
 ## Setup Steps
