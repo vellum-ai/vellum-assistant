@@ -2,7 +2,7 @@
  * Shared outbound guardian verification action logic.
  *
  * These pure functions encapsulate the business logic for starting, resending,
- * and cancelling outbound guardian verification flows (SMS, Telegram, voice).
+ * and cancelling outbound guardian verification flows (Telegram, voice, Slack).
  * They return transport-agnostic result objects and are consumed by both the
  * IPC handler (config-channels.ts) and the HTTP route layer (integration-routes.ts).
  */
@@ -27,7 +27,6 @@ import {
 } from "./channel-guardian-service.js";
 import {
   composeVerificationSlack,
-  composeVerificationSms,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "./guardian-verification-templates.js";
@@ -38,7 +37,7 @@ const log = getLogger("guardian-outbound-actions");
 // Rate limit constants for outbound verification
 // ---------------------------------------------------------------------------
 
-/** Maximum SMS sends per verification session. */
+/** Maximum sends per verification session. */
 export const MAX_SENDS_PER_SESSION = 5;
 
 /** Cooldown between resends in milliseconds (15 seconds). */
@@ -133,49 +132,6 @@ export interface OutboundActionResult {
   pendingBootstrap?: boolean;
   /** Echoed back so consumers know which conversation to target for pointers. */
   originConversationId?: string;
-}
-
-// ---------------------------------------------------------------------------
-// SMS delivery helper
-// ---------------------------------------------------------------------------
-
-/**
- * Deliver a verification SMS via the gateway. Fire-and-forget with error
- * logging -- the response is returned before delivery completes because
- * the caller should not be blocked on Twilio API latency.
- */
-export function deliverVerificationSms(
-  to: string,
-  text: string,
-  assistantId: string,
-): void {
-  (async () => {
-    try {
-      const gatewayUrl = getGatewayInternalBaseUrl();
-      const bearerToken = mintDaemonDeliveryToken();
-      const url = `${gatewayUrl}/deliver/sms`;
-      const resp = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${bearerToken}`,
-        },
-        body: JSON.stringify({ to, text, assistantId }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (!resp.ok) {
-        const body = await resp.text().catch(() => "<unreadable>");
-        log.error(
-          { to, assistantId, status: resp.status, body },
-          "Gateway /deliver/sms failed for verification",
-        );
-      } else {
-        log.info({ to, assistantId }, "Verification SMS delivered");
-      }
-    } catch (err) {
-      log.error({ err, to, assistantId }, "Failed to deliver verification SMS");
-    }
-  })();
 }
 
 // ---------------------------------------------------------------------------
@@ -282,15 +238,7 @@ export async function startOutbound(
   const channel = params.channel;
   const originConversationId = params.originConversationId;
 
-  if (channel === "sms") {
-    return startOutboundSms(
-      params.destination,
-      assistantId,
-      channel,
-      params.rebind,
-      originConversationId,
-    );
-  } else if (channel === "telegram") {
+  if (channel === "telegram") {
     return await startOutboundTelegram(
       params.destination,
       assistantId,
@@ -319,97 +267,8 @@ export async function startOutbound(
   return {
     success: false,
     error: "unsupported_channel",
-    message: `Outbound verification is only supported for SMS, Telegram, voice, and Slack. Got: ${channel}`,
+    message: `Outbound verification is only supported for Telegram, voice, and Slack. Got: ${channel}`,
     channel,
-  };
-}
-
-function startOutboundSms(
-  rawDestination: string | undefined,
-  assistantId: string,
-  channel: ChannelId,
-  rebind?: boolean,
-  originConversationId?: string,
-): OutboundActionResult {
-  if (!rawDestination) {
-    return {
-      success: false,
-      error: "missing_destination",
-      message:
-        "A destination phone number is required for outbound SMS verification.",
-      channel,
-    };
-  }
-
-  const destination = normalizePhoneNumber(rawDestination);
-  if (!destination) {
-    return {
-      success: false,
-      error: "invalid_destination",
-      message:
-        "Could not parse phone number. Please enter a valid number (e.g. +15551234567, (555) 123-4567, or 555-123-4567).",
-      channel,
-    };
-  }
-
-  const existingBinding = getGuardianBinding(assistantId, channel);
-  if (existingBinding && !rebind) {
-    return {
-      success: false,
-      error: "already_bound",
-      message:
-        "A guardian is already bound for this channel. Set rebind: true to replace.",
-      channel,
-    };
-  }
-
-  const recentSendCount = countRecentSendsToDestination(
-    channel,
-    destination,
-    DESTINATION_RATE_WINDOW_MS,
-  );
-  if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
-    return {
-      success: false,
-      error: "rate_limited",
-      message:
-        "Too many verification attempts to this phone number. Please try again later.",
-      channel,
-    };
-  }
-
-  const sessionResult = createOutboundSession({
-    channel,
-    expectedPhoneE164: destination,
-    expectedExternalUserId: destination,
-    destinationAddress: destination,
-    verificationPurpose: "guardian",
-  });
-
-  const smsBody = composeVerificationSms(
-    GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
-    {
-      code: sessionResult.secret,
-      expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-    },
-  );
-
-  const now = Date.now();
-  const nextResendAt = now + RESEND_COOLDOWN_MS;
-  const sendCount = 1;
-
-  updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
-  deliverVerificationSms(destination, smsBody, assistantId);
-
-  return {
-    success: true,
-    verificationSessionId: sessionResult.sessionId,
-    secret: sessionResult.secret,
-    expiresAt: sessionResult.expiresAt,
-    nextResendAt,
-    sendCount,
-    channel,
-    originConversationId,
   };
 }
 
@@ -958,35 +817,11 @@ export function resendOutbound(
     };
   }
 
-  // SMS resend
-  const newSession = createOutboundSession({
-    channel,
-    expectedPhoneE164: destination,
-    expectedExternalUserId: destination,
-    destinationAddress: destination,
-    verificationPurpose: "guardian",
-  });
-
-  const smsBody = composeVerificationSms(GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND, {
-    code: newSession.secret,
-    expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-  });
-
-  const now = Date.now();
-  const newSendCount = currentSendCount + 1;
-  const nextResendAt = now + RESEND_COOLDOWN_MS;
-
-  updateSessionDelivery(newSession.sessionId, now, newSendCount, nextResendAt);
-  deliverVerificationSms(destination, smsBody, assistantId);
-
   return {
-    success: true,
-    verificationSessionId: newSession.sessionId,
-    secret: newSession.secret,
-    nextResendAt,
-    sendCount: newSendCount,
+    success: false,
+    error: "unsupported_channel",
+    message: `Resend is only supported for Telegram, voice, and Slack. Got: ${channel}`,
     channel,
-    originConversationId,
   };
 }
 
