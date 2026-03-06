@@ -27,3 +27,21 @@ Commands that act on a specific assistant should accept an assistant name or ID 
 - Each command manually parses `process.argv.slice(3)` (no framework — keep it lightweight).
 - Register new commands in the `commands` object in `src/index.ts` and add a help line.
 - User-facing output uses `console.log`/`console.error` directly (no shared logger).
+
+## Help Text Standards
+
+Every command must have high-quality `--help` output optimized for AI/LLM
+consumption. Help text is a primary interface — both humans and AI agents read
+it to understand what a command does and how to use it.
+
+### Requirements
+
+1. **Each command**: Include a concise one-liner description in the help output,
+   followed by an explanation of arguments/options with their formats and
+   constraints.
+
+2. **Include examples**: Show 2-3 concrete invocations with realistic values.
+
+3. **Write for machines**: Be precise about formats, constraints, and side effects.
+   AI agents parse help text to decide which command to run and how. Avoid vague
+   language — say exactly what the command does and where state is stored.
