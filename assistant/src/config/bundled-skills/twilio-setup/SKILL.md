@@ -127,15 +127,7 @@ The response includes the purchased number's `phone_number` and `sid`.
 assistant config set twilio.phoneNumber "+14155551234"
 ```
 
-This stores the phone number in config.
-
-**Note:** Webhook auto-configuration (voice, status callback, SMS) is not performed by these CLI commands -- this is a known gap requiring a future CLI command (e.g., `assistant integrations twilio sync-webhooks`). Webhooks must be configured manually in the Twilio Console or will be set up when a future CLI command is available.
-
-**Webhook URLs (manual configuration required until CLI support is added):** When `ingress.publicBaseUrl` is configured, the following webhooks should be set on the Twilio phone number:
-
-- Voice webhook: `{publicBaseUrl}/webhooks/twilio/voice`
-- Voice status callback: `{publicBaseUrl}/webhooks/twilio/status`
-- SMS webhook: `{publicBaseUrl}/webhooks/twilio/sms`
+This stores the phone number in config. After assigning, configure webhooks on the number so Twilio can reach the assistant -- see Step 4.
 
 **Trial account note:** Twilio trial accounts come with one free phone number. Check "Active Numbers" in the Twilio Console first before provisioning.
 
@@ -156,7 +148,7 @@ Then assign the chosen number:
 assistant config set twilio.phoneNumber "+14155551234"
 ```
 
-The phone number must be in E.164 format. **Note:** Webhook auto-configuration is not performed by this CLI command -- this is a known gap. See Step 3d for webhook URLs to configure manually.
+The phone number must be in E.164 format. After assigning, configure webhooks -- see Step 4.
 
 ### Option C: Manual Entry
 
@@ -166,9 +158,9 @@ If the user wants to enter a number directly (e.g., they know it already), assig
 assistant config set twilio.phoneNumber "+14155551234"
 ```
 
-**Note:** Webhook auto-configuration is not performed by this CLI command -- this is a known gap. See Step 3d for webhook URLs to configure manually.
+After assigning, configure webhooks -- see Step 4.
 
-## Step 4: Set Up Public Ingress
+## Step 4: Set Up Public Ingress and Webhooks
 
 Twilio needs a publicly reachable URL for voice webhooks, ConversationRelay WebSocket, and SMS delivery reports. The **public-ingress** skill handles this via ngrok.
 
@@ -185,14 +177,40 @@ If not configured, load and run the public-ingress skill:
 skill_load skill=public-ingress
 ```
 
-**Twilio webhook endpoints (manual configuration required until CLI support is added):**
+### Configure Twilio Webhooks
 
-- Voice webhook: `{publicBaseUrl}/webhooks/twilio/voice`
-- Voice status callback: `{publicBaseUrl}/webhooks/twilio/status`
-- ConversationRelay WebSocket: `{publicBaseUrl}/webhooks/twilio/relay` (wss://)
-- SMS webhook: `{publicBaseUrl}/webhooks/twilio/sms`
+Once ingress is configured, set the webhook URLs on the Twilio phone number so Twilio knows where to send incoming calls and messages. Retrieve the required values:
 
-Webhook URLs must be manually configured on the Twilio phone number in the Twilio Console. A future CLI command (e.g., `assistant integrations twilio sync-webhooks`) will automate this.
+```bash
+TWILIO_SID=$(assistant config get twilio.accountSid)
+TWILIO_TOKEN=$(assistant credentials reveal twilio:auth_token)
+PUBLIC_URL=$(assistant config get ingress.publicBaseUrl)
+PHONE_NUMBER=$(assistant config get twilio.phoneNumber)
+```
+
+Look up the phone number's SID (needed to update it):
+
+```bash
+curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json?PhoneNumber=$PHONE_NUMBER"
+```
+
+Note the `sid` field (starts with `PN`) from the matching entry in `incoming_phone_numbers`. Then update the webhooks:
+
+```bash
+curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers/$PHONE_SID.json" \
+  -d "VoiceUrl=$PUBLIC_URL/webhooks/twilio/voice" \
+  -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status" \
+  -d "SmsUrl=$PUBLIC_URL/webhooks/twilio/sms"
+```
+
+The expected webhook URLs are:
+
+- **Voice URL:** `{publicBaseUrl}/webhooks/twilio/voice`
+- **Voice status callback:** `{publicBaseUrl}/webhooks/twilio/status`
+- **SMS URL:** `{publicBaseUrl}/webhooks/twilio/sms`
+- **ConversationRelay WebSocket:** `{publicBaseUrl}/webhooks/twilio/relay` (wss://, configured at call time)
 
 ## Step 5: Verify Setup
 
@@ -293,13 +311,30 @@ Run Step 3 to provision or assign a phone number.
 - Use the list numbers endpoint to see available numbers
 - Ensure the number is in E.164 format (`+` followed by country code and number)
 
-## Known Gaps (Future CLI Commands Needed)
+### Incoming calls/SMS not reaching the assistant (webhook mismatch)
 
-The following operations were previously handled by gateway API endpoints and
-do not yet have CLI equivalents:
+This usually means the webhooks on the Twilio phone number don't match the current public ingress URL. This can happen when the ingress URL changes (e.g., ngrok restarts with a new URL) or webhooks were never configured.
 
-1. **Webhook auto-configuration** -- Voice, status callback, and SMS webhook
-   URLs are not automatically set on the Twilio phone number. Configure
-   webhooks manually in the Twilio Console or wait for a future CLI command.
-2. **Stale phone number pruning** -- Stale phone number mappings are not
-   automatically cleaned up.
+**Diagnose:** Fetch the phone number's current webhook configuration from Twilio and compare it to the expected ingress URL:
+
+```bash
+TWILIO_SID=$(assistant config get twilio.accountSid)
+TWILIO_TOKEN=$(assistant credentials reveal twilio:auth_token)
+PUBLIC_URL=$(assistant config get ingress.publicBaseUrl)
+PHONE_NUMBER=$(assistant config get twilio.phoneNumber)
+
+# Fetch current webhooks
+curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json?PhoneNumber=$PHONE_NUMBER"
+```
+
+In the response, check the `voice_url`, `status_callback`, and `sms_url` fields. They should start with the current `ingress.publicBaseUrl`. If they don't match (e.g., they point to an old ngrok URL), update them:
+
+```bash
+PHONE_SID=<PN sid from the response above>
+curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers/$PHONE_SID.json" \
+  -d "VoiceUrl=$PUBLIC_URL/webhooks/twilio/voice" \
+  -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status" \
+  -d "SmsUrl=$PUBLIC_URL/webhooks/twilio/sms"
+```
