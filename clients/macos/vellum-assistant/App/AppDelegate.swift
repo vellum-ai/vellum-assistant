@@ -45,6 +45,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var commandPaletteWindow: CommandPaletteWindow?
     var cmdKLocalMonitor: Any?
     var navLocalMonitor: Any?
+    var zoomLocalMonitor: Any?
     public let services = AppServices()
     let assistantCli = AssistantCli()
     public let updateManager = UpdateManager()
@@ -244,8 +245,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupDaemonClient(isFirstLaunch: isFirstLaunch)
         setupMenuBar()
         setupFileMenu()
-        setupViewMenu()
         registerNavigationMonitor()
+        registerZoomMonitor()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
@@ -330,5 +331,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         #endif
         assistantCli.stop()
     }
+
+    // MARK: - Public Actions (for SwiftUI .commands menu items)
+
+    public func performZoomIn() { zoomManager.zoomIn() }
+    public func performZoomOut() { zoomManager.zoomOut() }
+    public func performZoomReset() { zoomManager.resetZoom() }
 
 }
