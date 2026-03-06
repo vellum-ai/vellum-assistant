@@ -9,11 +9,16 @@ import type { ResolvedCredential } from "../tools/credentials/resolve.js";
 
 // Track resolveById return values per credential ID
 let resolveByIdResults = new Map<string, ResolvedCredential | undefined>();
+let resolveByServiceFieldResults = new Map<
+  string,
+  ResolvedCredential | undefined
+>();
 let credentialMetadataList: CredentialMetadata[] = [];
 
 mock.module("../tools/credentials/resolve.js", () => ({
   resolveById: (credentialId: string) => resolveByIdResults.get(credentialId),
-  resolveByServiceField: () => undefined,
+  resolveByServiceField: (service: string, field: string) =>
+    resolveByServiceFieldResults.get(`${service}:${field}`),
   resolveForDomain: () => [],
 }));
 
@@ -54,6 +59,7 @@ import {
 afterEach(async () => {
   await stopAllSessions();
   resolveByIdResults = new Map();
+  resolveByServiceFieldResults = new Map();
   secureKeyValues = new Map();
   credentialMetadataList = [];
 });
@@ -425,5 +431,240 @@ describe("injected header values never appear in sanitized log entries", () => {
 
     expect(sanitized["authorization"]).toBe("[REDACTED]");
     expect(sanitized["x-custom-key"]).toBe("[REDACTED]");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// composeWith injection — multi-value credential composition and transforms
+// ---------------------------------------------------------------------------
+
+describe("composeWith injection", () => {
+  const CONV_ID = "conv-compose-test";
+  const DATA_DIR = "/tmp/vellum-compose-test";
+
+  test("composes two credential values with separator via policyCallback", async () => {
+    let receivedHeaders: http.IncomingHttpHeaders = {};
+    const echo = http.createServer((req, res) => {
+      receivedHeaders = req.headers;
+      res.writeHead(200);
+      res.end("ok");
+    });
+    await new Promise<void>((resolve) => echo.listen(0, "127.0.0.1", resolve));
+    const echoPort = (echo.address() as { port: number }).port;
+
+    try {
+      const tpl: CredentialInjectionTemplate = {
+        hostPattern: "127.0.0.1",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Basic ",
+        valueTransform: "base64",
+        composeWith: { service: "twilio", field: "auth_token", separator: ":" },
+      };
+
+      const primaryResolved = makeResolved(
+        "cred-primary",
+        [tpl],
+        "twilio",
+        "account_sid",
+      );
+      resolveByIdResults.set("cred-primary", primaryResolved);
+      credentialMetadataList.push(primaryResolved.metadata);
+
+      const composedResolved = makeResolved(
+        "cred-composed",
+        [],
+        "twilio",
+        "auth_token",
+      );
+      resolveByServiceFieldResults.set("twilio:auth_token", composedResolved);
+
+      secureKeyValues.set("credential:twilio:account_sid", "ACtest123");
+      secureKeyValues.set("credential:twilio:auth_token", "secret456");
+
+      const session = createSession(
+        CONV_ID,
+        ["cred-primary"],
+        undefined,
+        DATA_DIR,
+      );
+      const started = await startSession(session.id);
+      expect(started.status).toBe("active");
+
+      const status = await proxyRequest(
+        started.port!,
+        `http://127.0.0.1:${echoPort}/test`,
+      );
+
+      expect(status).toBe(200);
+      const expectedValue =
+        "Basic " + Buffer.from("ACtest123:secret456").toString("base64");
+      expect(receivedHeaders["authorization"]).toBe(expectedValue);
+    } finally {
+      echo.close();
+    }
+  });
+
+  test("composeWith with missing composed credential fails gracefully", async () => {
+    let receivedHeaders: http.IncomingHttpHeaders = {};
+    const echo = http.createServer((req, res) => {
+      receivedHeaders = req.headers;
+      res.writeHead(200);
+      res.end("ok");
+    });
+    await new Promise<void>((resolve) => echo.listen(0, "127.0.0.1", resolve));
+    const echoPort = (echo.address() as { port: number }).port;
+
+    try {
+      const tpl: CredentialInjectionTemplate = {
+        hostPattern: "127.0.0.1",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Basic ",
+        valueTransform: "base64",
+        composeWith: { service: "twilio", field: "auth_token", separator: ":" },
+      };
+
+      const primaryResolved = makeResolved(
+        "cred-primary",
+        [tpl],
+        "twilio",
+        "account_sid",
+      );
+      resolveByIdResults.set("cred-primary", primaryResolved);
+      credentialMetadataList.push(primaryResolved.metadata);
+      secureKeyValues.set("credential:twilio:account_sid", "ACtest123");
+
+      // Do NOT register the composed credential in resolveByServiceFieldResults
+
+      const session = createSession(
+        CONV_ID,
+        ["cred-primary"],
+        undefined,
+        DATA_DIR,
+      );
+      const started = await startSession(session.id);
+      expect(started.status).toBe("active");
+
+      const status = await proxyRequest(
+        started.port!,
+        `http://127.0.0.1:${echoPort}/test`,
+      );
+
+      // Graceful degradation: request passes through without injection, not a 403
+      expect(status).toBe(200);
+      expect(receivedHeaders["authorization"]).toBeUndefined();
+    } finally {
+      echo.close();
+    }
+  });
+
+  test("valueTransform base64 without composeWith", async () => {
+    let receivedHeaders: http.IncomingHttpHeaders = {};
+    const echo = http.createServer((req, res) => {
+      receivedHeaders = req.headers;
+      res.writeHead(200);
+      res.end("ok");
+    });
+    await new Promise<void>((resolve) => echo.listen(0, "127.0.0.1", resolve));
+    const echoPort = (echo.address() as { port: number }).port;
+
+    try {
+      const tpl: CredentialInjectionTemplate = {
+        hostPattern: "127.0.0.1",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Token ",
+        valueTransform: "base64",
+      };
+
+      const resolved = makeResolved("cred-b64", [tpl]);
+      resolveByIdResults.set("cred-b64", resolved);
+      credentialMetadataList.push(resolved.metadata);
+      secureKeyValues.set("credential:test-service:api-key", "plaintext");
+
+      const session = createSession(CONV_ID, ["cred-b64"], undefined, DATA_DIR);
+      const started = await startSession(session.id);
+      expect(started.status).toBe("active");
+
+      const status = await proxyRequest(
+        started.port!,
+        `http://127.0.0.1:${echoPort}/test`,
+      );
+
+      expect(status).toBe(200);
+      const expectedValue =
+        "Token " + Buffer.from("plaintext").toString("base64");
+      expect(receivedHeaders["authorization"]).toBe(expectedValue);
+    } finally {
+      echo.close();
+    }
+  });
+
+  test("composeWith without valueTransform concatenates raw", async () => {
+    let receivedHeaders: http.IncomingHttpHeaders = {};
+    const echo = http.createServer((req, res) => {
+      receivedHeaders = req.headers;
+      res.writeHead(200);
+      res.end("ok");
+    });
+    await new Promise<void>((resolve) => echo.listen(0, "127.0.0.1", resolve));
+    const echoPort = (echo.address() as { port: number }).port;
+
+    try {
+      const tpl: CredentialInjectionTemplate = {
+        hostPattern: "127.0.0.1",
+        injectionType: "header",
+        headerName: "X-Composed",
+        valuePrefix: "Raw ",
+        composeWith: {
+          service: "my-service",
+          field: "secondary-key",
+          separator: ":",
+        },
+      };
+
+      const primaryResolved = makeResolved(
+        "cred-raw-primary",
+        [tpl],
+        "my-service",
+        "primary-key",
+      );
+      resolveByIdResults.set("cred-raw-primary", primaryResolved);
+      credentialMetadataList.push(primaryResolved.metadata);
+
+      const composedResolved = makeResolved(
+        "cred-raw-composed",
+        [],
+        "my-service",
+        "secondary-key",
+      );
+      resolveByServiceFieldResults.set(
+        "my-service:secondary-key",
+        composedResolved,
+      );
+
+      secureKeyValues.set("credential:my-service:primary-key", "value1");
+      secureKeyValues.set("credential:my-service:secondary-key", "value2");
+
+      const session = createSession(
+        CONV_ID,
+        ["cred-raw-primary"],
+        undefined,
+        DATA_DIR,
+      );
+      const started = await startSession(session.id);
+      expect(started.status).toBe("active");
+
+      const status = await proxyRequest(
+        started.port!,
+        `http://127.0.0.1:${echoPort}/test`,
+      );
+
+      expect(status).toBe(200);
+      expect(receivedHeaders["x-composed"]).toBe("Raw value1:value2");
+    } finally {
+      echo.close();
+    }
   });
 });
