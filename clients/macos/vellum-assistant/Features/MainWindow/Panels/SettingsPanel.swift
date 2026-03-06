@@ -1107,6 +1107,7 @@ private struct SettingsNavRow: View {
     let tab: SettingsTab
     let isSelected: Bool
     let action: () -> Void
+
     @State private var isHovered = false
 
     var body: some View {
@@ -1119,7 +1120,7 @@ private struct SettingsNavRow: View {
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
             }
-            .padding(.leading, VSpacing.xs)
+            .padding(.leading, VSpacing.sm)
             .padding(.trailing, VSpacing.sm)
             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
