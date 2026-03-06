@@ -199,44 +199,78 @@ describe("keychain-broker-client", () => {
       await broker.stop();
     });
 
-    test("ping returns version from broker", async () => {
+    test("ping returns pong from broker", async () => {
       broker.setHandler((req) => {
-        if (req.method === "ping") {
-          return { ok: true, version: "1.0.0" };
+        expect(req.v).toBe(1);
+        if (req.method === "broker.ping") {
+          return { ok: true, result: { pong: true } };
         }
-        return { ok: false, error: "unknown method" };
+        return {
+          ok: false,
+          error: { code: "INVALID_REQUEST", message: "unknown method" },
+        };
       });
       await broker.start();
 
       const client = createBrokerClient();
       const result = await client.ping();
-      expect(result).toEqual({ version: "1.0.0" });
+      expect(result).toEqual({ pong: true });
     });
 
-    test("get returns value from broker", async () => {
+    test("get returns found result from broker", async () => {
       broker.setHandler((req) => {
-        if (req.method === "get" && req.account === "my-key") {
-          return { ok: true, value: "secret-value" };
+        expect(req.v).toBe(1);
+        const params = req.params as { account?: string } | undefined;
+        if (req.method === "key.get" && params?.account === "my-key") {
+          return { ok: true, result: { found: true, value: "secret-value" } };
         }
-        return { ok: false, error: "not found" };
+        return {
+          ok: false,
+          error: { code: "INVALID_REQUEST", message: "not found" },
+        };
       });
       await broker.start();
 
       const client = createBrokerClient();
       const result = await client.get("my-key");
-      expect(result).toBe("secret-value");
+      expect(result).toEqual({ found: true, value: "secret-value" });
+    });
+
+    test("get returns not-found result from broker", async () => {
+      broker.setHandler((req) => {
+        expect(req.v).toBe(1);
+        if (req.method === "key.get") {
+          return { ok: true, result: { found: false } };
+        }
+        return {
+          ok: false,
+          error: { code: "INVALID_REQUEST", message: "bad" },
+        };
+      });
+      await broker.start();
+
+      const client = createBrokerClient();
+      const result = await client.get("missing-key");
+      expect(result).toEqual({ found: false, value: undefined });
     });
 
     test("set returns true on success", async () => {
       broker.setHandler((req) => {
+        expect(req.v).toBe(1);
+        const params = req.params as
+          | { account?: string; value?: string }
+          | undefined;
         if (
-          req.method === "set" &&
-          req.account === "my-key" &&
-          req.value === "new-value"
+          req.method === "key.set" &&
+          params?.account === "my-key" &&
+          params?.value === "new-value"
         ) {
-          return { ok: true };
+          return { ok: true, result: { stored: true } };
         }
-        return { ok: false, error: "failed" };
+        return {
+          ok: false,
+          error: { code: "INVALID_REQUEST", message: "failed" },
+        };
       });
       await broker.start();
 
@@ -247,10 +281,15 @@ describe("keychain-broker-client", () => {
 
     test("del returns true on success", async () => {
       broker.setHandler((req) => {
-        if (req.method === "del" && req.account === "my-key") {
-          return { ok: true };
+        expect(req.v).toBe(1);
+        const params = req.params as { account?: string } | undefined;
+        if (req.method === "key.delete" && params?.account === "my-key") {
+          return { ok: true, result: { deleted: true } };
         }
-        return { ok: false, error: "not found" };
+        return {
+          ok: false,
+          error: { code: "INVALID_REQUEST", message: "not found" },
+        };
       });
       await broker.start();
 
@@ -261,10 +300,17 @@ describe("keychain-broker-client", () => {
 
     test("list returns account names", async () => {
       broker.setHandler((req) => {
-        if (req.method === "list") {
-          return { ok: true, accounts: ["key-a", "key-b", "key-c"] };
+        expect(req.v).toBe(1);
+        if (req.method === "key.list") {
+          return {
+            ok: true,
+            result: { accounts: ["key-a", "key-b", "key-c"] },
+          };
         }
-        return { ok: false, error: "failed" };
+        return {
+          ok: false,
+          error: { code: "INVALID_REQUEST", message: "failed" },
+        };
       });
       await broker.start();
 
@@ -273,17 +319,20 @@ describe("keychain-broker-client", () => {
       expect(result).toEqual(["key-a", "key-b", "key-c"]);
     });
 
-    test("sends auth token with every request", async () => {
+    test("sends auth token and v:1 with every request", async () => {
       let receivedToken: unknown;
+      let receivedVersion: unknown;
       broker.setHandler((req) => {
         receivedToken = req.token;
-        return { ok: true, version: "1.0.0" };
+        receivedVersion = req.v;
+        return { ok: true, result: { pong: true } };
       });
       await broker.start();
 
       const client = createBrokerClient();
       await client.ping();
       expect(receivedToken).toBe(TEST_TOKEN);
+      expect(receivedVersion).toBe(1);
     });
   });
 
@@ -319,9 +368,9 @@ describe("keychain-broker-client", () => {
 
       const client = createBrokerClient();
 
-      // get should return undefined on timeout
+      // get should return null on timeout (broker error)
       const result = await client.get("test-key");
-      expect(result).toBeUndefined();
+      expect(result).toBeNull();
     }, 10_000);
   });
 
@@ -346,9 +395,12 @@ describe("keychain-broker-client", () => {
       broker.setHandler((req) => {
         callCount++;
         if (req.token === "new-token") {
-          return { ok: true, version: "2.0.0" };
+          return { ok: true, result: { pong: true } };
         }
-        return { ok: false, error: "UNAUTHORIZED" };
+        return {
+          ok: false,
+          error: { code: "UNAUTHORIZED", message: "Invalid auth token" },
+        };
       });
       await broker.start();
 
@@ -363,18 +415,24 @@ describe("keychain-broker-client", () => {
         if (callCount === 1) {
           // First request with old token — write new token file and return UNAUTHORIZED
           writeFileSync(TOKEN_PATH, "new-token");
-          return { ok: false, error: "UNAUTHORIZED" };
+          return {
+            ok: false,
+            error: { code: "UNAUTHORIZED", message: "Invalid auth token" },
+          };
         }
         // Retry with re-read token
         if (req.token === "new-token") {
-          return { ok: true, version: "2.0.0" };
+          return { ok: true, result: { pong: true } };
         }
-        return { ok: false, error: "UNAUTHORIZED" };
+        return {
+          ok: false,
+          error: { code: "UNAUTHORIZED", message: "Invalid auth token" },
+        };
       });
       callCount = 0;
 
       const result = await client.ping();
-      expect(result).toEqual({ version: "2.0.0" });
+      expect(result).toEqual({ pong: true });
       expect(callCount).toBe(2);
     });
   });
@@ -383,12 +441,12 @@ describe("keychain-broker-client", () => {
   // Graceful degradation
   // -----------------------------------------------------------------------
   describe("graceful degradation", () => {
-    test("get returns undefined when broker is not running", async () => {
+    test("get returns null when broker is not running", async () => {
       process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = SOCKET_PATH;
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
       const result = await client.get("test-key");
-      expect(result).toBeUndefined();
+      expect(result).toBeNull();
     });
 
     test("set returns false when broker is not running", async () => {
@@ -427,7 +485,7 @@ describe("keychain-broker-client", () => {
       delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
       writeFileSync(TOKEN_PATH, TEST_TOKEN);
       const client = createBrokerClient();
-      expect(await client.get("key")).toBeUndefined();
+      expect(await client.get("key")).toBeNull();
       expect(await client.set("key", "val")).toBe(false);
       expect(await client.del("key")).toBe(false);
       expect(await client.list()).toEqual([]);
@@ -442,7 +500,7 @@ describe("keychain-broker-client", () => {
         /* ignore */
       }
       const client = createBrokerClient();
-      expect(await client.get("key")).toBeUndefined();
+      expect(await client.get("key")).toBeNull();
       expect(await client.set("key", "val")).toBe(false);
       expect(await client.del("key")).toBe(false);
       expect(await client.list()).toEqual([]);
@@ -471,7 +529,7 @@ describe("keychain-broker-client", () => {
       broker.server.on("connection", () => {
         connectionCount++;
       });
-      broker.setHandler(() => ({ ok: true, version: "1.0.0" }));
+      broker.setHandler(() => ({ ok: true, result: { pong: true } }));
       await broker.start();
 
       const client = createBrokerClient();

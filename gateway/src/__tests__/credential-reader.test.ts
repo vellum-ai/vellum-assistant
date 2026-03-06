@@ -297,7 +297,12 @@ describe("readCredential broker integration", () => {
 
     mockSpawnSyncImpl = (cmd, args, opts) => {
       expect(cmd).toBe("node");
-      expect(args).toEqual(["-e", expect.stringContaining("BROKER_SOCKET")]);
+      // Verify the inline script uses the correct protocol format
+      const script = (args as string[])[1];
+      expect(script).toContain("v: 1");
+      expect(script).toContain('"key.get"');
+      expect(script).toContain("params:");
+      expect(script).toContain("resp.result");
       const env = opts.env as Record<string, string>;
       expect(env.BROKER_SOCKET).toBe(BROKER_SOCKET_PLACEHOLDER);
       expect(env.BROKER_TOKEN).toBe(TEST_TOKEN);
@@ -320,7 +325,9 @@ describe("readCredential broker integration", () => {
 
     mockSpawnSyncImpl = (cmd, args, opts) => {
       expect(cmd).toBe("node");
-      expect(args).toEqual(["-e", expect.stringContaining("BROKER_SOCKET")]);
+      const script = (args as string[])[1];
+      expect(script).toContain("v: 1");
+      expect(script).toContain('"key.get"');
       const env = opts.env as Record<string, string>;
       expect(env.BROKER_SOCKET).toBe(BROKER_SOCKET_PLACEHOLDER);
       expect(env.BROKER_TOKEN).toBe(TEST_TOKEN);
@@ -341,10 +348,13 @@ describe("readCredential broker integration", () => {
       "credential:test:key": "encrypted-value",
     });
 
-    // Mock returns empty stdout, simulating broker returning no value
+    // Mock returns empty stdout, simulating broker responding with
+    // { ok: true, result: { found: false } } — the inline script
+    // only writes to stdout when result.found is true.
     mockSpawnSyncImpl = (cmd, args, opts) => {
       expect(cmd).toBe("node");
-      expect(args).toEqual(["-e", expect.stringContaining("BROKER_SOCKET")]);
+      const script = (args as string[])[1];
+      expect(script).toContain("resp.result.found");
       const env = opts.env as Record<string, string>;
       expect(env.BROKER_SOCKET).toBe(BROKER_SOCKET_PLACEHOLDER);
       expect(env.BROKER_TOKEN).toBe(TEST_TOKEN);

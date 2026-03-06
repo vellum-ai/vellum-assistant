@@ -162,10 +162,11 @@ const socket = net.createConnection({ path: process.env.BROKER_SOCKET });
 let buf = "";
 socket.on("connect", () => {
   const req = JSON.stringify({
+    v: 1,
     id: process.env.BROKER_REQ_ID,
-    method: "get",
+    method: "key.get",
     token: process.env.BROKER_TOKEN,
-    account: process.env.BROKER_ACCOUNT,
+    params: { account: process.env.BROKER_ACCOUNT },
   }) + "\\n";
   socket.write(req);
 });
@@ -175,8 +176,8 @@ socket.on("data", (chunk) => {
   if (idx !== -1) {
     try {
       const resp = JSON.parse(buf.slice(0, idx));
-      if (resp.ok && typeof resp.value === "string") {
-        process.stdout.write(resp.value);
+      if (resp.ok && resp.result && resp.result.found && typeof resp.result.value === "string") {
+        process.stdout.write(resp.result.value);
       }
     } catch {}
     socket.destroy();

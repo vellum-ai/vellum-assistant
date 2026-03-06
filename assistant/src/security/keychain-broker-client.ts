@@ -29,27 +29,32 @@ const REQUEST_TIMEOUT_MS = 5_000;
 // Types
 // ---------------------------------------------------------------------------
 
+/** Result of a `get()` call. `null` means broker error (caller should fall
+ *  back); `{ found: false }` means the key doesn't exist in the keychain. */
+export type BrokerGetResult = { found: boolean; value?: string } | null;
+
 export interface KeychainBrokerClient {
   isAvailable(): boolean;
-  ping(): Promise<{ version: string } | null>;
-  get(account: string): Promise<string | undefined>;
+  ping(): Promise<{ pong: boolean } | null>;
+  get(account: string): Promise<BrokerGetResult>;
   set(account: string, value: string): Promise<boolean>;
   del(account: string): Promise<boolean>;
   list(): Promise<string[]>;
 }
 
 interface BrokerRequest {
+  v: number;
   id: string;
   method: string;
   token: string;
-  [key: string]: unknown;
+  params?: Record<string, unknown>;
 }
 
 interface BrokerResponse {
   id: string;
   ok: boolean;
-  error?: string;
-  [key: string]: unknown;
+  result?: Record<string, unknown>;
+  error?: { code: string; message: string };
 }
 
 interface PendingRequest {
@@ -149,7 +154,11 @@ export function createBrokerClient(): KeychainBrokerClient {
     // Reject all pending requests
     for (const [id, entry] of pending) {
       clearTimeout(entry.timer);
-      entry.resolve({ id, ok: false, error: "disconnected" });
+      entry.resolve({
+        id,
+        ok: false,
+        error: { code: "DISCONNECTED", message: "disconnected" },
+      });
     }
     pending.clear();
   }
@@ -222,13 +231,21 @@ export function createBrokerClient(): KeychainBrokerClient {
   function sendRequest(request: BrokerRequest): Promise<BrokerResponse> {
     return new Promise((resolve) => {
       if (!socket || socket.destroyed) {
-        resolve({ id: request.id, ok: false, error: "not connected" });
+        resolve({
+          id: request.id,
+          ok: false,
+          error: { code: "NOT_CONNECTED", message: "not connected" },
+        });
         return;
       }
 
       const timer = setTimeout(() => {
         pending.delete(request.id);
-        resolve({ id: request.id, ok: false, error: "timeout" });
+        resolve({
+          id: request.id,
+          ok: false,
+          error: { code: "TIMEOUT", message: "timeout" },
+        });
       }, REQUEST_TIMEOUT_MS);
 
       pending.set(request.id, { resolve, timer });
@@ -238,7 +255,11 @@ export function createBrokerClient(): KeychainBrokerClient {
         if (err) {
           clearTimeout(timer);
           pending.delete(request.id);
-          resolve({ id: request.id, ok: false, error: "write error" });
+          resolve({
+            id: request.id,
+            ok: false,
+            error: { code: "WRITE_ERROR", message: "write error" },
+          });
         }
       });
     });
@@ -255,20 +276,25 @@ export function createBrokerClient(): KeychainBrokerClient {
     if (!token) return null;
 
     const id = randomUUID();
-    const request: BrokerRequest = { id, method, token, ...params };
+    const request: BrokerRequest = {
+      v: 1,
+      id,
+      method,
+      token,
+      ...(Object.keys(params).length > 0 ? { params } : {}),
+    };
     const response = await sendRequest(request);
 
     // On UNAUTHORIZED, re-read the token once and retry. This handles
     // the case where the app restarted with a new token while the daemon
     // is still running with the old cached one.
-    if (response.error === "UNAUTHORIZED") {
+    if (response.error?.code === "UNAUTHORIZED") {
       const newToken = refreshToken();
       if (!newToken || newToken === request.token) return response;
 
-      const retryId = randomUUID();
       const retryRequest: BrokerRequest = {
         ...request,
-        id: retryId,
+        id: randomUUID(),
         token: newToken,
       };
       return await sendRequest(retryRequest);
@@ -289,29 +315,37 @@ export function createBrokerClient(): KeychainBrokerClient {
       return pathExists(getTokenPath());
     },
 
-    async ping(): Promise<{ version: string } | null> {
+    async ping(): Promise<{ pong: boolean } | null> {
       try {
-        const response = await doRequest("ping");
+        const response = await doRequest("broker.ping");
         if (!response || !response.ok) return null;
-        return { version: (response.version as string) ?? "unknown" };
+        return {
+          pong: !!(response.result as Record<string, unknown> | undefined)
+            ?.pong,
+        };
       } catch {
         return null;
       }
     },
 
-    async get(account: string): Promise<string | undefined> {
+    async get(account: string): Promise<BrokerGetResult> {
       try {
-        const response = await doRequest("get", { account });
-        if (!response || !response.ok) return undefined;
-        return (response.value as string) ?? undefined;
+        const response = await doRequest("key.get", { account });
+        if (!response) return null;
+        if (!response.ok) return null;
+        const result = response.result as
+          | { found?: boolean; value?: string }
+          | undefined;
+        if (!result) return null;
+        return { found: !!result.found, value: result.value };
       } catch {
-        return undefined;
+        return null;
       }
     },
 
     async set(account: string, value: string): Promise<boolean> {
       try {
-        const response = await doRequest("set", { account, value });
+        const response = await doRequest("key.set", { account, value });
         return response?.ok === true;
       } catch {
         return false;
@@ -320,7 +354,7 @@ export function createBrokerClient(): KeychainBrokerClient {
 
     async del(account: string): Promise<boolean> {
       try {
-        const response = await doRequest("del", { account });
+        const response = await doRequest("key.delete", { account });
         return response?.ok === true;
       } catch {
         return false;
@@ -329,9 +363,10 @@ export function createBrokerClient(): KeychainBrokerClient {
 
     async list(): Promise<string[]> {
       try {
-        const response = await doRequest("list");
+        const response = await doRequest("key.list");
         if (!response || !response.ok) return [];
-        return (response.accounts as string[]) ?? [];
+        const result = response.result as { accounts?: string[] } | undefined;
+        return result?.accounts ?? [];
       } catch {
         return [];
       }

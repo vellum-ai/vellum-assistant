@@ -37,10 +37,13 @@ let mockBrokerDelError = false;
 mock.module("../security/keychain-broker-client.js", () => ({
   createBrokerClient: () => ({
     isAvailable: () => mockBrokerAvailable,
-    ping: async () => (mockBrokerAvailable ? { version: "test" } : null),
+    ping: async () => (mockBrokerAvailable ? { pong: true } : null),
     get: async (account: string) => {
-      if (mockBrokerGetError) return undefined;
-      return mockBrokerStore.get(account);
+      // null = broker error (fall back to encrypted store)
+      if (mockBrokerGetError) return null;
+      const value = mockBrokerStore.get(account);
+      if (value !== undefined) return { found: true, value };
+      return { found: false };
     },
     set: async (account: string, value: string) => {
       if (mockBrokerSetError) return false;
@@ -206,11 +209,12 @@ describe("secure-keys", () => {
       expect(await getSecureKeyAsync("api-key")).toBe("broker-value");
     });
 
-    test("getSecureKeyAsync falls back to encrypted store when broker returns undefined", async () => {
+    test("getSecureKeyAsync returns undefined when broker reports not-found (no fallback)", async () => {
       mockBrokerAvailable = true;
-      // Broker has nothing for this key
+      // Broker has nothing for this key — returns { found: false }.
+      // The new behaviour trusts the broker answer and does NOT fall back.
       setSecureKey("api-key", "encrypted-value");
-      expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
+      expect(await getSecureKeyAsync("api-key")).toBeUndefined();
     });
 
     test("getSecureKeyAsync falls back to encrypted store on broker error", async () => {

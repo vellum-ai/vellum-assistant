@@ -80,16 +80,20 @@ export function isDowngradedFromKeychain(): boolean {
 
 /**
  * Async version of `getSecureKey`. When the broker is available it is
- * queried first; if it returns `undefined` (not found *or* error) the
- * encrypted store is consulted as a fallback.
+ * queried first. A `null` return from the broker means error (fall back
+ * to encrypted store). A `{ found: false }` means the key definitively
+ * does not exist in the keychain — no fall-through needed.
  */
 export async function getSecureKeyAsync(
   account: string,
 ): Promise<string | undefined> {
   const broker = getBroker();
   if (broker.isAvailable()) {
-    const value = await broker.get(account);
-    if (value !== undefined) return value;
+    const result = await broker.get(account);
+    // null = broker error, fall back to encrypted store
+    if (result === null) return encryptedStore.getKey(account);
+    // Broker responded — trust its answer
+    return result.found ? result.value : undefined;
   }
   return encryptedStore.getKey(account);
 }
