@@ -8,6 +8,9 @@ BASELINE_DIR=".perf-baselines"
 BASELINE_FILE="$BASELINE_DIR/baselines.json"
 RESULTS_LOG="$BASELINE_DIR/results.log"
 REGRESSION_THRESHOLD_PCT=50
+# Minimum absolute increase (in seconds) required to flag a regression.
+# Differences below this are noise regardless of percentage (e.g., 0.0000s→0.0010s = +inf% but only 1ms).
+MIN_ABSOLUTE_DELTA=0.010
 
 if [[ ! -f "$RESULTS_LOG" ]]; then
   echo "No results log at $RESULTS_LOG. Skipping baseline comparison."
@@ -19,7 +22,7 @@ fi
 # the set-e + subprocess-exit-code pitfall by using a single Python invocation.
 UPDATE_BASELINE="${UPDATE_BASELINE:-true}"
 
-python3 - "$RESULTS_LOG" "$BASELINE_FILE" "$REGRESSION_THRESHOLD_PCT" "$BASELINE_DIR" "$UPDATE_BASELINE" << 'PYEOF'
+python3 - "$RESULTS_LOG" "$BASELINE_FILE" "$REGRESSION_THRESHOLD_PCT" "$BASELINE_DIR" "$UPDATE_BASELINE" "$MIN_ABSOLUTE_DELTA" << 'PYEOF'
 import re, sys, json, os
 
 results_log      = sys.argv[1]
@@ -27,6 +30,7 @@ baseline_file    = sys.argv[2]
 threshold        = float(sys.argv[3])
 baseline_dir     = sys.argv[4]
 update_baseline  = sys.argv[5].lower() == "true"
+min_abs_delta    = float(sys.argv[6])
 
 # Parse XCTest timing lines. Format (macOS XCTest via swift test):
 #   Test Case '-[Suite.ClassName testMethodName]' measured [CPU Time, s] average: N.NNN, ...
@@ -104,19 +108,23 @@ if needs_fresh_baseline:
 baselines = {k: v for k, v in stored.items() if k != "_metric"}
 
 regressions = []
-print("=== Regression Check (threshold: {}%) ===".format(int(threshold)))
+print("=== Regression Check (threshold: {}%, min delta: {:.3f}s) ===".format(int(threshold), min_abs_delta))
 for name, actual in sorted(results.items()):
     if name not in baselines:
         print(f"  NEW      {name}: {actual:.4f}s (no prior baseline)")
         continue
     baseline  = baselines[name]
+    abs_delta = actual - baseline
     if baseline == 0:
         delta_pct = float('inf') if actual > 0 else 0.0
     else:
         delta_pct = (actual - baseline) / baseline * 100
-    status    = "REGRESSED" if delta_pct > threshold else "ok       "
-    print(f"  {status} {name}: baseline={baseline:.4f}s actual={actual:.4f}s delta={delta_pct:+.1f}%")
-    if delta_pct > threshold:
+    # A regression requires BOTH: percentage above threshold AND absolute delta above minimum.
+    # This prevents tiny sub-millisecond noise from triggering +inf% regressions.
+    is_regressed = delta_pct > threshold and abs_delta > min_abs_delta
+    status    = "REGRESSED" if is_regressed else "ok       "
+    print(f"  {status} {name}: baseline={baseline:.4f}s actual={actual:.4f}s delta={delta_pct:+.1f}% (abs={abs_delta:+.4f}s)")
+    if is_regressed:
         regressions.append(name)
 
 print()
@@ -125,23 +133,25 @@ print()
 rows = []
 for name, actual in sorted(results.items()):
     if name not in baselines:
-        rows.append(f"| {name} | — | {actual:.4f}s | — | 🆕 NEW |")
+        rows.append(f"| {name} | — | {actual:.4f}s | — | — | 🆕 NEW |")
         continue
     baseline = baselines[name]
+    ad = actual - baseline
     if baseline == 0:
         dp = float('inf') if actual > 0 else 0.0
     else:
         dp = (actual - baseline) / baseline * 100
-    status = "❌ REGRESSED" if dp > threshold else "✅ ok"
-    rows.append(f"| {name} | {baseline:.4f}s | {actual:.4f}s | {dp:+.1f}% | {status} |")
+    is_reg = dp > threshold and ad > min_abs_delta
+    status = "❌ REGRESSED" if is_reg else "✅ ok"
+    rows.append(f"| {name} | {baseline:.4f}s | {actual:.4f}s | {dp:+.1f}% | {ad:+.4f}s | {status} |")
 
 with open(summary_file, "w") as sf:
     sf.write("## Performance Baselines (CPU Time)\n\n")
-    sf.write("| Test | Baseline | Actual | Delta | Status |\n")
-    sf.write("|------|----------|--------|-------|--------|\n")
+    sf.write("| Test | Baseline | Actual | Delta % | Delta Abs | Status |\n")
+    sf.write("|------|----------|--------|---------|-----------|--------|\n")
     for row in rows:
         sf.write(row + "\n")
-    sf.write(f"\n**Metric**: CPU Time &nbsp;|&nbsp; **Threshold**: {int(threshold)}%\n")
+    sf.write(f"\n**Metric**: CPU Time &nbsp;|&nbsp; **Threshold**: {int(threshold)}% AND >{min_abs_delta:.3f}s\n")
 
 if regressions:
     print(f"FAIL: {len(regressions)} regression(s) exceed {threshold:.0f}% threshold: {', '.join(regressions)}")
