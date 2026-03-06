@@ -1,44 +1,43 @@
 import Foundation
 
 /// Actor that wraps `MessageURLExtractor.extractAllURLs(from:)` with an
-/// in-memory LRU cache, moving the expensive `NSDataDetector` work off
+/// in-memory cache, moving the expensive `NSDataDetector` work off
 /// the main thread via actor isolation.
+///
+/// Backed by `NSCache`, which automatically evicts entries under memory
+/// pressure — no manual LRU bookkeeping required.
 public actor URLExtractionCache {
     public static let shared = URLExtractionCache()
 
-    private var cache: [String: [URL]] = [:]
-    /// Tracks access order for LRU eviction — most recently used at the end.
-    private var accessOrder: [String] = []
-    private let maxEntries = 500
+    /// Wraps `[URL]` so it can be stored in `NSCache`.
+    private class CacheEntry: NSObject {
+        let urls: [URL]
+        init(_ urls: [URL]) {
+            self.urls = urls
+        }
+    }
+
+    private let cache = NSCache<NSString, CacheEntry>()
+
+    private init() {
+        cache.countLimit = 500
+    }
 
     public func extractAllURLs(from text: String) -> [URL] {
-        if let cached = cache[text] {
-            // Move to end of access order (most recent).
-            if let idx = accessOrder.firstIndex(of: text) {
-                accessOrder.remove(at: idx)
-            }
-            accessOrder.append(text)
-            return cached
+        let key = text as NSString
+
+        if let cached = cache.object(forKey: key) {
+            return cached.urls
         }
 
         let result = MessageURLExtractor.extractAllURLs(from: text)
-
-        // Evict least-recently-used entry if at capacity.
-        if cache.count >= maxEntries, let evictKey = accessOrder.first {
-            accessOrder.removeFirst()
-            cache.removeValue(forKey: evictKey)
-        }
-
-        cache[text] = result
-        accessOrder.append(text)
+        cache.setObject(CacheEntry(result), forKey: key)
         return result
     }
 
-    /// Removes all cached entries. Useful for memory-pressure relief or
-    /// thread-switch cleanup.
+    /// Removes all cached entries.
     public func clearCache() {
-        cache.removeAll()
-        accessOrder.removeAll()
+        cache.removeAllObjects()
     }
 }
 
