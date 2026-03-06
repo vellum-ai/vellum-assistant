@@ -641,12 +641,10 @@ public final class ChatViewModel: ObservableObject {
         // causes separate tool groups to merge into one massive progress view.
         // Text is already displayed correctly from the original segments — rehydration
         // is primarily needed for tool call details (inputs, results, images).
-        var didUpdateText = false
         if let fullText = response.text {
             let hasInterleavedText = messages[idx].textSegments.count > 1
             if !hasInterleavedText {
                 messages[idx].textSegments = fullText.isEmpty ? [] : [fullText]
-                didUpdateText = true
             }
         }
 
@@ -677,12 +675,10 @@ public final class ChatViewModel: ObservableObject {
             }
         }
 
-        // Only clear wasTruncated if text was actually updated; interleaved
-        // messages skip text replacement to preserve contentOrder, so leaving
-        // wasTruncated true would allow a future rehydration to retry.
-        if didUpdateText || response.text == nil {
-            messages[idx].wasTruncated = false
-        }
+        // Clear unconditionally — even when text replacement was skipped for
+        // interleaved messages, tool call data has been rehydrated. Leaving
+        // wasTruncated true would cause infinite rehydration requests.
+        messages[idx].wasTruncated = false
         messages[idx].isContentStripped = false
     }
 
