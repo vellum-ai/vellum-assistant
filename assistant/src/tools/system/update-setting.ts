@@ -5,12 +5,12 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import {
+  matchModel,
   MODEL_DISPLAY_NAMES,
   PROVIDER_MODEL_SHORTCUTS,
-  matchModel,
 } from "../../daemon/session-slash.js";
-import { initializeProviders } from "../../providers/registry.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { initializeProviders } from "../../providers/registry.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -150,7 +150,7 @@ export class UpdateSettingTool implements Tool {
 
   private handleModelSwitch(
     value: string,
-    context: ToolContext,
+    _context: ToolContext,
   ): ToolExecutionResult {
     const matched = matchModel(value);
     if (!matched) {
