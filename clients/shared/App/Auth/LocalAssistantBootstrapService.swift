@@ -57,7 +57,7 @@ public final class LocalAssistantBootstrapService {
     /// - Parameters:
     ///   - runtimeAssistantId: The local assistant's ID from the lockfile
     ///   - clientPlatform: e.g., "macos"
-    ///   - daemonBaseURL: The local daemon's HTTP base URL (e.g., http://localhost:7821)
+    ///   - daemonBaseURL: The local daemon's HTTP base URL
     ///   - daemonToken: The bearer token for authenticating with the local daemon
     public func bootstrap(
         runtimeAssistantId: String,

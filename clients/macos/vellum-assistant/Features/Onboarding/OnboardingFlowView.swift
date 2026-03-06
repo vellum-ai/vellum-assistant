@@ -170,7 +170,7 @@ struct OnboardingFlowView: View {
                 }
             } else {
                 Text("Setup failed")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(VFont.title)
                     .foregroundColor(VColor.textPrimary)
 
                 if let error = managedBootstrapError {
@@ -249,7 +249,7 @@ struct OnboardingFlowView: View {
                 }
             } else {
                 Text("Registration failed")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(VFont.title)
                     .foregroundColor(VColor.textPrimary)
 
                 if let error = localBootstrapError {
