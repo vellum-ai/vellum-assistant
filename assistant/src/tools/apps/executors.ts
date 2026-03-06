@@ -141,8 +141,10 @@ export async function executeAppCreate(
     }
   }
 
-  // Extract icon from preview if provided (emoji or URL)
-  const icon = preview?.icon as string | undefined;
+  // Extract icon from preview if provided — only persist emoji-like values,
+  // not URLs which would render as raw strings in UI and bundle manifests.
+  const rawIcon = preview?.icon as string | undefined;
+  const icon = rawIcon && !rawIcon.startsWith("http") ? rawIcon : undefined;
 
   const app = store.createApp({
     name,
@@ -433,13 +435,17 @@ export async function executeAppGenerateIcon(
     };
   }
 
-  // Remove existing icon so generateAppIcon doesn't skip
-  const { existsSync, unlinkSync } = await import("node:fs");
+  // Generate to a temp path first, then swap on success to avoid
+  // destroying an existing icon if generation fails.
+  const { existsSync, renameSync, unlinkSync } = await import("node:fs");
   const { join } = await import("node:path");
   const { getAppsDir } = await import("../../memory/app-store.js");
   const iconPath = join(getAppsDir(), input.app_id, "icon.png");
+  const tempPath = join(getAppsDir(), input.app_id, "icon.tmp.png");
+
+  // Temporarily move existing icon aside so generateAppIcon doesn't skip
   if (existsSync(iconPath)) {
-    unlinkSync(iconPath);
+    renameSync(iconPath, tempPath);
   }
 
   await generateAppIcon(
@@ -449,10 +455,19 @@ export async function executeAppGenerateIcon(
   );
 
   if (existsSync(iconPath)) {
+    // Success — clean up the old icon backup
+    if (existsSync(tempPath)) {
+      unlinkSync(tempPath);
+    }
     return {
       content: JSON.stringify({ generated: true, appId: input.app_id }),
       isError: false,
     };
+  }
+
+  // Generation failed — restore the previous icon if we had one
+  if (existsSync(tempPath)) {
+    renameSync(tempPath, iconPath);
   }
 
   return {
