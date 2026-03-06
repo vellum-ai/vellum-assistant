@@ -42,13 +42,13 @@ Output symbols:
 Diagnostic checks performed:
   1.  Bun is installed           Verifies bun is available in PATH
   2.  API key configured         Checks for a valid provider API key in config or env
-  3.  Daemon reachable           Connects to the daemon Unix socket
+  3.  Assistant reachable         Connects to the assistant Unix socket
   4.  Database exists/readable   Opens the SQLite database and runs a test query
   5.  Directory structure        Verifies required ~/.vellum/ directories exist
   6.  Disk space                 Ensures at least 100MB free on the data partition
   7.  Log file size              Warns if the log file exceeds 50MB
   8.  Database integrity         Runs SQLite PRAGMA integrity_check
-  9.  Socket permissions         Verifies the daemon socket has 0600 or 0700 mode
+  9.  Socket permissions         Verifies the assistant socket has 0600 or 0700 mode
   10. Trust rule syntax          Validates trust.json structure and rule fields
   11. WASM files                 Checks that tree-sitter WASM binaries are present
   12. Browser runtime            Verifies Playwright and Chromium availability
@@ -118,7 +118,10 @@ Examples:
       try {
         const sock = getSocketPath();
         if (!existsSync(sock)) {
-          fail("Daemon reachable", "socket not found (is the daemon running?)");
+          fail(
+            "Assistant reachable",
+            "socket not found (is the assistant running?)",
+          );
         } else {
           await new Promise<void>((resolve, reject) => {
             const s = net.createConnection(sock);
@@ -136,10 +139,10 @@ Examples:
               reject(err);
             });
           });
-          pass("Daemon reachable");
+          pass("Assistant reachable");
         }
       } catch {
-        fail("Daemon reachable", "could not connect to daemon socket");
+        fail("Assistant reachable", "could not connect to assistant socket");
       }
 
       // 4. DB exists and readable
@@ -272,7 +275,7 @@ Examples:
           fail("Socket permissions", "could not stat socket");
         }
       } else {
-        pass("Socket permissions (socket not present — daemon not running)");
+        pass("Socket permissions (socket not present — assistant not running)");
       }
 
       // 10. Trust rule syntax

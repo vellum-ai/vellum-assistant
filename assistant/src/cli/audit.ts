@@ -13,7 +13,7 @@ export function registerAuditCommand(program: Command): void {
     .addHelpText(
       "after",
       `
-Reads from the local tool invocation log stored by the daemon. Each row
+Reads from the local tool invocation log stored by the assistant. Each row
 represents one tool call the assistant made, including what was invoked,
 how the approval system classified it, and how long it took.
 

@@ -11,7 +11,7 @@ const log = getCliLogger("cli");
 export function registerDevCommand(program: Command): void {
   program
     .command("dev")
-    .description("Run the daemon in dev mode")
+    .description("Run the assistant in dev mode")
     .option(
       "--watch",
       "Auto-restart on source file changes (disruptive during Claude Code sessions)",
@@ -19,20 +19,20 @@ export function registerDevCommand(program: Command): void {
     .addHelpText(
       "after",
       `
-Starts the daemon in foreground dev mode for local development. If an
-existing daemon is running, it is stopped first (waits up to 5 seconds
-for an unresponsive daemon before force-killing it).
+Starts the assistant in foreground dev mode for local development. If an
+existing assistant is running, it is stopped first (waits up to 5 seconds
+for an unresponsive assistant before force-killing it).
 
 Behavioral notes:
   - Sets VELLUM_DEBUG=1 for DEBUG-level logging
   - Sets VELLUM_LOG_STDERR=1 so logs stream to stderr (visible in terminal)
   - Sets BASE_DATA_DIR to the repository root
-  - The daemon runs in the foreground; press Ctrl+C to stop
+  - The assistant runs in the foreground; press Ctrl+C to stop
 
 The --watch flag passes bun --watch to the child process, which
-auto-restarts the daemon whenever source files change. This is useful
+auto-restarts the assistant whenever source files change. This is useful
 during development but disruptive if a Claude Code session is active,
-since the restart kills the running daemon mid-conversation.
+since the restart kills the running assistant mid-conversation.
 
 Examples:
   $ vellum dev
@@ -41,11 +41,11 @@ Examples:
     .action(async (opts: { watch?: boolean }) => {
       let status = await getDaemonStatus();
       if (status.running) {
-        log.info("Stopping existing daemon...");
+        log.info("Stopping existing assistant...");
         const stopResult = await stopDaemon();
         if (!stopResult.stopped && stopResult.reason === "stop_failed") {
           log.error(
-            "Failed to stop existing daemon — process survived SIGKILL",
+            "Failed to stop existing assistant — process survived SIGKILL",
           );
           process.exit(1);
         }
@@ -54,7 +54,7 @@ Examples:
         // This can happen during the daemon startup window before the socket
         // is bound. Wait briefly for it to come up before replacing.
         log.info(
-          "Daemon process alive but socket unresponsive — waiting for startup...",
+          "Assistant process alive but socket unresponsive — waiting for startup...",
         );
         const maxWait = 5000;
         const interval = 500;
@@ -66,11 +66,11 @@ Examples:
           status = await getDaemonStatus();
           if (status.running) {
             // Socket came up — stop the daemon normally.
-            log.info("Daemon became responsive, stopping it...");
+            log.info("Assistant became responsive, stopping it...");
             const stopResult = await stopDaemon();
             if (!stopResult.stopped && stopResult.reason === "stop_failed") {
               log.error(
-                "Failed to stop existing daemon — process survived SIGKILL",
+                "Failed to stop existing assistant — process survived SIGKILL",
               );
               process.exit(1);
             }
@@ -86,11 +86,11 @@ Examples:
         if (!resolved) {
           // Still alive but unresponsive after waiting — stop it via stopDaemon()
           // which handles SIGTERM → SIGKILL escalation and PID file cleanup.
-          log.info("Daemon still unresponsive after wait — stopping it...");
+          log.info("Assistant still unresponsive after wait — stopping it...");
           const stopResult = await stopDaemon();
           if (!stopResult.stopped && stopResult.reason === "stop_failed") {
             log.error(
-              "Failed to stop existing daemon — process survived SIGKILL",
+              "Failed to stop existing assistant — process survived SIGKILL",
             );
             process.exit(1);
           }
@@ -101,7 +101,7 @@ Examples:
 
       const useWatch = opts.watch === true;
       log.info(
-        `Starting daemon in dev mode${
+        `Starting assistant in dev mode${
           useWatch ? " with file watching" : ""
         } (Ctrl+C to stop)`,
       );
