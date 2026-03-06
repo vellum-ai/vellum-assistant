@@ -147,12 +147,12 @@ describe("secure-keys", () => {
 
     test("delete removes a key", () => {
       setSecureKey("gemini", "gem-key");
-      expect(deleteSecureKey("gemini")).toBe(true);
+      expect(deleteSecureKey("gemini")).toBe("deleted");
       expect(getSecureKey("gemini")).toBeUndefined();
     });
 
-    test("delete returns false for nonexistent key", () => {
-      expect(deleteSecureKey("missing")).toBe(false);
+    test("delete returns not-found for nonexistent key", () => {
+      expect(deleteSecureKey("missing")).toBe("not-found");
     });
 
     test("listSecureKeys returns all keys", () => {
@@ -257,19 +257,19 @@ describe("secure-keys", () => {
       mockBrokerStore.set("api-key", "broker-value");
       setSecureKey("api-key", "encrypted-value");
       const result = await deleteSecureKeyAsync("api-key");
-      expect(result).toBe(true);
+      expect(result).toBe("deleted");
       expect(mockBrokerStore.has("api-key")).toBe(false);
       expect(getSecureKey("api-key")).toBeUndefined();
     });
 
-    test("deleteSecureKeyAsync returns false on broker del error (no silent fallback)", async () => {
+    test("deleteSecureKeyAsync returns error on broker del error (no silent fallback)", async () => {
       mockBrokerAvailable = true;
       mockBrokerDelError = true;
       setSecureKey("api-key", "encrypted-value");
       const result = await deleteSecureKeyAsync("api-key");
-      // Must return false — falling through to encrypted-only delete would
+      // Must return "error" — falling through to encrypted-only delete would
       // leave the broker with the key, and async readers would still see it.
-      expect(result).toBe(false);
+      expect(result).toBe("error");
       // Encrypted store should NOT have been modified either.
       expect(getSecureKey("api-key")).toBe("encrypted-value");
     });
@@ -297,7 +297,7 @@ describe("secure-keys", () => {
     test("deleteSecureKeyAsync uses encrypted store", async () => {
       setSecureKey("api-key", "value");
       const result = await deleteSecureKeyAsync("api-key");
-      expect(result).toBe(true);
+      expect(result).toBe("deleted");
       expect(getSecureKey("api-key")).toBeUndefined();
     });
   });

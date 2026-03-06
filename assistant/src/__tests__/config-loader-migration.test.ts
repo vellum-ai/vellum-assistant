@@ -48,7 +48,7 @@ mock.module("../util/platform.js", () => ({
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: () => null,
   setSecureKey: () => true,
-  deleteSecureKey: () => {},
+  deleteSecureKey: () => "deleted",
 }));
 
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";

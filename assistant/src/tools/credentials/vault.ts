@@ -494,8 +494,8 @@ class CredentialStoreTool implements Tool {
         }
 
         const key = `credential:${service}:${field}`;
-        const ok = deleteSecureKey(key);
-        if (!ok) {
+        const result = deleteSecureKey(key);
+        if (result !== "deleted") {
           return {
             content: `Error: credential ${service}/${field} not found`,
             isError: true,

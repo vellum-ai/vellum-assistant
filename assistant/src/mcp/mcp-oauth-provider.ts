@@ -243,22 +243,30 @@ export class McpOAuthProvider implements OAuthClientProvider {
     );
 
     if (scope === "all" || scope === "tokens") {
-      const ok = await deleteSecureKeyAsync(tokensKey(this.serverId));
-      if (!ok) {
-        // deleteSecureKeyAsync returns false for both real failures and "key not found",
-        // so we use debug level since deletion of a non-existent key is expected
+      const result = await deleteSecureKeyAsync(tokensKey(this.serverId));
+      if (result === "error") {
+        log.warn(
+          { serverId: this.serverId },
+          "Failed to delete OAuth tokens from secure storage",
+        );
+      } else if (result === "not-found") {
         log.debug(
           { serverId: this.serverId },
-          "OAuth tokens not deleted from secure storage (key may not exist)",
+          "OAuth tokens key not found in secure storage (already removed)",
         );
       }
     }
     if (scope === "all" || scope === "client") {
-      const ok = await deleteSecureKeyAsync(clientInfoKey(this.serverId));
-      if (!ok) {
+      const result = await deleteSecureKeyAsync(clientInfoKey(this.serverId));
+      if (result === "error") {
+        log.warn(
+          { serverId: this.serverId },
+          "Failed to delete OAuth client information from secure storage",
+        );
+      } else if (result === "not-found") {
         log.debug(
           { serverId: this.serverId },
-          "OAuth client information not deleted from secure storage (key may not exist)",
+          "OAuth client information key not found in secure storage (already removed)",
         );
       }
     }
@@ -266,11 +274,16 @@ export class McpOAuthProvider implements OAuthClientProvider {
       this._codeVerifier = undefined;
     }
     if (scope === "all" || scope === "discovery") {
-      const ok = await deleteSecureKeyAsync(discoveryKey(this.serverId));
-      if (!ok) {
+      const result = await deleteSecureKeyAsync(discoveryKey(this.serverId));
+      if (result === "error") {
+        log.warn(
+          { serverId: this.serverId },
+          "Failed to delete OAuth discovery state from secure storage",
+        );
+      } else if (result === "not-found") {
         log.debug(
           { serverId: this.serverId },
-          "OAuth discovery state not deleted from secure storage (key may not exist)",
+          "OAuth discovery state key not found in secure storage (already removed)",
         );
       }
     }
@@ -422,27 +435,31 @@ export class McpOAuthProvider implements OAuthClientProvider {
 export async function deleteMcpOAuthCredentials(
   serverId: string,
 ): Promise<void> {
-  const [tokensOk, clientOk, discoveryOk] = await Promise.all([
+  const [tokensResult, clientResult, discoveryResult] = await Promise.all([
     deleteSecureKeyAsync(tokensKey(serverId)),
     deleteSecureKeyAsync(clientInfoKey(serverId)),
     deleteSecureKeyAsync(discoveryKey(serverId)),
   ]);
-  if (!tokensOk || !clientOk || !discoveryOk) {
-    const failed = [
-      !tokensOk && "tokens",
-      !clientOk && "client_info",
-      !discoveryOk && "discovery",
-    ].filter(Boolean);
+  const results = [
+    { key: "tokens", result: tokensResult },
+    { key: "client_info", result: clientResult },
+    { key: "discovery", result: discoveryResult },
+  ];
+  const errors = results
+    .filter((r) => r.result === "error")
+    .map((r) => r.key);
+  if (errors.length > 0) {
     log.warn(
-      { serverId, failedKeys: failed },
+      { serverId, failedKeys: errors },
       "Some OAuth credentials could not be deleted from secure storage",
     );
   }
+  const hasErrors = errors.length > 0;
   log.info(
     { serverId },
-    tokensOk && clientOk && discoveryOk
-      ? "OAuth credentials deleted"
-      : "OAuth credential deletion completed with errors",
+    hasErrors
+      ? "OAuth credential deletion completed with errors"
+      : "OAuth credentials deleted",
   );
 }
 

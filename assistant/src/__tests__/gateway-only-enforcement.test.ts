@@ -128,7 +128,11 @@ mock.module("../security/secure-keys.js", () => ({
     return true;
   },
   deleteSecureKey: (key: string) => {
-    delete secureKeyStore[key];
+    if (key in secureKeyStore) {
+      delete secureKeyStore[key];
+      return "deleted";
+    }
+    return "not-found";
   },
 }));
 
