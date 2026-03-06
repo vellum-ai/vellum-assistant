@@ -403,7 +403,7 @@ export function redirectToSecurePrompt(
     .then(async (result): Promise<void> => {
       if (!result.value) return;
 
-      const { setSecureKey } = await import("../security/secure-keys.js");
+      const { setSecureKeyAsync } = await import("../security/secure-keys.js");
       const { upsertCredentialMetadata } =
         await import("../tools/credentials/metadata-store.js");
 
@@ -435,7 +435,7 @@ export function redirectToSecurePrompt(
         );
       } else {
         const key = `credential:${target.service}:${target.field}`;
-        const stored = setSecureKey(key, result.value);
+        const stored = await setSecureKeyAsync(key, result.value);
         if (stored) {
           try {
             upsertCredentialMetadata(target.service, target.field, {});

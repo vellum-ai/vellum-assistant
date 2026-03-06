@@ -52,25 +52,32 @@ mock.module("../util/logger.js", () => ({
 // Mock secure key storage
 let secureKeyStore: Record<string, string> = {};
 
-mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
-  setSecureKey: (account: string, value: string) => {
+mock.module("../security/secure-keys.js", () => {
+  const syncSet = (account: string, value: string) => {
     secureKeyStore[account] = value;
     return true;
-  },
-  deleteSecureKey: (account: string) => {
+  };
+  const syncDelete = (account: string) => {
     if (account in secureKeyStore) {
       delete secureKeyStore[account];
-      return "deleted";
+      return "deleted" as const;
     }
-    return "not-found";
-  },
-  listSecureKeys: () => Object.keys(secureKeyStore),
-  getBackendType: () => "encrypted",
-  isDowngradedFromKeychain: () => false,
-  _resetBackend: () => {},
-  _setBackend: () => {},
-}));
+    return "not-found" as const;
+  };
+  return {
+    getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
+    setSecureKey: syncSet,
+    deleteSecureKey: syncDelete,
+    setSecureKeyAsync: async (account: string, value: string) =>
+      syncSet(account, value),
+    deleteSecureKeyAsync: async (account: string) => syncDelete(account),
+    listSecureKeys: () => Object.keys(secureKeyStore),
+    getBackendType: () => "encrypted",
+    isDowngradedFromKeychain: () => false,
+    _resetBackend: () => {},
+    _setBackend: () => {},
+  };
+});
 
 // Mock credential metadata store
 let credentialMetadataStore: Array<{
@@ -245,7 +252,7 @@ describe("Slack channel config handler", () => {
     expect(result.error).toContain("invalid_auth");
   });
 
-  test("DELETE clears credentials", () => {
+  test("DELETE clears credentials", async () => {
     secureKeyStore["credential:slack_channel:bot_token"] = "xoxb-test";
     secureKeyStore["credential:slack_channel:app_token"] = "xapp-test";
     credentialMetadataStore.push({
@@ -257,7 +264,7 @@ describe("Slack channel config handler", () => {
       field: "app_token",
     });
 
-    const result = clearSlackChannelConfig();
+    const result = await clearSlackChannelConfig();
     expect(result.success).toBe(true);
     expect(result.hasBotToken).toBe(false);
     expect(result.hasAppToken).toBe(false);

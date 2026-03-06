@@ -29,23 +29,30 @@ mock.module("../util/logger.js", () => ({
 
 // Track keychain writes
 const storedKeys = new Map<string, string>();
-mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (key: string) => storedKeys.get(key) ?? null,
-  setSecureKey: (key: string, value: string) => {
+mock.module("../security/secure-keys.js", () => {
+  const syncSet = (key: string, value: string) => {
     storedKeys.set(key, value);
     return true;
-  },
-  deleteSecureKey: (key: string) => {
+  };
+  const syncDelete = (key: string) => {
     if (storedKeys.has(key)) {
       storedKeys.delete(key);
-      return "deleted";
+      return "deleted" as const;
     }
-    return "not-found";
-  },
-  listSecureKeys: () => [],
-  getBackendType: () => "encrypted",
-  isDowngradedFromKeychain: () => false,
-}));
+    return "not-found" as const;
+  };
+  return {
+    getSecureKey: (key: string) => storedKeys.get(key) ?? null,
+    setSecureKey: syncSet,
+    setSecureKeyAsync: async (key: string, value: string) =>
+      syncSet(key, value),
+    deleteSecureKey: syncDelete,
+    deleteSecureKeyAsync: async (key: string) => syncDelete(key),
+    listSecureKeys: () => [],
+    getBackendType: () => "encrypted",
+    isDowngradedFromKeychain: () => false,
+  };
+});
 
 mock.module("./metadata-store.js", () => ({
   upsertCredentialMetadata: () => {},

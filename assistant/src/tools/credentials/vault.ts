@@ -9,10 +9,10 @@ import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
-  deleteSecureKey,
+  deleteSecureKeyAsync,
   getSecureKey,
   listSecureKeys,
-  setSecureKey,
+  setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -381,7 +381,7 @@ class CredentialStoreTool implements Tool {
         }
 
         const key = `credential:${service}:${field}`;
-        const ok = setSecureKey(key, value);
+        const ok = await setSecureKeyAsync(key, value);
         if (!ok) {
           return {
             content: "Error: failed to store credential",
@@ -494,7 +494,7 @@ class CredentialStoreTool implements Tool {
         }
 
         const key = `credential:${service}:${field}`;
-        const result = deleteSecureKey(key);
+        const result = await deleteSecureKeyAsync(key);
         if (result === "error") {
           return {
             content: `Error: failed to delete credential ${service}/${field} from secure storage`,
@@ -564,7 +564,9 @@ class CredentialStoreTool implements Tool {
         const promptPolicy = toPolicyFromInput(promptPolicyInput);
 
         // Parse and validate injection templates (same logic as store action)
-        const promptRawTemplates = input.injection_templates as unknown[] | undefined;
+        const promptRawTemplates = input.injection_templates as
+          | unknown[]
+          | undefined;
         let promptInjectionTemplates: CredentialInjectionTemplate[] | undefined;
         if (promptRawTemplates !== undefined) {
           if (!Array.isArray(promptRawTemplates)) {
@@ -732,7 +734,7 @@ class CredentialStoreTool implements Tool {
 
         // Default: persist to keychain
         const key = `credential:${service}:${field}`;
-        const ok = setSecureKey(key, result.value);
+        const ok = await setSecureKeyAsync(key, result.value);
         if (!ok) {
           return {
             content: "Error: failed to store credential",
@@ -752,7 +754,7 @@ class CredentialStoreTool implements Tool {
             "metadata write failed after storing credential",
           );
         }
-      const promptMeta = getCredentialMetadata(service, field);
+        const promptMeta = getCredentialMetadata(service, field);
         const promptCredIdSuffix = promptMeta
           ? ` (credential_id: ${promptMeta.credentialId})`
           : "";

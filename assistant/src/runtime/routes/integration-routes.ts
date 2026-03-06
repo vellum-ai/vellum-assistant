@@ -139,8 +139,8 @@ export async function handleSetSlackChannelConfig(
 /**
  * DELETE /v1/integrations/slack/channel/config
  */
-export function handleClearSlackChannelConfig(): Response {
-  const result = clearSlackChannelConfig();
+export async function handleClearSlackChannelConfig(): Promise<Response> {
+  const result = await clearSlackChannelConfig();
   return Response.json(result);
 }
 

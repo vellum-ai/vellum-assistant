@@ -1,7 +1,7 @@
 import {
-  deleteSecureKey,
+  deleteSecureKeyAsync,
   getSecureKey,
-  setSecureKey,
+  setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import {
   deleteCredentialMetadata,
@@ -122,7 +122,10 @@ export async function setSlackChannelConfig(
       };
     }
 
-    const stored = setSecureKey("credential:slack_channel:bot_token", botToken);
+    const stored = await setSecureKeyAsync(
+      "credential:slack_channel:bot_token",
+      botToken,
+    );
     if (!stored) {
       const storedBotToken = !!getSecureKey(
         "credential:slack_channel:bot_token",
@@ -166,7 +169,10 @@ export async function setSlackChannelConfig(
       };
     }
 
-    const stored = setSecureKey("credential:slack_channel:app_token", appToken);
+    const stored = await setSecureKeyAsync(
+      "credential:slack_channel:app_token",
+      appToken,
+    );
     if (!stored) {
       const storedBotToken = !!getSecureKey(
         "credential:slack_channel:bot_token",
@@ -207,10 +213,10 @@ export async function setSlackChannelConfig(
   };
 }
 
-export function clearSlackChannelConfig(): SlackChannelConfigResult {
-  deleteSecureKey("credential:slack_channel:bot_token");
+export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResult> {
+  await deleteSecureKeyAsync("credential:slack_channel:bot_token");
   deleteCredentialMetadata("slack_channel", "bot_token");
-  deleteSecureKey("credential:slack_channel:app_token");
+  await deleteSecureKeyAsync("credential:slack_channel:app_token");
   deleteCredentialMetadata("slack_channel", "app_token");
 
   return {
