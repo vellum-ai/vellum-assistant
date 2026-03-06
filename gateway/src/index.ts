@@ -98,8 +98,8 @@ function getClientIp(
   return addr?.address ?? "unknown";
 }
 
-function main() {
-  const config = loadConfig();
+async function main() {
+  const config = await loadConfig();
   initLogger(config.logFile);
 
   log.info("Starting Vellum Gateway...");

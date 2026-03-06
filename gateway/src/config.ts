@@ -124,7 +124,7 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
   return entries;
 }
 
-export function loadConfig(): GatewayConfig {
+export async function loadConfig(): Promise<GatewayConfig> {
   const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || undefined;
   const telegramWebhookSecret =
     process.env.TELEGRAM_WEBHOOK_SECRET || undefined;
@@ -301,7 +301,7 @@ export function loadConfig(): GatewayConfig {
   }
 
   // Twilio credentials: env var > credential store (encrypted file)
-  const twilioCreds = readTwilioCredentials();
+  const twilioCreds = await readTwilioCredentials();
   const twilioAuthToken =
     process.env.TWILIO_AUTH_TOKEN || twilioCreds?.authToken || undefined;
   const twilioAccountSid =
@@ -343,11 +343,11 @@ export function loadConfig(): GatewayConfig {
   }
   if (!twilioPhoneNumber) {
     twilioPhoneNumber =
-      readCredential("credential:twilio:phone_number") || undefined;
+      (await readCredential("credential:twilio:phone_number")) || undefined;
   }
 
   // WhatsApp credentials: env var > credential store (encrypted file)
-  const whatsappCreds = readWhatsAppCredentials();
+  const whatsappCreds = await readWhatsAppCredentials();
   const whatsappPhoneNumberId =
     process.env.WHATSAPP_PHONE_NUMBER_ID ||
     whatsappCreds?.phoneNumberId ||
@@ -405,7 +405,7 @@ export function loadConfig(): GatewayConfig {
   }
 
   // Slack channel credentials: env var > credential store (encrypted file)
-  const slackChannelCreds = readSlackChannelCredentials();
+  const slackChannelCreds = await readSlackChannelCredentials();
   const slackChannelBotToken =
     process.env.SLACK_CHANNEL_BOT_TOKEN ||
     slackChannelCreds?.botToken ||

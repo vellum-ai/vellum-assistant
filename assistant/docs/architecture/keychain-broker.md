@@ -30,7 +30,7 @@ graph LR
     end
 
     RUNTIME["Assistant Runtime (Bun)"] -->|"UDS JSON"| SERVER
-    GATEWAY["Gateway (Bun)"] -->|"UDS JSON<br/>(spawnSync node)"| SERVER
+    GATEWAY["Gateway (Bun)"] -->|"UDS JSON<br/>(async)"| SERVER
 
     RUNTIME -.->|"fallback<br/>(sync + broker unavailable)"| ENC["Encrypted Store<br/>(~/.vellum/protected/keys.enc)"]
     GATEWAY -.->|"fallback<br/>(broker unavailable)"| ENC
@@ -55,11 +55,11 @@ graph LR
 
 ### TypeScript side (runtime + gateway)
 
-| File                                               | Role                                                                                                                                                                                                                                                                                                                                                                                              |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/security/keychain-broker-client.ts` | Async UDS client for the runtime. Persistent socket connection, request/response correlation, auth token caching with auto-refresh on `UNAUTHORIZED`. Falls back gracefully (returns safe defaults, never throws).                                                                                                                                                                                |
+| File                                               | Role                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/security/keychain-broker-client.ts` | Async UDS client for the runtime. Persistent socket connection, request/response correlation, auth token caching with auto-refresh on `UNAUTHORIZED`. Falls back gracefully (returns safe defaults, never throws).                                                                                                                                                                                                                                                      |
 | `assistant/src/security/secure-keys.ts`            | Unified API surface. Sync variants use encrypted store only. Async variants (`getSecureKeyAsync`, `setSecureKeyAsync`, `deleteSecureKeyAsync`) try broker first. **Reads** fall back to the encrypted store when the broker is unavailable or key is not found. **Writes** return `false` on broker failure (no encrypted-store fallback). **Deletes** return `"deleted"`, `"not-found"`, or `"error"` to let callers distinguish idempotent no-ops from real failures. |
-| `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via `spawnSync` + inline Node script (gateway is sync-only at credential read time), falls back to encrypted store.                                                                                                                                                                                                                                     |
+| `gateway/src/credential-reader.ts`                 | Read-only credential reader. Tries broker via native async UDS connection (`node:net`), falls back to encrypted store. All public credential read functions are async.                                                                                                                                                                                                                                                                                                  |
 
 ## IPC Contract
 
@@ -160,6 +160,24 @@ XPC provides stronger caller identity guarantees via audit tokens and code requi
 - **Debug builds:** The `#if !DEBUG` guard compiles out the entire `KeychainBrokerServer`. The `VELLUM_KEYCHAIN_BROKER_SOCKET` env var is not set, so clients see the broker as unavailable and use the encrypted store. Developers never encounter keychain prompts during the edit-build-run cycle.
 - **Release builds:** The broker starts automatically with the app. The daemon discovers it via the socket env var and token file. No configuration needed.
 - **CLI-only / headless:** No macOS app means no broker socket. All storage uses the encrypted file store. This is the expected path for CI, servers, and non-macOS platforms.
+
+## Callsite Policy
+
+### Runtime request handlers (secret-routes, etc.)
+
+All runtime HTTP handlers that write or delete secrets **must** use the async APIs (`setSecureKeyAsync`, `deleteSecureKeyAsync`). These are the primary entry points for macOS app flows and must go through the broker to reach keychain.
+
+### CLI commands (keys, credentials)
+
+CLI commands may use sync APIs (`setSecureKey`, `deleteSecureKey`, `getSecureKey`) since they run outside the macOS app process and the broker may not be available. The sync path uses the encrypted store directly, which is correct for headless/CLI environments.
+
+### Gateway (credential-reader)
+
+The gateway reads credentials via async `readCredential()` which tries the broker first (native async UDS), falling back to the encrypted store. The gateway never writes credentials — that responsibility belongs to the assistant runtime.
+
+### Startup / initialization code
+
+Sync APIs are acceptable for startup paths (e.g. provider initialization, config loading) where async is impractical or the broker may not yet be available.
 
 ## Migration
 

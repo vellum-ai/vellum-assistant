@@ -62,7 +62,7 @@ export class CredentialWatcher {
   }
 
   start(): void {
-    this.pollOnce();
+    void this.pollOnce();
 
     this.watchingDirectory = !existsSync(this.metadataPath);
     const watchTarget = this.watchingDirectory
@@ -113,7 +113,7 @@ export class CredentialWatcher {
     }
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      this.pollOnce();
+      void this.pollOnce();
 
       if (this.watchingDirectory && existsSync(this.metadataPath)) {
         this.upgradeWatcher();
@@ -140,11 +140,11 @@ export class CredentialWatcher {
     }
   }
 
-  private pollOnce(): void {
-    const telegramCredentials = readTelegramCredentials();
-    const twilioCredentials = readTwilioCredentials();
-    const whatsappCredentials = readWhatsAppCredentials();
-    const slackChannelCredentials = readSlackChannelCredentials();
+  private async pollOnce(): Promise<void> {
+    const telegramCredentials = await readTelegramCredentials();
+    const twilioCredentials = await readTwilioCredentials();
+    const whatsappCredentials = await readWhatsAppCredentials();
+    const slackChannelCredentials = await readSlackChannelCredentials();
 
     const newBotToken = telegramCredentials?.botToken;
     const newWebhookSecret = telegramCredentials?.webhookSecret;
