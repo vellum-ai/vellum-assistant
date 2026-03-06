@@ -627,10 +627,6 @@ while IFS= read -r -d '' FILE; do
                 continue
             fi
             CONTENT="${line#*:}"
-            # Lines with an inline "nosec" comment are explicitly suppressed.
-            if [[ "$CONTENT" =~ (//|#|--|/\*)[[:space:]]*nosec ]]; then
-                continue
-            fi
             if matches_safe_line_pattern "$CONTENT"; then
                 # Strip safe-line portions and re-check: a real secret
                 # on the same line (e.g. minified JSON) must not be masked.

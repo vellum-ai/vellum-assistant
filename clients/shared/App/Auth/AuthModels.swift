@@ -241,7 +241,7 @@ public struct SelfHostedProvisioningInfo: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case credentialName = "credential_name"
-        case assistantApiKey = "assistant_api_key" // nosec — CodingKeys JSON field mapping, not a secret
+        case assistantApiKey = "assistant_api_key"
         case rotated
     }
 }
