@@ -276,10 +276,20 @@ export async function handleSetTwilioCredentials(
  * DELETE /v1/integrations/twilio/credentials
  */
 export async function handleClearTwilioCredentials(): Promise<Response> {
-  await deleteSecureKeyAsync("credential:twilio:account_sid");
-  await deleteSecureKeyAsync("credential:twilio:auth_token");
+  const r1 = await deleteSecureKeyAsync("credential:twilio:account_sid");
+  const r2 = await deleteSecureKeyAsync("credential:twilio:auth_token");
   deleteCredentialMetadata("twilio", "account_sid");
   deleteCredentialMetadata("twilio", "auth_token");
+
+  if (r1 === "error" || r2 === "error") {
+    return Response.json(
+      {
+        success: false,
+        error: "Failed to delete Twilio credentials from secure storage",
+      },
+      { status: 500 },
+    );
+  }
 
   return Response.json({ success: true, hasCredentials: false });
 }
