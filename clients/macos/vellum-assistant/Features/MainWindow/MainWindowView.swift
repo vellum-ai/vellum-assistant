@@ -259,9 +259,9 @@ struct MainWindowView: View {
                     } else {
                         // Thread was archived/deleted — fall back to the first visible thread
                         if let fallback = threadManager.visibleThreads.first {
-                            windowState.selection = .thread(fallback.id)
+                            windowState.applySelectionCorrection(.thread(fallback.id))
                         } else {
-                            windowState.selection = nil
+                            windowState.applySelectionCorrection(nil)
                         }
                     }
                 }
@@ -349,6 +349,18 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
+                VIconButton(label: "Back", icon: "chevron.left", iconOnly: true, tooltip: "Back (\u{2318}[)") {
+                    windowState.navigateBack()
+                }
+                .disabled(!windowState.navigationHistory.canGoBack)
+                .opacity(windowState.navigationHistory.canGoBack ? 1 : 0.35)
+
+                VIconButton(label: "Forward", icon: "chevron.right", iconOnly: true, tooltip: "Forward (\u{2318}])") {
+                    windowState.navigateForward()
+                }
+                .disabled(!windowState.navigationHistory.canGoForward)
+                .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
+
                 VIconButton(label: "Sidebar", icon: "sidebar.left", iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()

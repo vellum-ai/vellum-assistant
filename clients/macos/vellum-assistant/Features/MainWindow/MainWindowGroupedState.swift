@@ -15,6 +15,7 @@ final class SharingState {
     var shareFileURL: URL?
     var shareAppName: String = ""
     var shareAppIcon: NSImage?
+    var shareAppId: String?
     var isPublishing = false
     var publishedUrl: String?
     var publishError: String?

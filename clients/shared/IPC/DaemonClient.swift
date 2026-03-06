@@ -454,9 +454,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `share_app_cloud_response` message.
     public var onShareAppCloudResponse: ((ShareAppCloudResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `share_to_slack_response` message.
-    public var onShareToSlackResponse: ((ShareToSlackResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `slack_webhook_config_response` message.
     public var onSlackWebhookConfigResponse: ((SlackWebhookConfigResponseMessage) -> Void)?
 
@@ -1381,11 +1378,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Share a local app via a cloud link.
     public func sendShareAppCloud(appId: String) throws {
         try send(ShareAppCloudRequestMessage(appId: appId))
-    }
-
-    /// Share a local app to Slack via configured webhook.
-    public func sendShareToSlack(appId: String) throws {
-        try send(ShareToSlackRequestMessage(appId: appId))
     }
 
     /// Get or set the Slack webhook URL configuration.

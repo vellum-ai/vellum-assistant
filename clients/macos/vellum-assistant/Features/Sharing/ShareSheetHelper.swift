@@ -9,6 +9,8 @@ struct AppSharePanel: NSViewRepresentable {
     @Binding var isPresented: Bool
     let appName: String
     let appIcon: NSImage?
+    var appId: String?
+    var gatewayBaseURL: String = ""
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
@@ -19,6 +21,8 @@ struct AppSharePanel: NSViewRepresentable {
         context.coordinator.items = items
         context.coordinator.appName = appName
         context.coordinator.appIcon = appIcon
+        context.coordinator.appId = appId
+        context.coordinator.gatewayBaseURL = gatewayBaseURL
         if isPresented && !context.coordinator.isPopoverShown {
             context.coordinator.presentWhenReady(nsView: nsView) {
                 self.isPresented = false
@@ -29,21 +33,25 @@ struct AppSharePanel: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(items: items, appName: appName, appIcon: appIcon)
+        Coordinator(items: items, appName: appName, appIcon: appIcon, appId: appId, gatewayBaseURL: gatewayBaseURL)
     }
 
     class Coordinator: NSObject, NSPopoverDelegate {
         var items: [Any]
         var appName: String
         var appIcon: NSImage?
+        var appId: String?
+        var gatewayBaseURL: String
         var isPopoverShown = false
         var onDismiss: (() -> Void)?
         private var popover: NSPopover?
 
-        init(items: [Any], appName: String, appIcon: NSImage?) {
+        init(items: [Any], appName: String, appIcon: NSImage?, appId: String?, gatewayBaseURL: String) {
             self.items = items
             self.appName = appName
             self.appIcon = appIcon
+            self.appId = appId
+            self.gatewayBaseURL = gatewayBaseURL
         }
 
         /// Waits for the NSView to be added to a window before showing the popover.
@@ -77,6 +85,8 @@ struct AppSharePanel: NSViewRepresentable {
                 fileURL: fileURL,
                 appName: appName,
                 appIcon: appIcon,
+                appId: appId,
+                gatewayBaseURL: gatewayBaseURL,
                 onDismiss: { [weak self] in
                     self?.dismissPopover()
                 }

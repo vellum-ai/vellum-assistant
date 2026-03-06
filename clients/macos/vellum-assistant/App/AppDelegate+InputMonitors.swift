@@ -159,6 +159,10 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
             cmdKLocalMonitor = nil
         }
+        if let monitor = navLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            navLocalMonitor = nil
+        }
     }
 
     /// Registers Cmd+Shift+V as a global shortcut to open the quick input text field.
@@ -203,6 +207,41 @@ extension AppDelegate {
         cmdKLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
+    /// Registers Cmd+[ and Cmd+] as local shortcuts for back/forward navigation.
+    /// Uses event monitoring (like Cmd+K) instead of NSMenu key equivalents
+    /// because SwiftUI manages the menu bar and may interfere with programmatic
+    /// NSMenu items and their validation.
+    ///
+    /// Matches on `charactersIgnoringModifiers` instead of hardware keycodes
+    /// so the shortcuts work correctly on non-ANSI keyboard layouts (ISO, JIS).
+    /// Only consumes the event when navigation actually occurs — if the history
+    /// stack is empty, the event passes through to the responder chain.
+    func registerNavigationMonitor() {
+        guard navLocalMonitor == nil else { return }
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard mods == [.command] else { return event }
+            guard let chars = event.charactersIgnoringModifiers else { return event }
+            switch chars {
+            case "[":
+                guard self?.mainWindow?.windowState.navigationHistory.canGoBack == true else { return event }
+                Task { @MainActor in
+                    self?.mainWindow?.windowState.navigateBack()
+                }
+                return nil
+            case "]":
+                guard self?.mainWindow?.windowState.navigationHistory.canGoForward == true else { return event }
+                Task { @MainActor in
+                    self?.mainWindow?.windowState.navigateForward()
+                }
+                return nil
+            default:
+                return event
+            }
+        }
+        navLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
     func toggleCommandPalette() {
         if let window = commandPaletteWindow, window.isVisible {
             window.dismiss()
@@ -225,6 +264,12 @@ extension AppDelegate {
             },
             CommandPaletteAction(id: "intelligence", icon: "brain.head.profile", label: "Intelligence", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.togglePanel(.intelligence)
+            },
+            CommandPaletteAction(id: "navigate-back", icon: "chevron.left", label: "Back", shortcutHint: "\u{2318}[") { [weak self] in
+                self?.mainWindow?.windowState.navigateBack()
+            },
+            CommandPaletteAction(id: "navigate-forward", icon: "chevron.right", label: "Forward", shortcutHint: "\u{2318}]") { [weak self] in
+                self?.mainWindow?.windowState.navigateForward()
             },
         ]
 

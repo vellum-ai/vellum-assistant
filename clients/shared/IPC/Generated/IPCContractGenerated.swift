@@ -3936,28 +3936,6 @@ public struct IPCSharedAppsListResponseApp: Codable, Sendable {
     }
 }
 
-public struct IPCShareToSlackRequest: Codable, Sendable {
-    public let type: String
-    public let appId: String
-
-    public init(type: String, appId: String) {
-        self.type = type
-        self.appId = appId
-    }
-}
-
-public struct IPCShareToSlackResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let error: String?
-
-    public init(type: String, success: Bool, error: String? = nil) {
-        self.type = type
-        self.success = success
-        self.error = error
-    }
-}
-
 public struct IPCSignBundlePayloadRequest: Codable, Sendable {
     public let type: String
     public let requestId: String

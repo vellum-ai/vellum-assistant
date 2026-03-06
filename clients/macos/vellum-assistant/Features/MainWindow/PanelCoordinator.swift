@@ -62,6 +62,7 @@ extension MainWindowView {
                     set: { windowState.isDynamicExpanded = $0 }
                 ),
                 daemonClient: daemonClient,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { surfaceMsg in
                     windowState.activeDynamicSurface = surfaceMsg
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
@@ -78,6 +79,7 @@ extension MainWindowView {
             AppsGridView(
                 appListManager: appListManager,
                 daemonClient: daemonClient,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
                     try? daemonClient.sendAppOpen(appId: appId)
                     windowState.selection = .app(appId)
@@ -343,6 +345,7 @@ extension MainWindowView {
                 AppsGridView(
                     appListManager: appListManager,
                     daemonClient: daemonClient,
+                    gatewayBaseURL: settingsStore.localGatewayTarget,
                     onOpenApp: { appId in
                         try? daemonClient.sendAppOpen(appId: appId)
                         windowState.selection = .app(appId)
@@ -492,6 +495,7 @@ extension MainWindowView {
             AppsGridView(
                 appListManager: appListManager,
                 daemonClient: daemonClient,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
                     try? daemonClient.sendAppOpen(appId: appId)
                     windowState.selection = .app(appId)
@@ -573,6 +577,7 @@ extension MainWindowView {
                 trafficLightPadding: trafficLightPadding,
                 isSidebarOpen: sidebarExpanded,
                 sharing: sharing,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onPublishPage: publishPage,
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
@@ -819,6 +824,7 @@ struct DynamicWorkspaceWrapper: View {
     let trafficLightPadding: CGFloat
     let isSidebarOpen: Bool
     var sharing: SharingState
+    let gatewayBaseURL: String
     let onPublishPage: (String, String?, String?) -> Void
     let onBundleAndShare: (String) -> Void
     let isChatDockOpen: Bool
@@ -899,7 +905,9 @@ struct DynamicWorkspaceWrapper: View {
                                             set: { sharing.showSharePicker = $0 }
                                         ),
                                         appName: sharing.shareAppName,
-                                        appIcon: sharing.shareAppIcon
+                                        appIcon: sharing.shareAppIcon,
+                                        appId: sharing.shareAppId,
+                                        gatewayBaseURL: gatewayBaseURL
                                     )
                                     .allowsHitTesting(false)
                                 }
