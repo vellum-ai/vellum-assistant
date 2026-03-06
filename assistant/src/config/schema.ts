@@ -48,6 +48,7 @@ export type {
   SmsConfig,
   ThinkingConfig,
   TimeoutConfig,
+  TwilioConfig,
   UiConfig,
   WhatsAppConfig,
 } from "./core-schema.js";
@@ -69,6 +70,7 @@ export {
   SmsConfigSchema,
   ThinkingConfigSchema,
   TimeoutConfigSchema,
+  TwilioConfigSchema,
   UiConfigSchema,
   WhatsAppConfigSchema,
 } from "./core-schema.js";
@@ -162,6 +164,7 @@ import {
   SmsConfigSchema,
   ThinkingConfigSchema,
   TimeoutConfigSchema,
+  TwilioConfigSchema,
   UiConfigSchema,
   WhatsAppConfigSchema,
 } from "./core-schema.js";
@@ -259,6 +262,7 @@ export const AssistantConfigSchema = z
     workspaceGit: WorkspaceGitConfigSchema.default(
       WorkspaceGitConfigSchema.parse({}),
     ),
+    twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
     calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
     elevenlabs: ElevenLabsConfigSchema.default(
       ElevenLabsConfigSchema.parse({}),
