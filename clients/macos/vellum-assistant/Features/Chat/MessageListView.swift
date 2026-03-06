@@ -1017,7 +1017,7 @@ private struct MessageCellView: View {
     }
 }
 
-private struct ThreadScrollbarVisibilityController: NSViewRepresentable {
+private struct ThreadScrollbarVisibilityController: NSViewRepresentable, Equatable {
     let shouldShow: Bool
 
     func makeCoordinator() -> Coordinator {
@@ -1040,10 +1040,14 @@ private struct ThreadScrollbarVisibilityController: NSViewRepresentable {
 
     final class Coordinator {
         weak var lastResolvedScrollView: NSScrollView?
+        private var lastShouldShow: Bool?
 
         func update(from markerView: NSView, shouldShow: Bool) {
             guard let scrollView = findEnclosingScrollView(from: markerView) ?? lastResolvedScrollView else { return }
+            // Skip redundant reconfiguration
+            if scrollView === lastResolvedScrollView && lastShouldShow == shouldShow { return }
             lastResolvedScrollView = scrollView
+            lastShouldShow = shouldShow
             // Keep the scroller instantiated and styled consistently; only toggle
             // visibility. Toggling `hasVerticalScroller` can recreate scroller
             // internals, which causes visible flicker and brief legacy-style flashes.
