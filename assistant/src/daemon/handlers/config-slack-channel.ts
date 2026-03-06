@@ -214,10 +214,20 @@ export async function setSlackChannelConfig(
 }
 
 export async function clearSlackChannelConfig(): Promise<SlackChannelConfigResult> {
-  await deleteSecureKeyAsync("credential:slack_channel:bot_token");
+  const r1 = await deleteSecureKeyAsync("credential:slack_channel:bot_token");
   deleteCredentialMetadata("slack_channel", "bot_token");
-  await deleteSecureKeyAsync("credential:slack_channel:app_token");
+  const r2 = await deleteSecureKeyAsync("credential:slack_channel:app_token");
   deleteCredentialMetadata("slack_channel", "app_token");
+
+  if (r1 === "error" || r2 === "error") {
+    return {
+      success: false,
+      hasBotToken: !!getSecureKey("credential:slack_channel:bot_token"),
+      hasAppToken: !!getSecureKey("credential:slack_channel:app_token"),
+      connected: false,
+      error: "Failed to delete Slack channel credentials from secure storage",
+    };
+  }
 
   return {
     success: true,

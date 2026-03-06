@@ -1,9 +1,9 @@
 import type { Command } from "commander";
 
 import {
-  deleteSecureKey,
+  deleteSecureKeyAsync,
   getSecureKey,
-  setSecureKey,
+  setSecureKeyAsync,
 } from "../security/secure-keys.js";
 import {
   assertMetadataWritable,
@@ -255,7 +255,7 @@ Examples:
   $ assistant credentials set github:token ghp_abc --allowed-tools "bash,host_bash"`,
     )
     .action(
-      (
+      async (
         name: string,
         value: string,
         opts: { label?: string; description?: string; allowedTools?: string },
@@ -277,7 +277,7 @@ Examples:
 
           assertMetadataWritable();
 
-          const stored = setSecureKey(storageKey, value);
+          const stored = await setSecureKeyAsync(storageKey, value);
           if (!stored) {
             writeOutput(cmd, {
               ok: false,
@@ -337,7 +337,7 @@ Examples:
   $ assistant credentials delete twilio:auth_token
   $ assistant credentials delete github:token`,
     )
-    .action((name: string, _opts: unknown, cmd: Command) => {
+    .action(async (name: string, _opts: unknown, cmd: Command) => {
       try {
         const parsed = parseCredentialName(name);
         if (!parsed) {
@@ -354,7 +354,7 @@ Examples:
 
         assertMetadataWritable();
 
-        const secretResult = deleteSecureKey(storageKey);
+        const secretResult = await deleteSecureKeyAsync(storageKey);
         if (secretResult === "error") {
           writeOutput(cmd, {
             ok: false,

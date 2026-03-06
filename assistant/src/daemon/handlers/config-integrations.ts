@@ -62,8 +62,17 @@ export async function handleVercelApiConfig(
         success: true,
       });
     } else {
-      await deleteSecureKeyAsync("credential:vercel:api_token");
+      const r = await deleteSecureKeyAsync("credential:vercel:api_token");
       deleteCredentialMetadata("vercel", "api_token");
+      if (r === "error") {
+        ctx.send(socket, {
+          type: "vercel_api_config_response",
+          hasToken: !!getSecureKey("credential:vercel:api_token"),
+          success: false,
+          error: "Failed to delete Vercel API token from secure storage",
+        });
+        return;
+      }
       ctx.send(socket, {
         type: "vercel_api_config_response",
         hasToken: false,
@@ -289,47 +298,79 @@ export async function handleTwitterIntegrationConfig(
       });
     } else if (msg.action === "clear_local_client") {
       // If connected, disconnect first
+      const deleteResults: Array<"deleted" | "not-found" | "error"> = [];
       if (getSecureKey("credential:integration:twitter:access_token")) {
-        await deleteSecureKeyAsync(
-          "credential:integration:twitter:access_token",
+        deleteResults.push(
+          await deleteSecureKeyAsync(
+            "credential:integration:twitter:access_token",
+          ),
         );
-        await deleteSecureKeyAsync(
-          "credential:integration:twitter:refresh_token",
+        deleteResults.push(
+          await deleteSecureKeyAsync(
+            "credential:integration:twitter:refresh_token",
+          ),
         );
         deleteCredentialMetadata("integration:twitter", "access_token");
       }
       // Remove both canonical and legacy client credential keys
-      await deleteSecureKeyAsync("credential:integration:twitter:client_id");
-      await deleteSecureKeyAsync(
-        "credential:integration:twitter:client_secret",
+      deleteResults.push(
+        await deleteSecureKeyAsync("credential:integration:twitter:client_id"),
       );
-      await deleteSecureKeyAsync(
-        "credential:integration:twitter:oauth_client_id",
+      deleteResults.push(
+        await deleteSecureKeyAsync(
+          "credential:integration:twitter:client_secret",
+        ),
       );
-      await deleteSecureKeyAsync(
-        "credential:integration:twitter:oauth_client_secret",
+      deleteResults.push(
+        await deleteSecureKeyAsync(
+          "credential:integration:twitter:oauth_client_id",
+        ),
       );
+      deleteResults.push(
+        await deleteSecureKeyAsync(
+          "credential:integration:twitter:oauth_client_secret",
+        ),
+      );
+      const hasDeleteError = deleteResults.some((r) => r === "error");
       ctx.send(socket, {
         type: "twitter_integration_config_response",
-        success: true,
+        success: !hasDeleteError,
         managedAvailable: false,
-        localClientConfigured: false,
-        connected: false,
+        localClientConfigured: hasDeleteError ? hasTwitterClientId() : false,
+        connected: hasDeleteError
+          ? !!getSecureKey("credential:integration:twitter:access_token")
+          : false,
+        ...(hasDeleteError
+          ? {
+              error:
+                "Failed to delete some Twitter credentials from secure storage",
+            }
+          : {}),
       });
     } else if (msg.action === "disconnect") {
-      await deleteSecureKeyAsync("credential:integration:twitter:access_token");
-      await deleteSecureKeyAsync(
+      const dr1 = await deleteSecureKeyAsync(
+        "credential:integration:twitter:access_token",
+      );
+      const dr2 = await deleteSecureKeyAsync(
         "credential:integration:twitter:refresh_token",
       );
       deleteCredentialMetadata("integration:twitter", "access_token");
       // Client credentials (client_id, oauth_client_id, etc.) are intentionally
       // preserved so the user can re-connect without reconfiguring.
+      const disconnectFailed = dr1 === "error" || dr2 === "error";
       ctx.send(socket, {
         type: "twitter_integration_config_response",
-        success: true,
+        success: !disconnectFailed,
         managedAvailable: false,
         localClientConfigured: hasTwitterClientId(),
-        connected: false,
+        connected: disconnectFailed
+          ? !!getSecureKey("credential:integration:twitter:access_token")
+          : false,
+        ...(disconnectFailed
+          ? {
+              error: "Failed to delete Twitter tokens from secure storage",
+            }
+          : {}),
       });
     } else {
       ctx.send(socket, {
