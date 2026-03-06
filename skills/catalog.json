@@ -16,6 +16,14 @@
       "compatibility": "Desktop: requires gcloud and gws CLI tools. Channels: requires public ingress for OAuth callback"
     },
     {
+      "id": "twitter",
+      "name": "twitter",
+      "description": "Read and post on X (formerly Twitter) via OAuth or browser session",
+      "metadata": {
+        "emoji": "𝕏"
+      }
+    },
+    {
       "id": "weather",
       "name": "weather",
       "description": "Get current weather conditions and forecasts for any location",
