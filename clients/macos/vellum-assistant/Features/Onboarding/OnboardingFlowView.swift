@@ -270,7 +270,7 @@ struct OnboardingFlowView: View {
 
                 OnboardingButton(title: "Try again", style: .primary) {
                     Task {
-                        if let assistant = LockfileAssistant.loadLatest(), !assistant.isManaged {
+                        if let assistant = LockfileAssistant.loadLatest(), !assistant.isRemote {
                             await performLocalBootstrap(assistant: assistant)
                         }
                     }
