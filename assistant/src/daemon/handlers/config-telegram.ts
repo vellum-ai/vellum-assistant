@@ -230,9 +230,7 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   }
 
   const r1 = await deleteSecureKeyAsync("credential:telegram:bot_token");
-  deleteCredentialMetadata("telegram", "bot_token");
   const r2 = await deleteSecureKeyAsync("credential:telegram:webhook_secret");
-  deleteCredentialMetadata("telegram", "webhook_secret");
 
   // Trigger reconcile to deregister webhook
   const effectiveUrl = getIngressPublicBaseUrl();
@@ -241,14 +239,21 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   }
 
   if (r1 === "error" || r2 === "error") {
+    const hasBotToken = !!getSecureKey("credential:telegram:bot_token");
+    const hasWebhookSecret = !!getSecureKey(
+      "credential:telegram:webhook_secret",
+    );
     return {
       success: false,
-      hasBotToken: !!getSecureKey("credential:telegram:bot_token"),
-      connected: false,
-      hasWebhookSecret: !!getSecureKey("credential:telegram:webhook_secret"),
+      hasBotToken,
+      connected: hasBotToken && hasWebhookSecret,
+      hasWebhookSecret,
       error: "Failed to delete Telegram credentials from secure storage",
     };
   }
+
+  deleteCredentialMetadata("telegram", "bot_token");
+  deleteCredentialMetadata("telegram", "webhook_secret");
 
   return {
     success: true,
