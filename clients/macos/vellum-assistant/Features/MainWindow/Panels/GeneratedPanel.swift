@@ -26,6 +26,7 @@ struct GeneratedPanel: View {
     var onClose: () -> Void
     @Binding var isExpanded: Bool
     let daemonClient: DaemonClient
+    let gatewayBaseURL: String
     /// When set, app opens route to the workspace instead of a floating NSPanel.
     var onOpenApp: ((UiSurfaceShowMessage) -> Void)?
     /// Called to record an app open in the sidebar's recent apps list.
@@ -57,10 +58,11 @@ struct GeneratedPanel: View {
     @State private var slackShareResult: (appId: String, success: Bool)?
     @State private var slackClearTask: Task<Void, Never>?
 
-    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
+    init(onClose: @escaping () -> Void, isExpanded: Binding<Bool> = .constant(false), daemonClient: DaemonClient, gatewayBaseURL: String = "", onOpenApp: ((UiSurfaceShowMessage) -> Void)? = nil, onRecordAppOpen: ((_ id: String, _ name: String, _ icon: String?, _ appType: String?) -> Void)? = nil) {
         self.onClose = onClose
         self._isExpanded = isExpanded
         self.daemonClient = daemonClient
+        self.gatewayBaseURL = gatewayBaseURL
         self.onOpenApp = onOpenApp
         self.onRecordAppOpen = onRecordAppOpen
     }
@@ -434,7 +436,9 @@ struct GeneratedPanel: View {
                         }
                     ),
                     appName: shareAppName,
-                    appIcon: shareAppIcon
+                    appIcon: shareAppIcon,
+                    appId: sharingAppId == item.id ? localId : nil,
+                    gatewayBaseURL: gatewayBaseURL
                 )
                 .frame(width: 0, height: 0)
                 .opacity(0)
@@ -455,7 +459,8 @@ struct GeneratedPanel: View {
                         }
                     ),
                     appName: shareAppName,
-                    appIcon: shareAppIcon
+                    appIcon: shareAppIcon,
+                    gatewayBaseURL: gatewayBaseURL
                 )
                 .frame(width: 0, height: 0)
                 .opacity(0)
@@ -836,6 +841,6 @@ struct GeneratedPanel: View {
 
 struct GeneratedPanel_Previews: PreviewProvider {
     static var previews: some View {
-        GeneratedPanel(onClose: {}, isExpanded: .constant(false), daemonClient: DaemonClient())
+        GeneratedPanel(onClose: {}, isExpanded: .constant(false), daemonClient: DaemonClient(), gatewayBaseURL: "http://127.0.0.1:3000")
     }
 }

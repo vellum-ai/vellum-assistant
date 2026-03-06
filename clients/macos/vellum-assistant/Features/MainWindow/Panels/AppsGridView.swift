@@ -5,6 +5,7 @@ import VellumAssistantShared
 struct AppsGridView: View {
     @ObservedObject var appListManager: AppListManager
     let daemonClient: DaemonClient
+    let gatewayBaseURL: String
     let onOpenApp: (String) -> Void
 
     @State private var searchText = ""
@@ -233,7 +234,9 @@ struct AppsGridView: View {
                                 }
                             ),
                             appName: shareAppName,
-                            appIcon: shareAppIcon
+                            appIcon: shareAppIcon,
+                            appId: sharingAppId == app.id ? app.id : nil,
+                            gatewayBaseURL: gatewayBaseURL
                         )
                         .allowsHitTesting(false)
                     }
@@ -421,6 +424,7 @@ struct AppsGridView_Previews: PreviewProvider {
             AppsGridView(
                 appListManager: appListManager,
                 daemonClient: DaemonClient(),
+                gatewayBaseURL: "http://127.0.0.1:3000",
                 onOpenApp: { _ in }
             )
             .onAppear {
