@@ -126,6 +126,7 @@ import {
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
+import { slackShareRouteDefinitions } from "./routes/slack-share-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
@@ -851,6 +852,7 @@ export class RuntimeHttpServer {
       ...contactCatchAllRouteDefinitions(),
 
       ...integrationRouteDefinitions(),
+      ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
       ...attachmentRouteDefinitions(),
