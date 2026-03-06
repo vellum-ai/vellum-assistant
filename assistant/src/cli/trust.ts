@@ -118,9 +118,7 @@ Examples:
       if (matches.length > 1) {
         log.error(`Ambiguous prefix "${id}" matches ${matches.length} rules:`);
         for (const m of matches) {
-          log.error(
-            `  ${m.id.slice(0, SHORT_HASH_LENGTH)}  ${m.tool}: ${m.pattern}`,
-          );
+          log.error(`  ${m.id}  ${m.tool}: ${m.pattern}`);
         }
         log.error("Provide a longer prefix to uniquely identify the rule.");
         process.exit(1);
