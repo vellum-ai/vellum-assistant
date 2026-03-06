@@ -837,6 +837,7 @@ struct DynamicWorkspaceWrapper: View {
 
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
+    @State private var showShareDrawer = false
 
     /// Corner radius for the WKWebView clipping container — no rounding needed since the
     /// outer page container handles corner rounding.
@@ -879,8 +880,12 @@ struct DynamicWorkspaceWrapper: View {
                         }
                     }
 
-                    if let appId = data.appId {
-                        ZStack {
+                    if let url = sharing.publishedUrl {
+                        PublishedButton(url: url, copied: $publishUrlCopied)
+                    }
+
+                    ZStack {
+                        if let appId = data.appId {
                             AppSharePanel(
                                 items: sharing.shareFileURL != nil ? [sharing.shareFileURL!] : [],
                                 isPresented: Binding(
@@ -893,27 +898,35 @@ struct DynamicWorkspaceWrapper: View {
                             .frame(width: 0, height: 0)
                             .opacity(0)
 
-                            if sharing.isBundling {
+                            if sharing.isBundling || sharing.isPublishing {
                                 ProgressView()
                                     .controlSize(.small)
                                     .frame(height: 28)
                             } else {
                                 VIconButton(label: "Share", icon: "square.and.arrow.up", iconOnly: true, variant: .outlined, size: 28, tooltip: "Share") {
-                                    onBundleAndShare(appId)
+                                    showShareDrawer.toggle()
+                                }
+                                .popover(isPresented: $showShareDrawer, arrowEdge: .bottom) {
+                                    ShareDrawer(
+                                        onShare: {
+                                            showShareDrawer = false
+                                            onBundleAndShare(appId)
+                                        },
+                                        onPublish: {
+                                            showShareDrawer = false
+                                            onPublishPage(data.html, data.preview?.title, data.appId)
+                                        }
+                                    )
                                 }
                             }
-                        }
-                    }
-
-                    if sharing.isPublishing {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(height: 28)
-                    } else if let url = sharing.publishedUrl {
-                        PublishedButton(url: url, copied: $publishUrlCopied)
-                    } else {
-                        VIconButton(label: "Publish", icon: "arrow.up.right", iconOnly: true, variant: .outlined, size: 28, tooltip: "Publish") {
-                            onPublishPage(data.html, data.preview?.title, data.appId)
+                        } else if sharing.isPublishing {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(height: 28)
+                        } else {
+                            VIconButton(label: "Publish", icon: "arrow.up.right", iconOnly: true, variant: .outlined, size: 28, tooltip: "Publish to Vercel") {
+                                onPublishPage(data.html, data.preview?.title, data.appId)
+                            }
                         }
                     }
 
@@ -1064,6 +1077,57 @@ private struct PublishedButton: View {
                 .stroke(VColor.buttonSecondaryBorder, lineWidth: 1)
         )
         .controlSize(.small)
+    }
+}
+
+// MARK: - Share Drawer
+
+/// Popover menu with "Share" and "Publish to Vercel" options.
+/// Styled to match ThreadSwitcherDrawer / DrawerMenuView.
+private struct ShareDrawer: View {
+    let onShare: () -> Void
+    let onPublish: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ShareDrawerRow(icon: "square.and.arrow.up", label: "Share", action: onShare)
+            VColor.surfaceBorder.frame(height: 1)
+                .padding(.horizontal, VSpacing.xs)
+            ShareDrawerRow(icon: "arrow.up.right", label: "Publish to Vercel", action: onPublish)
+        }
+        .padding(.vertical, VSpacing.xs)
+        .frame(width: 180)
+    }
+}
+
+private struct ShareDrawerRow: View {
+    let icon: String
+    let label: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                    .frame(width: 18)
+                Text(label)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(isHovered ? VColor.navHover : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
     }
 }
 
