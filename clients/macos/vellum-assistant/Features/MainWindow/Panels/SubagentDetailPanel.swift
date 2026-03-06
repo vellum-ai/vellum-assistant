@@ -287,8 +287,8 @@ struct SubagentDetailPanel: View {
     }
 
     private func formatCost(_ cost: Double) -> String {
-        if cost == 0 { return "$0.00" }
-        if cost < 0.01 { return "<$0.01" }
-        return String(format: "$%.2f", cost)
+        if cost == 0 { return UsageFormatting.formatCostShort(0) }
+        if cost < 0.01 { return "<\(UsageFormatting.formatCostShort(0.01))" }
+        return UsageFormatting.formatCostShort(cost)
     }
 }

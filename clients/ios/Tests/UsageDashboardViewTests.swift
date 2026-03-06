@@ -166,14 +166,18 @@ final class UsageDashboardViewTests: XCTestCase {
 
     // MARK: - Formatting Helpers (platform-independent)
 
-    func testFormatCostProducesDollarString() {
+    func testFormatCostProducesCurrencyString() {
         let result = UsageFormatting.formatCost(1.2345)
-        XCTAssertEqual(result, "$1.2345")
+        // Verify it contains the expected digits regardless of locale-specific
+        // currency symbol placement and decimal separator.
+        XCTAssertTrue(result.contains("1"), "Formatted cost should contain the integer part")
+        XCTAssertTrue(result.contains("2345"), "Formatted cost should contain 4 fraction digits")
     }
 
     func testFormatCostZero() {
         let result = UsageFormatting.formatCost(0)
-        XCTAssertEqual(result, "$0.0000")
+        XCTAssertTrue(result.contains("0"), "Formatted zero cost should contain '0'")
+        XCTAssertTrue(result.contains("0000"), "Formatted zero cost should show 4 fraction digits")
     }
 
     func testFormatCountUsesDecimalGrouping() {

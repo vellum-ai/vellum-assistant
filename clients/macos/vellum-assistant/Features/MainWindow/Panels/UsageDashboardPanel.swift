@@ -303,7 +303,7 @@ struct UsageDashboardPanel: View {
         if usd < 0.01 {
             return UsageFormatting.formatCost(usd)
         }
-        return String(format: "$%.2f", usd)
+        return UsageFormatting.formatCostShort(usd)
     }
 
     private func formatTokenCount(_ count: Int) -> String {

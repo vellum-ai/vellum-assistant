@@ -63,12 +63,22 @@ public enum UsageGroupByDimension: String, CaseIterable, Sendable {
 /// Formatting helpers for usage dashboard values, shared across platforms.
 public enum UsageFormatting {
     public static func formatCost(_ usd: Double) -> String {
+        formatCostWithPrecision(usd, fractionDigits: 4)
+    }
+
+    /// Format a cost value with 2 decimal places, suitable for display
+    /// amounts >= $0.01 where extra precision is unnecessary.
+    public static func formatCostShort(_ usd: Double) -> String {
+        formatCostWithPrecision(usd, fractionDigits: 2)
+    }
+
+    private static func formatCostWithPrecision(_ usd: Double, fractionDigits: Int) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = "USD"
-        formatter.minimumFractionDigits = 4
-        formatter.maximumFractionDigits = 4
-        return formatter.string(from: NSNumber(value: usd)) ?? String(format: "$%.4f", usd)
+        formatter.minimumFractionDigits = fractionDigits
+        formatter.maximumFractionDigits = fractionDigits
+        return formatter.string(from: NSNumber(value: usd)) ?? "\(usd)"
     }
 
     public static func formatCount(_ n: Int) -> String {
