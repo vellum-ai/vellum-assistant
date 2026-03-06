@@ -134,6 +134,7 @@ tell application "System Events"
     -- clear. This is acceptable because the clipboard is immediately cleared, and
     -- the alternative (keystroke) is silently unreliable.
     set foundField to false
+    set pasteOk to true
     set allElems to entire contents of credentialWindow
     repeat with elem in allElems
       try
@@ -146,11 +147,9 @@ tell application "System Events"
           keystroke "a" using command down
           delay 0.1
           -- Set clipboard, paste, then clear clipboard.
-          -- pasteOk tracks whether the paste succeeded so we can
-          -- always clear the clipboard (the set runs unconditionally)
-          -- while still surfacing paste failures instead of silently
-          -- swallowing them.
-          set pasteOk to true
+          -- pasteOk is declared outside the per-element try block so
+          -- that a paste failure is not swallowed by the element-level
+          -- error handler. The flag is checked after the loop exits.
           set the clipboard to "${escaped}"
           try
             keystroke "v" using command down
@@ -160,9 +159,6 @@ tell application "System Events"
           end try
           set the clipboard to ""
           delay 0.2
-          if not pasteOk then
-            error "Paste keystroke failed — credential may not have been entered"
-          end if
           set foundField to true
           exit repeat
         end if
@@ -171,6 +167,10 @@ tell application "System Events"
 
     if not foundField then
       error "Could not find or focus the text field in the Secure Credential panel"
+    end if
+
+    if not pasteOk then
+      error "Paste keystroke failed — credential may not have been entered"
     end if
 
     -- Wait for SwiftUI to re-render (the Save button becomes enabled after input).
