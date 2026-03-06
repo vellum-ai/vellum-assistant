@@ -240,6 +240,7 @@ export async function createIngressInvite(params: {
       contactName: params.contactName,
       channelType: params.sourceChannel,
       channelHandle,
+      hasShareUrl: !!share?.url,
       shareUrl: share?.url,
     });
   }

@@ -81,6 +81,13 @@ export async function generateInviteInstruction(params: {
   contactName?: string;
   channelType: string;
   channelHandle?: string;
+  /** Whether a share URL is available (shown separately in the UI). */
+  hasShareUrl?: boolean;
+  /**
+   * Actual share URL for the deterministic fallback only. Never sent to the
+   * LLM — the URL contains the raw invite token which is a redemption
+   * credential.
+   */
   shareUrl?: string;
 }): Promise<string> {
   const channelLabel = channelDisplayLabel(params.channelType);
@@ -113,15 +120,15 @@ export async function generateInviteInstruction(params: {
     if (params.channelHandle) {
       parts.push(`Channel handle: ${params.channelHandle}`);
     }
-    if (params.shareUrl) {
-      parts.push(`Share URL: ${params.shareUrl}`);
+    if (params.hasShareUrl) {
+      parts.push("A share link is available (displayed separately in the UI).");
     }
     parts.push(
       "",
       "Requirements:",
       '- Write from the assistant\'s perspective using first person ("message me"), NOT third person ("message the assistant").',
       "- Do NOT include the invite code — it is displayed separately in the UI.",
-      "- When a share URL is available, lead with the link.",
+      "- When a share link is available, mention that the user can share the link.",
       "- Keep the instruction concise (1–2 sentences, under 500 characters).",
       '- Refer to the invite code as "the code below" since it is shown beneath this instruction.',
       "",
