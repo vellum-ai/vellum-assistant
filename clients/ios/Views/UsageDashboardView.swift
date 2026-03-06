@@ -171,9 +171,11 @@ struct UsageDashboardView: View {
 
 }
 
+#if DEBUG
 #Preview {
     UsageDashboardView(
         store: UsageDashboardStore(client: MockDaemonClient())
     )
 }
+#endif
 #endif
