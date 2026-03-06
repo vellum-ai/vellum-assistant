@@ -235,7 +235,22 @@ export async function handleSetTwilioCredentials(
     });
   }
 
-  upsertCredentialMetadata("twilio", "account_sid", {});
+  upsertCredentialMetadata("twilio", "account_sid", {
+    injectionTemplates: [
+      {
+        hostPattern: "api.twilio.com",
+        injectionType: "header" as const,
+        headerName: "Authorization",
+        valuePrefix: "Basic ",
+        valueTransform: "base64" as const,
+        composeWith: {
+          service: "twilio",
+          field: "auth_token",
+          separator: ":",
+        },
+      },
+    ],
+  });
   upsertCredentialMetadata("twilio", "auth_token", {});
 
   return Response.json({ success: true, hasCredentials: true });
