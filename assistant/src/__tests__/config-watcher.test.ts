@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -20,6 +20,7 @@ const TEST_DIR = join(tmpdir(), `config-watcher-test-${crypto.randomUUID()}`);
 const WORKSPACE_DIR = join(TEST_DIR, "workspace");
 const PROTECTED_DIR = join(TEST_DIR, "protected");
 const SKILLS_DIR = join(WORKSPACE_DIR, "skills");
+const REPO_SKILLS_DIR = join(TEST_DIR, "repo-skills");
 
 // ---------------------------------------------------------------------------
 // Mock platform paths
@@ -161,6 +162,8 @@ function simulateFileChange(dir: string, filename: string): void {
 beforeAll(() => {
   mkdirSync(WORKSPACE_DIR, { recursive: true });
   mkdirSync(PROTECTED_DIR, { recursive: true });
+  mkdirSync(join(REPO_SKILLS_DIR, "test-skill"), { recursive: true });
+  writeFileSync(join(REPO_SKILLS_DIR, "test-skill", "SKILL.md"), "# Test Skill");
 });
 
 afterAll(() => {
@@ -354,15 +357,16 @@ describe("ConfigWatcher watcher lifecycle", () => {
 });
 
 describe("ConfigWatcher repo skills watcher", () => {
-  /** Find the repo skills watcher (recursive watcher that is not the workspace skills dir). */
+  /** Find the repo skills watcher registered for REPO_SKILLS_DIR. */
   function findRepoSkillsWatcher(): CapturedWatcher | undefined {
     return capturedWatchers.find(
-      (w) =>
-        w.dir !== SKILLS_DIR &&
-        w.dir.endsWith("/skills") &&
-        w.options?.recursive,
+      (w) => w.dir === REPO_SKILLS_DIR && w.options?.recursive,
     );
   }
+
+  beforeEach(() => {
+    watcher = new ConfigWatcher(REPO_SKILLS_DIR);
+  });
 
   afterEach(() => {
     rmSync(SKILLS_DIR, { recursive: true, force: true });
@@ -371,32 +375,34 @@ describe("ConfigWatcher repo skills watcher", () => {
   test("syncs changed repo skill to workspace when skill is installed", async () => {
     /** Repo skill change triggers cpSync for skills already in workspace. */
 
-    // GIVEN a workspace skill directory for "weather" exists
-    mkdirSync(join(SKILLS_DIR, "weather"), { recursive: true });
+    // GIVEN a workspace skill directory for "test-skill" exists
+    mkdirSync(join(SKILLS_DIR, "test-skill"), { recursive: true });
 
-    // WHEN the watcher starts and a change to "weather/SKILL.md" is detected
+    // WHEN the watcher starts and a change to "test-skill/SKILL.md" is detected
     watcher.start(onSessionEvict);
     const repoWatcher = findRepoSkillsWatcher();
     expect(repoWatcher).toBeDefined();
-    repoWatcher!.callback("change", "weather/SKILL.md");
+    repoWatcher!.callback("change", "test-skill/SKILL.md");
 
     // THEN after debounce, cpSync is called targeting the workspace skill dir
     await new Promise((r) => setTimeout(r, 300));
     expect(cpSyncCalls.length).toBe(1);
+    // AND the source is the repo skill directory
+    expect(cpSyncCalls[0].src).toBe(join(REPO_SKILLS_DIR, "test-skill"));
     // AND the destination is the workspace skill directory
-    expect(cpSyncCalls[0].dest).toBe(join(SKILLS_DIR, "weather"));
+    expect(cpSyncCalls[0].dest).toBe(join(SKILLS_DIR, "test-skill"));
   });
 
   test("does not sync when skill is not installed in workspace", async () => {
     /** Repo skill changes for skills absent from workspace are ignored. */
 
-    // GIVEN no workspace skill directory exists (SKILLS_DIR may not exist)
+    // GIVEN no workspace skill directory exists for "test-skill"
 
-    // WHEN the watcher detects a change for "weather/SKILL.md"
+    // WHEN the watcher detects a change for "test-skill/SKILL.md"
     watcher.start(onSessionEvict);
     const repoWatcher = findRepoSkillsWatcher();
     expect(repoWatcher).toBeDefined();
-    repoWatcher!.callback("change", "weather/SKILL.md");
+    repoWatcher!.callback("change", "test-skill/SKILL.md");
 
     // THEN cpSync is not called
     await new Promise((r) => setTimeout(r, 300));
@@ -406,18 +412,18 @@ describe("ConfigWatcher repo skills watcher", () => {
   test("debounces multiple changes to the same repo skill", async () => {
     /** Multiple rapid changes to the same repo skill result in a single sync. */
 
-    // GIVEN a workspace skill directory for "weather" exists
-    mkdirSync(join(SKILLS_DIR, "weather"), { recursive: true });
+    // GIVEN a workspace skill directory for "test-skill" exists
+    mkdirSync(join(SKILLS_DIR, "test-skill"), { recursive: true });
 
     // WHEN multiple rapid changes to the same skill are detected
     watcher.start(onSessionEvict);
     const repoWatcher = findRepoSkillsWatcher();
     expect(repoWatcher).toBeDefined();
-    repoWatcher!.callback("change", "weather/SKILL.md");
-    repoWatcher!.callback("change", "weather/scripts/run.sh");
-    repoWatcher!.callback("change", "weather/SKILL.md");
+    repoWatcher!.callback("change", "test-skill/SKILL.md");
+    repoWatcher!.callback("change", "test-skill/scripts/run.sh");
+    repoWatcher!.callback("change", "test-skill/SKILL.md");
 
-    // THEN only one cpSync call occurs (all changes map to "weather" skill)
+    // THEN only one cpSync call occurs (all changes map to "test-skill")
     await new Promise((r) => setTimeout(r, 300));
     expect(cpSyncCalls.length).toBe(1);
   });
@@ -425,8 +431,8 @@ describe("ConfigWatcher repo skills watcher", () => {
   test("null filename from watcher is ignored", async () => {
     /** Null filename events from the file watcher are silently ignored. */
 
-    // GIVEN a workspace skill directory for "weather" exists
-    mkdirSync(join(SKILLS_DIR, "weather"), { recursive: true });
+    // GIVEN a workspace skill directory for "test-skill" exists
+    mkdirSync(join(SKILLS_DIR, "test-skill"), { recursive: true });
 
     // WHEN a null filename event occurs
     watcher.start(onSessionEvict);

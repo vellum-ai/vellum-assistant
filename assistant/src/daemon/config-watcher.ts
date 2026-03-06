@@ -55,6 +55,8 @@ export class ConfigWatcher {
   lastFingerprint = "";
   private lastRefreshTime = 0;
 
+  constructor(private readonly repoSkillsDirOverride?: string) {}
+
   static readonly REFRESH_INTERVAL_MS = 30_000;
 
   /** Expose the debounce timers so handlers can schedule debounced work. */
@@ -224,8 +226,12 @@ export class ConfigWatcher {
    * change and triggers a session reload.
    */
   private startRepoSkillsWatcher(): void {
-    const repoSkillsDir = resolveRepoSkillsDir();
-    if (!repoSkillsDir) return;
+    const repoSkillsDir =
+      this.repoSkillsDirOverride ?? resolveRepoSkillsDir();
+    if (!repoSkillsDir) {
+      log.info("Repo skills directory not found, skipping skills sync watcher");
+      return;
+    }
 
     const workspaceSkillsDir = getWorkspaceSkillsDir();
 
