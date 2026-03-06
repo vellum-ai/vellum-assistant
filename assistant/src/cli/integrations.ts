@@ -205,20 +205,18 @@ export function registerIntegrationsCommand(program: Command): void {
     "after",
     `
 Reads integration configuration and status through the gateway API. The
-assistant must be running for most subcommands (telegram, twilio, guardian)
+assistant must be running for most subcommands (telegram, guardian)
 since they query the gateway. Exceptions: "ingress config" and "voice config"
 read from the local config file and do not require the gateway.
 
 Integration categories:
   telegram     Telegram bot configuration and webhook status
-  twilio       Twilio credentials, phone numbers, and SMS compliance
   guardian     Guardian trust verification system for contacts
   ingress      Public ingress URL and local gateway target (config-only)
   voice        Voice/call readiness and ElevenLabs voice ID (config-only)
 
 Examples:
   $ assistant integrations telegram config
-  $ assistant integrations twilio numbers
   $ assistant integrations guardian status --channel sms`,
   );
 
@@ -301,129 +299,6 @@ Examples:
         gatewayGet(
           `/v1/integrations/guardian/status${toQueryString({ channel })}`,
         ),
-      );
-    });
-
-  const twilio = integrations
-    .command("twilio")
-    .description("Twilio integration status");
-
-  twilio.addHelpText(
-    "after",
-    `
-Covers Twilio credential status, phone number management, and SMS regulatory
-compliance. All subcommands require the assistant to be running since they
-query the gateway API.
-
-Subcommands:
-  config          Check Twilio credential status and phone number configuration
-  numbers         List all Twilio incoming phone numbers
-  sms compliance  Check SMS regulatory compliance status
-
-Examples:
-  $ assistant integrations twilio config
-  $ assistant integrations twilio numbers
-  $ assistant integrations twilio sms compliance`,
-  );
-
-  twilio
-    .command("config")
-    .description("Get Twilio credential and phone number status")
-    .addHelpText(
-      "after",
-      `
-Checks the Twilio credential status and phone number configuration through
-the gateway. Requires the assistant to be running.
-
-The response includes whether the Twilio account SID and auth token are
-configured, and the currently assigned phone number.
-
-Examples:
-  $ assistant integrations twilio config
-  $ assistant integrations twilio config --json`,
-    )
-    .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet("/v1/integrations/twilio/config"),
-      );
-    });
-
-  twilio
-    .command("numbers")
-    .description("List Twilio incoming phone numbers")
-    .addHelpText(
-      "after",
-      `
-Lists all incoming phone numbers associated with the configured Twilio
-account. Requires the assistant to be running.
-
-Returns an array of phone number objects with their SID, phone number,
-friendly name, and capabilities.
-
-Examples:
-  $ assistant integrations twilio numbers
-  $ assistant integrations twilio numbers --json`,
-    )
-    .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet("/v1/integrations/twilio/numbers"),
-      );
-    });
-
-  const twilioSms = twilio.command("sms").description("Twilio SMS status");
-
-  twilioSms.addHelpText(
-    "after",
-    `
-Covers SMS regulatory compliance for the configured Twilio account. All
-subcommands require the assistant to be running since they query the gateway API.
-
-Subcommands:
-  compliance   Check SMS regulatory compliance status
-
-Examples:
-  $ assistant integrations twilio sms compliance
-  $ assistant integrations twilio sms compliance --json`,
-  );
-
-  twilioSms
-    .command("compliance")
-    .description("Get Twilio SMS compliance status")
-    .addHelpText(
-      "after",
-      `
-Checks the SMS regulatory compliance status for the configured Twilio
-account. Requires the assistant to be running.
-
-Returns the current compliance state, including whether the account is
-approved for SMS messaging and any outstanding compliance requirements.
-
-Examples:
-  $ assistant integrations twilio sms compliance
-  $ assistant integrations twilio sms compliance --json`,
-    )
-    .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet("/v1/integrations/twilio/sms/compliance"),
-      );
-    });
-
-  twilio
-    .command("sms-compliance")
-    .description('Alias for "assistant integrations twilio sms compliance"')
-    .addHelpText(
-      "after",
-      `
-Shortcut alias for "assistant integrations twilio sms compliance". Prefer
-the canonical path for scripts and documentation.
-
-Examples:
-  $ assistant integrations twilio sms-compliance
-  $ assistant integrations twilio sms compliance   # canonical form`,
-    )
-    .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet("/v1/integrations/twilio/sms/compliance"),
       );
     });
 
