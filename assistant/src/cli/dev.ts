@@ -16,6 +16,28 @@ export function registerDevCommand(program: Command): void {
       "--watch",
       "Auto-restart on source file changes (disruptive during Claude Code sessions)",
     )
+    .addHelpText(
+      "after",
+      `
+Starts the daemon in foreground dev mode for local development. If an
+existing daemon is running, it is stopped first (waits up to 5 seconds
+for an unresponsive daemon before force-killing it).
+
+Behavioral notes:
+  - Sets VELLUM_DEBUG=1 for DEBUG-level logging
+  - Sets VELLUM_LOG_STDERR=1 so logs stream to stderr (visible in terminal)
+  - Sets BASE_DATA_DIR to the repository root
+  - The daemon runs in the foreground; press Ctrl+C to stop
+
+The --watch flag passes bun --watch to the child process, which
+auto-restarts the daemon whenever source files change. This is useful
+during development but disruptive if a Claude Code session is active,
+since the restart kills the running daemon mid-conversation.
+
+Examples:
+  $ vellum dev
+  $ vellum dev --watch`,
+    )
     .action(async (opts: { watch?: boolean }) => {
       let status = await getDaemonStatus();
       if (status.running) {

@@ -15,9 +15,33 @@ export function registerKeysCommand(program: Command): void {
     .command("keys")
     .description("Manage API keys in secure storage");
 
+  keys.addHelpText(
+    "after",
+    `
+Keys are stored in OS-native secure storage (macOS Keychain on macOS) and are
+never written to disk in plaintext. Each key is identified by provider name.
+
+Known providers: ${API_KEY_PROVIDERS.join(", ")}
+
+Examples:
+  $ vellum keys list
+  $ vellum keys set anthropic sk-ant-...
+  $ vellum keys delete openai`,
+  );
+
   keys
     .command("list")
     .description("List all stored API key names")
+    .addHelpText(
+      "after",
+      `
+Checks each known provider (${API_KEY_PROVIDERS.join(", ")}) and prints the
+names of providers that have a stored key. Providers without a stored key are
+omitted from the output.
+
+Examples:
+  $ vellum keys list`,
+    )
     .action(() => {
       const stored: string[] = [];
       for (const provider of API_KEY_PROVIDERS) {
@@ -36,6 +60,20 @@ export function registerKeysCommand(program: Command): void {
   keys
     .command("set <provider> <key>")
     .description("Store an API key (e.g. vellum keys set anthropic sk-ant-...)")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  provider   Provider name (e.g. anthropic, openai, gemini)
+  key        The API key value to store
+
+If a key already exists for the given provider, it is silently overwritten.
+
+Examples:
+  $ vellum keys set anthropic sk-ant-abc123
+  $ vellum keys set openai sk-proj-xyz789
+  $ vellum keys set fireworks fw-abc123`,
+    )
     .action((provider: string, key: string) => {
       if (setSecureKey(provider, key)) {
         log.info(`Stored API key for "${provider}"`);
@@ -48,6 +86,19 @@ export function registerKeysCommand(program: Command): void {
   keys
     .command("delete <provider>")
     .description("Delete a stored API key")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  provider   Provider name whose key should be removed from secure storage
+
+Removes the API key for the given provider from OS-native secure storage. If
+no key exists for the provider, exits with an error.
+
+Examples:
+  $ vellum keys delete openai
+  $ vellum keys delete anthropic`,
+    )
     .action((provider: string) => {
       const result = deleteSecureKey(provider);
       if (result === "deleted") {

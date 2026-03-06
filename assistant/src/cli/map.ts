@@ -284,6 +284,35 @@ export function registerMapCommand(program: Command): void {
       "Manual mode: browse the site yourself while network traffic is recorded",
     )
     .option("--json", "Machine-readable JSON output")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  domain   The domain to map (e.g. example.com, open.spotify.com). Subdomains
+           are navigated directly but network traffic is recorded for the
+           entire base domain (e.g. open.spotify.com navigates that subdomain
+           but records all *.spotify.com traffic).
+
+Two modes of operation:
+  auto (default)   The assistant auto-navigates the site using Ride Shotgun,
+                   clicking links and exploring pages autonomously. Default
+                   duration: 120 seconds.
+  --manual         You browse the site yourself while network traffic is
+                   recorded in the background. Default duration: 60 seconds.
+
+How it works:
+  1. Launches Chrome with Chrome DevTools Protocol (CDP) enabled
+  2. Starts a Ride Shotgun learn session to capture network traffic
+  3. Deduplicates captured requests into unique API endpoints
+  4. Saves the API map to disk and prints a summary table
+
+The daemon must be running (the learn session is coordinated through it).
+
+Examples:
+  $ vellum map example.com
+  $ vellum map open.spotify.com --duration 180
+  $ vellum map garmin.com --manual`,
+    )
     .action(
       async (
         domain: string,

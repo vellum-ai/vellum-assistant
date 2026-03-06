@@ -11,6 +11,30 @@ export function registerCompletionsCommand(program: Command): void {
     .description(
       "Generate shell completion script (e.g. vellum completions bash >> ~/.bashrc)",
     )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  shell   Shell to generate completions for: bash, zsh, or fish
+
+Generates a completion script that enables tab-completion for all vellum
+commands, subcommands, and flags. The script is written to stdout so you
+can redirect it to a file or eval it directly.
+
+Installation per shell:
+  bash   Append to ~/.bashrc or eval in your shell profile:
+           eval "$(vellum completions bash)"
+  zsh    Append to ~/.zshrc or eval in your shell profile:
+           eval "$(vellum completions zsh)"
+  fish   Pipe to source or save to the fish completions directory:
+           vellum completions fish | source
+           vellum completions fish > ~/.config/fish/completions/vellum.fish
+
+Examples:
+  $ vellum completions bash >> ~/.bashrc
+  $ eval "$(vellum completions zsh)"
+  $ vellum completions fish | source`,
+    )
     .action((shell: string) => {
       const subcommands: Record<string, string[]> = {
         sessions: ["list", "new", "export", "clear"],
