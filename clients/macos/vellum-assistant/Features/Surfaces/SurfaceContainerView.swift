@@ -40,8 +40,7 @@ struct SurfaceContainerView: View {
                     }
                     Spacer()
                     Button(action: { viewModel.onDismiss() }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .semibold))
+                        VIconView(.x, size: 10)
                             .foregroundColor(VColor.textSecondary)
                     }
                     .buttonStyle(.plain)

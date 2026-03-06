@@ -384,7 +384,7 @@ struct ComposerView: View {
             if isSending && !hasPendingConfirmation {
                 VIconButton(
                     label: "Stop generation",
-                    icon: "stop.fill",
+                    icon: VIcon.square.rawValue,
                     iconOnly: true,
                     variant: .neutral,
                     size: composerActionButtonSize,
@@ -393,7 +393,7 @@ struct ComposerView: View {
             } else {
                 VIconButton(
                     label: "Attach file",
-                    icon: "paperclip",
+                    icon: VIcon.paperclip.rawValue,
                     iconOnly: true,
                     size: composerActionButtonSize,
                     action: { onAttach() }
@@ -403,7 +403,7 @@ struct ComposerView: View {
                 if canSend {
                     VIconButton(
                         label: "Send message",
-                        icon: "arrow.up",
+                        icon: VIcon.arrowUp.rawValue,
                         iconOnly: true,
                         variant: .primary,
                         size: composerActionButtonSize
@@ -434,8 +434,7 @@ struct ComposerView: View {
         if let manager = voiceModeManager {
             HStack(spacing: VSpacing.sm) {
                 // Waveform icon
-                Image(systemName: "waveform")
-                    .font(.system(size: 14, weight: .medium))
+                VIconView(.audioWaveform, size: 14)
                     .foregroundColor(voiceModeIconColor(manager))
 
                 if manager.state == .listening, !manager.liveTranscription.isEmpty {
@@ -464,7 +463,7 @@ struct ComposerView: View {
                 // Mute / unmute
                 VIconButton(
                     label: manager.state == .listening ? "Mute" : "Unmute",
-                    icon: manager.state == .listening ? "mic.fill" : "mic.slash.fill",
+                    icon: manager.state == .listening ? VIcon.mic.rawValue : VIcon.micOff.rawValue,
                     iconOnly: true,
                     size: composerActionButtonSize,
                     action: { manager.toggleListening() }
@@ -474,7 +473,7 @@ struct ComposerView: View {
                 // End voice mode (red X)
                 VIconButton(
                     label: "End voice mode",
-                    icon: "xmark",
+                    icon: VIcon.x.rawValue,
                     iconOnly: true,
                     variant: .danger,
                     size: composerActionButtonSize,

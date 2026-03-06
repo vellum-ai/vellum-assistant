@@ -131,8 +131,7 @@ private struct InsightRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(systemName: "sparkle")
-                .font(.system(size: 12))
+            VIconView(.sparkles, size: 12)
                 .foregroundColor(VColor.accent)
                 .padding(.top, 2)
 

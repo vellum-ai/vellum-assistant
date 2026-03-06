@@ -244,6 +244,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "integrations/twilio/sms/test", scopes: ["settings.write"] },
   { endpoint: "integrations/twilio/sms/doctor", scopes: ["settings.write"] },
 
+  // Slack share
+  { endpoint: "slack/channels", scopes: ["settings.read"] },
+  { endpoint: "slack/share", scopes: ["settings.write"] },
+
   // Channel readiness
   { endpoint: "channels/readiness", scopes: ["settings.read"] },
   { endpoint: "channels/readiness/refresh", scopes: ["settings.write"] },

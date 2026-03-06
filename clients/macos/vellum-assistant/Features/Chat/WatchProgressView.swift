@@ -36,7 +36,7 @@ struct WatchProgressView: View {
         VStack(spacing: VSpacing.md) {
             // Pulsing icon + label
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: isLearnMode ? "antenna.radiowaves.left.and.right" : "eye.fill")
+                VIconView(isLearnMode ? .wifi : .eye, size: 14)
                     .foregroundColor(VColor.accent)
                     .opacity(isPulsing ? 0.4 : 1.0)
                     .animation(
@@ -53,8 +53,7 @@ struct WatchProgressView: View {
 
                 // Stop button — highlighted when idle hint is active
                 Button(action: onStop) {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 12, weight: .medium))
+                    VIconView(.square, size: 12)
                         .foregroundColor(idleHint ? VColor.accent : VColor.error)
                 }
                 .buttonStyle(.plain)
@@ -89,9 +88,8 @@ struct WatchProgressView: View {
             // Idle hint prompt
             if idleHint {
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "checkmark.circle")
+                    VIconView(.circleCheck, size: 12)
                         .foregroundColor(VColor.accent)
-                        .font(.system(size: 12))
                     Text("No new activity detected. Ready to stop?")
                         .font(VFont.caption)
                         .foregroundColor(VColor.accent)

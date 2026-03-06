@@ -26,8 +26,7 @@ struct ThreadTitleActionsControl: View {
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1)
                 if presentation.showsActionsMenu {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                    VIconView(.chevronDown, size: 9)
                         .foregroundColor(VColor.textMuted)
                         .rotationEffect(.degrees(showDrawer ? -180 : 0))
                         .animation(VAnimation.fast, value: showDrawer)
@@ -53,18 +52,18 @@ struct ThreadActionsDrawer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if presentation.canCopy {
-                SidebarPrimaryRow(icon: "doc.on.doc", label: "Copy full thread", action: onCopy)
+                SidebarPrimaryRow(icon: VIcon.copy.rawValue, label: "Copy full thread", action: onCopy)
             }
 
             SidebarPrimaryRow(
-                icon: presentation.isPinned ? "pin.slash" : "pin",
+                icon: presentation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
                 label: presentation.isPinned ? "Unpin" : "Pin",
                 action: presentation.isPinned ? onUnpin : onPin
             )
 
-            SidebarPrimaryRow(icon: "pencil", label: "Rename thread", action: onRename)
+            SidebarPrimaryRow(icon: VIcon.pencil.rawValue, label: "Rename thread", action: onRename)
 
-            SidebarPrimaryRow(icon: "archivebox", label: "Archive thread", action: onArchive)
+            SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive thread", action: onArchive)
         }
         .padding(.vertical, VSpacing.sm)
         .background(VColor.surfaceSubtle)

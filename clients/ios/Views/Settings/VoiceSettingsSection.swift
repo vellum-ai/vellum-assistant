@@ -123,7 +123,7 @@ private struct ElevenLabsKeySection: View {
         Section {
             if hasExistingKey {
                 HStack {
-                    Image(systemName: "checkmark.circle.fill")
+                    VIconView(.circleCheck, size: 16)
                         .foregroundColor(.green)
                     Text("API key saved")
                     Spacer()

@@ -133,11 +133,11 @@ final class VoiceModeManagerExtendedTests: XCTestCase {
     }
 
     func testClassifyYesWithNoise() {
-        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("umm yes I think so"), .approved)
+        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("umm yes I think so"), .allow)
     }
 
     func testClassifyOkayVariant() {
-        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("okay fine"), .approved)
+        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("okay fine"), .allow)
     }
 
     func testClassifyNopeDont() {
@@ -145,11 +145,11 @@ final class VoiceModeManagerExtendedTests: XCTestCase {
     }
 
     func testClassifyAllowIt() {
-        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("allow it"), .approved)
+        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("allow it"), .allow)
     }
 
     func testClassifyApproveIt() {
-        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("I approve"), .approved)
+        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("I approve"), .allow)
     }
 
     func testClassifyStopIt() {

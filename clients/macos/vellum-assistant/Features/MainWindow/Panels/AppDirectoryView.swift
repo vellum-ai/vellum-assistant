@@ -48,8 +48,7 @@ struct AppDirectoryView: View {
 
                     if !displayItems.isEmpty || !searchText.isEmpty {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 11, weight: .medium))
+                            VIconView(.search, size: 11)
                                 .foregroundColor(VColor.textMuted)
 
                             TextField("Search apps...", text: $searchText)
@@ -59,8 +58,7 @@ struct AppDirectoryView: View {
 
                             if !searchText.isEmpty {
                                 Button(action: { searchText = "" }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 10))
+                                    VIconView(.circleX, size: 10)
                                         .foregroundColor(VColor.textMuted)
                                 }
                                 .buttonStyle(.plain)
@@ -99,7 +97,7 @@ struct AppDirectoryView: View {
                     VEmptyState(
                         title: "No apps yet",
                         subtitle: "Apps built with your assistant will appear here",
-                        icon: "square.grid.2x2"
+                        icon: VIcon.layoutGrid.rawValue
                     )
                     .frame(maxWidth: .infinity)
                     .padding(.top, VSpacing.xxxl)
@@ -107,7 +105,7 @@ struct AppDirectoryView: View {
                     VEmptyState(
                         title: "No results",
                         subtitle: "No apps matched \"\(searchText)\"",
-                        icon: "magnifyingglass"
+                        icon: VIcon.search.rawValue
                     )
                     .frame(maxWidth: .infinity)
                     .padding(.top, VSpacing.xxxl)
@@ -193,8 +191,7 @@ struct AppDirectoryView: View {
 
                         if item.isShared {
                             HStack(spacing: 2) {
-                                Image(systemName: "person.2.fill")
-                                    .font(.system(size: 8))
+                                VIconView(.users, size: 8)
                                 Text("Shared")
                                     .font(VFont.small)
                             }
@@ -227,8 +224,7 @@ struct AppDirectoryView: View {
                 Button {
                     onPinApp?(localId, item.name, item.icon, item.appType)
                 } label: {
-                    Image(systemName: "pin")
-                        .font(.system(size: 11, weight: .medium))
+                    VIconView(.pin, size: 11)
                         .foregroundColor(VColor.textPrimary)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 28, height: 28)

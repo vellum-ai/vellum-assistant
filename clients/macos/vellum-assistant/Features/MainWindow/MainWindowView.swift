@@ -259,9 +259,9 @@ struct MainWindowView: View {
                     } else {
                         // Thread was archived/deleted — fall back to the first visible thread
                         if let fallback = threadManager.visibleThreads.first {
-                            windowState.selection = .thread(fallback.id)
+                            windowState.applySelectionCorrection(.thread(fallback.id))
                         } else {
-                            windowState.selection = nil
+                            windowState.applySelectionCorrection(nil)
                         }
                     }
                 }
@@ -349,7 +349,19 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VIconButton(label: "Sidebar", icon: "sidebar.left", iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                VIconButton(label: "Back", icon: VIcon.chevronLeft.rawValue, iconOnly: true, tooltip: "Back (\u{2318}[)") {
+                    windowState.navigateBack()
+                }
+                .disabled(!windowState.navigationHistory.canGoBack)
+                .opacity(windowState.navigationHistory.canGoBack ? 1 : 0.35)
+
+                VIconButton(label: "Forward", icon: VIcon.chevronRight.rawValue, iconOnly: true, tooltip: "Forward (\u{2318}])") {
+                    windowState.navigateForward()
+                }
+                .disabled(!windowState.navigationHistory.canGoForward)
+                .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
+
+                VIconButton(label: "Sidebar", icon: VIcon.panelLeft.rawValue, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
                     }
@@ -359,8 +371,7 @@ struct MainWindowView: View {
                     AppDelegate.shared?.toggleCommandPalette()
                 } label: {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 12, weight: .medium))
+                        VIconView(.search, size: 13)
                             .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
                         VShortcutTag("\u{2318}K")
                     }

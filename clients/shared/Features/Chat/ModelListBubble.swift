@@ -90,8 +90,7 @@ public struct ModelListBubble: View {
                 ForEach(group.models) { model in
                     HStack(spacing: VSpacing.sm) {
                         if model.isCurrent {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 11, weight: .medium))
+                            VIconView(.circleCheck, size: 11)
                                 .foregroundColor(VColor.accent)
                                 .frame(width: 16)
                         } else {

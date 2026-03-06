@@ -10,8 +10,7 @@ struct RideShotgunInvitationSheet: View {
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
-            Image(systemName: "binoculars.fill")
-                .font(.system(size: 48))
+            VIconView(.binoculars, size: 48)
                 .foregroundStyle(VColor.accent)
                 .accessibilityHidden(true)
 
@@ -27,9 +26,9 @@ struct RideShotgunInvitationSheet: View {
             }
 
             VStack(spacing: VSpacing.sm) {
-                bulletRow(icon: "waveform.path.ecg", text: "Pick up patterns in your workflow")
-                bulletRow(icon: "clock.badge.checkmark", text: "Spot where I can save you time")
-                bulletRow(icon: "lightbulb.fill", text: "Get context so my suggestions are relevant")
+                bulletRow(icon: .audioWaveform, text: "Pick up patterns in your workflow")
+                bulletRow(icon: .clock, text: "Spot where I can save you time")
+                bulletRow(icon: .lightbulb, text: "Get context so my suggestions are relevant")
             }
             .padding(.vertical, VSpacing.sm)
 
@@ -59,9 +58,9 @@ struct RideShotgunInvitationSheet: View {
         .presentationDragIndicator(.visible)
     }
 
-    private func bulletRow(icon: String, text: String) -> some View {
+    private func bulletRow(icon: VIcon, text: String) -> some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: icon)
+            VIconView(icon, size: 16)
                 .foregroundStyle(VColor.accent)
                 .frame(width: 20)
                 .accessibilityHidden(true)

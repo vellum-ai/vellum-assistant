@@ -257,7 +257,7 @@ struct HomeBaseView: View {
                 if let homeBase {
                     if !homeBase.starterTasks.isEmpty {
                         taskListSection(
-                            icon: "star.fill",
+                            icon: .star,
                             title: "Starter Tasks",
                             tasks: homeBase.starterTasks
                         )
@@ -265,7 +265,7 @@ struct HomeBaseView: View {
 
                     if !homeBase.onboardingTasks.isEmpty {
                         taskListSection(
-                            icon: "checklist",
+                            icon: .listChecks,
                             title: "Onboarding",
                             tasks: homeBase.onboardingTasks
                         )
@@ -287,14 +287,14 @@ struct HomeBaseView: View {
 
     private var quickActionsSection: some View {
         VStack(spacing: 0) {
-            sectionHeader(icon: "bolt.fill", title: "Quick Actions")
+            sectionHeader(icon: .zap, title: "Quick Actions")
 
             LazyVGrid(columns: [
                 GridItem(.flexible()),
                 GridItem(.flexible()),
             ], spacing: VSpacing.sm) {
                 quickActionButton(
-                    icon: "square.and.pencil",
+                    icon: .squarePen,
                     label: "New Conversation",
                     color: VColor.accent
                 ) {
@@ -302,7 +302,7 @@ struct HomeBaseView: View {
                 }
 
                 quickActionButton(
-                    icon: "arrow.clockwise",
+                    icon: .refreshCw,
                     label: "Refresh Home",
                     color: VColor.accent
                 ) {
@@ -314,7 +314,7 @@ struct HomeBaseView: View {
                 }
 
                 quickActionButton(
-                    icon: "checklist",
+                    icon: .listChecks,
                     label: "Run a Task",
                     color: VColor.iconAccent
                 ) {
@@ -323,7 +323,7 @@ struct HomeBaseView: View {
                 }
 
                 quickActionButton(
-                    icon: "gear",
+                    icon: .settings,
                     label: "Settings",
                     color: VColor.textMuted
                 ) {
@@ -342,7 +342,7 @@ struct HomeBaseView: View {
         .accessibilityLabel("Quick Actions")
     }
 
-    private func quickActionButton(icon: String, label: String, color: Color, action: @escaping () -> Void) -> some View {
+    private func quickActionButton(icon: VIcon, label: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: VSpacing.xs) {
                 ZStack {
@@ -350,8 +350,7 @@ struct HomeBaseView: View {
                         .fill(color.opacity(0.12))
                         .frame(width: 44, height: 44)
 
-                    Image(systemName: icon)
-                        .font(.system(size: 18, weight: .medium))
+                    VIconView(icon, size: 18)
                         .foregroundColor(color)
                 }
 
@@ -385,7 +384,7 @@ struct HomeBaseView: View {
 
     private var recentConversationsWidget: some View {
         VStack(spacing: 0) {
-            sectionHeader(icon: "bubble.left.and.bubble.right", title: "Recent Conversations")
+            sectionHeader(icon: .messagesSquare, title: "Recent Conversations")
 
             if viewModel.recentSessions.isEmpty && !viewModel.isLoadingWidgets {
                 HStack {
@@ -426,8 +425,7 @@ struct HomeBaseView: View {
     private func conversationRow(_ session: IPCSessionListResponseSession, isLast: Bool) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "bubble.left")
-                    .font(.system(size: 13))
+                VIconView(.messageCircle, size: 13)
                     .foregroundColor(VColor.textMuted)
                     .accessibilityHidden(true)
 
@@ -458,7 +456,7 @@ struct HomeBaseView: View {
 
     private var remindersWidget: some View {
         VStack(spacing: 0) {
-            sectionHeader(icon: "bell.fill", title: "Upcoming Reminders")
+            sectionHeader(icon: .bell, title: "Upcoming Reminders")
 
             VStack(spacing: 0) {
                 ForEach(Array(viewModel.reminders.enumerated()), id: \.element.id) { index, reminder in
@@ -479,8 +477,7 @@ struct HomeBaseView: View {
     private func reminderRow(_ reminder: ReminderItem, isLast: Bool) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "bell")
-                    .font(.system(size: 13))
+                VIconView(.bell, size: 13)
                     .foregroundColor(VColor.warning)
                     .accessibilityHidden(true)
 
@@ -519,7 +516,7 @@ struct HomeBaseView: View {
     private var pinnedAppsSection: some View {
         VStack(spacing: 0) {
             HStack {
-                Image(systemName: "pin.fill")
+                VIconView(.pin, size: 14)
                     .foregroundColor(VColor.accent)
                     .accessibilityHidden(true)
                 Text("Pinned Apps")
@@ -532,8 +529,7 @@ struct HomeBaseView: View {
                     newPinIcon = ""
                     showAddPinSheet = true
                 } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .medium))
+                    VIconView(.plus, size: 15)
                         .foregroundColor(VColor.accent)
                 }
                 .accessibilityLabel("Add Pinned App")
@@ -639,8 +635,7 @@ struct HomeBaseView: View {
                         Text(icon)
                             .font(.system(size: 28))
                     } else {
-                        Image(systemName: "square.fill")
-                            .font(.system(size: 24))
+                        VIconView(.square, size: 24)
                             .foregroundColor(VColor.textMuted)
                     }
                 }
@@ -660,7 +655,7 @@ struct HomeBaseView: View {
                 Button {
                     UIApplication.shared.open(url)
                 } label: {
-                    Label("Open", systemImage: "arrow.up.right.square")
+                    Label { Text("Open") } icon: { VIconView(.externalLink, size: 12) }
                 }
             }
             Button(role: .destructive) {
@@ -668,7 +663,7 @@ struct HomeBaseView: View {
                     pinnedAppsStore.unpin(id: pin.id)
                 }
             } label: {
-                Label("Unpin", systemImage: "pin.slash")
+                Label { Text("Unpin") } icon: { VIconView(.pinOff, size: 12) }
             }
         }
     }
@@ -716,7 +711,7 @@ struct HomeBaseView: View {
 
     private func metricsSection(_ metrics: [IPCHomeBaseGetResponseHomeBasePreviewMetric]) -> some View {
         VStack(spacing: 0) {
-            sectionHeader(icon: "chart.bar.fill", title: "Metrics")
+            sectionHeader(icon: .barChart, title: "Metrics")
 
             LazyVGrid(columns: [
                 GridItem(.flexible()),
@@ -758,7 +753,7 @@ struct HomeBaseView: View {
 
     // MARK: - Task List Section
 
-    private func taskListSection(icon: String, title: String, tasks: [String]) -> some View {
+    private func taskListSection(icon: VIcon, title: String, tasks: [String]) -> some View {
         VStack(spacing: 0) {
             sectionHeader(icon: icon, title: title)
 
@@ -781,8 +776,7 @@ struct HomeBaseView: View {
     private func taskRow(_ task: String, isLast: Bool) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "circle")
-                    .font(.system(size: 14))
+                VIconView(.circle, size: 14)
                     .foregroundColor(VColor.textMuted)
                     .accessibilityHidden(true)
 
@@ -807,9 +801,9 @@ struct HomeBaseView: View {
 
     // MARK: - Shared Section Header
 
-    private func sectionHeader(icon: String, title: String) -> some View {
+    private func sectionHeader(icon: VIcon, title: String) -> some View {
         HStack {
-            Image(systemName: icon)
+            VIconView(icon, size: 14)
                 .foregroundColor(VColor.accent)
                 .accessibilityHidden(true)
             Text(title)
@@ -826,8 +820,7 @@ struct HomeBaseView: View {
 
     private var disconnectedState: some View {
         VStack(spacing: VSpacing.lg) {
-            Image(systemName: "desktopcomputer")
-                .font(.system(size: 48))
+            VIconView(.monitor, size: 48)
                 .foregroundColor(VColor.textMuted)
                 .accessibilityHidden(true)
 

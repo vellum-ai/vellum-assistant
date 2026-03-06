@@ -23,7 +23,7 @@ struct DebugPanelView: View {
                         emptyState(
                             title: "No trace events yet",
                             subtitle: "Events will appear as the session runs",
-                            icon: "waveform.path"
+                            icon: .audioWaveform
                         )
                     } else {
                         TraceTimelineIOSView(traceStore: traceStore, sessionId: sessionId)
@@ -32,7 +32,7 @@ struct DebugPanelView: View {
                     emptyState(
                         title: "No session selected",
                         subtitle: "Start a conversation to see trace events",
-                        icon: "ant"
+                        icon: .bug
                     )
                 }
             }
@@ -55,17 +55,17 @@ struct DebugPanelView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: VSpacing.lg) {
                 metric(
-                    icon: "arrow.right.circle",
+                    icon: .arrowRight,
                     label: "Requests",
                     value: "\(traceStore.requestCount(sessionId: sessionId))"
                 )
                 metric(
-                    icon: "brain",
+                    icon: .brain,
                     label: "LLM Calls",
                     value: "\(traceStore.llmCallCount(sessionId: sessionId))"
                 )
                 metric(
-                    icon: "text.word.spacing",
+                    icon: .fileText,
                     label: "Tokens",
                     value: formatTokens(
                         input: traceStore.totalInputTokens(sessionId: sessionId),
@@ -73,7 +73,7 @@ struct DebugPanelView: View {
                     )
                 )
                 metric(
-                    icon: "clock",
+                    icon: .clock,
                     label: "Avg Latency",
                     value: formatLatency(traceStore.averageLlmLatencyMs(sessionId: sessionId))
                 )
@@ -81,7 +81,7 @@ struct DebugPanelView: View {
                 let failures = traceStore.toolFailureCount(sessionId: sessionId)
                 if failures > 0 {
                     metric(
-                        icon: "exclamationmark.triangle.fill",
+                        icon: .triangleAlert,
                         label: "Failures",
                         value: "\(failures)",
                         color: Danger._500
@@ -95,11 +95,10 @@ struct DebugPanelView: View {
     }
 
     @ViewBuilder
-    private func metric(icon: String, label: String, value: String, color: Color = Emerald._400) -> some View {
+    private func metric(icon: VIcon, label: String, value: String, color: Color = Emerald._400) -> some View {
         VStack(spacing: VSpacing.xxs) {
             HStack(spacing: VSpacing.xs) {
-                Image(systemName: icon)
-                    .font(.system(size: 11))
+                VIconView(icon, size: 11)
                     .foregroundColor(color)
                 Text(value)
                     .font(VFont.captionMedium)
@@ -114,11 +113,10 @@ struct DebugPanelView: View {
     // MARK: - Empty State
 
     @ViewBuilder
-    private func emptyState(title: String, subtitle: String, icon: String) -> some View {
+    private func emptyState(title: String, subtitle: String, icon: VIcon) -> some View {
         VStack(spacing: VSpacing.md) {
             Spacer()
-            Image(systemName: icon)
-                .font(.system(size: 36, weight: .thin))
+            VIconView(icon, size: 36)
                 .foregroundColor(VColor.textMuted)
             Text(title)
                 .font(VFont.body)
@@ -220,8 +218,7 @@ struct TraceTimelineIOSView: View {
                         }
                     }) {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .font(.system(size: 11))
+                            VIconView(.circleArrowDown, size: 11)
                             Text("Jump to bottom")
                                 .font(VFont.small)
                         }
@@ -250,8 +247,7 @@ struct TraceTimelineIOSView: View {
 
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: groupStatusIcon(groupStatus))
-                    .font(.system(size: 11))
+                VIconView(groupStatusIcon(groupStatus), size: 11)
                     .foregroundColor(groupStatusColor(groupStatus))
 
                 Text(requestId.isEmpty ? "System" : "Request \(requestId.prefix(8))")
@@ -283,13 +279,13 @@ struct TraceTimelineIOSView: View {
         }
     }
 
-    private func groupStatusIcon(_ status: TraceStore.RequestGroupStatus) -> String {
+    private func groupStatusIcon(_ status: TraceStore.RequestGroupStatus) -> VIcon {
         switch status {
-        case .active: return "arrow.right.circle"
-        case .completed: return "checkmark.circle.fill"
-        case .cancelled: return "xmark.circle.fill"
-        case .handedOff: return "arrow.right.arrow.left.circle.fill"
-        case .error: return "exclamationmark.triangle.fill"
+        case .active: return .arrowRight
+        case .completed: return .circleCheck
+        case .cancelled: return .circleX
+        case .handedOff: return .refreshCw
+        case .error: return .triangleAlert
         }
     }
 
@@ -324,8 +320,7 @@ struct TraceTimelineIOSView: View {
                 HStack(spacing: 0) {
                     traceRow(event: event)
                     if hasAttributes {
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 10))
+                        VIconView(isExpanded ? .chevronUp : .chevronDown, size: 10)
                             .foregroundColor(VColor.textMuted)
                             .frame(width: 18)
                     }
@@ -362,8 +357,7 @@ struct TraceTimelineIOSView: View {
     @ViewBuilder
     private func traceRow(event: TraceStore.StoredEvent) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(systemName: iconName(for: event.kind))
-                .font(.system(size: 12))
+            VIconView(iconName(for: event.kind), size: 12)
                 .foregroundColor(statusColor(for: event.status))
                 .frame(width: 20, alignment: .center)
 
@@ -383,25 +377,25 @@ struct TraceTimelineIOSView: View {
         .padding(.vertical, VSpacing.xs)
     }
 
-    private func iconName(for kind: String) -> String {
+    private func iconName(for kind: String) -> VIcon {
         switch kind {
-        case "request_received": return "play.circle"
-        case "request_queued": return "tray.and.arrow.down"
-        case "request_dequeued": return "tray.and.arrow.up"
-        case "llm_call_started": return "brain"
-        case "llm_call_finished": return "brain.head.profile"
-        case "assistant_message": return "text.bubble"
-        case "tool_started": return "wrench.and.screwdriver"
-        case "tool_permission_requested": return "lock.shield"
-        case "tool_permission_decided": return "lock.open"
-        case "tool_finished": return "wrench.and.screwdriver.fill"
-        case "tool_failed": return "exclamationmark.triangle.fill"
-        case "secret_detected": return "eye.trianglebadge.exclamationmark"
-        case "generation_handoff": return "arrow.right.arrow.left.circle"
-        case "message_complete": return "checkmark.circle"
-        case "generation_cancelled": return "xmark.circle"
-        case "request_error": return "exclamationmark.circle"
-        default: return "circle.fill"
+        case "request_received": return .circlePlay
+        case "request_queued": return .inbox
+        case "request_dequeued": return .inbox
+        case "llm_call_started": return .brain
+        case "llm_call_finished": return .brain
+        case "assistant_message": return .messageCircle
+        case "tool_started": return .wrench
+        case "tool_permission_requested": return .shield
+        case "tool_permission_decided": return .lockOpen
+        case "tool_finished": return .wrench
+        case "tool_failed": return .triangleAlert
+        case "secret_detected": return .eye
+        case "generation_handoff": return .refreshCw
+        case "message_complete": return .circleCheck
+        case "generation_cancelled": return .circleX
+        case "request_error": return .circleAlert
+        default: return .circle
         }
     }
 

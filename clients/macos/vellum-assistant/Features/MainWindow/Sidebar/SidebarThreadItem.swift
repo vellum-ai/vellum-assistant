@@ -50,8 +50,7 @@ struct SidebarThreadItem: View {
                             }
                         }
                     } label: {
-                        Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 10, weight: .medium))
+                        VIconView(.pin, size: 13)
                             .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
@@ -66,13 +65,11 @@ struct SidebarThreadItem: View {
                         VBusyIndicator()
                             .frame(width: 20, height: 20)
                     case .waitingForInput:
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.system(size: 12))
+                        VIconView(.circleAlert, size: 12)
                             .foregroundColor(VColor.warning)
                             .frame(width: 20, height: 20)
                     case .error:
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.system(size: 12))
+                        VIconView(.circleAlert, size: 12)
                             .foregroundColor(VColor.error)
                             .frame(width: 20, height: 20)
                             .transition(.opacity)
@@ -84,8 +81,7 @@ struct SidebarThreadItem: View {
                                 .frame(width: 20, height: 20)
                                 .transition(.opacity)
                         } else if thread.isPinned {
-                            Image(systemName: "pin.fill")
-                                .font(.system(size: 10, weight: .medium))
+                            VIconView(.pin, size: 13)
                                 .foregroundColor(VColor.textMuted)
                                 .rotationEffect(.degrees(-45))
                                 .frame(width: 20, height: 20)
@@ -97,8 +93,7 @@ struct SidebarThreadItem: View {
                     }
                 }
                 if thread.kind == .private {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 10, weight: .medium))
+                    VIconView(.lock, size: 13)
                         .foregroundColor(VColor.accent.opacity(0.7))
                 }
                 Text(thread.title)
@@ -149,8 +144,7 @@ struct SidebarThreadItem: View {
                 Button {
                     sidebar.threadPendingDeletion = thread.id
                 } label: {
-                    Image(systemName: "archivebox")
-                        .font(.system(size: 10, weight: .medium))
+                    VIconView(.archive, size: 13)
                         .foregroundColor(VColor.textSecondary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
@@ -171,20 +165,20 @@ struct SidebarThreadItem: View {
                     }
                 }
             } label: {
-                Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
+                Label { Text(thread.isPinned ? "Unpin" : "Pin to Top") } icon: { VIconView(thread.isPinned ? .pinOff : .pin, size: 14) }
             }
             if thread.sessionId != nil {
                 Button {
                     sidebar.renamingThreadId = thread.id
                     sidebar.renameText = thread.title
                 } label: {
-                    Label("Rename", systemImage: "pencil")
+                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
                 }
             }
             Button {
                 threadManager.archiveThread(id: thread.id)
             } label: {
-                Label("Archive", systemImage: "archivebox")
+                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
             }
         }
         .pointerCursor()
@@ -199,8 +193,7 @@ struct SidebarThreadItem: View {
         } preview: {
             HStack(spacing: VSpacing.xs) {
                 if thread.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 10, weight: .medium))
+                    VIconView(.pin, size: 13)
                         .foregroundColor(VColor.textMuted)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 20, height: 20)

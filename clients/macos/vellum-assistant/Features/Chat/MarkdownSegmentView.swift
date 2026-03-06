@@ -318,6 +318,10 @@ struct MarkdownSegmentView: View {
             leading.backgroundColor = codeBackgroundColor
             result.insert(leading, at: range.lowerBound)
         }
+        // Underline links so they are visually distinct from plain text
+        for run in result.runs where result[run.range].link != nil {
+            result[run.range].underlineStyle = .single
+        }
         return result
     }
 
@@ -366,6 +370,10 @@ struct MarkdownSegmentView: View {
             var leading = AttributedString("\u{2009}")
             leading.backgroundColor = codeBackgroundColor
             result.insert(leading, at: range.lowerBound)
+        }
+        // Underline links so they are visually distinct from plain text
+        for run in result.runs where result[run.range].link != nil {
+            result[run.range].underlineStyle = .single
         }
 
         return result

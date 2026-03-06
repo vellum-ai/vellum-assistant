@@ -127,8 +127,7 @@ struct InputBarView: View {
         HStack(spacing: VSpacing.md) {
             // Attachment button — tap opens photo library (most common), long-press shows both options
             Button(action: { showPhotosPicker = true }) {
-                Image(systemName: "paperclip")
-                    .font(VFont.body)
+                VIconView(.paperclip, size: 16)
                     .foregroundColor(VColor.textSecondary)
             }
             .accessibilityLabel("Attach file")
@@ -136,12 +135,12 @@ struct InputBarView: View {
                 Button {
                     showPhotosPicker = true
                 } label: {
-                    Label("Photo Library", systemImage: "photo.on.rectangle")
+                    Label { Text("Photo Library") } icon: { VIconView(.image, size: 14) }
                 }
                 Button {
                     showDocumentPicker = true
                 } label: {
-                    Label("Files", systemImage: "folder")
+                    Label { Text("Files") } icon: { VIconView(.folder, size: 14) }
                 }
             }
             .photosPicker(
@@ -199,8 +198,7 @@ struct InputBarView: View {
             } else {
                 // Mic button — tap to expand the animated voice orb
                 Button(action: toggleVoiceInput) {
-                    Image(systemName: "mic")
-                        .font(.system(size: 22))
+                    VIconView(.mic, size: 22)
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
@@ -211,8 +209,7 @@ struct InputBarView: View {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     onSend()
                 }) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 32))
+                    VIconView(.circleArrowUp, size: 32)
                         .foregroundColor(canSend ? VColor.accent : VColor.textMuted)
                 }
                 .disabled(!canSend)

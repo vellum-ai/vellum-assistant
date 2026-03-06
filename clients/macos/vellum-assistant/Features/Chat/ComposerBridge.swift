@@ -187,9 +187,8 @@ struct MicrophoneButton: View {
                         .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false), value: isPulsing)
                 }
 
-                Image(systemName: isRecording ? "mic.fill" : "mic")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 14, height: 14)
+                VIconView(.mic, size: 16)
+                    .frame(width: 18, height: 18)
                     .foregroundColor(isRecording ? VColor.error : adaptiveColor(light: Forest._500, dark: Moss._400))
             }
         }

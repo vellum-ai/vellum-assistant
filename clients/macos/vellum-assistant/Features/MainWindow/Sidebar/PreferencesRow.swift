@@ -8,10 +8,10 @@ struct PreferencesRow: View {
 
     var body: some View {
         SidebarPrimaryRow(
-            icon: "slider.horizontal.3",
+            icon: VIcon.slidersHorizontal.rawValue,
             label: "Preferences",
             isActive: isActive,
-            trailingIcon: isActive ? "chevron.down" : "chevron.up",
+            trailingIcon: isActive ? VIcon.chevronDown.rawValue : VIcon.chevronUp.rawValue,
             isExpanded: isExpanded,
             action: onToggle
         )

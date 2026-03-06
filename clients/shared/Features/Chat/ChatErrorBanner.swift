@@ -12,7 +12,7 @@ public struct ChatErrorBanner: View {
 
     public var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            VIconView(.triangleAlert, size: 14)
                 .foregroundStyle(VColor.warning)
             Text(message)
                 .font(.footnote)
@@ -20,7 +20,7 @@ public struct ChatErrorBanner: View {
             Spacer()
             if let onDismiss {
                 Button(action: onDismiss) {
-                    Image(systemName: "xmark")
+                    VIconView(.x, size: 14)
                         .foregroundStyle(VColor.textSecondary)
                 }
                 .buttonStyle(.plain)

@@ -111,8 +111,7 @@ public struct MessageBubbleView: View {
                 // locally awaiting daemon reconnect. Replaces the streaming dots.
                 if message.status == .pendingOffline {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 11, weight: .medium))
+                        VIconView(.history, size: 11)
                             .foregroundColor(VColor.textMuted)
                         Text("Pending")
                             .font(VFont.small)
@@ -230,8 +229,7 @@ public struct MessageBubbleView: View {
                 .textSelection(.enabled)
         } else if message.isError {
             HStack(alignment: .top, spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 13, weight: .medium))
+                VIconView(.triangleAlert, size: 13)
                     .foregroundColor(VColor.error)
                     .padding(.top, 1)
                 Text(text)
@@ -252,7 +250,7 @@ public struct MessageBubbleView: View {
                     Button {
                         onRegenerate()
                     } label: {
-                        Label("Regenerate", systemImage: "arrow.trianglehead.counterclockwise")
+                        Label { Text("Regenerate") } icon: { VIconView(.rotateCcw, size: 14) }
                     }
                 }
             }
@@ -266,7 +264,7 @@ public struct MessageBubbleView: View {
                         Button {
                             onRegenerate()
                         } label: {
-                            Label("Regenerate", systemImage: "arrow.trianglehead.counterclockwise")
+                            Label { Text("Regenerate") } icon: { VIconView(.rotateCcw, size: 14) }
                         }
                     }
                 }

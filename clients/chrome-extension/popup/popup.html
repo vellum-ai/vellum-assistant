@@ -101,6 +101,28 @@
       margin-top: 10px;
       line-height: 1.5;
     }
+
+    .manual-toggle {
+      font-size: 12px;
+      color: #6366f1;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      margin-bottom: 8px;
+      text-decoration: underline;
+      display: inline-block;
+    }
+    .manual-toggle:hover { color: #4f46e5; }
+
+    .token-group { display: none; }
+    .token-group.visible { display: block; }
+
+    .error-text {
+      font-size: 12px;
+      color: #ef4444;
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
@@ -111,14 +133,19 @@
 
   <p class="status-text" id="status-text">Not connected</p>
 
-  <label for="token-input">Bearer token</label>
-  <input
-    type="password"
-    id="token-input"
-    placeholder="Paste your JWT bearer token"
-    autocomplete="off"
-    spellcheck="false"
-  />
+  <p class="error-text" id="error-text" style="display:none"></p>
+
+  <button class="manual-toggle" id="manual-toggle" type="button">Manual token entry</button>
+  <div class="token-group" id="token-group">
+    <label for="token-input">Bearer token</label>
+    <input
+      type="password"
+      id="token-input"
+      placeholder="Paste your JWT bearer token"
+      autocomplete="off"
+      spellcheck="false"
+    />
+  </div>
 
   <label for="port-input">Relay port</label>
   <input
@@ -134,7 +161,7 @@
     <button id="btn-disconnect" disabled>Disconnect</button>
   </div>
 
-  <p class="hint">Token is stored locally in your browser. Port defaults to 7830.</p>
+  <p class="hint">Token is auto-fetched from the local gateway. Port defaults to 7830.</p>
 
   <script type="module" src="popup.js"></script>
 </body>

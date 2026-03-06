@@ -469,26 +469,26 @@ public struct ToolConfirmationData: Equatable {
         }
     }
 
-    /// SF Symbol name for the tool category.
-    public var toolCategoryIcon: String {
+    /// Icon for the tool category.
+    public var toolCategoryIcon: VIcon {
         switch toolName {
-        case "bash", "host_bash":                    return "terminal"
-        case "file_write", "host_file_write":        return "doc.badge.plus"
-        case "file_edit", "host_file_edit":           return "pencil.line"
-        case "file_read", "host_file_read":           return "doc.text"
-        case "web_fetch":                             return "arrow.down.circle"
-        case "web_search":                            return "magnifyingglass"
-        case "credential_store":                      return "lock.shield"
-        case "account_manage":                        return "person.crop.circle"
-        case _ where toolName.hasPrefix("browser_"):  return "globe"
-        case _ where toolName.hasPrefix("schedule_"): return "calendar"
-        case _ where toolName.hasPrefix("watcher_"):  return "eye"
-        case _ where toolName.hasPrefix("memory_"):   return "brain"
-        case "skill_load":                            return "puzzlepiece.extension"
-        case "evaluate_typescript_code":              return "chevron.left.forwardslash.chevron.right"
-        case _ where toolName.hasPrefix("reminder_"):   return "bell"
-        case "document_create", "document_update":    return "doc.richtext"
-        default:                                      return "puzzlepiece.extension"
+        case "bash", "host_bash":                    return .terminal
+        case "file_write", "host_file_write":        return .filePlus
+        case "file_edit", "host_file_edit":           return .pencil
+        case "file_read", "host_file_read":           return .fileText
+        case "web_fetch":                             return .circleArrowDown
+        case "web_search":                            return .search
+        case "credential_store":                      return .shield
+        case "account_manage":                        return .circleUser
+        case _ where toolName.hasPrefix("browser_"):  return .globe
+        case _ where toolName.hasPrefix("schedule_"): return .calendar
+        case _ where toolName.hasPrefix("watcher_"):  return .eye
+        case _ where toolName.hasPrefix("memory_"):   return .brain
+        case "skill_load":                            return .puzzle
+        case "evaluate_typescript_code":              return .fileCode
+        case _ where toolName.hasPrefix("reminder_"):   return .bell
+        case "document_create", "document_update":    return .fileText
+        default:                                      return .puzzle
         }
     }
 
@@ -737,19 +737,19 @@ public struct ClaudeCodeSubStep: Identifiable, Equatable {
         }
     }
 
-    /// SF Symbol name for the sub-tool type.
-    public var toolIcon: String {
+    /// Icon for the sub-tool type.
+    public var toolIcon: VIcon {
         switch toolName.lowercased() {
-        case "read", "file_read":       return "doc.text"
-        case "edit", "file_edit":       return "pencil.line"
-        case "write", "file_write":     return "doc.badge.plus"
-        case "bash":                    return "terminal"
-        case "glob":                    return "folder.badge.magnifyingglass"
-        case "grep":                    return "magnifyingglass"
-        case "websearch", "web_search": return "magnifyingglass"
-        case "webfetch", "web_fetch":   return "arrow.down.circle"
-        case "task":                    return "person.2"
-        default:                        return "puzzlepiece.extension"
+        case "read", "file_read":       return .fileText
+        case "edit", "file_edit":       return .pencil
+        case "write", "file_write":     return .filePlus
+        case "bash":                    return .terminal
+        case "glob":                    return .folderSearch
+        case "grep":                    return .search
+        case "websearch", "web_search": return .search
+        case "webfetch", "web_fetch":   return .circleArrowDown
+        case "task":                    return .users
+        default:                        return .puzzle
         }
     }
 }
@@ -894,23 +894,23 @@ public struct ToolCallData: Identifiable, Equatable {
         }
     }
 
-    /// SF Symbol name appropriate for the tool type.
-    public var toolIcon: String {
+    /// Icon appropriate for the tool type.
+    public var toolIcon: VIcon {
         switch toolName {
-        case "bash", "host_bash":                  return "terminal"
-        case "file_write", "host_file_write":      return "doc.badge.plus"
-        case "file_edit", "host_file_edit":        return "pencil.line"
-        case "file_read", "host_file_read":        return "doc.text"
-        case "glob":                               return "folder.badge.magnifyingglass"
-        case "grep":                               return "magnifyingglass"
-        case "web_fetch":                          return "arrow.down.circle"
-        case "browser_navigate":                   return "globe"
-        case "browser_screenshot":                 return "camera.viewfinder"
-        case "browser_click":                      return "cursorarrow.click"
-        case "browser_type":                       return "keyboard"
-        case "app_create", "app_update":           return "apps.iphone"
-        case "request_system_permission":          return "lock.shield"
-        default:                                   return "puzzlepiece.extension"
+        case "bash", "host_bash":                  return .terminal
+        case "file_write", "host_file_write":      return .filePlus
+        case "file_edit", "host_file_edit":        return .pencil
+        case "file_read", "host_file_read":        return .fileText
+        case "glob":                               return .folderSearch
+        case "grep":                               return .search
+        case "web_fetch":                          return .circleArrowDown
+        case "browser_navigate":                   return .globe
+        case "browser_screenshot":                 return .scan
+        case "browser_click":                      return .mousePointerClick
+        case "browser_type":                       return .keyboard
+        case "app_create", "app_update":           return .smartphone
+        case "request_system_permission":          return .shield
+        default:                                   return .puzzle
         }
     }
 

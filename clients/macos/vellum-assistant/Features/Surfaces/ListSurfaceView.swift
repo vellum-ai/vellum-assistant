@@ -14,9 +14,8 @@ struct ListSurfaceView: View {
                     VListRow(onTap: data.selectionMode != .none ? { toggleSelection(item) } : nil) {
                         HStack(spacing: VSpacing.md) {
                             if let icon = item.icon {
-                                Image(systemName: icon)
+                                VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 14)
                                     .foregroundColor(VColor.textMuted)
-                                    .font(VFont.body)
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.xxs) {
@@ -34,9 +33,8 @@ struct ListSurfaceView: View {
                             Spacer()
 
                             if data.selectionMode != .none && selectedIds.contains(item.id) {
-                                Image(systemName: "checkmark")
+                                VIconView(.check, size: 14)
                                     .foregroundColor(VColor.accent)
-                                    .font(VFont.bodyMedium)
                             }
                         }
                     }

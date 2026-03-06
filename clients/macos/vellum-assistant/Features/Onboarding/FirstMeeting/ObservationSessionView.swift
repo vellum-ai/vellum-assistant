@@ -90,8 +90,7 @@ struct ObservationSessionView: View {
                                 .rotationEffect(.degrees(-90))
                                 .animation(VAnimation.standard, value: progress)
 
-                            Image(systemName: "eye")
-                                .font(.system(size: 14))
+                            VIconView(.eye, size: 14)
                                 .foregroundColor(VColor.accent)
                         }
                     }
@@ -229,8 +228,7 @@ private struct NarrationBubble: View {
     var body: some View {
         HStack {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "eye")
-                    .font(.system(size: 11))
+                VIconView(.eye, size: 11)
                     .foregroundColor(VColor.accent)
 
                 Text(text)

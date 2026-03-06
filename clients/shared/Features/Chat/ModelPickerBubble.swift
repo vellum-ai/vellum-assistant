@@ -39,8 +39,7 @@ public struct ModelPickerBubble: View {
             onSelect(model.id)
         } label: {
             HStack(spacing: VSpacing.md) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 12, weight: .medium))
+                VIconView(isSelected ? .circleCheck : .circle, size: 12)
                     .foregroundColor(isSelected ? VColor.accent : (isHovered ? VColor.textPrimary : VColor.textSecondary))
                     .frame(width: 18)
                 Text(model.name)

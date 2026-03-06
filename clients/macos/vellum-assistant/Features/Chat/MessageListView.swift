@@ -6,6 +6,21 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListView")
 
+// MARK: - Scroll Suppression Environment
+
+/// Environment key that child views (e.g. AssistantProgressView) call to
+/// temporarily suppress auto-scroll-to-bottom during content expansion.
+private struct SuppressAutoScrollKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var suppressAutoScroll: (() -> Void)? {
+        get { self[SuppressAutoScrollKey.self] }
+        set { self[SuppressAutoScrollKey.self] = newValue }
+    }
+}
+
 /// Holds the last-known anchor minY without triggering SwiftUI re-renders.
 /// Only `isVisible` is @Published so re-renders happen only when the
 /// visible/invisible boundary is crossed — not on every scroll tick.
@@ -103,6 +118,7 @@ struct MessageListView: View {
     @State private var hoverExitDebounceTask: Task<Void, Never>?
     @State private var threadSwitchSuppressionTask: Task<Void, Never>?
     @State private var suppressScrollbarDuringThreadSwitch: Bool = false
+    @State private var expandSuppressionTask: Task<Void, Never>?
     /// Tracks the last pending confirmation request ID that triggered an
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
     /// resign first responder exactly once per new confirmation appearance.
@@ -432,6 +448,20 @@ struct MessageListView: View {
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
+            .environment(\.suppressAutoScroll, { [self] in
+                isSuppressingBottomScroll = true
+                expandSuppressionTask?.cancel()
+                expandSuppressionTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    guard !Task.isCancelled else { return }
+                    // Only clear if no other mechanism (resize, pagination) still needs suppression.
+                    let resizeActive = resizeScrollTask != nil && !resizeScrollTask!.isCancelled
+                    let paginationActive = isPaginationInFlight
+                    if !resizeActive && !paginationActive {
+                        isSuppressingBottomScroll = false
+                    }
+                }
+            })
             .onHover { hovering in
                 handleThreadContentHover(hovering)
             }
@@ -473,8 +503,7 @@ struct MessageListView: View {
                         }
                     }) {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "arrow.down")
-                                .font(.system(size: 10, weight: .semibold))
+                            VIconView(.arrowDown, size: 10)
                             Text("Scroll to latest")
                                 .font(VFont.monoSmall)
                         }
@@ -542,6 +571,8 @@ struct MessageListView: View {
                 anchorTimeoutTask = nil
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
+                expandSuppressionTask?.cancel()
+                expandSuppressionTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
@@ -676,6 +707,8 @@ struct MessageListView: View {
                 scrollDebounceTask = nil
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
+                expandSuppressionTask?.cancel()
+                expandSuppressionTask = nil
                 isPaginationInFlight = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true
@@ -953,7 +986,7 @@ private struct MessageCellView: View {
                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                 onReportMessage: onReportMessage,
                 onSurfaceRefetch: onSurfaceRefetch,
-                onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
+                onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
                 resolveHttpPort: resolveHttpPort,
                 showAvatar: !previousIsAssistant || message.isNudge,
@@ -983,7 +1016,7 @@ private struct MessageCellView: View {
     }
 }
 
-private struct ThreadScrollbarVisibilityController: NSViewRepresentable {
+private struct ThreadScrollbarVisibilityController: NSViewRepresentable, Equatable {
     let shouldShow: Bool
 
     func makeCoordinator() -> Coordinator {
@@ -1006,10 +1039,14 @@ private struct ThreadScrollbarVisibilityController: NSViewRepresentable {
 
     final class Coordinator {
         weak var lastResolvedScrollView: NSScrollView?
+        private var lastShouldShow: Bool?
 
         func update(from markerView: NSView, shouldShow: Bool) {
             guard let scrollView = findEnclosingScrollView(from: markerView) ?? lastResolvedScrollView else { return }
+            // Skip redundant reconfiguration
+            if scrollView === lastResolvedScrollView && lastShouldShow == shouldShow { return }
             lastResolvedScrollView = scrollView
+            lastShouldShow = shouldShow
             // Keep the scroller instantiated and styled consistently; only toggle
             // visibility. Toggling `hasVerticalScroller` can recreate scroller
             // internals, which causes visible flicker and brief legacy-style flashes.

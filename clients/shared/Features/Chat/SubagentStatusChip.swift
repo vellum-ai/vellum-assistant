@@ -13,12 +13,12 @@ public struct SubagentStatusChip: View {
         }
     }
 
-    private var statusIcon: String {
+    private var statusIcon: VIcon {
         switch subagent.status {
-        case .completed: return "checkmark.circle.fill"
-        case .failed: return "xmark.circle.fill"
-        case .aborted: return "stop.circle.fill"
-        default: return "circle.dotted"
+        case .completed: return .circleCheck
+        case .failed: return .circleX
+        case .aborted: return .circleStop
+        default: return .circleDot
         }
     }
 
@@ -41,8 +41,7 @@ public struct SubagentStatusChip: View {
     @ViewBuilder
     private func chipContent(phase: Int) -> some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: statusIcon)
-                .font(.system(size: 11))
+            VIconView(statusIcon, size: 11)
                 .foregroundColor(statusColor)
 
             VStack(alignment: .leading, spacing: 1) {
@@ -75,8 +74,7 @@ public struct SubagentStatusChip: View {
             Spacer()
 
             if !subagent.isTerminal, let onAbort {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                VIconView(.x, size: 9)
                     .foregroundColor(VColor.textMuted)
                     .padding(VSpacing.xs)
                     .contentShape(Rectangle())

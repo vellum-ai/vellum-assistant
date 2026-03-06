@@ -39,9 +39,9 @@ private struct AttachmentChip: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             // Remove button
             Button(action: onRemove) {
-                Image(systemName: "xmark.circle.fill")
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .black.opacity(0.6))
+                VIconView(.circleX, size: 14)
+                    .foregroundStyle(.white)
+                    .background(Circle().fill(.black.opacity(0.6)))
             }
             .accessibilityLabel("Remove \(attachment.filename)")
             .offset(x: 6, y: -6)
@@ -73,7 +73,7 @@ private struct AttachmentChip: View {
         RoundedRectangle(cornerRadius: 8)
             .fill(.quaternary)
             .overlay {
-                Image(systemName: "doc.fill")
+                VIconView(.file, size: 14)
                     .foregroundStyle(.secondary)
             }
     }

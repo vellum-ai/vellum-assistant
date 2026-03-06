@@ -39,7 +39,7 @@ struct InputsGallerySection: View {
                         VTextField(
                             placeholder: "Search...",
                             text: $textFieldValue,
-                            leadingIcon: "magnifyingglass"
+                            leadingIcon: VIcon.search.rawValue
                         )
                     }
 
@@ -48,7 +48,7 @@ struct InputsGallerySection: View {
                         VTextField(
                             placeholder: "Enter email...",
                             text: $textFieldValue,
-                            trailingIcon: "envelope"
+                            trailingIcon: VIcon.mail.rawValue
                         )
                     }
 
@@ -57,8 +57,8 @@ struct InputsGallerySection: View {
                         VTextField(
                             placeholder: "Search files...",
                             text: $textFieldValue,
-                            leadingIcon: "magnifyingglass",
-                            trailingIcon: "xmark.circle"
+                            leadingIcon: VIcon.search.rawValue,
+                            trailingIcon: VIcon.circleX.rawValue
                         )
                     }
                 }

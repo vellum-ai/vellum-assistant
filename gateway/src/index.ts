@@ -6,7 +6,10 @@ import {
   loadOrCreateSigningKey,
   initSigningKey,
 } from "./auth/token-service.js";
-import { validateEdgeToken } from "./auth/token-exchange.js";
+import {
+  validateEdgeToken,
+  mintBrowserRelayToken,
+} from "./auth/token-exchange.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig, isSlackChannelConfigured } from "./config.js";
 import { CredentialWatcher } from "./credential-watcher.js";
@@ -14,6 +17,7 @@ import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import {
   createBrowserRelayWebsocketHandler,
   getBrowserRelayWebsocketHandlers,
+  isLoopbackPeer,
   type BrowserRelaySocketData,
 } from "./http/routes/browser-relay-websocket.js";
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
@@ -41,6 +45,7 @@ import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-c
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
+import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
@@ -147,6 +152,7 @@ async function main() {
   const contactsControlPlaneProxy =
     createContactsControlPlaneProxyHandler(config);
   const twilioControlPlaneProxy = createTwilioControlPlaneProxyHandler(config);
+  const slackControlPlaneProxy = createSlackControlPlaneProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
@@ -587,6 +593,20 @@ async function main() {
       handler: (req) => twilioControlPlaneProxy.handleSmsDoctor(req),
     },
 
+    // ── Slack control plane ──
+    {
+      path: "/v1/slack/channels",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => slackControlPlaneProxy.handleListSlackChannels(req),
+    },
+    {
+      path: "/v1/slack/share",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => slackControlPlaneProxy.handleShareToSlack(req),
+    },
+
     // ── Channel readiness ──
     {
       path: "/v1/channels/readiness",
@@ -744,6 +764,22 @@ async function main() {
         const upgradeResult = handleBrowserRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;
+      }
+
+      // ── Pre-router: browser relay token endpoint ──
+      if (
+        config.runtimeProxyEnabled &&
+        url.pathname === "/v1/browser-relay/token" &&
+        req.method === "GET"
+      ) {
+        if (!isLoopbackPeer(svr, req)) {
+          return Response.json(
+            { error: "Browser relay token only available from localhost" },
+            { status: 403 },
+          );
+        }
+        const token = mintBrowserRelayToken();
+        return Response.json({ token });
       }
 
       // Attach a trace ID to every non-healthcheck request for

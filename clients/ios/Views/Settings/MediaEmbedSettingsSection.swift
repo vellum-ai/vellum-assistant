@@ -62,7 +62,7 @@ struct MediaEmbedSettingsSection: View {
             Button {
                 showingAddDomain = true
             } label: {
-                Label("Add Domain", systemImage: "plus")
+                Label { Text("Add Domain") } icon: { VIconView(.plus, size: 14) }
             }
 
             if domains != MediaEmbedSettings.defaultDomains {

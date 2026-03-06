@@ -30,8 +30,7 @@ struct DrawerThemeToggle: View {
                         themePreference = option.value
                         AppDelegate.shared?.applyThemePreference()
                     } label: {
-                        Image(systemName: option.icon)
-                            .font(.system(size: 12, weight: .medium))
+                        VIconView(SFSymbolMapping.icon(forSFSymbol: option.icon, fallback: .puzzle), size: 12)
                             .foregroundColor(
                                 isSelected
                                     ? adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)

@@ -247,8 +247,7 @@ struct UsageDashboardPanel: View {
     @ViewBuilder
     private func sectionHeader(_ title: String, icon: String) -> some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: icon)
-                .font(.system(size: 12))
+            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
                 .foregroundColor(Emerald._400)
             Text(title)
                 .font(VFont.captionMedium)
@@ -288,7 +287,7 @@ struct UsageDashboardPanel: View {
     @ViewBuilder
     private func errorRow(_ message: String) -> some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            VIconView(.triangleAlert, size: 14)
                 .foregroundColor(Amber._400)
             Text(message)
                 .font(VFont.small)

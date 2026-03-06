@@ -62,6 +62,7 @@ extension MainWindowView {
                     set: { windowState.isDynamicExpanded = $0 }
                 ),
                 daemonClient: daemonClient,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { surfaceMsg in
                     windowState.activeDynamicSurface = surfaceMsg
                     windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
@@ -78,6 +79,7 @@ extension MainWindowView {
             AppsGridView(
                 appListManager: appListManager,
                 daemonClient: daemonClient,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
                     try? daemonClient.sendAppOpen(appId: appId)
                     windowState.selection = .app(appId)
@@ -343,6 +345,7 @@ extension MainWindowView {
                 AppsGridView(
                     appListManager: appListManager,
                     daemonClient: daemonClient,
+                    gatewayBaseURL: settingsStore.localGatewayTarget,
                     onOpenApp: { appId in
                         try? daemonClient.sendAppOpen(appId: appId)
                         windowState.selection = .app(appId)
@@ -492,6 +495,7 @@ extension MainWindowView {
             AppsGridView(
                 appListManager: appListManager,
                 daemonClient: daemonClient,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onOpenApp: { appId in
                     try? daemonClient.sendAppOpen(appId: appId)
                     windowState.selection = .app(appId)
@@ -553,7 +557,7 @@ extension MainWindowView {
     }
 
     var panelDismissButton: some View {
-        VIconButton(label: "Close", icon: "xmark", iconOnly: true, action: panelDismissAction)
+        VIconButton(label: "Close", icon: VIcon.x.rawValue, iconOnly: true, action: panelDismissAction)
             .padding(.top, VSpacing.lg)
             .padding(.trailing, VSpacing.lg)
     }
@@ -573,6 +577,7 @@ extension MainWindowView {
                 trafficLightPadding: trafficLightPadding,
                 isSidebarOpen: sidebarExpanded,
                 sharing: sharing,
+                gatewayBaseURL: settingsStore.localGatewayTarget,
                 onPublishPage: publishPage,
                 onBundleAndShare: bundleAndShare,
                 isChatDockOpen: windowState.isChatDockOpen,
@@ -781,8 +786,7 @@ struct GhostButton: View {
         Button(action: action) {
             HStack(spacing: VSpacing.xs) {
                 if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 11, weight: .medium))
+                    VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 11)
                 }
                 if !label.isEmpty {
                     Text(label)
@@ -819,6 +823,7 @@ struct DynamicWorkspaceWrapper: View {
     let trafficLightPadding: CGFloat
     let isSidebarOpen: Bool
     var sharing: SharingState
+    let gatewayBaseURL: String
     let onPublishPage: (String, String?, String?) -> Void
     let onBundleAndShare: (String) -> Void
     let isChatDockOpen: Bool
@@ -841,11 +846,11 @@ struct DynamicWorkspaceWrapper: View {
             HStack {
                 // Left: Close Chat primary CTA in edit mode, Edit primary button otherwise
                 if case .appEditing = windowState.selection {
-                    VButton(label: "Close chat", icon: "xmark", style: .primary, size: .medium) {
+                    VButton(label: "Close chat", icon: VIcon.x.rawValue, style: .primary, size: .medium) {
                         onToggleChatDock()
                     }
                 } else {
-                    VButton(label: "Edit", icon: "pencil", style: .primary, size: .medium) {
+                    VButton(label: "Edit", icon: VIcon.pencil.rawValue, style: .primary, size: .medium) {
                         if !isChatDockOpen {
                             windowState.workspaceComposerExpanded = false
                         }
@@ -866,7 +871,7 @@ struct DynamicWorkspaceWrapper: View {
                 // Right: History + Share + Close outlined icon buttons
                 HStack(spacing: VSpacing.sm) {
                     if data.appId != nil {
-                        VIconButton(label: "Version history", icon: "clock.arrow.circlepath", iconOnly: true, variant: .outlined, size: 28, tooltip: "Version history") {
+                        VIconButton(label: "Version history", icon: VIcon.history.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Version history") {
                             showVersionHistory = true
                         }
                     }
@@ -876,13 +881,13 @@ struct DynamicWorkspaceWrapper: View {
                     }
 
                     ZStack {
-                        if let appId = data.appId {
+                        if data.appId != nil {
                             if sharing.isBundling || sharing.isPublishing {
                                 ProgressView()
                                     .controlSize(.small)
                                     .frame(height: 28)
                             } else {
-                                VIconButton(label: "Share", icon: "square.and.arrow.up", iconOnly: true, variant: .outlined, size: 28, tooltip: "Share") {
+                                VIconButton(label: "Share", icon: VIcon.share.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Share") {
                                     showShareDrawer.toggle()
                                 }
                                 .background(GeometryReader { proxy in
@@ -899,7 +904,9 @@ struct DynamicWorkspaceWrapper: View {
                                             set: { sharing.showSharePicker = $0 }
                                         ),
                                         appName: sharing.shareAppName,
-                                        appIcon: sharing.shareAppIcon
+                                        appIcon: sharing.shareAppIcon,
+                                        appId: sharing.shareAppId,
+                                        gatewayBaseURL: gatewayBaseURL
                                     )
                                     .allowsHitTesting(false)
                                 }
@@ -909,13 +916,13 @@ struct DynamicWorkspaceWrapper: View {
                                 .controlSize(.small)
                                 .frame(height: 28)
                         } else if sharing.publishedUrl == nil {
-                            VIconButton(label: "Publish", icon: "arrow.up.right", iconOnly: true, variant: .outlined, size: 28, tooltip: "Publish to Vercel") {
+                            VIconButton(label: "Publish", icon: VIcon.arrowUpRight.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Publish to Vercel") {
                                 onPublishPage(data.html, data.preview?.title, data.appId)
                             }
                         }
                     }
 
-                    VIconButton(label: "Close workspace", icon: "xmark", iconOnly: true, variant: .outlined, size: 28, tooltip: "Close workspace") {
+                    VIconButton(label: "Close workspace", icon: VIcon.x.rawValue, iconOnly: true, variant: .outlined, size: 28, tooltip: "Close workspace") {
                         sharing.showSharePicker = false
                         windowState.activeDynamicSurface = nil
                         windowState.activeDynamicParsedSurface = nil
@@ -1050,15 +1057,13 @@ private struct PublishedButton: View {
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 10, weight: .semibold))
+            VIconView(.check, size: 10)
                 .foregroundColor(VColor.success)
             Text("Published")
                 .font(VFont.caption)
             Divider()
                 .frame(height: 12)
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 10, weight: .semibold))
+            VIconView(copied ? .check : .copy, size: 10)
                 .foregroundColor(copied ? VColor.success : (isCopyHovered ? VColor.textPrimary : VColor.buttonSecondaryText))
                 .animation(VAnimation.fast, value: copied)
                 .contentShape(Rectangle())
@@ -1104,10 +1109,10 @@ private struct ShareDrawer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ShareDrawerRow(icon: "square.and.arrow.up", label: "Share", action: onShare)
+            ShareDrawerRow(icon: VIcon.share.rawValue, label: "Share", action: onShare)
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.horizontal, VSpacing.xs)
-            ShareDrawerRow(icon: "arrow.up.right", label: "Publish to Vercel", action: onPublish)
+            ShareDrawerRow(icon: VIcon.arrowUpRight.rawValue, label: "Publish to Vercel", action: onPublish)
         }
         .padding(.vertical, VSpacing.xs)
         .frame(width: 180)
@@ -1130,8 +1135,7 @@ private struct ShareDrawerRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .medium))
+                VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 12)
                     .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
                     .frame(width: 18)
                 Text(label)
@@ -1170,8 +1174,7 @@ private struct AppLoadingView: View {
         VStack(spacing: VSpacing.md) {
             Spacer()
             if timedOut {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 28, weight: .light))
+                VIconView(.triangleAlert, size: 28)
                     .foregroundColor(VColor.warning)
                 Text("Failed to load app")
                     .font(VFont.body)
@@ -1208,7 +1211,7 @@ private struct AppLoadingView: View {
         .background(VColor.backgroundSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(alignment: .topTrailing) {
-            VIconButton(label: "Close", icon: "xmark", iconOnly: true) {
+            VIconButton(label: "Close", icon: VIcon.x.rawValue, iconOnly: true) {
                 onClose()
             }
             .padding(VSpacing.lg)

@@ -79,8 +79,7 @@ public struct FileUploadSurfaceView: View {
                 )
 
             VStack(spacing: VSpacing.md) {
-                Image(systemName: "arrow.down.doc.fill")
-                    .font(.system(size: 28))
+                VIconView(.arrowDownToLine, size: 28)
                     .foregroundColor(isDragOver ? VColor.accent : VColor.textMuted)
 
                 Text("Drop files here")
@@ -128,8 +127,7 @@ public struct FileUploadSurfaceView: View {
                     Spacer()
 
                     Button(action: { removeFile(at: index) }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
+                        VIconView(.circleX, size: 14)
                             .foregroundColor(VColor.textMuted)
                     }
                     .buttonStyle(.plain)
@@ -174,19 +172,18 @@ public struct FileUploadSurfaceView: View {
                 .cornerRadius(4)
                 .clipped()
         } else {
-            Image(systemName: iconName(for: file.mimeType))
-                .font(.system(size: 20))
+            VIconView(iconName(for: file.mimeType), size: 20)
                 .foregroundColor(VColor.accent)
                 .frame(width: 32, height: 32)
         }
     }
 
-    private func iconName(for mimeType: String) -> String {
-        if mimeType.hasPrefix("image/") { return "photo" }
-        if mimeType == "application/pdf" { return "doc.richtext" }
-        if mimeType.contains("spreadsheet") || mimeType.contains("csv") { return "tablecells" }
-        if mimeType.contains("presentation") { return "rectangle.on.rectangle" }
-        return "doc"
+    private func iconName(for mimeType: String) -> VIcon {
+        if mimeType.hasPrefix("image/") { return .image }
+        if mimeType == "application/pdf" { return .fileText }
+        if mimeType.contains("spreadsheet") || mimeType.contains("csv") { return .table }
+        if mimeType.contains("presentation") { return .layers }
+        return .file
     }
 
     // MARK: - Actions

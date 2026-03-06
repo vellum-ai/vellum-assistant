@@ -147,13 +147,15 @@ final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
             return false
         }
 
-        // Set up SFSpeechRecognizer
-        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
-        guard let recognizer, recognizer.isAvailable else {
+        // Reuse existing SFSpeechRecognizer across turns to avoid OS resource
+        // release delays that make isAvailable return false on the second turn.
+        if speechRecognizer == nil {
+            speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        }
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             log.error("SFSpeechRecognizer not available")
             return false
         }
-        speechRecognizer = recognizer
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -346,6 +348,7 @@ final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
         if audioEngine.isRunning {
             audioEngine.stop()
         }
+        speechRecognizer = nil
         enginePrewarmed = false
         log.info("Audio engine shut down")
     }
@@ -354,7 +357,8 @@ final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest = nil
-        speechRecognizer = nil
+        // Keep speechRecognizer alive — reused across turns.
+        // Only destroy it on full shutdown().
         latestTranscription = ""
         livePartialText = ""
     }

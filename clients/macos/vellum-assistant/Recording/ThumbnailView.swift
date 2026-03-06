@@ -73,8 +73,7 @@ struct ThumbnailView: View {
 
     private var failedState: some View {
         VStack(spacing: VSpacing.xs) {
-            Image(systemName: "rectangle.dashed")
-                .font(.system(size: min(size.width, size.height) * 0.3))
+            VIconView(.squareDashed, size: min(size.width, size.height) * 0.3)
                 .foregroundColor(VColor.textMuted)
             if size.height >= 50 {
                 Text("Preview unavailable")

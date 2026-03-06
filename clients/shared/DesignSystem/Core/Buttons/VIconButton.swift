@@ -43,12 +43,11 @@ public struct VIconButton: View {
             HStack(spacing: VSpacing.xs) {
                 if let customIcon {
                     customIcon
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(width: 14, height: 14)
+                        .font(.system(size: 11, weight: .medium))
+                        .frame(width: 20, height: 20)
                 } else {
-                    Image(systemName: icon)
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(width: 14, height: 14)
+                    VIconView(.resolve(icon), size: 13)
+                        .frame(width: 20, height: 20)
                 }
                 if !iconOnly {
                     Text(label)
@@ -126,7 +125,7 @@ public struct VIconButtonStyle: ButtonStyle {
 
         configuration.label
             .frame(width: size, height: size)
-            .padding(size == nil ? VSpacing.sm : 0)
+            .padding(size == nil ? VSpacing.xs : 0)
             .background(shape.fill(backgroundColor(isPressed: configuration.isPressed)))
             .overlay(
                 shape.strokeBorder(
@@ -213,17 +212,17 @@ public struct VIconButtonStyle: ButtonStyle {
         VColor.background.ignoresSafeArea()
         VStack(spacing: 16) {
             HStack(spacing: 12) {
-                VIconButton(label: "Ghost", icon: "gear") {}
-                VIconButton(label: "Active", icon: "star.fill", isActive: true) {}
-                VIconButton(label: "Icon Only", icon: "plus", iconOnly: true) {}
-                VIconButton(label: "Active Icon", icon: "pencil", isActive: true, iconOnly: true) {}
+                VIconButton(label: "Ghost", icon: VIcon.settings.rawValue) {}
+                VIconButton(label: "Active", icon: VIcon.star.rawValue, isActive: true) {}
+                VIconButton(label: "Icon Only", icon: VIcon.plus.rawValue, iconOnly: true) {}
+                VIconButton(label: "Active Icon", icon: VIcon.pencil.rawValue, isActive: true, iconOnly: true) {}
             }
             HStack(spacing: 12) {
-                VIconButton(label: "Primary", icon: "ellipsis", iconOnly: true, variant: .primary) {}
-                VIconButton(label: "Danger", icon: "xmark", iconOnly: true, variant: .danger) {}
-                VIconButton(label: "Neutral", icon: "stop.fill", iconOnly: true, variant: .neutral) {}
-                VIconButton(label: "Secondary", icon: "arrow.up", iconOnly: true, variant: .secondary) {}
-                VIconButton(label: "Outlined", icon: "xmark", iconOnly: true, variant: .outlined) {}
+                VIconButton(label: "Primary", icon: VIcon.ellipsis.rawValue, iconOnly: true, variant: .primary) {}
+                VIconButton(label: "Danger", icon: VIcon.x.rawValue, iconOnly: true, variant: .danger) {}
+                VIconButton(label: "Neutral", icon: VIcon.square.rawValue, iconOnly: true, variant: .neutral) {}
+                VIconButton(label: "Secondary", icon: VIcon.arrowUp.rawValue, iconOnly: true, variant: .secondary) {}
+                VIconButton(label: "Outlined", icon: VIcon.x.rawValue, iconOnly: true, variant: .outlined) {}
             }
         }
         .padding()

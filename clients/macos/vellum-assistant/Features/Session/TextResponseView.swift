@@ -40,7 +40,7 @@ struct TextResponseView: View {
             // Error state
             if case .failed(let reason) = session.state {
                 HStack(spacing: 6) {
-                    Image(systemName: "xmark.circle.fill")
+                    VIconView(.circleX, size: 14)
                         .foregroundStyle(.red)
                     Text(reason)
                         .font(VFont.caption)
@@ -64,8 +64,7 @@ struct TextResponseView: View {
             Button {
                 onClose?()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .medium))
+                VIconView(.x, size: 12)
                     .foregroundColor(VColor.textMuted)
             }
             .buttonStyle(.plain)
@@ -187,8 +186,7 @@ struct TextResponseView: View {
 
             // Send button
             Button(action: sendMessage) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 12, weight: .bold))
+                VIconView(.arrowUp, size: 12)
                     .foregroundColor(.white)
                     .frame(width: 28, height: 28)
                     .background(

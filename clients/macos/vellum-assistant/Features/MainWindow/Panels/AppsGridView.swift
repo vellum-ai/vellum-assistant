@@ -5,6 +5,7 @@ import VellumAssistantShared
 struct AppsGridView: View {
     @ObservedObject var appListManager: AppListManager
     let daemonClient: DaemonClient
+    let gatewayBaseURL: String
     let onOpenApp: (String) -> Void
 
     @State private var searchText = ""
@@ -64,7 +65,7 @@ struct AppsGridView: View {
                                 VEmptyState(
                                     title: "No apps matched",
                                     subtitle: "No apps matched \"\(searchText)\"",
-                                    icon: "magnifyingglass"
+                                    icon: VIcon.search.rawValue
                                 )
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, VSpacing.xxxl)
@@ -98,8 +99,7 @@ struct AppsGridView: View {
 
     private var noAppsEmptyState: some View {
         VStack(spacing: VSpacing.xl) {
-            Image(systemName: "square.grid.2x2")
-                .font(.system(size: 40, weight: .thin))
+            VIconView(.layoutGrid, size: 40)
                 .foregroundColor(VColor.textMuted)
 
             VStack(spacing: VSpacing.sm) {
@@ -172,7 +172,7 @@ struct AppsGridView: View {
                                 .controlSize(.small)
                                 .frame(width: 24, height: 24)
                         } else {
-                            VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .primary, size: 24) {}
+                            VIconButton(label: "App actions", icon: VIcon.ellipsis.rawValue, iconOnly: true, variant: .primary, size: 24) {}
                                 .allowsHitTesting(false)
                         }
                         Menu {
@@ -183,17 +183,17 @@ struct AppsGridView: View {
                                     appListManager.pinApp(id: app.id)
                                 }
                             } label: {
-                                Label(app.isPinned ? "Unpin" : "Pin", systemImage: app.isPinned ? "pin.slash" : "pin")
+                                Label { Text(app.isPinned ? "Unpin" : "Pin") } icon: { VIconView(app.isPinned ? .pinOff : .pin, size: 14) }
                             }
                             Button {
                                 bundleAndShareLocal(appId: app.id)
                             } label: {
-                                Label("Share", systemImage: "square.and.arrow.up")
+                                Label { Text("Share") } icon: { VIconView(.share, size: 14) }
                             }
                             Button {
                                 editingApp = app
                             } label: {
-                                Label("Change Icon", systemImage: "paintbrush")
+                                Label { Text("Change Icon") } icon: { VIconView(.paintbrush, size: 14) }
                             }
                             Button(role: .destructive) {
                                 if hoveredAppId != nil {
@@ -204,7 +204,7 @@ struct AppsGridView: View {
                                 appListManager.removeApp(id: app.id)
                                 AppPreviewImageStore.remove(appId: app.id)
                             } label: {
-                                Label("Delete", systemImage: "trash")
+                                Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                             }
                         } label: {
                             Color.clear
@@ -233,7 +233,9 @@ struct AppsGridView: View {
                                 }
                             ),
                             appName: shareAppName,
-                            appIcon: shareAppIcon
+                            appIcon: shareAppIcon,
+                            appId: sharingAppId == app.id ? app.id : nil,
+                            gatewayBaseURL: gatewayBaseURL
                         )
                         .allowsHitTesting(false)
                     }
@@ -421,6 +423,7 @@ struct AppsGridView_Previews: PreviewProvider {
             AppsGridView(
                 appListManager: appListManager,
                 daemonClient: DaemonClient(),
+                gatewayBaseURL: "http://127.0.0.1:3000",
                 onOpenApp: { _ in }
             )
             .onAppear {

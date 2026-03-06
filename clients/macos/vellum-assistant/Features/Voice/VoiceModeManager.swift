@@ -64,7 +64,7 @@ final class VoiceModeManager: ObservableObject {
         if !pendingPermissionIds.isEmpty {
             switch state {
             case .speaking: return "Asking permission..."
-            case .listening: return "Say yes or no..."
+            case .listening: return "Say yes, no, 10 minutes, or always..."
             case .processing: return "Processing approval..."
             default: break
             }
@@ -479,31 +479,69 @@ final class VoiceModeManager: ObservableObject {
         }
     }
 
-    /// Classify a voice response as approved, denied, or ambiguous.
+    /// Classify a voice response into a specific permission decision.
     enum PermissionDecision {
-        case approved, denied, ambiguous
+        case allow
+        case allowTenMinutes
+        case allowThread
+        case alwaysAllow
+        case denied
+        case ambiguous
+
+        /// The decision string sent to the daemon via IPC.
+        var decisionString: String {
+            switch self {
+            case .allow: return "allow"
+            case .allowTenMinutes: return "allow_10m"
+            case .allowThread: return "allow_thread"
+            case .alwaysAllow: return "always_allow"
+            case .denied: return "deny"
+            case .ambiguous: return "deny"
+            }
+        }
     }
 
     static func classifyPermissionResponse(_ text: String) -> PermissionDecision {
         let lower = text.lowercased()
+
+        let negative = ["no", "nope", "don't", "deny", "stop", "cancel", "reject"]
+        let hasNegative = negative.contains(where: { lower.contains($0) })
+
+        // Check specific approval scopes before generic approval.
+        // Order matters: more specific patterns first.
+
+        // "allow for 10 minutes" / "10 minutes" / "ten minutes"
+        let tenMinPatterns = ["10 minute", "ten minute", "for 10", "for ten"]
+        if tenMinPatterns.contains(where: { lower.contains($0) }) && !hasNegative {
+            return .allowTenMinutes
+        }
+
+        // "allow for this thread" / "this thread" / "for the thread"
+        let threadPatterns = ["this thread", "the thread", "for thread", "allow thread"]
+        if threadPatterns.contains(where: { lower.contains($0) }) && !hasNegative {
+            return .allowThread
+        }
+
+        // "always allow" / "always approve"
+        let alwaysPatterns = ["always allow", "always approve", "allow always"]
+        if alwaysPatterns.contains(where: { lower.contains($0) }) && !hasNegative {
+            return .alwaysAllow
+        }
+
+        // Generic approval
         let affirmative = ["yes", "yeah", "yep", "go ahead", "allow", "approve",
                            "sure", "okay", "ok", "do it", "proceed"]
-        let negative = ["no", "nope", "don't", "deny", "stop", "cancel", "reject"]
-
         let hasAffirmative = affirmative.contains(where: { lower.contains($0) })
-        let hasNegative = negative.contains(where: { lower.contains($0) })
 
         // If both affirmative and negative substrings match (e.g. "no, don't do it"
         // contains "do it" + "no"/"don't"), treat as denial for safety.
-        if hasAffirmative && !hasNegative { return .approved }
+        if hasAffirmative && !hasNegative { return .allow }
         if hasNegative { return .denied }
         return .ambiguous
     }
 
     private func handlePermissionResponse(_ text: String) {
         let decision = Self.classifyPermissionResponse(text)
-        let isApproved = decision == .approved
-        let isDenied = decision == .denied
 
         guard let chatViewModel else {
             pendingPermissionIds = []
@@ -511,15 +549,16 @@ final class VoiceModeManager: ObservableObject {
             return
         }
 
-        if isApproved {
-            log.info("Voice mode: permissions approved via voice")
+        switch decision {
+        case .allow, .allowTenMinutes, .allowThread, .alwaysAllow:
+            log.info("Voice mode: permissions \(decision.decisionString, privacy: .public) via voice")
             for requestId in pendingPermissionIds {
-                chatViewModel.respondToConfirmation(requestId: requestId, decision: "allow")
+                chatViewModel.respondToConfirmation(requestId: requestId, decision: decision.decisionString)
             }
             pendingPermissionIds = []
             partialTranscription = ""
             state = .processing
-        } else if isDenied {
+        case .denied:
             log.info("Voice mode: permissions denied via voice")
             for requestId in pendingPermissionIds {
                 chatViewModel.respondToConfirmation(requestId: requestId, decision: "deny")
@@ -527,11 +566,11 @@ final class VoiceModeManager: ObservableObject {
             pendingPermissionIds = []
             partialTranscription = ""
             state = .processing
-        } else {
+        case .ambiguous:
             log.info("Voice mode: unclear permission response — \(text, privacy: .public)")
             state = .speaking
             voiceService.resetStreamingTTS()
-            voiceService.feedTextDelta("Sorry, I didn't quite catch that. Do you want me to go ahead with that?")
+            voiceService.feedTextDelta("Sorry, I didn't quite catch that. You can say yes, no, allow for 10 minutes, allow for this thread, or always allow.")
             voiceService.finishTextStream { [weak self] in
                 guard let self else { return }
                 self.voiceService.stopBargeInMonitor()
