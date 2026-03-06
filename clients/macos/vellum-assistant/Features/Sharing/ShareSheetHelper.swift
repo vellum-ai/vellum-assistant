@@ -20,15 +20,8 @@ struct AppSharePanel: NSViewRepresentable {
         context.coordinator.appName = appName
         context.coordinator.appIcon = appIcon
         if isPresented && !context.coordinator.isPopoverShown {
-            DispatchQueue.main.async {
-                guard nsView.window != nil else {
-                    self.isPresented = false
-                    return
-                }
-                context.coordinator.onDismiss = {
-                    self.isPresented = false
-                }
-                context.coordinator.showPopover(relativeTo: nsView)
+            context.coordinator.presentWhenReady(nsView: nsView) {
+                self.isPresented = false
             }
         } else if !isPresented && context.coordinator.isPopoverShown {
             context.coordinator.dismissPopover()
@@ -51,6 +44,26 @@ struct AppSharePanel: NSViewRepresentable {
             self.items = items
             self.appName = appName
             self.appIcon = appIcon
+        }
+
+        /// Waits for the NSView to be added to a window before showing the popover.
+        /// When `isBundling` flips to `false` and `showSharePicker` becomes `true`
+        /// in the same state update, SwiftUI swaps the spinner for the share button
+        /// and creates a fresh AppSharePanel overlay. The new NSView may not yet be
+        /// in a window when `updateNSView` fires, so we poll until it is.
+        func presentWhenReady(nsView: NSView, attempt: Int = 0, onDismiss: @escaping () -> Void) {
+            if nsView.window != nil {
+                self.onDismiss = onDismiss
+                showPopover(relativeTo: nsView)
+                return
+            }
+            if attempt >= 10 {
+                onDismiss()
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.presentWhenReady(nsView: nsView, attempt: attempt + 1, onDismiss: onDismiss)
+            }
         }
 
         func showPopover(relativeTo view: NSView) {

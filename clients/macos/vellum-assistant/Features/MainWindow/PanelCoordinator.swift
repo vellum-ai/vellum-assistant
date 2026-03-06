@@ -886,18 +886,6 @@ struct DynamicWorkspaceWrapper: View {
 
                     ZStack {
                         if let appId = data.appId {
-                            AppSharePanel(
-                                items: sharing.shareFileURL != nil ? [sharing.shareFileURL!] : [],
-                                isPresented: Binding(
-                                    get: { sharing.showSharePicker },
-                                    set: { sharing.showSharePicker = $0 }
-                                ),
-                                appName: sharing.shareAppName,
-                                appIcon: sharing.shareAppIcon
-                            )
-                            .frame(width: 0, height: 0)
-                            .opacity(0)
-
                             if sharing.isBundling || sharing.isPublishing {
                                 ProgressView()
                                     .controlSize(.small)
@@ -917,6 +905,18 @@ struct DynamicWorkspaceWrapper: View {
                                             onPublishPage(data.html, data.preview?.title, data.appId)
                                         }
                                     )
+                                }
+                                .overlay {
+                                    AppSharePanel(
+                                        items: sharing.shareFileURL != nil ? [sharing.shareFileURL!] : [],
+                                        isPresented: Binding(
+                                            get: { sharing.showSharePicker },
+                                            set: { sharing.showSharePicker = $0 }
+                                        ),
+                                        appName: sharing.shareAppName,
+                                        appIcon: sharing.shareAppIcon
+                                    )
+                                    .allowsHitTesting(false)
                                 }
                             }
                         } else if sharing.isPublishing {
