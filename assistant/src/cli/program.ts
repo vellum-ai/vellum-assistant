@@ -33,7 +33,7 @@ const { version } = require("../../package.json") as { version: string };
 export function buildCliProgram(): Command {
   const program = new Command();
 
-  program.name("vellum").description("Local AI assistant").version(version);
+  program.name("assistant").description("Local AI assistant").version(version);
 
   registerDefaultAction(program);
   registerDevCommand(program);

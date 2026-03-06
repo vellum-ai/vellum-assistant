@@ -23,6 +23,11 @@ const PROMPT_FILES = ["SOUL.md", "IDENTITY.md", "USER.md"] as const;
 
 let cachedCliHelp: string | undefined;
 
+/** @internal Reset the CLI help cache — exposed for testing only. */
+export function _resetCliHelpCache(): void {
+  cachedCliHelp = undefined;
+}
+
 /**
  * Copy template prompt files into the data directory if they don't already exist.
  * Called once during daemon startup so users always have discoverable files to edit.
@@ -782,21 +787,21 @@ function buildConfigSection(): string {
   ].join("\n");
 }
 
-function buildCliReferenceSection(): string {
+export function buildCliReferenceSection(): string {
   if (cachedCliHelp === undefined) {
     cachedCliHelp = buildCliProgram().helpInformation().trim();
   }
 
   return [
-    "## Vellum CLI",
+    "## Assistant CLI",
     "",
-    "The `vellum` CLI is installed on the user's machine and available via `bash`.",
+    "The `assistant` CLI is installed on the user's machine and available via `bash`.",
     "",
     "```",
     cachedCliHelp,
     "```",
     "",
-    "Run `vellum <command> --help` for detailed help on any subcommand.",
+    "Run `assistant <command> --help` for detailed help on any subcommand.",
   ].join("\n");
 }
 
