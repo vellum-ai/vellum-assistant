@@ -43,24 +43,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// SMS client mock — track calls
+// SMS delivery calls are tracked via the globalThis.fetch mock below.
 const smsSendCalls: Array<{
   to: string;
   text: string;
   assistantId?: string;
 }> = [];
-mock.module("../messaging/providers/sms/client.js", () => ({
-  sendMessage: async (
-    _gatewayUrl: string,
-    _bearerToken: string,
-    to: string,
-    text: string,
-    assistantId?: string,
-  ) => {
-    smsSendCalls.push({ to, text, assistantId });
-    return { messageSid: "SM-mock", status: "queued" };
-  },
-}));
 
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
@@ -95,7 +83,7 @@ mock.module("../calls/call-domain.js", () => ({
   },
 }));
 
-// Telegram delivery mock via fetch
+// SMS and Telegram delivery mock via fetch
 const telegramDeliverCalls: Array<{
   chatId: string;
   text: string;
@@ -112,6 +100,15 @@ globalThis.fetch = (async (
       : input instanceof URL
         ? input.toString()
         : input.url;
+  if (url.includes("/deliver/sms") && init?.method === "POST") {
+    const body = JSON.parse(init.body as string) as {
+      to: string;
+      text: string;
+      assistantId?: string;
+    };
+    smsSendCalls.push(body);
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }
   if (url.includes("/deliver/telegram") && init?.method === "POST") {
     const body = JSON.parse(init.body as string) as {
       chatId: string;
