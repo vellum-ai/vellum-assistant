@@ -902,24 +902,52 @@ async function main() {
   credentialWatcher.start();
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
-    if (event.smsPhoneNumberChanged) {
-      config.twilioPhoneNumber = event.smsPhoneNumber;
+    if (event.changedKeys.has("sms")) {
+      const sms = event.data.sms as
+        | {
+            phoneNumber?: string;
+            assistantPhoneNumbers?: Record<string, string>;
+          }
+        | undefined;
+      config.twilioPhoneNumber =
+        (typeof sms?.phoneNumber === "string" ? sms.phoneNumber : undefined) ??
+        config.twilioPhoneNumber;
+      if (
+        sms?.assistantPhoneNumbers &&
+        typeof sms.assistantPhoneNumbers === "object" &&
+        !Array.isArray(sms.assistantPhoneNumbers)
+      ) {
+        config.assistantPhoneNumbers = sms.assistantPhoneNumbers as Record<
+          string,
+          string
+        >;
+      }
     }
 
-    if (event.assistantPhoneNumbersChanged) {
-      config.assistantPhoneNumbers = event.assistantPhoneNumbers;
+    if (event.changedKeys.has("email")) {
+      const email = event.data.email as { address?: string } | undefined;
+      config.assistantEmail =
+        typeof email?.address === "string"
+          ? email.address || undefined
+          : undefined;
     }
 
-    if (event.assistantEmailChanged) {
-      config.assistantEmail = event.assistantEmail;
+    if (event.changedKeys.has("twilio")) {
+      const twilio = event.data.twilio as { accountSid?: string } | undefined;
+      config.twilioAccountSid =
+        typeof twilio?.accountSid === "string"
+          ? twilio.accountSid || undefined
+          : undefined;
     }
 
-    if (event.twilioAccountSidChanged) {
-      config.twilioAccountSid = event.twilioAccountSid;
-    }
-
-    if (event.ingressChanged) {
-      config.ingressPublicBaseUrl = event.ingressPublicBaseUrl;
+    if (event.changedKeys.has("ingress")) {
+      const ingress = event.data.ingress as
+        | { publicBaseUrl?: string }
+        | undefined;
+      config.ingressPublicBaseUrl =
+        typeof ingress?.publicBaseUrl === "string"
+          ? ingress.publicBaseUrl || undefined
+          : undefined;
       if (isTelegramConfigured()) {
         reconcileTelegramWebhook(config).catch((err) => {
           log.error(
