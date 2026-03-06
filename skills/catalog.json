@@ -4,12 +4,16 @@
   "skills": [
     {
       "id": "doordash",
-      "name": "DoorDash",
+      "name": "doordash",
       "description": "Order food, groceries, and convenience items from DoorDash using local scripts",
       "metadata": {
-        "\"vellum\"": {
-          "\"emoji\"": "\"\\uD83C\\uDF55\",",
-          "\"cli\"": "{ \"command\": \"doordash\", \"entry\": \"scripts/doordash.ts\" },"
+        "emoji": "🍕",
+        "vellum": {
+          "user-invocable": "true",
+          "cli": {
+            "command": "doordash",
+            "entry": "scripts/doordash.ts"
+          }
         }
       }
     },
