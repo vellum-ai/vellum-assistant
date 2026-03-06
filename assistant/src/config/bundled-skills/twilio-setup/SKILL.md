@@ -12,21 +12,21 @@ You are helping your user configure Twilio for voice calls and SMS messaging. Tw
 
 ```bash
 # 1. Check current status
-assistant credentials inspect twilio:account_sid --json
-assistant config get sms.phoneNumber
+assistant config get twilio.accountSid
+assistant credentials inspect twilio:auth_token --json
+assistant config get twilio.phoneNumber
 # 2. Store credentials (after collecting via credential_store prompt)
-assistant credentials set twilio:account_sid "ACxxx"
+assistant config set twilio.accountSid "ACxxx"
 assistant credentials set twilio:auth_token "xxx"
 # 3. Get credential ID and Account SID for proxied calls
-assistant credentials inspect twilio:account_sid --json  # -> note credentialId
-assistant credentials reveal twilio:account_sid  # -> note Account SID value
+assistant credentials inspect twilio:auth_token --json  # -> note credentialId
+assistant config get twilio.accountSid  # -> note Account SID value
 # 4. Search and provision via Twilio API (proxy injects auth automatically)
 #    bash network_mode=proxied credential_ids=["<cred_id>"]
 curl -s "https://api.twilio.com/2010-04-01/Accounts/<SID>/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true"
 curl -s -X POST "https://api.twilio.com/2010-04-01/Accounts/<SID>/IncomingPhoneNumbers.json" -d "PhoneNumber=+1xxx"
-# 5. Assign locally (saves to credential store + config)
-assistant credentials set twilio:phone_number "+1xxx"
-assistant config set sms.phoneNumber "+1xxx"
+# 5. Assign locally (saves to config)
+assistant config set twilio.phoneNumber "+1xxx"
 ```
 
 For voice call setup after Twilio is configured, use `phone-calls` + `call_start`.
@@ -35,26 +35,27 @@ For voice call setup after Twilio is configured, use `phone-calls` + `call_start
 
 This skill manages the full Twilio lifecycle:
 
-- **Credential storage** — Account SID and Auth Token via `assistant credentials set/delete`
+- **Credential storage** — Auth Token stored securely via `assistant credentials set twilio:auth_token`; Account SID stored in config via `assistant config set twilio.accountSid`
 - **Direct Twilio API access** — Search and purchase numbers via proxied calls to the Twilio REST API (the proxy injects authentication automatically)
-- **Phone number assignment** — Assign an existing Twilio number to the assistant via `assistant credentials set` + `assistant config set`
-- **Status checking** — Verify credentials and assigned number via `assistant credentials inspect` + `assistant config get`
+- **Phone number assignment** — Assign an existing Twilio number to the assistant via `assistant config set twilio.phoneNumber`
+- **Status checking** — Verify credentials and assigned number via `assistant credentials inspect twilio:auth_token` + `assistant config get`
 
-Number search and purchase use proxied calls to the Twilio REST API (`bash` with `network_mode: "proxied"`). Local bookkeeping (credential storage, phone number assignment, config updates) uses CLI credential and config commands. Status/list retrieval uses `assistant credentials inspect` and `assistant config get`.
+Number search and purchase use proxied calls to the Twilio REST API (`bash` with `network_mode: "proxied"`). Local bookkeeping (Account SID, phone number, config updates) uses `assistant config` commands. Auth Token is stored in encrypted credential storage via `assistant credentials`. Status/list retrieval uses `assistant credentials inspect` and `assistant config get`.
 
 ### Multi-Assistant Setups
 
 In a multi-assistant environment (multiple assistants sharing the same runtime), some actions are **assistant-scoped** while others are **global** (shared across all assistants):
 
-**Global actions** (credentials are shared across all assistants):
+**Global actions** (shared across all assistants):
 
-- `assistant credentials set twilio:account_sid` / `assistant credentials set twilio:auth_token` -- Stores Account SID and Auth Token in global secure storage. All assistants share the same Twilio account credentials.
-- `assistant credentials delete twilio:account_sid` / `assistant credentials delete twilio:auth_token` -- Removes the globally stored Account SID and Auth Token. This affects all assistants.
+- `assistant config set twilio.accountSid` -- Stores Account SID in config. All assistants share the same Twilio account.
+- `assistant credentials set twilio:auth_token` -- Stores Auth Token in encrypted credential storage. Shared across all assistants.
+- `assistant credentials delete twilio:auth_token` -- Removes the Auth Token. This affects all assistants.
 
 **Assistant-scoped actions** (phone number configuration is scoped per assistant via local config):
 
-- `assistant credentials inspect twilio:account_sid --json` / `assistant config get sms.phoneNumber` -- Returns credential status and the phone number assigned to the current assistant.
-- `assistant credentials set twilio:phone_number` / `assistant config set sms.phoneNumber` -- Assigns a phone number to the current assistant.
+- `assistant config get twilio.accountSid` / `assistant config get twilio.phoneNumber` -- Returns the Account SID and the phone number assigned to the current assistant.
+- `assistant config set twilio.phoneNumber` -- Assigns a phone number to the current assistant.
 - Proxied Twilio API calls (search/list/purchase numbers) -- Use global credentials to interact with the shared Twilio account.
 
 CLI commands operate on the local assistant's config directly, so no `assistantId` parameter is needed. In multi-assistant setups, ensure you are running commands in the correct assistant's context.
@@ -64,19 +65,18 @@ CLI commands operate on the local assistant's config directly, so no `assistantI
 First, check whether Twilio is already configured:
 
 ```bash
-# Check if Twilio credentials are stored
-assistant credentials inspect twilio:account_sid --json
-# -> look at "hasSecret" field (true = credentials exist)
+# Check if Account SID is configured
+assistant config get twilio.accountSid
 
-# Check if auth token is also stored
+# Check if Auth Token is stored
 assistant credentials inspect twilio:auth_token --json
-# -> look at "hasSecret" field
+# -> look at "hasSecret" field (true = auth token exists)
 
 # Check assigned phone number
-assistant config get sms.phoneNumber
+assistant config get twilio.phoneNumber
 ```
 
-If `hasSecret` is `true` on both `twilio:account_sid` and `twilio:auth_token`, credentials are stored. If `sms.phoneNumber` also returns a phone number, Twilio is fully configured. Tell the user Twilio is already configured and offer to show the current status or reconfigure.
+If `twilio.accountSid` returns a value and `hasSecret` is `true` on `twilio:auth_token`, credentials are stored. If `twilio.phoneNumber` also returns a phone number, Twilio is fully configured. Tell the user Twilio is already configured and offer to show the current status or reconfigure.
 
 ## Step 2: Collect and Store Credentials
 
@@ -95,15 +95,17 @@ If credentials are not yet stored, guide the user through Twilio account setup:
 After both credentials are collected, store them using CLI commands:
 
 ```bash
-assistant credentials set twilio:account_sid "<value from credential_store for twilio/account_sid>"
+assistant config set twilio.accountSid "<value from credential_store for twilio/account_sid>"
 assistant credentials set twilio:auth_token "<value from credential_store for twilio/auth_token>"
 ```
+
+The Account SID is stored in config (it is not a secret), while the Auth Token is stored in encrypted credential storage.
 
 Both values are required. If credentials are invalid, proxied Twilio API calls (Step 3b) will fail -- tell the user and ask them to re-enter via the secure prompt.
 
 **Note:** Unlike the previous gateway endpoint, this does not validate credentials against the Twilio API before storing. Verify credentials are correct by attempting a proxied Twilio API call (Step 3b) -- if it fails, the credentials are invalid.
 
-**Note:** Injection templates for proxied Twilio API calls are not automatically configured by `credentials set`. If proxied calls fail with auth errors, this is a known gap requiring a future CLI command.
+**Note:** Injection templates for proxied Twilio API calls are not automatically configured by these CLI commands. If proxied calls fail with auth errors, this is a known gap requiring a future CLI command.
 
 **Note:** Setting credentials is a global operation -- credentials are stored once and shared across all assistants.
 
@@ -118,7 +120,7 @@ If the user wants to buy a new number through Twilio:
 **3a. Get the credential ID and Account SID:**
 
 ```bash
-assistant credentials inspect twilio:account_sid --json
+assistant credentials inspect twilio:auth_token --json
 ```
 
 Note the `credentialId` field from the response (needed for proxied calls).
@@ -126,7 +128,7 @@ Note the `credentialId` field from the response (needed for proxied calls).
 Then retrieve the Account SID value (needed for Twilio URL paths):
 
 ```bash
-assistant credentials reveal twilio:account_sid
+assistant config get twilio.accountSid
 ```
 
 **3b. Search for available numbers (proxied Twilio API):**
@@ -158,14 +160,13 @@ bash:
 
 The response includes the purchased number's `phone_number` and `sid`.
 
-**3d. Assign locally (saves to credential store + config):**
+**3d. Assign locally (saves to config):**
 
 ```bash
-assistant credentials set twilio:phone_number "+14155551234"
-assistant config set sms.phoneNumber "+14155551234"
+assistant config set twilio.phoneNumber "+14155551234"
 ```
 
-This stores the phone number in both secure credential storage and config.
+This stores the phone number in config.
 
 **Note:** Webhook auto-configuration (voice, status callback, SMS) is not performed by these CLI commands -- this is a known gap requiring a future CLI command (e.g., `assistant integrations twilio sync-webhooks`). Webhooks must be configured manually in the Twilio Console or will be set up when a future CLI command is available.
 
@@ -194,22 +195,20 @@ The response includes an `incoming_phone_numbers` array with each number's `phon
 Then assign the chosen number:
 
 ```bash
-assistant credentials set twilio:phone_number "+14155551234"
-assistant config set sms.phoneNumber "+14155551234"
+assistant config set twilio.phoneNumber "+14155551234"
 ```
 
-The phone number must be in E.164 format. **Note:** Webhook auto-configuration is not performed by these CLI commands -- this is a known gap. See Step 3d for webhook URLs to configure manually.
+The phone number must be in E.164 format. **Note:** Webhook auto-configuration is not performed by this CLI command -- this is a known gap. See Step 3d for webhook URLs to configure manually.
 
 ### Option C: Manual Entry
 
-If the user wants to enter a number directly (e.g., they know it already), assign it using CLI commands:
+If the user wants to enter a number directly (e.g., they know it already), assign it using a CLI command:
 
 ```bash
-assistant credentials set twilio:phone_number "+14155551234"
-assistant config set sms.phoneNumber "+14155551234"
+assistant config set twilio.phoneNumber "+14155551234"
 ```
 
-**Note:** Webhook auto-configuration is not performed by these CLI commands -- this is a known gap. See Step 3d for webhook URLs to configure manually.
+**Note:** Webhook auto-configuration is not performed by this CLI command -- this is a known gap. See Step 3d for webhook URLs to configure manually.
 
 ## Step 4: Set Up Public Ingress
 
@@ -242,15 +241,16 @@ Webhook URLs must be manually configured on the Twilio phone number in the Twili
 After configuration, verify by checking credential and config status:
 
 ```bash
-assistant credentials inspect twilio:account_sid --json
+assistant config get twilio.accountSid
 assistant credentials inspect twilio:auth_token --json
-assistant config get sms.phoneNumber
+assistant config get twilio.phoneNumber
 ```
 
 Confirm:
 
-- `hasSecret` is `true` on both `twilio:account_sid` and `twilio:auth_token`
-- `sms.phoneNumber` returns the expected phone number
+- `twilio.accountSid` returns the Account SID
+- `hasSecret` is `true` on `twilio:auth_token`
+- `twilio.phoneNumber` returns the expected phone number
 
 Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}. This number is used for both voice calls and SMS messaging."**
 
@@ -301,11 +301,11 @@ SMS is available automatically once Twilio is configured -- no additional featur
 If the user wants to disconnect Twilio:
 
 ```bash
-assistant credentials delete twilio:account_sid
 assistant credentials delete twilio:auth_token
+assistant config set twilio.accountSid ""
 ```
 
-This deletes both the encrypted secret and associated metadata for each credential. Phone number assignments are preserved. Voice calls and SMS will stop working until credentials are reconfigured.
+This deletes the Auth Token from encrypted storage and clears the Account SID from config. Phone number assignments are preserved. Voice calls and SMS will stop working until credentials are reconfigured.
 
 **Note:** Clearing credentials is a global operation -- it removes credentials for all assistants, not just the current one. In multi-assistant setups, warn the user that clearing credentials will affect all assistants sharing this Twilio account.
 
@@ -352,4 +352,4 @@ do not yet have CLI equivalents:
    URLs are not automatically set on the Twilio phone number. Configure
    webhooks manually in the Twilio Console or wait for a future CLI command.
 4. **Stale phone number pruning** -- In multi-assistant setups, stale
-   `sms.assistantPhoneNumbers` mappings are not automatically cleaned up.
+   assistant phone number mappings are not automatically cleaned up.
