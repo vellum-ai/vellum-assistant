@@ -1902,6 +1902,51 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/slack/channels": {
+        get: {
+          summary: "List Slack channels",
+          description:
+            "Authenticated gateway endpoint that lists available Slack channels by proxying to the assistant runtime. Returns all channels in a single response.",
+          operationId: "slackChannelsGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Slack channels returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/slack/share": {
+        post: {
+          summary: "Share to Slack",
+          description:
+            "Authenticated gateway endpoint that shares content to a Slack channel by proxying to the assistant runtime.",
+          operationId: "slackSharePost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Content shared to Slack" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/v1/channels/readiness": {
         get: {
           summary: "Get channel readiness",
