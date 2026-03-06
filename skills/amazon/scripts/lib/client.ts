@@ -49,6 +49,7 @@
  */
 
 import type { ExtractedCredential } from "./shared/recording-types.js";
+import { getHttpBaseUrl, readSessionToken } from "./shared/platform.js";
 import { type AmazonSession, loadSession } from "./session.js";
 
 export const AMAZON_BASE = "https://www.amazon.com";
@@ -73,19 +74,39 @@ export interface ExtensionResponse {
 }
 
 /**
- * Send a command to the browser extension relay.
- * This is a placeholder that will be implemented in M3 when the CLI is created.
- * For now, it throws an error indicating the relay is not available.
+ * Send a command to the browser extension relay via the daemon's HTTP endpoint.
+ * Routes through POST /v1/browser-relay/command which forwards to the Chrome extension.
  */
 export async function sendRelayCommand(
-  _command: Record<string, unknown>,
+  command: Record<string, unknown>,
 ): Promise<ExtensionResponse> {
-  // TODO: M3 will implement this to route through the daemon's HTTP endpoint
-  // via POST /v1/browser-relay/command
-  throw new Error(
-    "Browser extension relay is not available. " +
-      "This function will be implemented when the CLI is integrated.",
-  );
+  const baseUrl = getHttpBaseUrl();
+  const sessionToken = readSessionToken();
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (sessionToken) {
+    headers["Authorization"] = `Bearer ${sessionToken}`;
+  }
+
+  const response = await fetch(`${baseUrl}/v1/browser-relay/command`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(command),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        "Authentication failed with assistant. Make sure the assistant is running.",
+      );
+    }
+    throw new Error(`Browser relay request failed: ${response.status} ${text}`);
+  }
+
+  return (await response.json()) as ExtensionResponse;
 }
 
 /** Thrown when the session is missing or expired. The CLI handles this specially. */

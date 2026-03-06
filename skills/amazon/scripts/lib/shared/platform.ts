@@ -33,3 +33,11 @@ export function readSessionToken(): string | null {
     return null;
   }
 }
+
+/**
+ * Get the base URL for the gateway's HTTP API.
+ */
+export function getHttpBaseUrl(): string {
+  const port = process.env.VELLUM_GATEWAY_PORT?.trim() || "7822";
+  return `http://localhost:${port}`;
+}
