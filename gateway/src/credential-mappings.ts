@@ -8,6 +8,8 @@ type CredentialServiceMapping = {
   credentialsKey: keyof CredentialChangeEvent & `${string}Credentials`;
   /** Whether to skip updates when env vars provide these credentials. */
   envGuarded: boolean;
+  /** Human-friendly name used in log messages (e.g. "Slack channel"). Falls back to capitalizing changedKey. */
+  displayName?: string;
   /** Maps credential object fields to GatewayConfig fields. */
   fields: Array<{
     credField: string;
@@ -56,6 +58,7 @@ export function buildCredentialServiceMappings(opts: {
       changedKey: "slackChannelChanged",
       credentialsKey: "slackChannelCredentials",
       envGuarded: opts.slackFromEnv,
+      displayName: "Slack channel",
       fields: [
         { credField: "botToken", configField: "slackChannelBotToken" },
         { credField: "appToken", configField: "slackChannelAppToken" },
@@ -87,10 +90,11 @@ export function applyCredentialChanges(
     const serviceName = mapping.changedKey.replace("Changed", "");
     const capitalizedName =
       serviceName.charAt(0).toUpperCase() + serviceName.slice(1);
+    const logName = mapping.displayName ?? capitalizedName;
     log.info(
       creds
-        ? `${capitalizedName} credentials loaded from credential vault`
-        : `${capitalizedName} credentials cleared`,
+        ? `${logName} credentials loaded from credential vault`
+        : `${logName} credentials cleared`,
     );
     changedServices.add(serviceName);
   }
