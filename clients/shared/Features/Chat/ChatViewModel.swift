@@ -116,9 +116,11 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.inputText }
         set {
             let oldValue = messageManager.inputText
+            let oldSuggestion = messageManager.suggestion
             messageManager.inputText = newValue
             guard newValue != oldValue else { return }
-            if let suggestion, !suggestion.hasPrefix(newValue) {
+            if let oldSuggestion, !oldSuggestion.hasPrefix(newValue) {
+                messageManager.suggestion = nil
                 pendingSuggestionRequestId = nil
             }
         }
