@@ -3,6 +3,14 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "LocalAssistantBootstrap")
 
+/// Platform-agnostic credential storage abstraction.
+/// On macOS, callers should supply a Keychain-backed implementation.
+public protocol CredentialStorage: Sendable {
+    func get(account: String) -> String?
+    func set(account: String, value: String) -> Bool
+    func delete(account: String) -> Bool
+}
+
 /// Outcome of a local assistant bootstrap attempt.
 public enum LocalBootstrapOutcome: Sendable {
     case registeredWithExistingKey(assistantId: String)
@@ -42,17 +50,18 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
 /// Does NOT write cloud = "vellum" into the lockfile.
 @MainActor
 public final class LocalAssistantBootstrapService {
-    public static let shared = LocalAssistantBootstrapService()
 
     private let authService: AuthService
+    private let credentialStorage: CredentialStorage?
 
-    /// Returns the keychain/UserDefaults storage provider name for the provisioned credential, scoped to the assistant.
-    private static func credentialProvider(for runtimeAssistantId: String) -> String {
+    /// Returns the credential account name for the provisioned credential, scoped to the assistant.
+    static func credentialAccount(for runtimeAssistantId: String) -> String {
         "vellum_assistant_credential_\(runtimeAssistantId)"
     }
 
-    public init(authService: AuthService? = nil) {
+    public init(authService: AuthService? = nil, credentialStorage: CredentialStorage? = nil) {
         self.authService = authService ?? AuthService.shared
+        self.credentialStorage = credentialStorage
     }
 
     /// Bootstrap a local assistant with the platform.
@@ -114,12 +123,18 @@ public final class LocalAssistantBootstrapService {
         let platformAssistantId = registration.assistant.id
         log.info("Registered local assistant: \(platformAssistantId, privacy: .public)")
 
+        let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
+
         // Step 2: Check if we already have the key stored locally
-        if let existingKey = APIKeyManager.shared.getAPIKey(provider: Self.credentialProvider(for: runtimeAssistantId)), !existingKey.isEmpty {
-            // Key exists locally — re-sync to daemon (it may have restarted)
-            try await injectKeyIntoDaemon(key: existingKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
-            log.info("Re-synced existing API key to daemon")
-            return .registeredWithExistingKey(assistantId: platformAssistantId)
+        if let existingKey = credentialStorage?.get(account: credentialAccount), !existingKey.isEmpty {
+            do {
+                try await injectKeyIntoDaemon(key: existingKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
+                log.info("Re-synced existing API key to daemon")
+                return .registeredWithExistingKey(assistantId: platformAssistantId)
+            } catch {
+                log.warning("Failed to inject existing key into daemon, will reprovision: \(error.localizedDescription)")
+                // Fall through to Step 3 — key may be stale
+            }
         }
 
         // Step 3: No key stored — reprovision
@@ -141,12 +156,31 @@ public final class LocalAssistantBootstrapService {
         log.info("Provisioned new API key for assistant: \(platformAssistantId, privacy: .public)")
 
         // Step 4: Store locally for future sign-ins
-        _ = APIKeyManager.shared.setAPIKey(rawKey, provider: Self.credentialProvider(for: runtimeAssistantId))
+        _ = credentialStorage?.set(account: credentialAccount, value: rawKey)
 
         // Step 5: Inject into daemon
         try await injectKeyIntoDaemon(key: rawKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
 
         return .registeredAndProvisioned(assistantId: platformAssistantId)
+    }
+
+    /// Clear the stored credential and re-run bootstrap to obtain a fresh key.
+    /// Call this when a 401 indicates the cached key has been revoked.
+    public func reprovision(
+        runtimeAssistantId: String,
+        clientPlatform: String = "macos",
+        daemonBaseURL: String,
+        daemonToken: String
+    ) async throws -> LocalBootstrapOutcome {
+        let account = Self.credentialAccount(for: runtimeAssistantId)
+        _ = credentialStorage?.delete(account: account)
+
+        return try await bootstrap(
+            runtimeAssistantId: runtimeAssistantId,
+            clientPlatform: clientPlatform,
+            daemonBaseURL: daemonBaseURL,
+            daemonToken: daemonToken
+        )
     }
 
     /// Inject the assistant API key into the daemon's secret store.

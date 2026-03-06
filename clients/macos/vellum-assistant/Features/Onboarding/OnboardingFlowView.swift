@@ -297,7 +297,8 @@ struct OnboardingFlowView: View {
         }
 
         do {
-            let outcome = try await LocalAssistantBootstrapService.shared.bootstrap(
+            let bootstrapService = LocalAssistantBootstrapService(credentialStorage: KeychainCredentialStorage())
+            let outcome = try await bootstrapService.bootstrap(
                 runtimeAssistantId: assistant.assistantId,
                 clientPlatform: "macos",
                 daemonBaseURL: daemonBaseURL,
