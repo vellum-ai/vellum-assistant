@@ -54,7 +54,7 @@ public enum MediaEmbedResolver {
             return []
         }
 
-        let urls = MessageURLExtractor.extractAllURLs(from: message.text)
+        let urls = await URLExtractionCache.shared.extractAllURLs(from: message.text)
         guard !urls.isEmpty else { return [] }
 
         var seen = Set<String>()

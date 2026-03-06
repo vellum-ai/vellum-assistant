@@ -1,5 +1,48 @@
 import Foundation
 
+/// Actor that wraps `MessageURLExtractor.extractAllURLs(from:)` with an
+/// in-memory LRU cache, moving the expensive `NSDataDetector` work off
+/// the main thread via actor isolation.
+public actor URLExtractionCache {
+    public static let shared = URLExtractionCache()
+
+    private var cache: [Int: [URL]] = [:]
+    /// Tracks access order for LRU eviction — most recently used at the end.
+    private var accessOrder: [Int] = []
+    private let maxEntries = 500
+
+    public func extractAllURLs(from text: String) -> [URL] {
+        let key = Self.hashKey(for: text)
+
+        if let cached = cache[key] {
+            // Move to end of access order (most recent).
+            if let idx = accessOrder.firstIndex(of: key) {
+                accessOrder.remove(at: idx)
+            }
+            accessOrder.append(key)
+            return cached
+        }
+
+        let result = MessageURLExtractor.extractAllURLs(from: text)
+
+        // Evict least-recently-used entry if at capacity.
+        if cache.count >= maxEntries, let evictKey = accessOrder.first {
+            accessOrder.removeFirst()
+            cache.removeValue(forKey: evictKey)
+        }
+
+        cache[key] = result
+        accessOrder.append(key)
+        return result
+    }
+
+    private static func hashKey(for text: String) -> Int {
+        var hasher = Hasher()
+        hasher.combine(text)
+        return hasher.finalize()
+    }
+}
+
 /// Extracts plain `http` / `https` URLs from message text.
 ///
 /// This is the first stage of the media-embed pipeline: deterministic,
