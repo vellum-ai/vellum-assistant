@@ -231,14 +231,24 @@ export async function userInfo(
   return request<SlackUserInfoResponse>(token, "users.info", { user: userId });
 }
 
+export interface PostMessageOptions {
+  threadTs?: string;
+  blocks?: unknown[];
+}
+
 export async function postMessage(
   token: string,
   channel: string,
   text: string,
-  threadTs?: string,
+  optionsOrThreadTs?: PostMessageOptions | string,
 ): Promise<SlackPostMessageResponse> {
+  const opts: PostMessageOptions =
+    typeof optionsOrThreadTs === "string"
+      ? { threadTs: optionsOrThreadTs }
+      : (optionsOrThreadTs ?? {});
   const body: Record<string, unknown> = { channel, text };
-  if (threadTs) body.thread_ts = threadTs;
+  if (opts.threadTs) body.thread_ts = opts.threadTs;
+  if (opts.blocks) body.blocks = opts.blocks;
   return request<SlackPostMessageResponse>(
     token,
     "chat.postMessage",
