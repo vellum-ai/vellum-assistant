@@ -8,7 +8,10 @@ import {
 } from "../contacts/contact-store.js";
 import type { ContactRole } from "../contacts/types.js";
 import { initializeDb } from "../memory/db.js";
-import { listIngressInvites } from "../runtime/invite-service.js";
+import {
+  createIngressInvite,
+  listIngressInvites,
+} from "../runtime/invite-service.js";
 import { writeOutput } from "./integrations.js";
 
 export function registerContactsCommand(program: Command): void {
@@ -108,6 +111,69 @@ export function registerContactsCommand(program: Command): void {
             status: opts.status,
           });
           writeOutput(cmd, result);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  invites
+    .command("create")
+    .description("Create a new invite")
+    .requiredOption(
+      "--source-channel <channel>",
+      "Source channel (e.g. telegram, voice, sms, email, whatsapp)",
+    )
+    .option("--note <note>", "Optional note")
+    .option("--max-uses <n>", "Max redemptions")
+    .option("--expires-in-ms <ms>", "Expiry duration in milliseconds")
+    .option(
+      "--contact-name <name>",
+      "Contact name for personalizing instructions",
+    )
+    .option(
+      "--expected-external-user-id <id>",
+      "E.164 phone number (required for voice invites)",
+    )
+    .option("--friend-name <name>", "Friend name (required for voice invites)")
+    .option(
+      "--guardian-name <name>",
+      "Guardian name (required for voice invites)",
+    )
+    .action(
+      async (
+        opts: {
+          sourceChannel: string;
+          note?: string;
+          maxUses?: string;
+          expiresInMs?: string;
+          contactName?: string;
+          expectedExternalUserId?: string;
+          friendName?: string;
+          guardianName?: string;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          initializeDb();
+          const result = await createIngressInvite({
+            sourceChannel: opts.sourceChannel,
+            note: opts.note,
+            maxUses: opts.maxUses ? Number(opts.maxUses) : undefined,
+            expiresInMs: opts.expiresInMs
+              ? Number(opts.expiresInMs)
+              : undefined,
+            contactName: opts.contactName,
+            expectedExternalUserId: opts.expectedExternalUserId,
+            friendName: opts.friendName,
+            guardianName: opts.guardianName,
+          });
+          writeOutput(cmd, result);
+          if (!result.ok) {
+            process.exitCode = 1;
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeOutput(cmd, { ok: false, error: message });
