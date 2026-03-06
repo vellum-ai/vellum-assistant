@@ -372,6 +372,20 @@ Examples:
 
   const twilioSms = twilio.command("sms").description("Twilio SMS status");
 
+  twilioSms.addHelpText(
+    "after",
+    `
+Covers SMS regulatory compliance for the configured Twilio account. All
+subcommands require the daemon to be running since they query the gateway API.
+
+Subcommands:
+  compliance   Check SMS regulatory compliance status
+
+Examples:
+  $ vellum integrations twilio sms compliance
+  $ vellum integrations twilio sms compliance --json`,
+  );
+
   twilioSms
     .command("compliance")
     .description("Get Twilio SMS compliance status")
@@ -397,6 +411,16 @@ Examples:
   twilio
     .command("sms-compliance")
     .description('Alias for "vellum integrations twilio sms compliance"')
+    .addHelpText(
+      "after",
+      `
+Shortcut alias for "vellum integrations twilio sms compliance". Prefer
+the canonical path for scripts and documentation.
+
+Examples:
+  $ vellum integrations twilio sms-compliance
+  $ vellum integrations twilio sms compliance   # canonical form`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () =>
         gatewayGet("/v1/integrations/twilio/sms/compliance"),
