@@ -102,7 +102,7 @@ To install the pre-built macOS app, download the signed and notarized DMG:
 
 The app includes **Sparkle auto-update** — after the initial install, updates are downloaded and applied automatically in the background. You'll be prompted to relaunch when a new version is ready.
 
-> **Note (local mode):** You need the daemon running for the app to function in local mode. See the [Daemon](#daemon) section below for setup. In managed mode, the assistant runs on the Vellum platform and no local daemon is required.
+> **Note (local mode):** You need the daemon running for the app to function in local mode. See the [Local Assistant (Daemon)](#local-assistant-daemon) section below for setup. In managed mode, the assistant runs on the Vellum platform and no local daemon is required.
 
 All releases are available at [github.com/vellum-ai/velly/releases](https://github.com/vellum-ai/velly/releases).
 
