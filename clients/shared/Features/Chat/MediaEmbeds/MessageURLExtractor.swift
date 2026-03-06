@@ -6,20 +6,18 @@ import Foundation
 public actor URLExtractionCache {
     public static let shared = URLExtractionCache()
 
-    private var cache: [Int: [URL]] = [:]
+    private var cache: [String: [URL]] = [:]
     /// Tracks access order for LRU eviction — most recently used at the end.
-    private var accessOrder: [Int] = []
+    private var accessOrder: [String] = []
     private let maxEntries = 500
 
     public func extractAllURLs(from text: String) -> [URL] {
-        let key = Self.hashKey(for: text)
-
-        if let cached = cache[key] {
+        if let cached = cache[text] {
             // Move to end of access order (most recent).
-            if let idx = accessOrder.firstIndex(of: key) {
+            if let idx = accessOrder.firstIndex(of: text) {
                 accessOrder.remove(at: idx)
             }
-            accessOrder.append(key)
+            accessOrder.append(text)
             return cached
         }
 
@@ -31,15 +29,16 @@ public actor URLExtractionCache {
             cache.removeValue(forKey: evictKey)
         }
 
-        cache[key] = result
-        accessOrder.append(key)
+        cache[text] = result
+        accessOrder.append(text)
         return result
     }
 
-    private static func hashKey(for text: String) -> Int {
-        var hasher = Hasher()
-        hasher.combine(text)
-        return hasher.finalize()
+    /// Removes all cached entries. Useful for memory-pressure relief or
+    /// thread-switch cleanup.
+    public func clearCache() {
+        cache.removeAll()
+        accessOrder.removeAll()
     }
 }
 
