@@ -37,6 +37,41 @@ A future onboarding step that would ask:
 
 When shipped, this picker would appear as a step in the onboarding flow and trigger the appropriate recipe automatically.
 
+### Planned Orchestration Flow
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    ONBOARDING FLOW                       │
+│                                                         │
+│  Step 1: Wake up + naming        (existing)             │
+│  Step 2: Permissions             (existing)             │
+│  Step 3: Fn key config           (existing)             │
+│  Step 4: ★ Integration picker ★  (NOT YET BUILT)        │
+│           │                                             │
+│           ├─ User picks "GitHub"                        │
+│           │                                             │
+│           ├─ "Can I take it from here?"                 │
+│           │   └─ [Yes] → ComputerUseSession             │
+│           │              with github-app-setup recipe   │
+│           │              ↓                              │
+│           │         ┌─────────────────────┐             │
+│           │         │  RECIPE EXECUTOR    │             │
+│           │         │                     │             │
+│           │         │  1. Parse recipe    │             │
+│           │         │  2. Build task str  │             │
+│           │         │  3. Run session     │             │
+│           │         │  4. Capture creds   │             │
+│           │         │  5. Store securely  │             │
+│           │         │  6. Report done     │             │
+│           │         └─────────────────────┘             │
+│           │                                             │
+│  Step 5: Alive check             (existing)             │
+│  Step 6: Done                                           │
+└─────────────────────────────────────────────────────────┘
+```
+
+> **Note:** The `RecipeExecutor` class is implemented (see above), but Step 4 (the integration picker that triggers it) does not exist yet. See `ComputerUse/RecipeExecutor.swift` for the real implementation.
+
 ### Future Recipe Files (Not Yet Created)
 
 These recipe files do not exist yet:
