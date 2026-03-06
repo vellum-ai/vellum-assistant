@@ -5,7 +5,7 @@ import XCTest
 //
 // These tests establish XCTest performance baselines for AXTreeDiff.diff()
 // computation across representative scenarios. On the first run XCTest records
-// a baseline; subsequent runs fail if wall-clock time regresses by more than
+// a baseline; subsequent runs fail if CPU time regresses by more than
 // the default XCTest allowance (~10 %).
 //
 // Run manually with:
@@ -87,7 +87,7 @@ final class AXTreeDiffPerformanceTests: XCTestCase {
         let previous = Self.makeElements(count: 50, prefix: "s")
         let current = Self.mutateElements(previous, count: 5)
 
-        measure(metrics: [XCTClockMetric()]) {
+        measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
             for _ in 0..<200 {
                 _ = AXTreeDiff.diff(previousFlat: previous, currentFlat: current)
             }
@@ -100,7 +100,7 @@ final class AXTreeDiffPerformanceTests: XCTestCase {
         let previous = Self.makeElements(count: 200, prefix: "m")
         let current = Self.mutateElements(previous, count: 50)
 
-        measure(metrics: [XCTClockMetric()]) {
+        measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
             for _ in 0..<50 {
                 _ = AXTreeDiff.diff(previousFlat: previous, currentFlat: current)
             }
@@ -112,7 +112,7 @@ final class AXTreeDiffPerformanceTests: XCTestCase {
     func testLargeTreeIdentical() {
         let elements = Self.makeElements(count: 500, prefix: "l")
 
-        measure(metrics: [XCTClockMetric()]) {
+        measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
             for _ in 0..<50 {
                 _ = AXTreeDiff.diff(previousFlat: elements, currentFlat: elements)
             }
@@ -126,7 +126,7 @@ final class AXTreeDiffPerformanceTests: XCTestCase {
         let previous = Self.makeElements(count: 200, idOffset: 0, prefix: "old")
         let current = Self.makeElements(count: 200, idOffset: 1000, prefix: "new")
 
-        measure(metrics: [XCTClockMetric()]) {
+        measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
             for _ in 0..<50 {
                 _ = AXTreeDiff.diff(previousFlat: previous, currentFlat: current)
             }

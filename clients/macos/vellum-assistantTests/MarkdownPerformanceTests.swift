@@ -6,7 +6,7 @@ import XCTest
 //
 // These tests establish XCTest performance baselines for the markdown parsing
 // and segment-grouping pipeline. On the first run XCTest records a baseline;
-// subsequent runs fail if wall-clock time regresses by more than 10 % (the
+// subsequent runs fail if CPU time regresses by more than 10 % (the
 // default XCTest allowance).
 //
 // Run manually with:
@@ -161,7 +161,7 @@ final class MarkdownPerformanceTests: XCTestCase {
     /// that the baseline captures only the grouping pass.
     func testGroupedSegmentsPerformance() {
         let segments = parseMarkdownSegments(Self.sampleMarkdown)
-        measure(metrics: [XCTClockMetric()]) {
+        measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
             for _ in 0..<200 {
                 _ = groupSegments(segments)
             }
@@ -195,7 +195,7 @@ final class MarkdownPerformanceTests: XCTestCase {
     /// super-linear complexity regressions that may not be visible at 500 words.
     func testMarkdownParsePerformanceLargeInput() {
         let largeSample = (0..<10).map { _ in Self.sampleMarkdown }.joined(separator: "\n\n")
-        measure(metrics: [XCTClockMetric()]) {
+        measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
             _ = parseMarkdownSegments(largeSample)
         }
     }
