@@ -58,11 +58,12 @@ public enum MediaEmbedResolver {
         guard !urls.isEmpty else { return [] }
 
         var seen = Set<String>()
-        var intents: [MediaEmbedIntent] = []
 
-        // Synchronous first pass: video parsers and extension-based image
-        // classification are pure string matching — no I/O needed.
-        var urlsToProbe: [URL] = []
+        // First pass: classify each URL synchronously where possible,
+        // recording placeholder indices for URLs that need async probing.
+        // This preserves the original URL source order in the final array.
+        var intents: [MediaEmbedIntent?] = []
+        var probeTargets: [(index: Int, url: URL)] = []
 
         for url in urls {
             if let videoResult = tryVideoParsers(url, allowedDomains: settings.allowedDomains) {
@@ -87,35 +88,41 @@ public enum MediaEmbedResolver {
                 let canonical = url.absoluteString
                 guard !seen.contains(canonical) else { continue }
                 seen.insert(canonical)
-                urlsToProbe.append(url)
+                // Reserve a slot so probed images appear in source order.
+                let placeholderIndex = intents.count
+                intents.append(nil)
+                probeTargets.append((index: placeholderIndex, url: url))
             }
         }
 
-        // Parallel second pass: probe extensionless URLs concurrently.
-        // Actual concurrency is bounded by the semaphore inside ImageMIMEProbe.
-        if !urlsToProbe.isEmpty {
-            let probeResults: [(URL, ImageURLClassification)] = await withTaskGroup(
-                of: (URL, ImageURLClassification).self
+        // Second pass: probe extensionless URLs concurrently, then fill
+        // placeholders. Concurrency is bounded by ImageMIMEProbe's semaphore.
+        if !probeTargets.isEmpty {
+            let probeResults: [String: ImageURLClassification] = await withTaskGroup(
+                of: (String, ImageURLClassification).self
             ) { group in
-                for url in urlsToProbe {
+                for (_, url) in probeTargets {
                     group.addTask {
                         let result = await ImageMIMEProbe.shared.probe(url)
-                        return (url, result)
+                        return (url.absoluteString, result)
                     }
                 }
-                var collected: [(URL, ImageURLClassification)] = []
-                for await pair in group {
-                    collected.append(pair)
+                var map: [String: ImageURLClassification] = [:]
+                for await (key, classification) in group {
+                    map[key] = classification
                 }
-                return collected
+                return map
             }
 
-            for (url, classification) in probeResults where classification == .image {
-                intents.append(.image(url: url))
+            for (index, url) in probeTargets {
+                if probeResults[url.absoluteString] == .image {
+                    intents[index] = .image(url: url)
+                }
             }
         }
 
-        return intents
+        // Strip nil placeholders (probed URLs that were not images).
+        return intents.compactMap { $0 }
     }
 
     // MARK: - Private helpers
