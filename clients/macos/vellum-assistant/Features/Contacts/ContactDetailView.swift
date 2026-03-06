@@ -163,7 +163,7 @@ struct ContactDetailView: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .disabled(isDeleting)
+                        .disabled(isDeleting || actionInProgress != nil || verificationInProgress != nil)
                         .help("Delete contact")
                         .opacity(isHoveringHeader ? 1 : 0)
                         .animation(VAnimation.fast, value: isHoveringHeader)
@@ -647,7 +647,7 @@ struct ContactDetailView: View {
     private func channelActions(for channel: ContactChannelPayload) -> some View {
         // Disable ALL action buttons while any channel action is in-flight to
         // serialize updates and prevent response correlation mix-ups.
-        let anyActionInFlight = actionInProgress != nil || verificationInProgress != nil
+        let anyActionInFlight = actionInProgress != nil || verificationInProgress != nil || isDeleting
         let isThisChannel = actionInProgress == channel.id
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -1054,6 +1054,7 @@ struct ContactDetailView: View {
 
     private func deleteContact() {
         guard let daemonClient else { return }
+        guard actionInProgress == nil, verificationInProgress == nil else { return }
         isDeleting = true
         errorMessage = nil
 
