@@ -21,7 +21,7 @@ Examples: `config`, `contacts`, `memory`, `autonomy`, `sessions`, `doctor` belon
 
 - Commands use [Commander.js](https://github.com/tj/commander.js) and follow the `registerXCommand(program: Command)` pattern.
 - Each command module exports a registration function that attaches subcommands to the program.
-- Register new commands in `assistant/src/index.ts` by importing and calling the registration function.
+- Register new commands in `assistant/src/cli/program.ts` inside the `buildCliProgram()` function by importing and calling the registration function.
 - Use `getCliLogger("cli")` for output (not raw `console.log`).
 
 ## Service calls — no gateway proxying
