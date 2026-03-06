@@ -8,6 +8,7 @@ enum ShortcutHelper {
     /// Converts a shortcut string like "cmd+shift+space" to a human-readable
     /// display string like "Command Shift Space".
     static func displayString(for shortcut: String) -> String {
+        guard !shortcut.isEmpty else { return "None" }
         let parts = shortcut.lowercased().split(separator: "+").map(String.init)
         return parts.map { displayToken($0) }.joined(separator: " ")
     }
@@ -15,6 +16,7 @@ enum ShortcutHelper {
     /// Parses a shortcut string into modifier flags and a key string suitable
     /// for matching against `NSEvent.charactersIgnoringModifiers`.
     static func parseShortcut(_ shortcut: String) -> (NSEvent.ModifierFlags, String) {
+        guard !shortcut.isEmpty else { return ([], "") }
         let parts = shortcut.lowercased().split(separator: "+").map(String.init)
         var modifiers: NSEvent.ModifierFlags = []
         var key = ""

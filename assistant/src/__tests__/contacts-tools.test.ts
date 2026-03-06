@@ -74,7 +74,6 @@ initializeDb();
 
 // ── Lightweight gateway stub ─────────────────────────────────────────────────
 
-const TEST_ASSISTANT_ID = "test-assistant";
 let testServer: ReturnType<typeof Bun.serve>;
 
 beforeAll(() => {
@@ -85,17 +84,17 @@ beforeAll(() => {
       const path = url.pathname;
 
       if (path === "/v1/contacts/merge" && req.method === "POST") {
-        return handleMergeContacts(req, TEST_ASSISTANT_ID);
+        return handleMergeContacts(req);
       }
       if (path === "/v1/contacts" && req.method === "GET") {
-        return handleListContacts(url, TEST_ASSISTANT_ID);
+        return handleListContacts(url);
       }
       if (path === "/v1/contacts" && req.method === "POST") {
-        return handleUpsertContact(req, TEST_ASSISTANT_ID);
+        return handleUpsertContact(req);
       }
       const idMatch = path.match(/^\/v1\/contacts\/([^/]+)$/);
       if (idMatch && req.method === "GET") {
-        return handleGetContact(idMatch[1], TEST_ASSISTANT_ID);
+        return handleGetContact(idMatch[1]);
       }
       return new Response("Not found", { status: 404 });
     },
@@ -140,17 +139,14 @@ describe("contact_upsert tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Created contact");
     expect(result.content).toContain("Alice");
-    expect(result.content).toContain("Importance: 0.50");
   });
 
   test("creates a contact with all fields", async () => {
     const result = await executeContactUpsert(
       {
         display_name: "Bob",
-        relationship: "colleague",
-        importance: 0.8,
-        response_expectation: "within_hours",
-        preferred_tone: "professional",
+        notes:
+          "Colleague at Acme Corp, prefers professional tone, responds within hours",
         channels: [
           { type: "email", address: "bob@example.com", is_primary: true },
           { type: "slack", address: "@bob" },
@@ -161,10 +157,7 @@ describe("contact_upsert tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Bob");
-    expect(result.content).toContain("colleague");
-    expect(result.content).toContain("0.80");
-    expect(result.content).toContain("within_hours");
-    expect(result.content).toContain("professional");
+    expect(result.content).toContain("Notes: Colleague at Acme Corp");
     expect(result.content).toContain("email: bob@example.com");
     expect(result.content).toContain("slack: @bob");
   });
@@ -185,7 +178,7 @@ describe("contact_upsert tool", () => {
       {
         id: contactId,
         display_name: "Charlie Updated",
-        importance: 0.9,
+        notes: "Updated notes for Charlie",
       },
       ctx,
     );
@@ -193,7 +186,7 @@ describe("contact_upsert tool", () => {
     expect(updateResult.isError).toBe(false);
     expect(updateResult.content).toContain("Updated contact");
     expect(updateResult.content).toContain("Charlie Updated");
-    expect(updateResult.content).toContain("0.90");
+    expect(updateResult.content).toContain("Notes: Updated notes for Charlie");
   });
 
   test("auto-matches by channel address on create", async () => {
@@ -239,36 +232,6 @@ describe("contact_upsert tool", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("display_name is required");
   });
-
-  test("rejects importance out of range", async () => {
-    const result = await executeContactUpsert(
-      {
-        display_name: "Test",
-        importance: 1.5,
-      },
-      ctx,
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain(
-      "importance must be a number between 0 and 1",
-    );
-  });
-
-  test("rejects negative importance", async () => {
-    const result = await executeContactUpsert(
-      {
-        display_name: "Test",
-        importance: -0.1,
-      },
-      ctx,
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain(
-      "importance must be a number between 0 and 1",
-    );
-  });
 });
 
 // ── contact_search ──────────────────────────────────────────────────
@@ -303,23 +266,6 @@ describe("contact_search tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Charlie");
-  });
-
-  test("searches by relationship", async () => {
-    await executeContactUpsert(
-      { display_name: "Diana", relationship: "friend" },
-      ctx,
-    );
-    await executeContactUpsert(
-      { display_name: "Eve", relationship: "colleague" },
-      ctx,
-    );
-
-    const result = await executeContactSearch({ relationship: "friend" }, ctx);
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Diana");
-    expect(result.content).not.toContain("Eve");
   });
 
   test("returns no results message when nothing matches", async () => {
@@ -380,7 +326,7 @@ describe("contact_merge tool", () => {
     const r1 = await executeContactUpsert(
       {
         display_name: "Alice (Email)",
-        importance: 0.7,
+        notes: "Prefers email",
         channels: [{ type: "email", address: "alice@example.com" }],
       },
       ctx,
@@ -388,7 +334,7 @@ describe("contact_merge tool", () => {
     const r2 = await executeContactUpsert(
       {
         display_name: "Alice (Slack)",
-        importance: 0.9,
+        notes: "Active on Slack",
         channels: [{ type: "slack", address: "@alice" }],
       },
       ctx,
@@ -407,7 +353,7 @@ describe("contact_merge tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Merged");
-    expect(result.content).toContain("Importance: 0.90"); // takes higher importance
+    expect(result.content).toContain("Notes: Prefers email\nActive on Slack"); // concatenated notes
     expect(result.content).toContain("email: alice@example.com");
     expect(result.content).toContain("slack: @alice");
 

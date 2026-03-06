@@ -6,6 +6,7 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
+import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
 import { touchChannelLastSeen } from "../../../contacts/contacts-write.js";
@@ -16,7 +17,12 @@ import type {
   MemberStatus,
 } from "../../../contacts/types.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
+import {
+  findByInviteCodeHash,
+  findByInviteCodeHashAnyChannel,
+} from "../../../memory/invite-store.js";
 import { getLogger } from "../../../util/logger.js";
+import { hashVoiceCode } from "../../../util/voice-code.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
 import {
   createOutboundSession,
@@ -24,15 +30,13 @@ import {
   getPendingChallenge,
   resolveBootstrapToken,
 } from "../../channel-guardian-service.js";
-import { getTransport } from "../../channel-invite-transport.js";
+import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import {
-  composeVerificationSlack,
-  GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../../guardian-verification-templates.js";
-import { redeemInvite } from "../../invite-redemption-service.js";
+  redeemInvite,
+  redeemInviteByCode,
+} from "../../invite-redemption-service.js";
 import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
-import { sendSlackVerificationDm } from "./slack-verification-challenge.js";
 
 const log = getLogger("runtime-http");
 
@@ -151,8 +155,8 @@ export async function enforceIngressAcl(
     !Array.isArray(rawCommandIntentForAcl)
       ? (rawCommandIntentForAcl as Record<string, unknown>)
       : undefined;
-  const inviteTransport = getTransport(sourceChannel);
-  const inviteToken = inviteTransport?.extractInboundToken({
+  const inviteAdapter = getInviteAdapterRegistry().get(sourceChannel);
+  const inviteToken = inviteAdapter?.extractInboundToken?.({
     commandIntent: commandIntentForAcl,
     content: trimmedContent,
     sourceMetadata,
@@ -187,14 +191,8 @@ export async function enforceIngressAcl(
         // omitted: rebind sessions create a consumable challenge while a
         // binding already exists, and the identity check inside
         // validateAndConsumeChallenge prevents unauthorized takeovers.
-        const hasPendingChallenge = !!getPendingChallenge(
-          canonicalAssistantId,
-          sourceChannel,
-        );
-        const hasActiveOutboundSession = !!findActiveSession(
-          canonicalAssistantId,
-          sourceChannel,
-        );
+        const hasPendingChallenge = !!getPendingChallenge(sourceChannel);
+        const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
         if (hasPendingChallenge || hasActiveOutboundSession) {
           denyNonMember = false;
         } else {
@@ -215,7 +213,6 @@ export async function enforceIngressAcl(
         ).payload as string;
         const bootstrapTokenForAcl = bootstrapPayload.slice(3); // strip 'gv_' prefix
         const bootstrapSessionForAcl = resolveBootstrapToken(
-          canonicalAssistantId,
           sourceChannel,
           bootstrapTokenForAcl,
         );
@@ -258,6 +255,32 @@ export async function enforceIngressAcl(
           };
       }
 
+      // ── 6-digit invite code intercept (non-member) ──
+      // On channels with codeRedemptionEnabled, a bare 6-digit message may be
+      // an invite code. Attempt redemption; on failure (no matching code) fall
+      // through to normal processing — the number may be a regular message.
+      if (denyNonMember && /^\d{6}$/.test(trimmedContent)) {
+        const codeInterceptResult = await handleInviteCodeIntercept({
+          code: trimmedContent,
+          sourceChannel,
+          externalChatId: conversationExternalId,
+          externalMessageId,
+          senderExternalUserId: canonicalSenderId ?? rawSenderId,
+          senderName: actorDisplayName,
+          senderUsername: actorUsername,
+          replyCallbackUrl,
+          bearerToken: mintBearerToken(),
+          assistantId,
+          canonicalAssistantId,
+        });
+        if (codeInterceptResult)
+          return {
+            resolvedMember: null,
+            earlyResponse: codeInterceptResult,
+            guardianVerifyCode,
+          };
+      }
+
       if (denyNonMember) {
         log.info(
           { sourceChannel, externalUserId: canonicalSenderId },
@@ -269,13 +292,8 @@ export async function enforceIngressAcl(
         // user can reply with the code in the DM to self-verify.
         if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
           const slackVerifyResult = initiateSlackVerificationChallenge({
-            canonicalAssistantId,
             sourceChannel,
-            conversationExternalId,
             senderUserId: (canonicalSenderId ?? rawSenderId)!,
-            replyCallbackUrl,
-            mintBearerToken,
-            assistantId,
           });
 
           if (slackVerifyResult.initiated) {
@@ -302,7 +320,7 @@ export async function enforceIngressAcl(
                   replyCallbackUrl,
                   {
                     chatId: conversationExternalId,
-                    text: "I've sent you a verification code via DM. Please reply with the code there to verify your identity.",
+                    text: "I've notified the owner. They'll share a verification code with you if they approve access.",
                     assistantId,
                   },
                   mintBearerToken(),
@@ -390,14 +408,8 @@ export async function enforceIngressAcl(
         // revoked/blocked — otherwise the user can never re-verify.
         let denyInactiveMember = true;
         if (isGuardianVerifyCode) {
-          const hasPendingChallenge = !!getPendingChallenge(
-            canonicalAssistantId,
-            sourceChannel,
-          );
-          const hasActiveOutboundSession = !!findActiveSession(
-            canonicalAssistantId,
-            sourceChannel,
-          );
+          const hasPendingChallenge = !!getPendingChallenge(sourceChannel);
+          const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
           if (hasPendingChallenge || hasActiveOutboundSession) {
             denyInactiveMember = false;
           } else {
@@ -418,7 +430,6 @@ export async function enforceIngressAcl(
           ).payload as string;
           const bootstrapTokenForAcl = bootstrapPayload.slice(3);
           const bootstrapSessionForAcl = resolveBootstrapToken(
-            canonicalAssistantId,
             sourceChannel,
             bootstrapTokenForAcl,
           );
@@ -464,6 +475,31 @@ export async function enforceIngressAcl(
             };
         }
 
+        // ── 6-digit invite code intercept (inactive member) ──
+        // Same as the non-member branch: codes can reactivate revoked/pending
+        // members. Non-matching codes fall through to normal processing.
+        if (denyInactiveMember && /^\d{6}$/.test(trimmedContent)) {
+          const codeInterceptResult = await handleInviteCodeIntercept({
+            code: trimmedContent,
+            sourceChannel,
+            externalChatId: conversationExternalId,
+            externalMessageId,
+            senderExternalUserId: canonicalSenderId ?? rawSenderId,
+            senderName: actorDisplayName,
+            senderUsername: actorUsername,
+            replyCallbackUrl,
+            bearerToken: mintBearerToken(),
+            assistantId,
+            canonicalAssistantId,
+          });
+          if (codeInterceptResult)
+            return {
+              resolvedMember: null,
+              earlyResponse: codeInterceptResult,
+              guardianVerifyCode,
+            };
+        }
+
         if (denyInactiveMember) {
           log.info(
             {
@@ -483,13 +519,8 @@ export async function enforceIngressAcl(
             (canonicalSenderId ?? rawSenderId)
           ) {
             const slackVerifyResult = initiateSlackVerificationChallenge({
-              canonicalAssistantId,
               sourceChannel,
-              conversationExternalId,
               senderUserId: (canonicalSenderId ?? rawSenderId)!,
-              replyCallbackUrl,
-              mintBearerToken,
-              assistantId,
             });
 
             if (slackVerifyResult.initiated) {
@@ -518,7 +549,7 @@ export async function enforceIngressAcl(
                     replyCallbackUrl,
                     {
                       chatId: conversationExternalId,
-                      text: "I've sent you a verification code via DM. Please reply with the code there to verify your identity.",
+                      text: "I've notified the owner. They'll share a verification code with you if they approve access.",
                       assistantId,
                     },
                     mintBearerToken(),
@@ -637,7 +668,11 @@ export async function enforceIngressAcl(
         };
       }
 
-      // 'allow' or 'escalate' — update last seen and continue
+      // 'allow' or 'escalate' — update last seen timestamp.
+      // touchContactInteraction is intentionally NOT called here because
+      // duplicate detection hasn't run yet. It's called in
+      // inbound-message-handler.ts after dedup so webhook retries don't
+      // inflate interaction counts.
       touchChannelLastSeen(resolvedMember.channel.id);
     }
   }
@@ -798,6 +833,231 @@ async function handleInviteTokenIntercept(params: {
 }
 
 // ---------------------------------------------------------------------------
+// 6-digit invite code intercept
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a bare 6-digit message as a potential invite code redemption.
+ *
+ * Checks channel policy (codeRedemptionEnabled), attempts redemption via
+ * `redeemInviteByCode`, and returns a Response to short-circuit the handler
+ * on success. Returns `null` when the code does not match any active invite,
+ * allowing the message to fall through to normal processing.
+ */
+async function handleInviteCodeIntercept(params: {
+  code: string;
+  sourceChannel: ChannelId;
+  externalChatId: string;
+  externalMessageId: string;
+  senderExternalUserId?: string;
+  senderName?: string;
+  senderUsername?: string;
+  replyCallbackUrl?: string;
+  bearerToken?: string;
+  assistantId?: string;
+  canonicalAssistantId: string;
+}): Promise<Response | null> {
+  const {
+    code,
+    sourceChannel,
+    externalChatId,
+    externalMessageId,
+    senderExternalUserId,
+    senderName,
+    senderUsername,
+    replyCallbackUrl,
+    bearerToken,
+    assistantId,
+    canonicalAssistantId,
+  } = params;
+
+  // Skip channels that don't support code redemption
+  if (!isInviteCodeRedemptionEnabled(sourceChannel)) {
+    return null;
+  }
+
+  // Pre-check: verify a matching invite exists before committing to handle
+  // this message. A bare 6-digit number may be a regular message, so we
+  // must not record inbound dedup until we know the code maps to an invite.
+  const codeHash = hashVoiceCode(code);
+  const candidateInvite = findByInviteCodeHash(codeHash, sourceChannel);
+  if (!candidateInvite) {
+    // The code doesn't match any invite on this channel. Before falling
+    // through to normal processing, check if it matches on a different
+    // channel — if so, inform the user instead of silently ignoring it.
+    const crossChannelInvite = findByInviteCodeHashAnyChannel(codeHash);
+    if (crossChannelInvite) {
+      // Record inbound for dedup tracking — without this, duplicate webhook
+      // deliveries would re-enter ACL and send the mismatch reply again.
+      const dedupResult = channelDeliveryStore.recordInbound(
+        sourceChannel,
+        externalChatId,
+        externalMessageId,
+        { assistantId: canonicalAssistantId },
+      );
+
+      if (dedupResult.duplicate) {
+        return Response.json({
+          accepted: true,
+          duplicate: true,
+          eventId: dedupResult.eventId,
+        });
+      }
+
+      const mismatchReply = "This invite is not valid for this channel.";
+      if (replyCallbackUrl) {
+        try {
+          await deliverChannelReply(
+            replyCallbackUrl,
+            {
+              chatId: externalChatId,
+              text: mismatchReply,
+              assistantId,
+            },
+            bearerToken,
+          );
+        } catch (err) {
+          log.error(
+            { err, externalChatId },
+            "Failed to deliver invite code channel-mismatch reply",
+          );
+        }
+      }
+      channelDeliveryStore.markProcessed(dedupResult.eventId);
+      return Response.json({
+        accepted: true,
+        eventId: dedupResult.eventId,
+        denied: true,
+        inviteRedemption: "channel_mismatch",
+      });
+    }
+    return null;
+  }
+
+  // Record the inbound event for dedup tracking BEFORE performing redemption,
+  // matching the token intercept path. Without this, duplicate webhook
+  // deliveries could slip through: the first delivery redeems the invite and
+  // activates membership, then a retry finds an active member, passes ACL,
+  // and the raw 6-digit message leaks into the agent pipeline.
+  const dedupResult = channelDeliveryStore.recordInbound(
+    sourceChannel,
+    externalChatId,
+    externalMessageId,
+    { assistantId: canonicalAssistantId },
+  );
+
+  if (dedupResult.duplicate) {
+    return Response.json({
+      accepted: true,
+      duplicate: true,
+      eventId: dedupResult.eventId,
+    });
+  }
+
+  let outcome: ReturnType<typeof redeemInviteByCode>;
+  try {
+    outcome = redeemInviteByCode({
+      code,
+      sourceChannel,
+      externalUserId: senderExternalUserId,
+      externalChatId,
+      displayName: senderName,
+      username: senderUsername,
+      assistantId: canonicalAssistantId,
+    });
+  } catch (err) {
+    // Redemption threw — roll back the dedup record so webhook retries
+    // can re-attempt instead of short-circuiting as duplicates.
+    log.error(
+      { err, sourceChannel, externalChatId },
+      "Invite code intercept: redemption threw, rolling back dedup record",
+    );
+    channelDeliveryStore.deleteInbound(dedupResult.eventId);
+    throw err;
+  }
+
+  log.info(
+    {
+      sourceChannel,
+      externalChatId,
+      ok: outcome.ok,
+      type: outcome.ok ? outcome.type : undefined,
+      reason: !outcome.ok ? outcome.reason : undefined,
+    },
+    "Invite code intercept: redemption result",
+  );
+
+  // already_member: deliver acknowledgement and short-circuit
+  if (outcome.ok && outcome.type === "already_member") {
+    const replyText = getInviteRedemptionReply(outcome);
+    if (replyCallbackUrl) {
+      try {
+        await deliverChannelReply(
+          replyCallbackUrl,
+          {
+            chatId: externalChatId,
+            text: replyText,
+            assistantId,
+          },
+          bearerToken,
+        );
+      } catch (err) {
+        log.error(
+          { err, externalChatId },
+          "Failed to deliver invite code already-member reply",
+        );
+      }
+    }
+    channelDeliveryStore.markProcessed(dedupResult.eventId);
+    return Response.json({
+      accepted: true,
+      eventId: dedupResult.eventId,
+      inviteRedemption: "already_member",
+    });
+  }
+
+  const replyText = getInviteRedemptionReply(outcome);
+
+  if (replyCallbackUrl) {
+    try {
+      await deliverChannelReply(
+        replyCallbackUrl,
+        {
+          chatId: externalChatId,
+          text: replyText,
+          assistantId,
+        },
+        bearerToken,
+      );
+    } catch (err) {
+      log.error(
+        { err, externalChatId },
+        "Failed to deliver invite code redemption reply",
+      );
+    }
+  }
+
+  if (outcome.ok && outcome.type === "redeemed") {
+    channelDeliveryStore.markProcessed(dedupResult.eventId);
+    return Response.json({
+      accepted: true,
+      eventId: dedupResult.eventId,
+      inviteRedemption: "redeemed",
+      memberId: outcome.memberId,
+    });
+  }
+
+  // Failed redemption (expired, revoked, etc.) — inform and deny
+  channelDeliveryStore.markProcessed(dedupResult.eventId);
+  return Response.json({
+    accepted: true,
+    eventId: dedupResult.eventId,
+    denied: true,
+    inviteRedemption: !outcome.ok ? outcome.reason : undefined,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Slack verification challenge
 // ---------------------------------------------------------------------------
 
@@ -807,35 +1067,24 @@ interface SlackVerificationResult {
 }
 
 /**
- * Create an outbound verification session for a Slack user and send the
- * verification code to their DM. The session is identity-bound with
+ * Create an outbound verification session for a Slack user. The guardian
+ * receives the verification code via the notification pipeline (not a
+ * direct DM to the requester). The session is identity-bound with
  * `verificationPurpose: "trusted_contact"` so consuming the code
  * creates a trusted contact record (not a guardian binding).
  */
 function initiateSlackVerificationChallenge(params: {
-  canonicalAssistantId: string;
   sourceChannel: ChannelId;
-  conversationExternalId: string;
   senderUserId: string;
-  replyCallbackUrl: string | undefined;
-  mintBearerToken: () => string;
-  assistantId: string;
 }): SlackVerificationResult {
-  const { canonicalAssistantId, sourceChannel, senderUserId, assistantId } =
-    params;
+  const { sourceChannel, senderUserId } = params;
 
   // Skip if there is already a pending challenge or active session for
   // this sender to avoid flooding them with duplicate codes. We scope by
   // sender identity (expectedExternalUserId) so that a pending session for
   // user A does not suppress challenges for user B.
-  const existingChallenge = getPendingChallenge(
-    canonicalAssistantId,
-    sourceChannel,
-  );
-  const existingSession = findActiveSession(
-    canonicalAssistantId,
-    sourceChannel,
-  );
+  const existingChallenge = getPendingChallenge(sourceChannel);
+  const existingSession = findActiveSession(sourceChannel);
   const senderHasPending =
     (existingChallenge &&
       existingChallenge.expectedExternalUserId === senderUserId) ||
@@ -856,7 +1105,6 @@ function initiateSlackVerificationChallenge(params: {
 
   try {
     const session = createOutboundSession({
-      assistantId: canonicalAssistantId,
       channel: sourceChannel,
       expectedExternalUserId: senderUserId,
       expectedChatId: senderUserId,
@@ -865,16 +1113,9 @@ function initiateSlackVerificationChallenge(params: {
       verificationPurpose: "trusted_contact",
     });
 
-    const slackBody = composeVerificationSlack(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_TRUSTED_CONTACT_CHALLENGE,
-      {
-        code: session.secret,
-        expiresInMinutes: Math.floor(session.ttlSeconds / 60),
-      },
-    );
-
-    // Fire-and-forget DM delivery via the gateway
-    sendSlackVerificationDm(senderUserId, slackBody, assistantId);
+    // The verification code is delivered to the guardian via the access
+    // request notification flow. The guardian decides whether to share
+    // it with the requester — we do NOT DM the code to the requester.
 
     log.info(
       { sourceChannel, senderUserId, sessionId: session.sessionId },

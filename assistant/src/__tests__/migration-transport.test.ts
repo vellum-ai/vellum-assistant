@@ -191,6 +191,55 @@ describe("Auth headers", () => {
     expect(headers["Authorization"]).toBeUndefined();
   });
 
+  test("managed request includes Vellum-Organization-Id from defaultHeaders", async () => {
+    const { fetchFn, captured } = capturingFetch(200, {
+      is_valid: true,
+      errors: [],
+      manifest: {},
+    });
+    await validateBundle(
+      managedConfig({
+        fetchFn,
+        defaultHeaders: { "Vellum-Organization-Id": "org-123" },
+      }),
+      sampleFileData,
+    );
+    const headers = captured[0].init.headers as Record<string, string>;
+    expect(headers["Vellum-Organization-Id"]).toBe("org-123");
+    // Managed auth header should still be present
+    expect(headers["X-Session-Token"]).toBe("test-session-token");
+  });
+
+  test("runtime request is unchanged when no defaultHeaders provided", async () => {
+    const { fetchFn, captured } = capturingFetch(200, {
+      is_valid: true,
+      errors: [],
+      manifest: {},
+    });
+    await validateBundle(runtimeConfig({ fetchFn }), sampleFileData);
+    const headers = captured[0].init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer test-jwt");
+    expect(headers["Vellum-Organization-Id"]).toBeUndefined();
+  });
+
+  test("auth header wins over same-named entry in defaultHeaders", async () => {
+    const { fetchFn, captured } = capturingFetch(200, {
+      is_valid: true,
+      errors: [],
+      manifest: {},
+    });
+    // defaultHeaders sets X-Session-Token, but authHeader should override it
+    await validateBundle(
+      managedConfig({
+        fetchFn,
+        defaultHeaders: { "X-Session-Token": "should-be-overridden" },
+      }),
+      sampleFileData,
+    );
+    const headers = captured[0].init.headers as Record<string, string>;
+    expect(headers["X-Session-Token"]).toBe("test-session-token");
+  });
+
   test("no auth header when authHeader is not provided", async () => {
     const { fetchFn, captured } = capturingFetch(200, {
       is_valid: true,

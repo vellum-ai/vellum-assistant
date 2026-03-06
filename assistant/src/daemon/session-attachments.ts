@@ -124,6 +124,7 @@ export async function resolveAssistantAttachments(
   workingDir: string,
   approveHostRead: ApproveHostRead,
   lastAssistantMessageId: string | undefined,
+  toolContentBlockToolNames?: ReadonlyMap<number, string>,
 ): Promise<AttachmentResolutionResult> {
   let assistantAttachments: AssistantAttachmentDraft[] = [];
   const emittedAttachments: UserMessageAttachment[] = [];
@@ -170,7 +171,10 @@ export async function resolveAssistantAttachments(
       "Directive resolution complete",
     );
 
-    const toolDrafts = contentBlocksToDrafts(accumulatedToolContentBlocks);
+    const toolDrafts = contentBlocksToDrafts(
+      accumulatedToolContentBlocks,
+      toolContentBlockToolNames,
+    );
     // Most recent tool outputs (e.g., final browser screenshot) should win
     // the MAX_ASSISTANT_ATTACHMENTS cap over older intermediate screenshots.
     toolDrafts.reverse();

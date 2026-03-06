@@ -162,22 +162,27 @@ final class AttachmentFlowIOSTests: XCTestCase {
 
     // MARK: - Image Attachment via Raw Data
 
-    func testAddAttachmentFromImageData() {
-        // Create a minimal valid PNG
+    func testAddAttachmentFromImageData() async throws {
         let pngData = makeMinimalPNGData()
 
         viewModel.addAttachment(imageData: pngData, filename: "Screenshot.png")
 
-        // addAttachment(imageData:) processes the image asynchronously via Task,
-        // so wait for the attachment to appear.
-        let appeared = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in self.viewModel.pendingAttachments.count == 1 },
-            object: nil
-        )
-        wait(for: [appeared], timeout: 5)
+        // addAttachment(imageData:) processes the image asynchronously via a
+        // MainActor Task. Yield the main actor so the continuation can run —
+        // XCTNSPredicateExpectation's wait(for:) pumps the run loop but doesn't
+        // yield the cooperative executor, causing the Task to never complete.
+        for _ in 0..<50 {
+            if !viewModel.pendingAttachments.isEmpty { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
 
-        XCTAssertEqual(viewModel.pendingAttachments[0].filename, "Screenshot.png")
-        XCTAssertEqual(viewModel.pendingAttachments[0].mimeType, "image/png")
+        XCTAssertEqual(viewModel.pendingAttachments.count, 1)
+        guard let first = viewModel.pendingAttachments.first else {
+            XCTFail("Expected one pending attachment")
+            return
+        }
+        XCTAssertEqual(first.filename, "Screenshot.png")
+        XCTAssertEqual(first.mimeType, "image/png")
     }
 
     func testAddAttachmentFromImageDataRespectsMaxAttachments() {

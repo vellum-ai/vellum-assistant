@@ -1,5 +1,5 @@
 /**
- * Canonical per-channel notification policy registry.
+ * Canonical per-channel policy registry.
  *
  * Every ChannelId must have an entry here. The `satisfies` constraint
  * ensures that adding a new ChannelId to channels/types.ts will fail
@@ -13,11 +13,17 @@ export type ConversationStrategy =
   | "continue_existing_conversation"
   | "not_deliverable";
 
+export interface ChannelInvitePolicy {
+  /** Whether inbound invite code redemption is supported on this channel. */
+  codeRedemptionEnabled: boolean;
+}
+
 export interface ChannelNotificationPolicy {
   notification: {
     deliveryEnabled: boolean;
     conversationStrategy: ConversationStrategy;
   };
+  invite: ChannelInvitePolicy;
 }
 
 const CHANNEL_POLICIES = {
@@ -26,11 +32,17 @@ const CHANNEL_POLICIES = {
       deliveryEnabled: true,
       conversationStrategy: "start_new_conversation",
     },
+    invite: {
+      codeRedemptionEnabled: false,
+    },
   },
   telegram: {
     notification: {
       deliveryEnabled: true,
       conversationStrategy: "continue_existing_conversation",
+    },
+    invite: {
+      codeRedemptionEnabled: true,
     },
   },
   sms: {
@@ -38,11 +50,17 @@ const CHANNEL_POLICIES = {
       deliveryEnabled: true,
       conversationStrategy: "continue_existing_conversation",
     },
+    invite: {
+      codeRedemptionEnabled: true,
+    },
   },
   whatsapp: {
     notification: {
       deliveryEnabled: false,
       conversationStrategy: "continue_existing_conversation",
+    },
+    invite: {
+      codeRedemptionEnabled: true,
     },
   },
   slack: {
@@ -50,11 +68,17 @@ const CHANNEL_POLICIES = {
       deliveryEnabled: true,
       conversationStrategy: "continue_existing_conversation",
     },
+    invite: {
+      codeRedemptionEnabled: true,
+    },
   },
   email: {
     notification: {
       deliveryEnabled: false,
       conversationStrategy: "continue_existing_conversation",
+    },
+    invite: {
+      codeRedemptionEnabled: true,
     },
   },
   voice: {
@@ -62,12 +86,15 @@ const CHANNEL_POLICIES = {
       deliveryEnabled: false,
       conversationStrategy: "not_deliverable",
     },
+    invite: {
+      codeRedemptionEnabled: false,
+    },
   },
 } as const satisfies Record<ChannelId, ChannelNotificationPolicy>;
 
 export type ChannelPolicies = typeof CHANNEL_POLICIES;
 
-/** Returns the full notification policy for a channel. */
+/** Returns the full policy for a channel. */
 export function getChannelPolicy(
   channelId: ChannelId,
 ): ChannelNotificationPolicy {
@@ -96,4 +123,16 @@ export function getConversationStrategy(
   channelId: ChannelId,
 ): ConversationStrategy {
   return CHANNEL_POLICIES[channelId].notification.conversationStrategy;
+}
+
+/** Returns the invite policy for the given channel. */
+export function getChannelInvitePolicy(
+  channelId: ChannelId,
+): ChannelInvitePolicy {
+  return CHANNEL_POLICIES[channelId].invite;
+}
+
+/** Whether invite code redemption is enabled for the given channel. */
+export function isInviteCodeRedemptionEnabled(channelId: ChannelId): boolean {
+  return CHANNEL_POLICIES[channelId].invite.codeRedemptionEnabled;
 }

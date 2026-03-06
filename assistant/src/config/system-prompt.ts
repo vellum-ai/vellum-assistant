@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { CLI_HELP_REFERENCE } from "../cli/reference.js";
 import { listCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -19,6 +20,13 @@ import { resolveUserPronouns, resolveUserReference } from "./user-reference.js";
 const log = getLogger("system-prompt");
 
 const PROMPT_FILES = ["SOUL.md", "IDENTITY.md", "USER.md"] as const;
+
+let cachedCliHelp: string | undefined;
+
+/** @internal Reset the CLI help cache — exposed for testing only. */
+export function _resetCliHelpCache(): void {
+  cachedCliHelp = undefined;
+}
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -149,6 +157,7 @@ export function buildSystemPrompt(): string {
   }
   if (getIsContainerized()) parts.push(buildContainerizedSection());
   parts.push(buildConfigSection());
+  parts.push(buildCliReferenceSection());
   parts.push(buildPostToolResponseSection());
   parts.push(buildExternalCommsIdentitySection());
   parts.push(buildChannelAwarenessSection());
@@ -778,6 +787,24 @@ function buildConfigSection(): string {
   ].join("\n");
 }
 
+export function buildCliReferenceSection(): string {
+  if (cachedCliHelp === undefined) {
+    cachedCliHelp = CLI_HELP_REFERENCE.trim();
+  }
+
+  return [
+    "## Assistant CLI",
+    "",
+    "The `assistant` CLI is installed on the user's machine and available via `bash`.",
+    "",
+    "```",
+    cachedCliHelp,
+    "```",
+    "",
+    "Run `assistant <command> --help` for detailed help on any subcommand.",
+  ].join("\n");
+}
+
 /**
  * Strip lines starting with `_` (comment convention for prompt .md files)
  * and collapse any resulting consecutive blank lines.
@@ -944,5 +971,11 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
     "When a credential is missing, check if any skill declares `credential-setup-for` matching that service — if so, load that skill.",
     "",
     lines.join("\n"),
+    "",
+    "### Installing additional skills",
+    "If `skill_load` fails because a skill is not found, additional first-party skills may be available in the Vellum catalog.",
+    "Use `bash` to discover and install them:",
+    "- `vellum skills list` — list all available catalog skills",
+    "- `vellum skills install <skill-id>` — install a skill, then retry `skill_load`",
   ].join("\n");
 }

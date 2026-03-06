@@ -141,11 +141,6 @@ export interface UsageRequest {
   sessionId: string;
 }
 
-export interface SandboxSetRequest {
-  type: "sandbox_set";
-  enabled: boolean;
-}
-
 export interface SessionsClearRequest {
   type: "sessions_clear";
 }
@@ -293,6 +288,14 @@ export interface HistoryResponseToolCall {
   isError?: boolean;
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). */
   imageData?: string;
+  /** Unix ms when the tool started executing. */
+  startedAt?: number;
+  /** Unix ms when the tool completed. */
+  completedAt?: number;
+  /** Confirmation decision for this tool call: "approved" | "denied" | "timed_out". */
+  confirmationDecision?: string;
+  /** Friendly label for the confirmation (e.g. "Edit File", "Run Command"). */
+  confirmationLabel?: string;
 }
 
 export interface HistoryResponseSurface {
@@ -421,7 +424,6 @@ export type _SessionsClientMessages =
   | UndoRequest
   | RegenerateRequest
   | UsageRequest
-  | SandboxSetRequest
   | SessionListRequest
   | SessionCreateRequest
   | SessionSwitchRequest

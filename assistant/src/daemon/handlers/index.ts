@@ -6,7 +6,6 @@ import {
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
 import { updateDeliveryClientOutcome } from "../../notifications/deliveries-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import type { ClientMessage } from "../ipc-protocol.js";
 import {
   handleRideShotgunStart,
@@ -17,7 +16,7 @@ import { appHandlers } from "./apps.js";
 import { avatarHandlers } from "./avatar.js";
 import { browserHandlers } from "./browser.js";
 import { computerUseHandlers } from "./computer-use.js";
-import { configHandlers } from "./config.js";
+import { configHandlers } from "./config-dispatch.js";
 import { inboxInviteHandlers } from "./config-inbox.js";
 import { contactsHandlers } from "./contacts.js";
 import { diagnosticsHandlers } from "./diagnostics.js";
@@ -120,7 +119,6 @@ const inlineHandlers = defineHandlers({
     try {
       recordConversationSeenSignal({
         conversationId: msg.conversationId,
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         sourceChannel: msg.sourceChannel,
         signalType: msg.signalType as SignalType,
         confidence: msg.confidence as Confidence,
@@ -200,11 +198,25 @@ export function handleMessage(
   if (msg.type === "auth") return;
 
   const handler = handlers[msg.type] as
-    | ((msg: ClientMessage, socket: net.Socket, ctx: HandlerContext) => void)
+    | ((
+        msg: ClientMessage,
+        socket: net.Socket,
+        ctx: HandlerContext,
+      ) => void | Promise<void>)
     | undefined;
   if (!handler) {
     log.warn({ type: msg.type }, "Unknown message type, ignoring");
     return;
   }
-  handler(msg, socket, ctx);
+  // Handlers may be async — catch rejected promises so they don't become
+  // unhandled rejections at the process level.
+  const result = handler(msg, socket, ctx);
+  if (result && typeof result.catch === "function") {
+    result.catch((err: unknown) => {
+      log.error(
+        { err, type: msg.type },
+        "Unhandled error in async message handler",
+      );
+    });
+  }
 }

@@ -90,7 +90,6 @@ afterAll(() => {
 function mintParams(overrides: Partial<MintGrantParams> = {}): MintGrantParams {
   const futureExpiry = new Date(Date.now() + 60_000).toISOString();
   return {
-    assistantId: "self",
     scopeMode: "tool_signature",
     requestChannel: "telegram",
     decisionChannel: "telegram",

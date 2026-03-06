@@ -8,7 +8,6 @@ mock.module("../memory/app-store.js", () => ({
     return {
       id,
       name: "Home Base",
-      appType: "app",
       htmlDefinition:
         '<main id="home-base-root" data-vellum-home-base="v1"></main>',
     };

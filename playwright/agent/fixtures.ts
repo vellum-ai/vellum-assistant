@@ -209,10 +209,7 @@ function ensureVellumInPath(appDisplayName: string): void {
   for (const [target, link] of symlinks) {
     if (!existsSync(target)) continue;
     try {
-      if (existsSync(link)) {
-        execSync(`rm -f ${JSON.stringify(link)}`);
-      }
-      execSync(`ln -s ${JSON.stringify(target)} ${JSON.stringify(link)}`);
+      execSync(`ln -sf ${JSON.stringify(target)} ${JSON.stringify(link)}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to create symlink ${link}: ${message}`);
@@ -478,7 +475,11 @@ function retireAssistant(): void {
     const lines = psOutput
       .split("\n")
       .filter((l) => l.trim() && !l.includes("NAME") && !l.startsWith("  -"));
-    const assistantName = lines[0]?.trim().split(/\s{2,}/)[0];
+    const firstLine = lines[0]?.trim();
+    const columns = firstLine?.split(/\s{2,}/);
+    // A valid assistant row has multiple columns (NAME, STATUS, …).
+    // Messages like "No running assistants" are a single column — skip them.
+    const assistantName = columns && columns.length >= 2 ? columns[0] : undefined;
     if (assistantName) {
       execSync(`vellum retire ${assistantName}`, {
         timeout: 30_000,

@@ -4,7 +4,7 @@ import VellumAssistantShared
 // MARK: - Domain Types
 
 public enum NativePanelId: String, Equatable, Sendable {
-    case chat, threadList, settings, debug, directory, generated, avatarCustomization, apps, intelligence
+    case chat, threadList, settings, debug, directory, generated, avatarCustomization, apps, intelligence, usageDashboard
 }
 
 extension NativePanelId: Codable {

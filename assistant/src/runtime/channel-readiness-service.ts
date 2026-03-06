@@ -1,11 +1,15 @@
 import {
   getPhoneNumberSid,
   getTollFreeVerificationStatus,
+  getTwilioCredentials,
   hasTwilioCredentials,
 } from "../calls/twilio-rest.js";
+import { getChannelInvitePolicy } from "../channels/config.js";
 import { getTwilioPhoneNumberEnv } from "../config/env.js";
 import { loadRawConfig } from "../config/loader.js";
+import { getEmailService } from "../email/service.js";
 import { getSecureKey } from "../security/secure-keys.js";
+import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
 import type {
   ChannelId,
   ChannelProbe,
@@ -19,25 +23,13 @@ export const REMOTE_TTL_MS = 5 * 60 * 1000;
 
 // ── SMS Probe ───────────────────────────────────────────────────────────────
 
-function hasIngressConfigured(): boolean {
-  try {
-    const raw = loadRawConfig();
-    const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-    const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
-    const enabled =
-      (ingress.enabled as boolean | undefined) ??
-      (publicBaseUrl ? true : false);
-    return enabled && publicBaseUrl.length > 0;
-  } catch {
-    return false;
-  }
+// Keep Twilio phone-number resolution inside an already-authorized module so
+// the secure-key import boundary does not expand for shared config helpers.
+function resolveSmsPhoneNumber(): string {
+  return resolveTwilioPhoneNumber();
 }
 
-/**
- * Resolve SMS from-number with canonical precedence:
- * env override -> config sms.phoneNumber -> secure key fallback.
- */
-function resolveSmsPhoneNumber(): string {
+function resolveTwilioPhoneNumber(): string {
   try {
     const raw = loadRawConfig();
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
@@ -53,6 +45,20 @@ function resolveSmsPhoneNumber(): string {
       getSecureKey("credential:twilio:phone_number") ||
       ""
     );
+  }
+}
+
+function hasIngressConfigured(): boolean {
+  try {
+    const raw = loadRawConfig();
+    const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+    const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
+    const enabled =
+      (ingress.enabled as boolean | undefined) ??
+      (publicBaseUrl ? true : false);
+    return enabled && publicBaseUrl.length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -94,9 +100,13 @@ const smsProbe: ChannelProbe = {
   async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
     if (!hasTwilioCredentials()) return [];
 
-    const accountSid = getSecureKey("credential:twilio:account_sid");
-    const authToken = getSecureKey("credential:twilio:auth_token");
-    if (!accountSid || !authToken) return [];
+    let accountSid: string;
+    let authToken: string;
+    try {
+      ({ accountSid, authToken } = getTwilioCredentials());
+    } catch {
+      return [];
+    }
 
     const phoneNumber = resolveSmsPhoneNumber();
     if (!phoneNumber) return [];
@@ -171,32 +181,6 @@ const smsProbe: ChannelProbe = {
 
 // ── Voice Probe ─────────────────────────────────────────────────────────────
 
-/**
- * Resolve voice from-number with the same precedence as SMS:
- * env override -> config sms.phoneNumber -> secure key fallback.
- *
- * Voice and SMS share the same Twilio phone number infrastructure, so the
- * resolution logic is identical to resolveSmsPhoneNumber.
- */
-function resolveVoicePhoneNumber(): string {
-  try {
-    const raw = loadRawConfig();
-    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    return (
-      getTwilioPhoneNumberEnv() ||
-      (smsConfig.phoneNumber as string) ||
-      getSecureKey("credential:twilio:phone_number") ||
-      ""
-    );
-  } catch {
-    return (
-      getTwilioPhoneNumberEnv() ||
-      getSecureKey("credential:twilio:phone_number") ||
-      ""
-    );
-  }
-}
-
 const voiceProbe: ChannelProbe = {
   channel: "voice",
   runLocalChecks(): ReadinessCheckResult[] {
@@ -211,7 +195,7 @@ const voiceProbe: ChannelProbe = {
         : "Twilio Account SID and Auth Token are not configured",
     });
 
-    const resolvedNumber = resolveVoicePhoneNumber();
+    const resolvedNumber = resolveSmsPhoneNumber();
     const hasPhone = !!resolvedNumber;
     results.push({
       name: "phone_number",
@@ -273,6 +257,181 @@ const telegramProbe: ChannelProbe = {
     return results;
   },
   // Telegram has no remote checks currently
+};
+
+// ── Email Probe ─────────────────────────────────────────────────────────────
+
+const emailProbe: ChannelProbe = {
+  channel: "email",
+  runLocalChecks(): ReadinessCheckResult[] {
+    const results: ReadinessCheckResult[] = [];
+
+    const hasApiKey = !!(
+      getSecureKey("agentmail") || getSecureKey("credential:agentmail:api_key")
+    );
+    results.push({
+      name: "agentmail_api_key",
+      passed: hasApiKey,
+      message: hasApiKey
+        ? "AgentMail API key is configured"
+        : "AgentMail API key is not configured",
+    });
+
+    const invitePolicy = getChannelInvitePolicy("email");
+    results.push({
+      name: "invite_policy",
+      passed: invitePolicy.codeRedemptionEnabled,
+      message: invitePolicy.codeRedemptionEnabled
+        ? "Email invite code redemption is enabled"
+        : "Email invite code redemption is disabled",
+    });
+
+    const hasIngress = hasIngressConfigured();
+    results.push({
+      name: "ingress",
+      passed: hasIngress,
+      message: hasIngress
+        ? "Public ingress URL is configured"
+        : "Public ingress URL is not configured or disabled",
+    });
+
+    return results;
+  },
+  async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
+    // Only worth checking if the API key is present
+    const hasApiKey = !!(
+      getSecureKey("agentmail") || getSecureKey("credential:agentmail:api_key")
+    );
+    if (!hasApiKey) return [];
+
+    try {
+      const address = await getEmailService().getPrimaryInboxAddress();
+      const hasInbox = !!address;
+      return [
+        {
+          name: "inbox_configured",
+          passed: hasInbox,
+          message: hasInbox
+            ? `Inbox address is configured (${address})`
+            : "No inbox address configured — create one with: assistant email setup inboxes",
+        },
+      ];
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return [
+        {
+          name: "inbox_configured",
+          passed: false,
+          message: `Failed to check inbox configuration: ${message}`,
+        },
+      ];
+    }
+  },
+};
+
+// ── WhatsApp Probe ──────────────────────────────────────────────────────────
+
+const whatsappProbe: ChannelProbe = {
+  channel: "whatsapp",
+  runLocalChecks(): ReadinessCheckResult[] {
+    const results: ReadinessCheckResult[] = [];
+
+    const hasPhoneNumberId = !!getSecureKey(
+      "credential:whatsapp:phone_number_id",
+    );
+    results.push({
+      name: "whatsapp_phone_number_id",
+      passed: hasPhoneNumberId,
+      message: hasPhoneNumberId
+        ? "WhatsApp phone number ID is configured"
+        : "WhatsApp phone number ID is not configured",
+    });
+
+    const hasAccessToken = !!getSecureKey("credential:whatsapp:access_token");
+    results.push({
+      name: "whatsapp_access_token",
+      passed: hasAccessToken,
+      message: hasAccessToken
+        ? "WhatsApp access token is configured"
+        : "WhatsApp access token is not configured",
+    });
+
+    const hasAppSecret = !!getSecureKey("credential:whatsapp:app_secret");
+    results.push({
+      name: "whatsapp_app_secret",
+      passed: hasAppSecret,
+      message: hasAppSecret
+        ? "WhatsApp app secret is configured"
+        : "WhatsApp app secret is not configured",
+    });
+
+    const hasWebhookVerifyToken = !!getSecureKey(
+      "credential:whatsapp:webhook_verify_token",
+    );
+    results.push({
+      name: "whatsapp_webhook_verify_token",
+      passed: hasWebhookVerifyToken,
+      message: hasWebhookVerifyToken
+        ? "WhatsApp webhook verify token is configured"
+        : "WhatsApp webhook verify token is not configured",
+    });
+
+    const displayNumber = resolveWhatsAppDisplayNumber();
+    const hasDisplayNumber = !!displayNumber;
+    results.push({
+      name: "whatsapp_display_phone_number",
+      passed: hasDisplayNumber,
+      message: hasDisplayNumber
+        ? `WhatsApp display phone number is configured (${displayNumber})`
+        : "WhatsApp display phone number is not configured — set whatsapp.phoneNumber in workspace config",
+    });
+
+    const invitePolicy = getChannelInvitePolicy("whatsapp");
+    results.push({
+      name: "invite_policy",
+      passed: invitePolicy.codeRedemptionEnabled,
+      message: invitePolicy.codeRedemptionEnabled
+        ? "WhatsApp invite code redemption is enabled"
+        : "WhatsApp invite code redemption is disabled",
+    });
+
+    const hasIngress = hasIngressConfigured();
+    results.push({
+      name: "ingress",
+      passed: hasIngress,
+      message: hasIngress
+        ? "Public ingress URL is configured"
+        : "Public ingress URL is not configured or disabled",
+    });
+
+    return results;
+  },
+};
+
+// ── Slack Probe ─────────────────────────────────────────────────────────────
+
+const slackProbe: ChannelProbe = {
+  channel: "slack",
+  runLocalChecks(): ReadinessCheckResult[] {
+    const hasBotToken = !!getSecureKey("credential:slack_channel:bot_token");
+    const hasAppToken = !!getSecureKey("credential:slack_channel:app_token");
+    return [
+      {
+        name: "bot_token",
+        passed: hasBotToken,
+        message: hasBotToken
+          ? "Slack bot token is configured"
+          : "Slack bot token is not configured",
+      },
+      {
+        name: "app_token",
+        passed: hasAppToken,
+        message: hasAppToken
+          ? "Slack app token is configured"
+          : "Slack app token is not configured",
+      },
+    ];
+  },
 };
 
 // ── Service ─────────────────────────────────────────────────────────────────
@@ -416,11 +575,14 @@ export class ChannelReadinessService {
 
 // ── Factory ─────────────────────────────────────────────────────────────────
 
-/** Create a service instance with built-in SMS, Voice, and Telegram probes registered. */
+/** Create a service instance with built-in SMS, Voice, Telegram, Email, WhatsApp, and Slack probes registered. */
 export function createReadinessService(): ChannelReadinessService {
   const service = new ChannelReadinessService();
   service.registerProbe(smsProbe);
   service.registerProbe(voiceProbe);
   service.registerProbe(telegramProbe);
+  service.registerProbe(emailProbe);
+  service.registerProbe(whatsappProbe);
+  service.registerProbe(slackProbe);
   return service;
 }

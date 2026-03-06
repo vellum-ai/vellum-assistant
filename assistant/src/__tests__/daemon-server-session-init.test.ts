@@ -52,7 +52,6 @@ class MockSession {
     | { skipPreMessageRollback?: boolean; isInteractive?: boolean }
     | undefined;
   public updateClientHistory: Array<{ hasNoClient: boolean }> = [];
-  public setSandboxOverrideCalls = 0;
   private stale = false;
   private processing = false;
   public trustContext: Record<string, unknown> | null = null;
@@ -95,9 +94,7 @@ class MockSession {
     return this._currentSender;
   }
 
-  setSandboxOverride(): void {
-    this.setSandboxOverrideCalls += 1;
-  }
+  setSandboxOverride(): void {}
 
   isProcessing(): boolean {
     return this.processing;
@@ -431,21 +428,6 @@ describe("DaemonServer initial session hydration", () => {
     await internal.sendInitialSession(socket);
 
     expect(lastCreatedWorkingDir).toBe("/tmp/workspace");
-  });
-
-  test("ignores deprecated sandbox_set runtime override messages", async () => {
-    const server = new DaemonServer();
-    const internal = asDaemonServerTestAccess(server);
-    const { socket } = createFakeSocket();
-
-    await internal.sendInitialSession(socket);
-    const session = internal.sessions.get(conversation.id);
-    expect(session).toBeDefined();
-    expect(session!.setSandboxOverrideCalls).toBe(0);
-
-    internal.dispatchMessage({ type: "sandbox_set", enabled: false }, socket);
-
-    expect(session!.setSandboxOverrideCalls).toBe(0);
   });
 
   test("sendInitialSession includes threadType in session_info", async () => {

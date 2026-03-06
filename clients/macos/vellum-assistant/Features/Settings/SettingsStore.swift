@@ -201,6 +201,13 @@ public final class SettingsStore: ObservableObject {
     @Published var slackGuardianError: String?
     @Published var slackGuardianAlreadyBound: Bool = false
 
+    // MARK: - Approved Ingress Contacts (Slack)
+
+    @Published var slackApprovedMembers: [ApprovedMember] = []
+    @Published var slackApprovedMembersLoading: Bool = false
+    @Published var slackApprovedMembersError: String?
+    @Published var slackRevokingMemberIds: Set<String> = []
+
     // MARK: - Outbound Guardian Session State (Slack)
 
     @Published var slackOutboundSessionId: String?
@@ -222,8 +229,9 @@ public final class SettingsStore: ObservableObject {
 
     @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
-    /// Read-only gateway target derived from daemon config (GATEWAY_PORT env var, default 7830).
-    @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
+    /// Read-only gateway target derived from daemon config.
+    /// Initial value reads env var > lockfile > default 7830; updated by IPC.
+    @Published var localGatewayTarget: String = "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
 
     /// Set to `true` once the first ingress config IPC response arrives, so the
     /// view layer can defer diagnostics until the real config values are available.
@@ -238,15 +246,6 @@ public final class SettingsStore: ObservableObject {
     @Published var isCheckingTunnel: Bool = false
     @Published var tunnelLastChecked: Date?
 
-    // MARK: - Token Regeneration State
-
-    /// Shared across Account and Channels tabs so both views know when the
-    /// daemon is restarting after a bearer token regeneration. Without this,
-    /// switching to Channels immediately after regenerating in Account could
-    /// cause PairingQRCodeSheet to read the new token while the daemon is
-    /// still running on the old one, leading to transient pairing failures.
-    @Published var isRegeneratingToken: Bool = false
-
     // MARK: - Dev Mode
 
     @Published var isDevMode: Bool
@@ -257,6 +256,13 @@ public final class SettingsStore: ObservableObject {
     /// Sourced from `DaemonClient.isTrustRulesSheetOpen` so each view can
     /// disable its button when the other surface is showing trust rules.
     @Published var isAnyTrustRulesSheetOpen = false
+
+    // MARK: - Privacy
+
+    /// Whether the user has opted in to sharing anonymised performance metrics (e.g. hang rate,
+    /// scroll speed). Defaults to `false`. Read by the MetricKit integration (M4) to decide
+    /// whether to forward payloads.
+    @Published var sendPerformanceReports: Bool = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool ?? false
 
     // MARK: - Private
 
@@ -338,8 +344,16 @@ public final class SettingsStore: ObservableObject {
 
         self.cmdEnterToSend = UserDefaults.standard.object(forKey: "cmdEnterToSend") as? Bool ?? false
 
-        self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? "cmd+shift+g"
-        self.quickInputHotkeyShortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? "cmd+shift+/"
+        if UserDefaults.standard.object(forKey: "globalHotkeyShortcut") == nil {
+            self.globalHotkeyShortcut = "cmd+shift+g"
+        } else {
+            self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "quickInputHotkeyShortcut") == nil {
+            self.quickInputHotkeyShortcut = "cmd+shift+/"
+        } else {
+            self.quickInputHotkeyShortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? ""
+        }
         let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
         self.quickInputHotkeyKeyCode = storedQIKeyCode ?? kVK_ANSI_Slash
 
@@ -397,6 +411,12 @@ public final class SettingsStore: ObservableObject {
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { value in UserDefaults.standard.set(value, forKey: "cmdEnterToSend") }
+            .store(in: &cancellables)
+
+        $sendPerformanceReports
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { UserDefaults.standard.set($0, forKey: "sendPerformanceReports") }
             .store(in: &cancellables)
 
         // Persist shortcut changes immediately so the hotkey re-registers without delay
@@ -681,6 +701,7 @@ public final class SettingsStore: ObservableObject {
         refreshChannelGuardianStatus(channel: "telegram")
         refreshChannelGuardianStatus(channel: "sms")
         refreshChannelGuardianStatus(channel: "voice")
+        refreshChannelGuardianStatus(channel: "slack")
 
         // Ingress config is refreshed by onAppear in SettingsPanel,
         // not here, to avoid duplicate get requests whose
@@ -955,38 +976,74 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Slack Channel Actions (HTTP-first)
 
-    /// Resolves the runtime HTTP base URL and bearer token for direct HTTP calls.
+    /// Builds an authenticated URLRequest for the daemon's runtime HTTP server (local mode)
+    /// or the platform assistant proxy (managed mode).
     ///
-    /// Uses the JWT access token from ActorTokenManager (issued via guardian bootstrap)
-    /// as the primary auth credential. Falls back to the legacy `~/.vellum/http-token`
-    /// hex string only during the brief bootstrap window before the first JWT is issued.
-    ///
-    /// The daemon's auth middleware requires JWT format (3 dot-separated parts) — the
-    /// legacy hex token will be rejected with 401 if the JWT path isn't available yet.
-    /// This matches the auth pattern used by HTTPDaemonClient and the Twilio endpoints.
-    private func resolveRuntimeHTTP() -> (baseURL: String, token: String)? {
+    /// - Local: `http://localhost:{port}/{path}` with `Authorization: Bearer {jwt}`
+    /// - Managed: `{platformBaseURL}/v1/assistants/{id}/{path}/` with `X-Session-Token` + `Vellum-Organization-Id`
+    private func buildDaemonRequest(path: String, method: String) -> URLRequest? {
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+        if let assistant, assistant.isManaged {
+            return Self.buildManagedAssistantProxyRequest(
+                baseURL: assistant.runtimeUrl ?? AuthService.shared.baseURL,
+                assistantId: assistant.assistantId,
+                path: path,
+                method: method,
+                sessionToken: SessionTokenManager.getToken(),
+                organizationId: UserDefaults.standard.string(forKey: "connectedOrganizationId")
+            )
+        }
+
+        // Local mode: direct to daemon runtime HTTP server
         let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
             .flatMap(Int.init) ?? 7821
-        // Prefer JWT from guardian bootstrap (same pattern as HTTPDaemonClient line 1504)
-        if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty {
-            return ("http://localhost:\(port)", jwt)
+        guard let token = ActorTokenManager.getToken(), !token.isEmpty else { return nil }
+        guard let url = URL(string: "http://localhost:\(port)/\(path)") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 5
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    /// Managed requests must fail closed without a session token so callers
+    /// preserve work for later retry instead of sending unauthenticated writes.
+    nonisolated static func buildManagedAssistantProxyRequest(
+        baseURL: String,
+        assistantId: String,
+        path: String,
+        method: String,
+        sessionToken: String?,
+        organizationId: String?
+    ) -> URLRequest? {
+        guard let token = sessionToken, !token.isEmpty else { return nil }
+        // Strip "v1/" prefix — the platform proxy already namespaces under /v1/assistants/{id}/
+        let proxyPath = path.hasPrefix("v1/") ? String(path.dropFirst(3)) : path
+        // Django URL convention: trailing slash
+        let trailingSlash = proxyPath.hasSuffix("/") ? "" : "/"
+        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/\(proxyPath)\(trailingSlash)") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 5
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        if let orgId = organizationId, !orgId.isEmpty {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
         }
-        // Fallback to legacy http-token for pre-bootstrap window
-        guard let token = readHttpToken() else { return nil }
-        return ("http://localhost:\(port)", token)
+        return request
+    }
+
+    /// Whether the daemon HTTP endpoint is reachable (for tombstone replay gating).
+    private func isDaemonHTTPAvailable() -> Bool {
+        return buildDaemonRequest(path: "v1/secrets", method: "GET") != nil
     }
 
     // MARK: - Daemon Key Sync (HTTP)
 
     /// Notify the daemon that an API key was set, so it updates its encrypted store.
     private func syncKeyToDaemon(provider: String, value: String) {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        guard var request = buildDaemonRequest(path: "v1/secrets", method: "POST") else { return }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 5
         let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         Task.detached {
@@ -1022,7 +1079,7 @@ public final class SettingsStore: ObservableObject {
         guard !tombstones.isEmpty else { return }
         // Bail out early if the HTTP endpoint is unavailable — preserve all tombstones
         // for the next reconnect attempt.
-        guard resolveRuntimeHTTP() != nil else { return }
+        guard isDaemonHTTPAvailable() else { return }
         var remaining: [[String: String]] = []
         for entry in tombstones {
             guard let type = entry["type"], let name = entry["name"] else { continue }
@@ -1047,13 +1104,8 @@ public final class SettingsStore: ObservableObject {
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
     private func deleteKeyFromDaemon(provider: String) -> Bool {
-        guard let http = resolveRuntimeHTTP() else { return false }
-        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return false }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        guard var request = buildDaemonRequest(path: "v1/secrets", method: "DELETE") else { return false }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 5
         let body: [String: String] = ["type": "api_key", "name": provider]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         Task.detached {
@@ -1064,13 +1116,8 @@ public final class SettingsStore: ObservableObject {
 
     /// Notify the daemon that a credential was set (type: "credential", name: "service:field").
     private func syncCredentialToDaemon(name: String, value: String) {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        guard var request = buildDaemonRequest(path: "v1/secrets", method: "POST") else { return }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 5
         let body: [String: String] = ["type": "credential", "name": name, "value": value]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         Task.detached {
@@ -1082,13 +1129,8 @@ public final class SettingsStore: ObservableObject {
     /// Returns true if the HTTP endpoint was available and the request was dispatched.
     @discardableResult
     private func deleteCredentialFromDaemon(name: String) -> Bool {
-        guard let http = resolveRuntimeHTTP() else { return false }
-        guard let url = URL(string: "\(http.baseURL)/v1/secrets") else { return false }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        guard var request = buildDaemonRequest(path: "v1/secrets", method: "DELETE") else { return false }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 5
         let body: [String: String] = ["type": "credential", "name": name]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         Task.detached {
@@ -1100,33 +1142,43 @@ public final class SettingsStore: ObservableObject {
     /// Re-sync locally-known keys to daemon on reconnect.
     /// Pushes keys present in the macOS keychain, and replays any pending
     /// deletion tombstones so user-initiated clears are eventually consistent.
+    /// Waits for the JWT to become available before syncing, because reconnect
+    /// can fire before async credential bootstrap completes.
     private func syncAllKeysToDaemon() {
-        let apiKeyProviders: [(String, String?)] = [
-            ("anthropic", APIKeyManager.getKey()),
-            ("brave", APIKeyManager.getKey(for: "brave")),
-            ("perplexity", APIKeyManager.getKey(for: "perplexity")),
-            ("gemini", APIKeyManager.getKey(for: "gemini")),
-        ]
-        for (provider, value) in apiKeyProviders {
-            if let key = value {
-                syncKeyToDaemon(provider: provider, value: key)
+        Task {
+            // In managed mode, auth is handled by SessionTokenManager — no actor token needed.
+            // In local mode, wait for the JWT to be populated; on reconnect the async
+            // credential bootstrap may still be in-flight.
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let isManagedMode = connectedId
+                .flatMap { LockfileAssistant.loadByName($0) }?.isManaged ?? false
+            if !isManagedMode {
+                guard let _ = await ActorTokenManager.waitForToken(timeout: 15) else { return }
             }
-        }
 
-        // ElevenLabs uses the credential type, not api_key
-        if let key = APIKeyManager.getKey(for: "elevenlabs") {
-            syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
-        }
+            let apiKeyProviders: [(String, String?)] = [
+                ("anthropic", APIKeyManager.getKey()),
+                ("brave", APIKeyManager.getKey(for: "brave")),
+                ("perplexity", APIKeyManager.getKey(for: "perplexity")),
+                ("gemini", APIKeyManager.getKey(for: "gemini")),
+            ]
+            for (provider, value) in apiKeyProviders {
+                if let key = value {
+                    syncKeyToDaemon(provider: provider, value: key)
+                }
+            }
 
-        replayDeletionTombstones()
+            // ElevenLabs uses the credential type, not api_key
+            if let key = APIKeyManager.getKey(for: "elevenlabs") {
+                syncCredentialToDaemon(name: "elevenlabs:api_key", value: key)
+            }
+
+            replayDeletionTombstones()
+        }
     }
 
     func fetchSlackChannelConfig() {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/integrations/slack/channel/config") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "GET") else { return }
         request.timeoutInterval = 10
         Task {
             do {
@@ -1160,17 +1212,10 @@ public final class SettingsStore: ObservableObject {
         guard !trimmedBot.isEmpty, !trimmedApp.isEmpty else { return }
         slackChannelSaveInProgress = true
         slackChannelError = nil
-        guard let http = resolveRuntimeHTTP() else {
+        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "POST") else {
             slackChannelSaveInProgress = false
             return
         }
-        guard let url = URL(string: "\(http.baseURL)/v1/integrations/slack/channel/config") else {
-            slackChannelSaveInProgress = false
-            return
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 10
         let body: [String: String] = ["botToken": trimmedBot, "appToken": trimmedApp]
@@ -1211,11 +1256,7 @@ public final class SettingsStore: ObservableObject {
 
     func clearSlackChannelConfig() {
         slackChannelError = nil
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/integrations/slack/channel/config") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        guard var request = buildDaemonRequest(path: "v1/integrations/slack/channel/config", method: "DELETE") else { return }
         request.timeoutInterval = 10
         Task {
             do {
@@ -1244,10 +1285,9 @@ public final class SettingsStore: ObservableObject {
             return (httpTransport.baseURL, httpTransport.bearerToken)
         }
         // Local mode: call the gateway directly.
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
+        let gatewayPort = LockfilePaths.resolveGatewayPort()
         let baseURL = "http://127.0.0.1:\(gatewayPort)"
-        let bearerToken = readHttpToken()
+        let bearerToken = ActorTokenManager.getToken()
         return (baseURL, bearerToken)
     }
 
@@ -1584,11 +1624,14 @@ public final class SettingsStore: ObservableObject {
     // MARK: - Approved Ingress Contacts Actions
 
     func refreshTelegramApprovedMembers() {
-        guard let http = resolveRuntimeHTTP() else { return }
-        guard let url = URL(string: "\(http.baseURL)/v1/contacts?channelType=telegram") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        guard var request = buildDaemonRequest(path: "v1/contacts", method: "GET") else { return }
+        // Append query parameter — buildDaemonRequest already set the base URL
+        if let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "channelType", value: "telegram"))
+            components.queryItems = items
+            request.url = components.url
+        }
         request.timeoutInterval = 10
         telegramApprovedMembersLoading = true
         telegramApprovedMembersError = nil
@@ -1638,12 +1681,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func revokeTelegramApprovedMember(memberId: String) {
-        guard let http = resolveRuntimeHTTP() else { return }
-        // memberId is now a channelId — revoke via PATCH /v1/contacts/channels/:channelId
-        guard let url = URL(string: "\(http.baseURL)/v1/contacts/channels/\(memberId)") else { return }
-        var request = URLRequest(url: url)
-        request.httpMethod = "PATCH"
-        request.setValue("Bearer \(http.token)", forHTTPHeaderField: "Authorization")
+        guard var request = buildDaemonRequest(path: "v1/contact-channels/\(memberId)", method: "PATCH") else { return }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
         request.timeoutInterval = 10
@@ -1664,6 +1702,87 @@ public final class SettingsStore: ObservableObject {
                 self.telegramRevokingMemberIds.remove(memberId)
                 self.telegramApprovedMembers.append(contentsOf: removed)
                 self.telegramApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func refreshSlackApprovedMembers() {
+        guard var request = buildDaemonRequest(path: "v1/contacts", method: "GET") else { return }
+        if let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "channelType", value: "slack"))
+            components.queryItems = items
+            request.url = components.url
+        }
+        request.timeoutInterval = 10
+        slackApprovedMembersLoading = true
+        slackApprovedMembersError = nil
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                self.slackApprovedMembersLoading = false
+                guard let httpResp = response as? HTTPURLResponse else { return }
+                if httpResp.statusCode == 200 {
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let contactsList = json["contacts"] as? [[String: Any]] {
+                        let guardianId = self.slackGuardianIdentity
+                        var approvedMembers: [ApprovedMember] = []
+                        for contact in contactsList {
+                            let displayName = contact["displayName"] as? String
+                            guard let channels = contact["channels"] as? [[String: Any]] else { continue }
+                            for channel in channels {
+                                guard let channelType = channel["type"] as? String,
+                                      channelType == "slack",
+                                      let status = channel["status"] as? String,
+                                      status == "active",
+                                      let channelId = channel["id"] as? String else { continue }
+                                let externalUserId = channel["externalUserId"] as? String
+                                // Skip the guardian — they're already shown in the Guardian Verification row
+                                if let guardianId, let externalUserId, externalUserId == guardianId {
+                                    continue
+                                }
+                                approvedMembers.append(ApprovedMember(
+                                    id: channelId,
+                                    displayName: displayName,
+                                    username: channel["address"] as? String,
+                                    externalUserId: externalUserId
+                                ))
+                            }
+                        }
+                        self.slackApprovedMembers = approvedMembers
+                        self.slackApprovedMembersError = nil
+                    }
+                } else {
+                    self.slackApprovedMembersError = "Failed to load (HTTP \(httpResp.statusCode))"
+                }
+            } catch {
+                self.slackApprovedMembersLoading = false
+                self.slackApprovedMembersError = "Failed to load: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func revokeSlackApprovedMember(memberId: String) {
+        guard var request = buildDaemonRequest(path: "v1/contact-channels/\(memberId)", method: "PATCH") else { return }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
+        request.timeoutInterval = 10
+        slackRevokingMemberIds.insert(memberId)
+        let removed = slackApprovedMembers.filter { $0.id == memberId }
+        slackApprovedMembers.removeAll { $0.id == memberId }
+        Task {
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                self.slackRevokingMemberIds.remove(memberId)
+                guard let httpResp = response as? HTTPURLResponse else { return }
+                if !(200..<300).contains(httpResp.statusCode) {
+                    self.slackApprovedMembers.append(contentsOf: removed)
+                    self.slackApprovedMembersError = "Failed to revoke (HTTP \(httpResp.statusCode))"
+                }
+            } catch {
+                self.slackRevokingMemberIds.remove(memberId)
+                self.slackApprovedMembers.append(contentsOf: removed)
+                self.slackApprovedMembersError = "Failed to revoke: \(error.localizedDescription)"
             }
         }
     }
@@ -2169,15 +2288,10 @@ public final class SettingsStore: ObservableObject {
         ingressPublicBaseUrl
     }
 
-    /// Bearer token for iOS pairing.
-    var resolvedIosBearerToken: String {
-        readHttpToken() ?? ""
-    }
-
-    /// LAN pairing URL for the gateway (port 7830), or nil if no LAN IP available.
+    /// LAN pairing URL for the gateway, or nil if no LAN IP available.
     var lanPairingUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        return "http://\(ip):7830"
+        return "http://\(ip):\(LockfilePaths.resolveGatewayPort())"
     }
 
     // MARK: - Dev Mode Actions

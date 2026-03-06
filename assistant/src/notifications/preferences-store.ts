@@ -7,17 +7,16 @@
  * resolution.
  */
 
-import { desc, eq } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb, rawChanges } from "../memory/db.js";
+import { getDb } from "../memory/db.js";
 import { notificationPreferences } from "../memory/schema.js";
 
 // ── Row type ────────────────────────────────────────────────────────────
 
 export interface NotificationPreferenceRow {
   id: string;
-  assistantId: string;
   preferenceText: string;
   appliesWhenJson: string; // serialised JSON
   priority: number;
@@ -30,7 +29,6 @@ function rowToPreference(
 ): NotificationPreferenceRow {
   return {
     id: row.id,
-    assistantId: row.assistantId,
     preferenceText: row.preferenceText,
     appliesWhenJson: row.appliesWhenJson,
     priority: row.priority,
@@ -52,7 +50,6 @@ export interface AppliesWhenConditions {
 // ── Create ──────────────────────────────────────────────────────────────
 
 export interface CreatePreferenceParams {
-  assistantId: string;
   preferenceText: string;
   appliesWhen?: AppliesWhenConditions;
   priority?: number;
@@ -66,7 +63,6 @@ export function createPreference(
 
   const row = {
     id: uuid(),
-    assistantId: params.assistantId,
     preferenceText: params.preferenceText,
     appliesWhenJson: JSON.stringify(params.appliesWhen ?? {}),
     priority: params.priority ?? 0,
@@ -81,74 +77,14 @@ export function createPreference(
 
 // ── List ────────────────────────────────────────────────────────────────
 
-export function listPreferences(
-  assistantId: string,
-): NotificationPreferenceRow[] {
+export function listPreferences(): NotificationPreferenceRow[] {
   const db = getDb();
 
   const rows = db
     .select()
     .from(notificationPreferences)
-    .where(eq(notificationPreferences.assistantId, assistantId))
     .orderBy(desc(notificationPreferences.priority))
     .all();
 
   return rows.map(rowToPreference);
-}
-
-// ── Update ──────────────────────────────────────────────────────────────
-
-export interface UpdatePreferenceParams {
-  preferenceText?: string;
-  appliesWhen?: AppliesWhenConditions;
-  priority?: number;
-}
-
-export function updatePreference(
-  id: string,
-  params: UpdatePreferenceParams,
-): boolean {
-  const db = getDb();
-  const now = Date.now();
-
-  const updates: Record<string, unknown> = { updatedAt: now };
-  if (params.preferenceText !== undefined)
-    updates.preferenceText = params.preferenceText;
-  if (params.appliesWhen !== undefined)
-    updates.appliesWhenJson = JSON.stringify(params.appliesWhen);
-  if (params.priority !== undefined) updates.priority = params.priority;
-
-  db.update(notificationPreferences)
-    .set(updates)
-    .where(eq(notificationPreferences.id, id))
-    .run();
-
-  return rawChanges() > 0;
-}
-
-// ── Delete ──────────────────────────────────────────────────────────────
-
-export function deletePreference(id: string): boolean {
-  const db = getDb();
-
-  db.delete(notificationPreferences)
-    .where(eq(notificationPreferences.id, id))
-    .run();
-
-  return rawChanges() > 0;
-}
-
-// ── Get by ID ───────────────────────────────────────────────────────────
-
-export function getPreferenceById(
-  id: string,
-): NotificationPreferenceRow | null {
-  const db = getDb();
-  const row = db
-    .select()
-    .from(notificationPreferences)
-    .where(eq(notificationPreferences.id, id))
-    .get();
-  if (!row) return null;
-  return rowToPreference(row);
 }

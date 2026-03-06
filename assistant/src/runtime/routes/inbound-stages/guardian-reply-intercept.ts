@@ -129,7 +129,8 @@ export async function handleGuardianReplyIntercept(
     messageText: trimmedContent,
     channel: sourceChannel,
     actor: {
-      externalUserId: canonicalSenderId ?? rawSenderId!,
+      actorPrincipalId: guardianPrincipalId ?? undefined,
+      actorExternalUserId: canonicalSenderId ?? rawSenderId!,
       channel: sourceChannel,
       guardianPrincipalId: guardianPrincipalId ?? undefined,
     },

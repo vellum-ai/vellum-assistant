@@ -22,7 +22,10 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => testDir,
   getDataDir: () => testDir,
   getIpcBlobDir: () => join(testDir, "ipc-blobs"),
@@ -34,10 +37,12 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => undefined,
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -61,20 +66,27 @@ let secureKeyStore: Record<string, string> = {};
 let setSecureKeyOverride: ((account: string, value: string) => boolean) | null =
   null;
 
+function syncSet(account: string, value: string): boolean {
+  if (setSecureKeyOverride) return setSecureKeyOverride(account, value);
+  secureKeyStore[account] = value;
+  return true;
+}
+
+function syncDelete(account: string): "deleted" | "not-found" {
+  if (account in secureKeyStore) {
+    delete secureKeyStore[account];
+    return "deleted";
+  }
+  return "not-found";
+}
+
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
-  setSecureKey: (account: string, value: string) => {
-    if (setSecureKeyOverride) return setSecureKeyOverride(account, value);
-    secureKeyStore[account] = value;
-    return true;
-  },
-  deleteSecureKey: (account: string) => {
-    if (account in secureKeyStore) {
-      delete secureKeyStore[account];
-      return true;
-    }
-    return false;
-  },
+  setSecureKey: syncSet,
+  deleteSecureKey: syncDelete,
+  setSecureKeyAsync: async (account: string, value: string) =>
+    syncSet(account, value),
+  deleteSecureKeyAsync: async (account: string) => syncDelete(account),
   listSecureKeys: () => Object.keys(secureKeyStore),
   getBackendType: () => "encrypted",
   isDowngradedFromKeychain: () => false,

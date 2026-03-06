@@ -12,6 +12,10 @@
           "file_path": {
             "type": "string",
             "description": "Absolute path to the ChatGPT export ZIP file"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["file_path"]

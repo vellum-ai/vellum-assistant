@@ -118,6 +118,27 @@ import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("session-agent-loop");
 
+/** Title-cased friendly labels for tool names, used in confirmation chips. */
+const TOOL_FRIENDLY_LABEL: Record<string, string> = {
+  bash: "Run Command",
+  web_search: "Web Search",
+  web_fetch: "Web Fetch",
+  file_read: "Read File",
+  file_write: "Write File",
+  file_edit: "Edit File",
+  browser_navigate: "Browser",
+  browser_click: "Browser",
+  browser_type: "Browser",
+  browser_screenshot: "Browser",
+  browser_scroll: "Browser",
+  browser_wait: "Browser",
+  app_create: "Create App",
+  app_update: "Update App",
+  skill_load: "Load Skill",
+  app_file_edit: "Edit App File",
+  app_file_write: "Write App File",
+};
+
 type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
@@ -221,6 +242,18 @@ export interface AgentLoopSessionContext {
         >
       : never,
   ): void;
+
+  /**
+   * Optional callback invoked by the Session when a confirmation state changes.
+   * The agent loop registers this to track requestId → toolUseId mappings
+   * and record confirmation outcomes for persistence.
+   */
+  onConfirmationOutcome?: (
+    requestId: string,
+    state: string,
+    toolName?: string,
+    toolUseId?: string,
+  ) => void;
 
   getWorkspaceGitService?: (workspaceDir: string) => GitServiceInitializer;
   commitTurnChanges?: typeof commitTurnChanges;
@@ -432,6 +465,44 @@ export async function runAgentLoopImpl(
     }
 
     const state = createEventHandlerState();
+
+    // Register confirmation outcome tracker so the agent loop can link
+    // confirmation decisions to tool_use_ids for persistence.
+    ctx.onConfirmationOutcome = (
+      requestId,
+      confirmationState,
+      toolName,
+      toolUseId,
+    ) => {
+      if (confirmationState === "pending") {
+        // Use the toolUseId passed from the prompter (which knows which tool
+        // requested confirmation) instead of the ambient state.currentToolUseId,
+        // which is unreliable when multiple tools execute in parallel.
+        const resolvedToolUseId = toolUseId ?? state.currentToolUseId;
+        if (resolvedToolUseId) {
+          state.requestIdToToolUseId.set(requestId, resolvedToolUseId);
+        }
+      } else if (
+        confirmationState === "approved" ||
+        confirmationState === "denied" ||
+        confirmationState === "timed_out"
+      ) {
+        const resolvedId =
+          state.requestIdToToolUseId.get(requestId) ?? toolUseId;
+        if (resolvedId) {
+          const name = state.toolUseIdToName.get(resolvedId) ?? toolName ?? "";
+          // Build a friendly label from the tool name
+          const label =
+            TOOL_FRIENDLY_LABEL[name] ??
+            name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+          state.toolConfirmationOutcomes.set(resolvedId, {
+            decision: confirmationState,
+            label,
+          });
+        }
+      }
+    };
+
     let runMessages = ctx.messages;
 
     const memoryResult = await prepareMemoryContext(
@@ -453,50 +524,7 @@ export async function runAgentLoopImpl(
       onEvent,
     );
 
-    if (memoryResult.conflictClarification) {
-      const loopChannelMeta = {
-        ...provenanceFromTrustContext(ctx.trustContext),
-        userMessageChannel: capturedTurnChannelContext.userMessageChannel,
-        assistantMessageChannel:
-          capturedTurnChannelContext.assistantMessageChannel,
-        userMessageInterface: capturedTurnInterfaceContext.userMessageInterface,
-        assistantMessageInterface:
-          capturedTurnInterfaceContext.assistantMessageInterface,
-      };
-      const assistantMessage = createAssistantMessage(
-        memoryResult.conflictClarification,
-      );
-      await conversationStore.addMessage(
-        ctx.conversationId,
-        "assistant",
-        JSON.stringify(assistantMessage.content),
-        loopChannelMeta,
-      );
-      ctx.messages.push(assistantMessage);
-      onEvent({
-        type: "assistant_text_delta",
-        text: memoryResult.conflictClarification,
-        sessionId: ctx.conversationId,
-      });
-      ctx.traceEmitter.emit(
-        "message_complete",
-        "Conflict clarification requested (relevant)",
-        {
-          requestId: reqId,
-          status: "info",
-          attributes: { conflictGate: "relevant" },
-        },
-      );
-      onEvent({ type: "message_complete", sessionId: ctx.conversationId });
-      return;
-    }
-
-    const {
-      recall,
-      dynamicProfile,
-      softConflictInstruction,
-      recallInjectionStrategy,
-    } = memoryResult;
+    const { recall, dynamicProfile, recallInjectionStrategy } = memoryResult;
     runMessages = memoryResult.runMessages;
 
     // Build active surface context
@@ -585,7 +613,6 @@ export async function runAgentLoopImpl(
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
-      softConflictInstruction,
       activeSurface,
       workspaceTopLevelContext: ctx.workspaceTopLevelContext,
       channelCapabilities: ctx.channelCapabilities ?? null,
@@ -1238,6 +1265,7 @@ export async function runAgentLoopImpl(
           ctx.hasNoClient,
         ),
       state.lastAssistantMessageId,
+      state.toolContentBlockToolNames,
     );
     const { assistantAttachments, emittedAttachments } = attachmentResult;
 
@@ -1390,6 +1418,7 @@ export async function runAgentLoopImpl(
 
     ctx.abortController = null;
     ctx.processing = false;
+    ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;

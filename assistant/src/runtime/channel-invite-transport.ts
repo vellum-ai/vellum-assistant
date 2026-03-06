@@ -1,14 +1,15 @@
 /**
- * Channel invite transport abstraction.
+ * Channel invite adapter abstraction.
  *
- * Defines a transport interface for building shareable invite links and
- * extracting inbound invite tokens from channel-specific payloads. Each
- * channel (Telegram, SMS, Slack, etc.) registers an adapter that knows
- * how to construct deep links and parse incoming tokens for that channel.
+ * Defines an adapter interface for building shareable invite links,
+ * extracting inbound invite tokens, and resolving channel handles
+ * from channel-specific payloads. Each channel (Telegram, voice, etc.)
+ * registers an adapter that knows how to handle invite flows for that
+ * channel.
  *
- * The transport layer is intentionally thin: it handles URL construction
- * and token extraction only. Redemption logic lives in
- * `invite-redemption-service.ts`.
+ * All methods are optional — the adapter layer is intentionally thin.
+ * Redemption logic lives in `invite-redemption-service.ts` and invite
+ * instruction generation lives in `invite-instruction-generator.ts`.
  */
 
 import type { ChannelId } from "../channels/types.js";
@@ -17,71 +18,142 @@ import type { ChannelId } from "../channels/types.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface InviteSharePayload {
+export interface InviteShareLink {
   /** The full URL the recipient can open to redeem the invite. */
   url: string;
   /** Human-readable text suitable for display alongside the link. */
   displayText: string;
 }
 
-export interface ChannelInviteTransport {
-  /** The channel this transport handles. */
+export interface ChannelInviteAdapter {
+  /** The channel this adapter handles. */
   channel: ChannelId;
 
   /**
-   * Build a shareable invite payload (URL + display text) from a raw token.
-   *
-   * The raw token is the base64url-encoded secret returned by
-   * `invite-store.createInvite`. The transport wraps it in a
-   * channel-specific deep link so the recipient can redeem the invite
-   * by clicking/tapping the link.
+   * Build a channel-specific shareable link (e.g. Telegram deep link).
+   * Optional — not all channels support link-based invites.
    */
-  buildShareableInvite(params: {
+  buildShareLink?(params: {
     rawToken: string;
     sourceChannel: ChannelId;
-  }): InviteSharePayload;
+  }): InviteShareLink;
 
   /**
-   * Extract an invite token from an inbound channel message.
-   *
-   * Returns the raw token string (without the `iv_` prefix) if the
-   * message contains a valid invite token, or `undefined` otherwise.
+   * Extract a channel-specific invite token from an inbound message
+   * (e.g. Telegram `/start iv_<token>`). Optional — only needed for
+   * channels with link-based invites.
    */
-  extractInboundToken(params: {
+  extractInboundToken?(params: {
     commandIntent?: Record<string, unknown>;
     content: string;
     sourceMetadata?: Record<string, unknown>;
   }): string | undefined;
+
+  /**
+   * Resolve the channel-specific handle to reach the assistant (e.g.
+   * "@botName", "+15551234567", "hello@domain.agentmail.to").
+   * Returns `undefined` when the handle cannot be resolved (e.g.
+   * credentials not yet configured).
+   */
+  resolveChannelHandle?(): string | undefined;
+
+  /**
+   * Async variant of `resolveChannelHandle` for adapters that need to
+   * perform I/O (e.g. querying a provider API for the assigned address).
+   * When both are present, `resolveAdapterHandle()` prefers this method.
+   */
+  resolveChannelHandleAsync?(): Promise<string | undefined>;
 }
 
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
 
-const registry = new Map<ChannelId, ChannelInviteTransport>();
+export class InviteAdapterRegistry {
+  private adapters = new Map<ChannelId, ChannelInviteAdapter>();
 
-/**
- * Register a channel invite transport. Overwrites any previously registered
- * transport for the same channel.
- */
-export function registerTransport(transport: ChannelInviteTransport): void {
-  registry.set(transport.channel, transport);
+  /**
+   * Register a channel invite adapter. Overwrites any previously
+   * registered adapter for the same channel.
+   */
+  register(adapter: ChannelInviteAdapter): void {
+    this.adapters.set(adapter.channel, adapter);
+  }
+
+  /**
+   * Look up the registered adapter for a channel. Returns `undefined`
+   * when no adapter has been registered for the given channel.
+   */
+  get(channel: ChannelId): ChannelInviteAdapter | undefined {
+    return this.adapters.get(channel);
+  }
+
+  /** Return all registered adapters. */
+  getAll(): ChannelInviteAdapter[] {
+    return Array.from(this.adapters.values());
+  }
+
+  /**
+   * Reset the registry. Intended for tests only.
+   * @internal
+   */
+  _reset(): void {
+    this.adapters.clear();
+  }
 }
 
-/**
- * Look up the registered transport for a channel. Returns `undefined` when
- * no transport has been registered for the given channel.
- */
-export function getTransport(
-  channel: ChannelId,
-): ChannelInviteTransport | undefined {
-  return registry.get(channel);
-}
+// ---------------------------------------------------------------------------
+// Handle resolution helper
+// ---------------------------------------------------------------------------
 
 /**
- * Reset the registry. Intended for tests only.
- * @internal
+ * Resolve the channel handle for an adapter, preferring the async path
+ * when available and falling back to the sync path. Returns `undefined`
+ * when the adapter has no handle resolution method or the handle cannot
+ * be determined.
  */
-export function _resetRegistry(): void {
-  registry.clear();
+export async function resolveAdapterHandle(
+  adapter: ChannelInviteAdapter,
+): Promise<string | undefined> {
+  try {
+    if (adapter.resolveChannelHandleAsync) {
+      return await adapter.resolveChannelHandleAsync();
+    }
+    return adapter.resolveChannelHandle?.();
+  } catch {
+    // Handle resolution is optional metadata — degrade gracefully so
+    // callers (e.g. readiness endpoints) don't fail on transient errors.
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Singleton registry
+// ---------------------------------------------------------------------------
+
+import { emailInviteAdapter } from "./channel-invite-transports/email.js";
+import { slackInviteAdapter } from "./channel-invite-transports/slack.js";
+import { smsInviteAdapter } from "./channel-invite-transports/sms.js";
+import { telegramInviteAdapter } from "./channel-invite-transports/telegram.js";
+import { voiceInviteAdapter } from "./channel-invite-transports/voice.js";
+import { whatsappInviteAdapter } from "./channel-invite-transports/whatsapp.js";
+
+/** Create a registry instance with built-in adapters registered. */
+export function createInviteAdapterRegistry(): InviteAdapterRegistry {
+  const registry = new InviteAdapterRegistry();
+  registry.register(emailInviteAdapter);
+  registry.register(slackInviteAdapter);
+  registry.register(smsInviteAdapter);
+  registry.register(telegramInviteAdapter);
+  registry.register(voiceInviteAdapter);
+  registry.register(whatsappInviteAdapter);
+  return registry;
+}
+
+/** Module-level singleton registry, created eagerly at import time. */
+const defaultRegistry = createInviteAdapterRegistry();
+
+/** Return the module-level singleton registry. */
+export function getInviteAdapterRegistry(): InviteAdapterRegistry {
+  return defaultRegistry;
 }

@@ -30,7 +30,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => "test-bearer-token",
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -100,7 +99,6 @@ function createTestApproval(overrides: Record<string, unknown> = {}) {
   return createApprovalRequest({
     runId: `ingress-access-request-${Date.now()}`,
     conversationId: `access-req-telegram-user-unknown-456`,
-    assistantId: "self",
     channel: "telegram",
     requesterExternalUserId: "user-unknown-456",
     requesterChatId: "chat-123",
@@ -158,7 +156,7 @@ describe("access request decision handler", () => {
     expect(result.type).toBe("approved");
 
     // There should be an active session for this channel
-    const session = findActiveSession("self", "telegram");
+    const session = findActiveSession("telegram");
     expect(session).not.toBeNull();
     expect(session!.expectedExternalUserId).toBe("user-unknown-456");
     expect(session!.expectedChatId).toBe("chat-123");
@@ -187,7 +185,7 @@ describe("access request decision handler", () => {
     expect(updated!.decidedByExternalUserId).toBe("guardian-user-789");
 
     // No verification session should be created
-    const session = findActiveSession("self", "telegram");
+    const session = findActiveSession("telegram");
     expect(session).toBeNull();
   });
 
@@ -330,5 +328,88 @@ describe("access request notification delivery", () => {
     expect(text).toContain("approved");
     expect(text).toContain("unable to deliver");
     expect(text).toContain("try again");
+  });
+
+  test("slack approval notification is sent as DM using requesterExternalUserId", async () => {
+    await notifyRequesterOfApproval({
+      replyCallbackUrl:
+        "http://localhost:7830/deliver/slack?threadTs=1234.5678",
+      requesterChatId: "C12345-channel",
+      requesterExternalUserId: "U98765-user",
+      channel: "slack",
+      assistantId: "self",
+      bearerToken: "test-token",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    const call = deliverReplyCalls[0];
+    // Should target the user ID (DM) not the channel
+    expect(call.payload.chatId).toBe("U98765-user");
+    // threadTs should be stripped — it belongs to the guardian's channel thread
+    expect(call.url).not.toContain("threadTs");
+  });
+
+  test("slack denial notification is sent as DM using requesterExternalUserId", async () => {
+    await notifyRequesterOfDenial({
+      replyCallbackUrl:
+        "http://localhost:7830/deliver/slack?threadTs=1234.5678",
+      requesterChatId: "C12345-channel",
+      requesterExternalUserId: "U98765-user",
+      channel: "slack",
+      assistantId: "self",
+      bearerToken: "test-token",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    const call = deliverReplyCalls[0];
+    expect(call.payload.chatId).toBe("U98765-user");
+    expect(call.url).not.toContain("threadTs");
+  });
+
+  test("slack delivery failure notification is sent as DM using requesterExternalUserId", async () => {
+    await notifyRequesterOfDeliveryFailure({
+      replyCallbackUrl:
+        "http://localhost:7830/deliver/slack?threadTs=1234.5678",
+      requesterChatId: "C12345-channel",
+      requesterExternalUserId: "U98765-user",
+      channel: "slack",
+      assistantId: "self",
+      bearerToken: "test-token",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    const call = deliverReplyCalls[0];
+    expect(call.payload.chatId).toBe("U98765-user");
+    expect(call.url).not.toContain("threadTs");
+  });
+
+  test("non-slack channels still use requesterChatId and preserve threadTs", async () => {
+    await notifyRequesterOfApproval({
+      replyCallbackUrl:
+        "http://localhost:7830/deliver/telegram?threadTs=1234.5678",
+      requesterChatId: "chat-123",
+      requesterExternalUserId: "user-456",
+      channel: "telegram",
+      assistantId: "self",
+      bearerToken: "test-token",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    expect(deliverReplyCalls[0].payload.chatId).toBe("chat-123");
+    // threadTs should be preserved for non-slack channels
+    expect(deliverReplyCalls[0].url).toContain("threadTs=1234.5678");
+  });
+
+  test("slack without requesterExternalUserId falls back to requesterChatId", async () => {
+    await notifyRequesterOfApproval({
+      replyCallbackUrl: "http://localhost:7830/deliver/slack",
+      requesterChatId: "C12345-channel",
+      channel: "slack",
+      assistantId: "self",
+      bearerToken: "test-token",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    expect(deliverReplyCalls[0].payload.chatId).toBe("C12345-channel");
   });
 });

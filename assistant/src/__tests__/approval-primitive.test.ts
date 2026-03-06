@@ -60,7 +60,6 @@ afterAll(() => {
 function mintParams(overrides: Partial<MintGrantParams> = {}): MintGrantParams {
   const futureExpiry = new Date(Date.now() + 60_000).toISOString();
   return {
-    assistantId: "self",
     scopeMode: "request_id",
     requestChannel: "telegram",
     decisionChannel: "telegram",
@@ -177,7 +176,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
       toolName: "shell",
       inputDigest: computeToolApprovalDigest("shell", { command: "ls" }),
       consumingRequestId: "consumer-1",
-      assistantId: "self",
     });
 
     expect(result.ok).toBe(true);
@@ -200,7 +198,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
       toolName: "shell",
       inputDigest: digest,
       consumingRequestId: "consumer-2",
-      assistantId: "self",
     });
 
     expect(result.ok).toBe(true);
@@ -224,7 +221,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
       toolName: "shell",
       inputDigest: digest,
       consumingRequestId: "consumer-3",
-      assistantId: "self",
     });
 
     expect(result.ok).toBe(true);
@@ -242,7 +238,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
         toolName: "shell",
         inputDigest: computeToolApprovalDigest("shell", { command: "ls" }),
         consumingRequestId: "consumer-miss",
-        assistantId: "self",
       },
       { maxWaitMs: 0 },
     );
@@ -267,7 +262,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
         toolName: "file_write",
         inputDigest: digest,
         consumingRequestId: "consumer-mismatch-tool",
-        assistantId: "self",
       },
       { maxWaitMs: 0 },
     );
@@ -293,32 +287,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
           command: "rm -rf /",
         }),
         consumingRequestId: "consumer-mismatch-input",
-        assistantId: "self",
-      },
-      { maxWaitMs: 0 },
-    );
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.reason).toBe("no_match");
-  });
-
-  test("miss: assistant ID mismatch", async () => {
-    mintGrantFromDecision(
-      mintParams({
-        scopeMode: "request_id",
-        requestId: "req-assist",
-        assistantId: "assistant-A",
-      }),
-    );
-
-    const result = await consumeGrantForInvocation(
-      {
-        requestId: "req-assist",
-        toolName: "shell",
-        inputDigest: computeToolApprovalDigest("shell", {}),
-        consumingRequestId: "consumer-assist-mismatch",
-        assistantId: "assistant-B",
       },
       { maxWaitMs: 0 },
     );
@@ -344,7 +312,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
         toolName: "shell",
         inputDigest: computeToolApprovalDigest("shell", {}),
         consumingRequestId: "consumer-expired",
-        assistantId: "self",
       },
       { maxWaitMs: 0 },
     );
@@ -368,7 +335,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
       toolName: "shell",
       inputDigest: computeToolApprovalDigest("shell", {}),
       consumingRequestId: "consumer-first",
-      assistantId: "self",
     });
     expect(first.ok).toBe(true);
 
@@ -378,7 +344,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
         toolName: "shell",
         inputDigest: computeToolApprovalDigest("shell", {}),
         consumingRequestId: "consumer-second",
-        assistantId: "self",
       },
       { maxWaitMs: 0 },
     );
@@ -401,7 +366,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
       toolName: "shell",
       inputDigest: digest,
       consumingRequestId: "consumer-sig-first",
-      assistantId: "self",
     });
     expect(first.ok).toBe(true);
 
@@ -410,7 +374,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
         toolName: "shell",
         inputDigest: digest,
         consumingRequestId: "consumer-sig-second",
-        assistantId: "self",
       },
       { maxWaitMs: 0 },
     );
@@ -439,7 +402,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
       toolName: "shell",
       inputDigest: digest,
       consumingRequestId: "consumer-ctx",
-      assistantId: "self",
       conversationId: "conv-ctx",
       callSessionId: "call-ctx",
     });
@@ -463,7 +425,6 @@ describe("approval-primitive / consumeGrantForInvocation", () => {
         toolName: "shell",
         inputDigest: digest,
         consumingRequestId: "consumer-ctx-mismatch",
-        assistantId: "self",
         conversationId: "conv-B",
       },
       { maxWaitMs: 0 },
@@ -497,7 +458,6 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
       toolName: "shell",
       inputDigest: digest,
       consumingRequestId: "consumer-async-immediate",
-      assistantId: "self",
     });
     const elapsed = Date.now() - start;
 
@@ -528,7 +488,6 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
         toolName: "shell",
         inputDigest: digest,
         consumingRequestId: "consumer-async-delayed",
-        assistantId: "self",
       },
       { maxWaitMs: 5_000, intervalMs: 100 },
     );
@@ -553,7 +512,6 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
         toolName: "shell",
         inputDigest: digest,
         consumingRequestId: "consumer-async-timeout",
-        assistantId: "self",
       },
       { maxWaitMs: 500, intervalMs: 100 },
     );
@@ -580,7 +538,6 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
         toolName: "shell",
         inputDigest: digest,
         consumingRequestId: "consumer-aborted",
-        assistantId: "self",
       },
       { maxWaitMs: 2_000, intervalMs: 50, signal: controller.signal },
     );
@@ -606,7 +563,6 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
         toolName: "shell",
         inputDigest: digest,
         consumingRequestId: "consumer-pre-aborted",
-        assistantId: "self",
       },
       { maxWaitMs: 2_000, intervalMs: 50, signal: controller.signal },
     );
@@ -628,7 +584,6 @@ describe("approval-primitive / consumeGrantForInvocation retry", () => {
         toolName: "shell",
         inputDigest: digest,
         consumingRequestId: "consumer-no-retry",
-        assistantId: "self",
       },
       { maxWaitMs: 0 },
     );

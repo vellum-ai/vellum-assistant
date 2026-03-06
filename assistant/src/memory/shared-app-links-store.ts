@@ -1,7 +1,7 @@
 /**
  * Store for cloud-shared app link records.
  *
- * Each record holds a .vellumapp zip bundle keyed by a short, shareable token.
+ * Each record holds a .vellum zip bundle keyed by a short, shareable token.
  */
 
 import { randomBytes, randomUUID } from "node:crypto";

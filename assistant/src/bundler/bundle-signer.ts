@@ -1,5 +1,5 @@
 /**
- * Bundle signing for .vellumapp archives.
+ * Bundle signing for .vellum archives.
  *
  * Computes content hashes, constructs a canonical signing payload,
  * and requests an Ed25519 signature from the Swift client via IPC.
@@ -78,9 +78,9 @@ async function computeContentHashes(
 }
 
 /**
- * Sign a .vellumapp bundle.
+ * Sign a .vellum bundle.
  *
- * @param bundlePath - Path to the .vellumapp zip archive.
+ * @param bundlePath - Path to the .vellum zip archive.
  * @param requestSignature - Callback to request a signature from the Swift client.
  * @returns The SignatureJson to embed in the archive.
  */

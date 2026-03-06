@@ -8,6 +8,7 @@
  *   POST   /v1/contacts/invites/redeem — redeem an invite (token or voice code)
  */
 
+import type { RouteDefinition } from "../http-router.js";
 import {
   createIngressInvite,
   listIngressInvites,
@@ -46,11 +47,12 @@ export function handleListInvites(url: URL): Response {
 export async function handleCreateInvite(req: Request): Promise<Response> {
   const body = (await req.json()) as Record<string, unknown>;
 
-  const result = createIngressInvite({
+  const result = await createIngressInvite({
     sourceChannel: body.sourceChannel as string | undefined,
     note: body.note as string | undefined,
     maxUses: body.maxUses as number | undefined,
     expiresInMs: body.expiresInMs as number | undefined,
+    contactName: body.contactName as string | undefined,
     expectedExternalUserId: body.expectedExternalUserId as string | undefined,
     voiceCodeDigits: body.voiceCodeDigits as number | undefined,
     friendName: body.friendName as string | undefined,
@@ -137,4 +139,34 @@ export async function handleRedeemInvite(req: Request): Promise<Response> {
     return Response.json({ ok: false, error: result.error }, { status: 400 });
   }
   return Response.json({ ok: true, invite: result.data });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function inviteRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "contacts/invites",
+      method: "GET",
+      handler: ({ url }) => handleListInvites(url),
+    },
+    {
+      endpoint: "contacts/invites",
+      method: "POST",
+      handler: async ({ req }) => handleCreateInvite(req),
+    },
+    {
+      endpoint: "contacts/invites/redeem",
+      method: "POST",
+      handler: async ({ req }) => handleRedeemInvite(req),
+    },
+    {
+      endpoint: "contacts/invites/:id",
+      method: "DELETE",
+      policyKey: "contacts/invites",
+      handler: ({ params }) => handleRevokeInvite(params.id),
+    },
+  ];
 }

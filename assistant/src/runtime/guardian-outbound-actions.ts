@@ -145,7 +145,7 @@ export interface OutboundActionResult {
  * logging -- the response is returned before delivery completes because
  * the caller should not be blocked on Twilio API latency.
  */
-function deliverVerificationSms(
+export function deliverVerificationSms(
   to: string,
   text: string,
   assistantId: string,
@@ -170,7 +170,7 @@ function deliverVerificationSms(
  * Deliver a verification Telegram message via the gateway's /deliver/telegram
  * endpoint. Fire-and-forget with error logging.
  */
-function deliverVerificationTelegram(
+export function deliverVerificationTelegram(
   chatId: string,
   text: string,
   assistantId: string,
@@ -259,9 +259,9 @@ function initiateGuardianVoiceCall(
 // Start outbound
 // ---------------------------------------------------------------------------
 
-export function startOutbound(
+export async function startOutbound(
   params: StartOutboundParams,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = params.channel;
   const originConversationId = params.originConversationId;
@@ -275,7 +275,7 @@ export function startOutbound(
       originConversationId,
     );
   } else if (channel === "telegram") {
-    return startOutboundTelegram(
+    return await startOutboundTelegram(
       params.destination,
       assistantId,
       channel,
@@ -363,7 +363,6 @@ function startOutboundSms(
   }
 
   const sessionResult = createOutboundSession({
-    assistantId,
     channel,
     expectedPhoneE164: destination,
     expectedExternalUserId: destination,
@@ -398,13 +397,13 @@ function startOutboundSms(
   };
 }
 
-function startOutboundTelegram(
+async function startOutboundTelegram(
   destination: string | undefined,
   assistantId: string,
   channel: ChannelId,
   rebind?: boolean,
   originConversationId?: string,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   if (!destination) {
     return {
       success: false,
@@ -456,7 +455,6 @@ function startOutboundTelegram(
     }
 
     const sessionResult = createOutboundSession({
-      assistantId,
       channel,
       expectedChatId: destination,
       identityBindingStatus: "bound",
@@ -497,6 +495,9 @@ function startOutboundTelegram(
   }
 
   // Telegram handle/username: create a pending_bootstrap session with deep-link
+  const { ensureTelegramBotUsernameResolved } =
+    await import("./channel-invite-transports/telegram.js");
+  await ensureTelegramBotUsernameResolved();
   const botUsername = getTelegramBotUsername();
   if (!botUsername) {
     return {
@@ -514,7 +515,6 @@ function startOutboundTelegram(
     .digest("hex");
 
   const sessionResult = createOutboundSession({
-    assistantId,
     channel,
     identityBindingStatus: "pending_bootstrap",
     destinationAddress: normalizedDestination,
@@ -589,7 +589,6 @@ function startOutboundVoice(
   }
 
   const sessionResult = createOutboundSession({
-    assistantId,
     channel,
     expectedPhoneE164: destination,
     expectedExternalUserId: destination,
@@ -630,7 +629,7 @@ function startOutboundVoice(
  * Deliver a verification Slack DM via the gateway's /deliver/slack endpoint.
  * Fire-and-forget with error logging.
  */
-function deliverVerificationSlack(
+export function deliverVerificationSlack(
   userId: string,
   text: string,
   assistantId: string,
@@ -709,7 +708,6 @@ function startOutboundSlack(
   }
 
   const sessionResult = createOutboundSession({
-    assistantId,
     channel,
     expectedExternalUserId: destination,
     expectedChatId: destination,
@@ -756,7 +754,7 @@ export function resendOutbound(
   const channel = params.channel;
   const originConversationId = params.originConversationId;
 
-  const session = findActiveSession(assistantId, channel);
+  const session = findActiveSession(channel);
   if (!session) {
     return {
       success: false,
@@ -831,7 +829,6 @@ export function resendOutbound(
 
   if (channel === "telegram") {
     const newSession = createOutboundSession({
-      assistantId,
       channel,
       expectedChatId: destination,
       identityBindingStatus: "bound",
@@ -870,7 +867,6 @@ export function resendOutbound(
     };
   } else if (channel === "voice") {
     const newSession = createOutboundSession({
-      assistantId,
       channel,
       expectedPhoneE164: destination,
       expectedExternalUserId: destination,
@@ -907,7 +903,6 @@ export function resendOutbound(
     };
   } else if (channel === "slack") {
     const newSession = createOutboundSession({
-      assistantId,
       channel,
       expectedExternalUserId: destination,
       expectedChatId: destination,
@@ -949,7 +944,6 @@ export function resendOutbound(
 
   // SMS resend
   const newSession = createOutboundSession({
-    assistantId,
     channel,
     expectedPhoneE164: destination,
     expectedExternalUserId: destination,
@@ -987,10 +981,9 @@ export function resendOutbound(
 export function cancelOutbound(
   params: CancelOutboundParams,
 ): OutboundActionResult {
-  const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = params.channel;
 
-  const session = findActiveSession(assistantId, channel);
+  const session = findActiveSession(channel);
   if (!session) {
     return {
       success: false,

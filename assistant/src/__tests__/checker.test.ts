@@ -55,16 +55,16 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Mutable config object so tests can switch permissions.mode between
-// 'legacy', 'strict', and 'workspace' without re-registering the mock.
+// 'strict' and 'workspace' without re-registering the mock.
 interface TestConfig {
-  permissions: { mode: "legacy" | "strict" | "workspace" };
+  permissions: { mode: "strict" | "workspace" };
   skills: { load: { extraDirs: string[] } };
   sandbox: { enabled: boolean };
   [key: string]: unknown;
 }
 
 const testConfig: TestConfig = {
-  permissions: { mode: "legacy" },
+  permissions: { mode: "workspace" },
   skills: { load: { extraDirs: [] } },
   sandbox: { enabled: true },
 };
@@ -81,7 +81,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
-  _resetLegacyDeprecationWarning,
   check,
   classifyRisk,
   generateAllowlistOptions,
@@ -169,11 +168,9 @@ describe("Permission Checker", () => {
   beforeEach(() => {
     // Reset trust-store state between tests
     clearCache();
-    // Reset permissions mode to legacy so existing tests are not affected
-    testConfig.permissions = { mode: "legacy" };
+    // Reset permissions mode to workspace (default) so existing tests are not affected
+    testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
-    // Reset the one-time legacy deprecation warning flag and captured log calls
-    _resetLegacyDeprecationWarning();
     loggerWarnCalls.length = 0;
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));
@@ -684,10 +681,20 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("file_write with no rule → prompt", async () => {
+    test("file_write within workspace with no rule → auto-allowed in workspace mode", async () => {
       const result = await check(
         "file_write",
         { path: "/tmp/file.txt" },
+        "/tmp",
+      );
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("workspace-scoped");
+    });
+
+    test("file_write outside workspace with no rule → prompt", async () => {
+      const result = await check(
+        "file_write",
+        { path: "/etc/some-file.txt" },
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
@@ -1354,12 +1361,10 @@ describe("Permission Checker", () => {
     });
 
     test("core tool (no origin) still follows risk-based fallback", async () => {
-      // file_read is a core tool with Low risk → should auto-allow as before
-      const result = await check(
-        "file_read",
-        { path: "/tmp/test.txt" },
-        "/tmp",
-      );
+      // file_read is a core tool with Low risk — in workspace mode,
+      // workspace-scoped invocations are auto-allowed before risk fallback.
+      // Use a path outside the workspace to test the risk-based fallback.
+      const result = await check("file_read", { path: "/etc/hosts" }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("Low risk");
     });
@@ -1488,7 +1493,8 @@ describe("Permission Checker", () => {
 
     test("file_write of non-workspace file is not auto-allowed", async () => {
       const otherPath = join(checkerTestDir, "workspace", "OTHER.md");
-      const result = await check("file_write", { path: otherPath }, "/tmp");
+      // Use a workingDir that doesn't contain the path so it's not workspace-scoped
+      const result = await check("file_write", { path: otherPath }, "/home");
       // Medium risk with no matching allow rule → prompt
       expect(result.decision).toBe("prompt");
     });
@@ -2564,8 +2570,8 @@ describe("Permission Checker", () => {
         expect(result.reason).toContain("Strict mode");
       });
 
-      test("legacy mode: file_write to skill source still prompts as High risk", async () => {
-        testConfig.permissions.mode = "legacy";
+      test("workspace mode: file_write to skill source still prompts as High risk", async () => {
+        testConfig.permissions.mode = "workspace";
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -2990,7 +2996,7 @@ describe("Permission Checker", () => {
       ensureSkillsDir();
       writeSkill("test-hash-skill", "Test Hash Skill");
 
-      // skill_load is Low risk, so with no trust rule in legacy mode it
+      // skill_load is Low risk, so with no trust rule in workspace mode it
       // auto-allows. We set strict mode and add specific rules to verify
       // the correct candidates are generated.
       testConfig.permissions.mode = "strict";
@@ -3326,8 +3332,8 @@ describe("Permission Checker", () => {
       expect(result.matchedRule!.pattern).toBe("skill_load:pr34-bare-id");
     });
 
-    test("skill_load auto-allows in legacy mode (backward compat)", async () => {
-      testConfig.permissions.mode = "legacy";
+    test("skill_load auto-allows in workspace mode", async () => {
+      testConfig.permissions.mode = "workspace";
       const result = await check("skill_load", { skill: "any-skill" }, "/tmp");
       expect(result.decision).toBe("allow");
       // The default allow rule matches before the Low risk fallback
@@ -3849,8 +3855,8 @@ describe("Permission Checker", () => {
     //    high-risk allow) if they choose. ────────────────────────────
 
     describe("Invariant 6: user can set broad rules if they choose", () => {
-      test("wildcard allow rule matches any command in legacy mode", async () => {
-        testConfig.permissions.mode = "legacy";
+      test("wildcard allow rule matches any command in workspace mode", async () => {
+        testConfig.permissions.mode = "workspace";
         addRule("bash", "*", "everywhere");
         const result = await check(
           "bash",
@@ -4202,8 +4208,8 @@ describe("Permission Checker", () => {
       });
     }
 
-    test("browser tools are auto-allowed in legacy mode", async () => {
-      testConfig.permissions = { mode: "legacy" };
+    test("browser tools are auto-allowed in workspace mode", async () => {
+      testConfig.permissions = { mode: "workspace" };
       for (const toolName of browserToolNames) {
         const result = await check(toolName, {}, "/tmp");
         expect(result.decision).toBe("allow");
@@ -4218,7 +4224,7 @@ describe("Permission Checker", () => {
           expect(result.decision).toBe("allow");
         }
       } finally {
-        testConfig.permissions = { mode: "legacy" };
+        testConfig.permissions = { mode: "workspace" };
       }
     });
   });
@@ -4295,7 +4301,7 @@ describe("Permission Checker", () => {
 describe("bash network_mode=proxied — no special-casing", () => {
   beforeEach(() => {
     clearCache();
-    testConfig.permissions = { mode: "legacy" };
+    testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
   });
 
@@ -4398,7 +4404,7 @@ describe("computer-use tool permission defaults", () => {
     for (const name of cuToolNames) {
       const risk = await classifyRisk(name, {});
       // CU tools are proxy tools with RiskLevel.Low, but classifyRisk looks them up
-      // in the registry. In legacy mode, Low risk tools are auto-allowed.
+      // in the registry. In workspace mode, Low risk tools are auto-allowed.
       expect(risk).toBe(RiskLevel.Low);
     }
   });
@@ -4416,7 +4422,7 @@ describe("computer-use tool permission defaults", () => {
 describe("scope matching behavior", () => {
   beforeEach(() => {
     clearCache();
-    testConfig.permissions = { mode: "legacy" };
+    testConfig.permissions = { mode: "workspace" };
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));
     } catch {
@@ -4456,6 +4462,8 @@ describe("scope matching behavior", () => {
   });
 
   test("project-scoped rule does NOT match invocations from sibling directory", async () => {
+    // Use strict mode to test rule-matching isolation without workspace auto-allow
+    testConfig.permissions.mode = "strict";
     const projectDir = "/home/user/my-project";
     // Use a broad pattern that matches any file, scoped to the project
     addRule("file_write", "file_write:*", projectDir);
@@ -4470,6 +4478,8 @@ describe("scope matching behavior", () => {
   });
 
   test("project-scoped rule does NOT match invocations from parent directory", async () => {
+    // Use strict mode to test rule-matching isolation without workspace auto-allow
+    testConfig.permissions.mode = "strict";
     const projectDir = "/home/user/my-project";
     addRule("file_write", "file_write:*", projectDir);
 
@@ -4483,6 +4493,8 @@ describe("scope matching behavior", () => {
   });
 
   test("project-scoped rule does NOT match directory with shared prefix", async () => {
+    // Use strict mode to test rule-matching isolation without workspace auto-allow
+    testConfig.permissions.mode = "strict";
     // A rule for /home/user/project should NOT match /home/user/project-evil
     // (directory-boundary enforcement in matchesScope)
     const projectDir = "/home/user/project";
@@ -4562,7 +4574,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   });
 
   afterEach(() => {
-    testConfig.permissions = { mode: "legacy" };
+    testConfig.permissions = { mode: "workspace" };
   });
 
   // ── workspace-scoped file operations auto-allow ──────────────────
@@ -4771,79 +4783,6 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   });
 });
 
-// ── legacy mode deprecation warning ─────────────────────────────────────
-
-describe("legacy mode — deprecation warning", () => {
-  beforeEach(() => {
-    clearCache();
-    _resetLegacyDeprecationWarning();
-    loggerWarnCalls.length = 0;
-    testConfig.permissions = { mode: "legacy" };
-    testConfig.skills = { load: { extraDirs: [] } };
-    try {
-      rmSync(join(checkerTestDir, "protected", "trust.json"));
-    } catch {
-      /* may not exist */
-    }
-  });
-
-  afterEach(() => {
-    testConfig.permissions = { mode: "legacy" };
-  });
-
-  test("emits deprecation warning on first check() call in legacy mode", async () => {
-    await check("file_read", { file_path: "/tmp/test.txt" }, "/tmp");
-    expect(loggerWarnCalls.some((m) => m.includes("deprecated"))).toBe(true);
-    expect(loggerWarnCalls.some((m) => m.includes("legacy"))).toBe(true);
-  });
-
-  test("deprecation warning fires only once per process", async () => {
-    await check("file_read", { file_path: "/tmp/a.txt" }, "/tmp");
-    const firstCount = loggerWarnCalls.filter((m) =>
-      m.includes("deprecated"),
-    ).length;
-    expect(firstCount).toBe(1);
-
-    await check("file_read", { file_path: "/tmp/b.txt" }, "/tmp");
-    const secondCount = loggerWarnCalls.filter((m) =>
-      m.includes("deprecated"),
-    ).length;
-    expect(secondCount).toBe(1);
-  });
-
-  test("no deprecation warning in workspace mode", async () => {
-    testConfig.permissions = { mode: "workspace" };
-    await check("file_read", { file_path: "/tmp/test.txt" }, "/tmp");
-    expect(loggerWarnCalls.some((m) => m.includes("deprecated"))).toBe(false);
-  });
-
-  test("no deprecation warning in strict mode", async () => {
-    testConfig.permissions = { mode: "strict" };
-    await check("file_read", { file_path: "/tmp/test.txt" }, "/tmp");
-    expect(loggerWarnCalls.some((m) => m.includes("deprecated"))).toBe(false);
-  });
-
-  test("legacy mode still produces correct decisions (low risk auto-allowed)", async () => {
-    const result = await check(
-      "file_read",
-      { file_path: "/tmp/test.txt" },
-      "/tmp",
-    );
-    expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Low risk");
-  });
-
-  test("legacy mode still prompts for medium risk", async () => {
-    const result = await check(
-      "file_write",
-      { file_path: "/tmp/test.txt" },
-      "/tmp",
-    );
-    expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("risk");
-  });
-});
-
 describe("shell command candidates wiring (PR 04)", () => {
   test("existing raw shell rule still matches", async () => {
     clearCache();
@@ -4896,7 +4835,7 @@ describe("integration regressions (PR 11)", () => {
       /* may not exist */
     }
     clearCache();
-    testConfig.permissions = { mode: "legacy" };
+    testConfig.permissions = { mode: "workspace" };
     testConfig.sandbox = { enabled: true };
   });
 

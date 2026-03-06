@@ -2,15 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   _resetEnrichmentService,
@@ -27,7 +19,9 @@ describe("CommitEnrichmentService", () => {
   let testDir: string;
   let gitService: WorkspaceGitService;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
+    _resetGitServiceRegistry();
+    _resetEnrichmentService();
     testDir = join(
       tmpdir(),
       `vellum-enrichment-test-${Date.now()}-${Math.random()
@@ -39,11 +33,6 @@ describe("CommitEnrichmentService", () => {
     await gitService.ensureInitialized();
   });
 
-  beforeEach(() => {
-    _resetGitServiceRegistry();
-    _resetEnrichmentService();
-  });
-
   afterEach(async () => {
     try {
       await getEnrichmentService().shutdown();
@@ -51,15 +40,7 @@ describe("CommitEnrichmentService", () => {
       /* ignore */
     }
     _resetEnrichmentService();
-  });
 
-  afterAll(async () => {
-    try {
-      await getEnrichmentService().shutdown();
-    } catch {
-      /* ignore */
-    }
-    _resetEnrichmentService();
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }

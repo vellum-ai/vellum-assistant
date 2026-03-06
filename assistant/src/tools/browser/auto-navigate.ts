@@ -9,7 +9,7 @@ import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("auto-navigate");
 
-const CDP_BASE = "http://localhost:9222";
+const DEFAULT_CDP_BASE = "http://localhost:9222";
 const MAX_PAGES = 10;
 const PAGE_WAIT_MS = 2500;
 const SCROLL_WAIT_MS = 1000;
@@ -80,23 +80,32 @@ export interface AutoNavProgress {
   visitedCount?: number;
 }
 
+export interface AutoNavOptions {
+  abortSignal?: { aborted: boolean };
+  onProgress?: (p: AutoNavProgress) => void;
+  cdpBaseUrl?: string;
+}
+
 /**
  * Navigate Chrome through a domain's pages to trigger API calls.
  * Discovers internal links from the DOM and visits up to ~15 unique paths.
  *
  * @param domain The domain to crawl (e.g. "example.com").
- * @param abortSignal Optional signal to stop navigation early.
- * @param onProgress Optional callback for live progress updates.
+ * @param options Optional configuration for abort, progress, and CDP base URL.
  * @returns List of visited page URLs.
  */
 export async function autoNavigate(
   domain: string,
-  abortSignal?: { aborted: boolean },
-  onProgress?: (p: AutoNavProgress) => void,
+  options?: AutoNavOptions,
 ): Promise<string[]> {
+  const {
+    abortSignal,
+    onProgress,
+    cdpBaseUrl = DEFAULT_CDP_BASE,
+  } = options ?? {};
   let wsUrl: string | null = null;
   try {
-    const res = await fetch(`${CDP_BASE}/json/list`);
+    const res = await fetch(`${cdpBaseUrl}/json/list`);
     if (!res.ok) {
       log.warn("CDP not available for auto-navigation");
       return [];

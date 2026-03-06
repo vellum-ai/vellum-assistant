@@ -1,12 +1,12 @@
 /**
- * Core packaging logic for .vellumapp zip archives.
+ * Core packaging logic for .vellum zip archives.
  *
  * Reads an app from the app-store, generates a manifest, and produces a
  * zip archive written to a temp file.
  */
 
-import { createHash, randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { createHash } from "node:crypto";
+import { createWriteStream, existsSync, readFileSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
@@ -14,9 +14,10 @@ import { extname, join } from "node:path";
 import archiver from "archiver";
 import JSZip from "jszip";
 
-import { getApp } from "../memory/app-store.js";
+import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
 import { computeContentId } from "../util/content-id.js";
 import { getLogger } from "../util/logger.js";
+import { compileApp } from "./app-compiler.js";
 import type { SigningCallback } from "./bundle-signer.js";
 import { signBundle } from "./bundle-signer.js";
 import type { AppManifest } from "./manifest.js";
@@ -27,7 +28,6 @@ const bundlerLog = getLogger("app-bundler");
 import { APP_VERSION } from "../version.js";
 const PACKAGE_VERSION = APP_VERSION;
 
-const SHORT_HASH_LENGTH = 8;
 const HASH_DISPLAY_LENGTH = 12;
 const MAX_BUNDLE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 const ASSET_FETCH_TIMEOUT_MS = 10_000;
@@ -173,15 +173,17 @@ export async function materializeAssets(
 export interface BundleResult {
   bundlePath: string;
   manifest: AppManifest;
+  /** Base64-encoded PNG of the app icon, if one was generated. */
+  iconImageBase64?: string;
 }
 
 /**
- * Package an app into a .vellumapp zip archive.
+ * Package an app into a .vellum zip archive.
  *
  * @param appId - The ID of the app to package (from the app-store).
  * @param requestSignature - Optional callback to request an Ed25519 signature from the Swift client.
  *                           If provided, the bundle will be signed and include a signature.json.
- * @returns The path to the created .vellumapp file and the manifest.
+ * @returns The path to the created .vellum file and the manifest.
  * @throws If the app is not found, or the bundle exceeds the size limit.
  */
 export async function packageApp(
@@ -193,13 +195,15 @@ export async function packageApp(
     throw new Error(`App not found: ${appId}`);
   }
 
+  const multifile = isMultifileApp(app);
+
   // Build manifest
   const createdBy = `vellum-assistant/${PACKAGE_VERSION}`;
   const version = app.version ?? "1.0.0";
   const contentId = computeContentId(app.name);
 
   const manifest: AppManifest = {
-    format_version: 1,
+    format_version: multifile ? 2 : 1,
     name: app.name,
     ...(app.description ? { description: app.description } : {}),
     ...(app.icon ? { icon: app.icon } : {}),
@@ -212,34 +216,71 @@ export async function packageApp(
     content_id: contentId,
   };
 
-  // Fetch remote assets and rewrite HTML to reference local copies
-  const { rewrittenHtml, assets: fetchedAssets } = await materializeAssets(
-    app.htmlDefinition,
-  );
-
-  // Also materialize assets in additional pages
+  // For multifile apps, compile first then bundle the dist/ output.
+  // For legacy apps, materialize remote assets and bundle the HTML directly.
+  let rewrittenHtml = "";
+  let allAssets: FetchedAsset[] = [];
   const rewrittenPages: Record<string, string> = {};
-  const pageAssets: FetchedAsset[] = [];
-  if (app.pages) {
-    for (const [filename, content] of Object.entries(app.pages)) {
-      const result = await materializeAssets(content);
-      rewrittenPages[filename] = result.rewrittenHtml;
-      pageAssets.push(...result.assets);
-    }
-  }
+  const compiledFiles: { name: string; data: Buffer }[] = [];
 
-  // Deduplicate assets by archive path
-  const allAssetsMap = new Map<string, FetchedAsset>();
-  for (const asset of [...fetchedAssets, ...pageAssets]) {
-    allAssetsMap.set(asset.archivePath, asset);
+  if (multifile) {
+    const appDir = join(getAppsDir(), appId);
+    const compileResult = await compileApp(appDir);
+    if (!compileResult.ok) {
+      const messages = compileResult.errors
+        .map((e) => {
+          const loc = e.location
+            ? ` (${e.location.file}:${e.location.line}:${e.location.column})`
+            : "";
+          return `${e.text}${loc}`;
+        })
+        .join("\n");
+      throw new Error(`Compilation failed for app "${app.name}":\n${messages}`);
+    }
+
+    const distDir = join(appDir, "dist");
+    const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
+    const mainJs = await readFile(join(distDir, "main.js"));
+
+    compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
+    compiledFiles.push({ name: "main.js", data: mainJs });
+
+    // main.css is optional — only produced when the app imports CSS
+    const cssPath = join(distDir, "main.css");
+    if (existsSync(cssPath)) {
+      compiledFiles.push({ name: "main.css", data: await readFile(cssPath) });
+    }
+  } else {
+    // Legacy path: fetch remote assets and rewrite HTML
+    const materialized = await materializeAssets(app.htmlDefinition);
+    rewrittenHtml = materialized.rewrittenHtml;
+    const fetchedAssets = materialized.assets;
+
+    // Also materialize assets in additional pages
+    const pageAssets: FetchedAsset[] = [];
+    if (app.pages) {
+      for (const [filename, content] of Object.entries(app.pages)) {
+        const result = await materializeAssets(content);
+        rewrittenPages[filename] = result.rewrittenHtml;
+        pageAssets.push(...result.assets);
+      }
+    }
+
+    // Deduplicate assets by archive path
+    const allAssetsMap = new Map<string, FetchedAsset>();
+    for (const asset of [...fetchedAssets, ...pageAssets]) {
+      allAssetsMap.set(asset.archivePath, asset);
+    }
+    allAssets = [...allAssetsMap.values()];
   }
-  const allAssets = [...allAssetsMap.values()];
 
   // Create the zip archive
-  const bundleFilename = `${app.name.replace(
-    /[^a-zA-Z0-9_-]/g,
-    "_",
-  )}-${randomUUID().slice(0, SHORT_HASH_LENGTH)}.vellumapp`;
+  const safeName = app.name.replace(/[/\\:*?"<>|]/g, "_").trim() || "App";
+  const uniqueSuffix = createHash("sha256")
+    .update(`${appId}-${Date.now()}`)
+    .digest("hex")
+    .slice(0, 8);
+  const bundleFilename = `${safeName}-${uniqueSuffix}.vellum`;
   const bundlePath = join(tmpdir(), bundleFilename);
 
   await new Promise<void>((resolve, reject) => {
@@ -261,20 +302,33 @@ export async function packageApp(
     // Add manifest.json at root level
     archive.append(serializeManifest(manifest), { name: "manifest.json" });
 
-    // Add index.html at root level
-    archive.append(rewrittenHtml, { name: "index.html" });
+    if (multifile) {
+      // Add compiled dist/ files
+      for (const file of compiledFiles) {
+        archive.append(file.data, { name: file.name });
+      }
+    } else {
+      // Add index.html at root level
+      archive.append(rewrittenHtml, { name: "index.html" });
 
-    // Add additional pages alongside index.html (with rewritten asset URLs)
-    if (app.pages) {
-      for (const filename of Object.keys(app.pages)) {
-        const content = rewrittenPages[filename] ?? app.pages[filename];
-        archive.append(content, { name: filename });
+      // Add additional pages alongside index.html (with rewritten asset URLs)
+      if (app.pages) {
+        for (const filename of Object.keys(app.pages)) {
+          const content = rewrittenPages[filename] ?? app.pages[filename];
+          archive.append(content, { name: filename });
+        }
+      }
+
+      // Add fetched remote assets
+      for (const asset of allAssets) {
+        archive.append(asset.data, { name: asset.archivePath });
       }
     }
 
-    // Add fetched remote assets
-    for (const asset of allAssets) {
-      archive.append(asset.data, { name: asset.archivePath });
+    // Include app icon if one was generated
+    const iconPath = join(getAppsDir(), appId, "icon.png");
+    if (existsSync(iconPath)) {
+      archive.append(readFileSync(iconPath), { name: "icon.png" });
     }
 
     archive.finalize();
@@ -318,5 +372,12 @@ export async function packageApp(
     );
   }
 
-  return { bundlePath, manifest };
+  // Read icon for inclusion in the response
+  let iconImageBase64: string | undefined;
+  const iconFilePath = join(getAppsDir(), appId, "icon.png");
+  if (existsSync(iconFilePath)) {
+    iconImageBase64 = readFileSync(iconFilePath).toString("base64");
+  }
+
+  return { bundlePath, manifest, iconImageBase64 };
 }

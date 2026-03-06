@@ -49,7 +49,7 @@ async function createBundle(
   const data = await zip.generateAsync({ type: "uint8array" });
   const path = join(
     tempDir,
-    `test-${Date.now()}-${Math.random().toString(36).slice(2)}.vellumapp`,
+    `test-${Date.now()}-${Math.random().toString(36).slice(2)}.vellum`,
   );
   await Bun.write(path, data);
   return path;

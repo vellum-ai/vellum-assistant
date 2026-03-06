@@ -1,390 +1,175 @@
 /**
- * Unified secure key storage — tries OS keychain first, falls back to
- * encrypted-at-rest file storage.
+ * Unified secure key storage — routes through the keychain broker when
+ * available (macOS app embedded), with transparent fallback to the
+ * encrypted-at-rest file store.
  *
- * Provides the same get/set/delete/list interface used by both backends.
- * Backend selection is cached after the first call for the process lifetime.
+ * Async variants try the broker first; sync variants always use the
+ * encrypted store (startup code paths cannot do async I/O).
  */
 
-import { getLogger } from "../util/logger.js";
-import { isMacOS } from "../util/platform.js";
 import * as encryptedStore from "./encrypted-store.js";
-import * as keychain from "./keychain.js";
+import type { KeychainBrokerClient } from "./keychain-broker-client.js";
+import { createBrokerClient } from "./keychain-broker-client.js";
 
-const log = getLogger("secure-keys");
+let _broker: KeychainBrokerClient | undefined;
 
-type Backend = "keychain" | "encrypted" | null;
-let resolvedBackend: Backend | undefined;
-/** True when backend was downgraded from keychain to encrypted at runtime. */
-let downgradedFromKeychain = false;
-/** Keys known to not exist in keychain — avoids repeated subprocess calls on misses. */
-const keychainMissCache = new Set<string>();
-
-function getBackend(): Backend {
-  if (resolvedBackend !== undefined) return resolvedBackend;
-
-  // On macOS, skip keychain probing and use encrypted file storage directly
-  // to avoid repeated Keychain Access authorization prompts. Mark as
-  // downgraded so getSecureKey/getSecureKeyAsync still check keychain as a
-  // fallback for secrets stored before this switch.
-  if (isMacOS()) {
-    log.debug(
-      "macOS detected, using encrypted file storage (skipping keychain)",
-    );
-    resolvedBackend = "encrypted";
-    downgradedFromKeychain = true;
-    return resolvedBackend;
-  }
-
-  if (keychain.isKeychainAvailable()) {
-    log.debug("Using OS keychain for secure key storage");
-    resolvedBackend = "keychain";
-  } else {
-    log.debug("OS keychain unavailable, using encrypted file storage");
-    resolvedBackend = "encrypted";
-  }
-  return resolvedBackend;
+function getBroker(): KeychainBrokerClient {
+  if (!_broker) _broker = createBrokerClient();
+  return _broker;
 }
 
-async function getBackendAsync(): Promise<Backend> {
-  if (resolvedBackend !== undefined) return resolvedBackend;
-
-  // On macOS, skip keychain probing and use encrypted file storage directly
-  // to avoid repeated Keychain Access authorization prompts. Mark as
-  // downgraded so getSecureKey/getSecureKeyAsync still check keychain as a
-  // fallback for secrets stored before this switch.
-  if (isMacOS()) {
-    log.debug(
-      "macOS detected, using encrypted file storage (skipping keychain)",
-    );
-    resolvedBackend = "encrypted";
-    downgradedFromKeychain = true;
-    return resolvedBackend;
-  }
-
-  if (await keychain.isKeychainAvailableAsync()) {
-    log.debug("Using OS keychain for secure key storage");
-    resolvedBackend = "keychain";
-  } else {
-    log.debug("OS keychain unavailable, using encrypted file storage");
-    resolvedBackend = "encrypted";
-  }
-  return resolvedBackend;
-}
+// ---------------------------------------------------------------------------
+// Sync variants — encrypted store only (startup / sync call sites)
+// ---------------------------------------------------------------------------
 
 /**
- * Try a keychain operation; on failure, permanently downgrade to encrypted
- * backend and retry. This handles systems where the keychain CLI exists
- * but is unusable at runtime (headless/locked sessions).
- */
-function withKeychainFallback<T>(
-  keychainFn: () => T,
-  encryptedFn: () => T,
-  fallbackValue: T,
-): T {
-  const backend = getBackend();
-  if (backend === "encrypted") return encryptedFn();
-  if (backend !== "keychain") return fallbackValue;
-
-  const result = keychainFn();
-  // keychain.setKey/deleteKey return false on failure.
-  // We downgrade on failures (false) to switch to encrypted backend.
-  if (result === false) {
-    log.warn(
-      "Keychain operation failed at runtime, falling back to encrypted file storage",
-    );
-    resolvedBackend = "encrypted";
-    downgradedFromKeychain = true;
-    return encryptedFn();
-  }
-  return result;
-}
-
-/**
- * Retrieve a secret from secure storage.
+ * Retrieve a secret from secure storage (sync — encrypted store only).
  * Returns `undefined` if the key doesn't exist or on error.
  */
 export function getSecureKey(account: string): string | undefined {
-  const backend = getBackend();
-  if (backend === "keychain") {
-    try {
-      return keychain.getKey(account) ?? undefined;
-    } catch {
-      // Keychain runtime error on read — downgrade to encrypted store
-      log.warn(
-        "Keychain read failed at runtime, falling back to encrypted file storage",
-      );
-      resolvedBackend = "encrypted";
-      downgradedFromKeychain = true;
-      return encryptedStore.getKey(account);
-    }
-  }
-  if (backend === "encrypted") {
-    const value = encryptedStore.getKey(account);
-    // After a runtime downgrade, keys may still exist in the keychain.
-    // Try keychain read as fallback so pre-downgrade keys remain accessible.
-    if (
-      value === undefined &&
-      downgradedFromKeychain &&
-      !keychainMissCache.has(account)
-    ) {
-      try {
-        const keychainValue = keychain.getKey(account) ?? undefined;
-        if (keychainValue === undefined) {
-          keychainMissCache.add(account);
-        }
-        return keychainValue;
-      } catch {
-        return undefined;
-      }
-    }
-    return value;
-  }
-  return undefined;
+  return encryptedStore.getKey(account);
 }
 
 /**
- * Store a secret in secure storage.
+ * Store a secret in secure storage (sync — encrypted store only).
  * Returns `true` on success, `false` on failure.
  */
 export function setSecureKey(account: string, value: string): boolean {
-  const result = withKeychainFallback(
-    () => keychain.setKey(account, value),
-    () => encryptedStore.setKey(account, value),
-    false,
-  );
-  // When writing to the encrypted store after a keychain downgrade, clean up
-  // any stale keychain entry so the gateway's credential-reader (which tries
-  // keychain first) does not read an outdated value.
-  if (result && downgradedFromKeychain && getBackend() === "encrypted") {
-    keychainMissCache.delete(account);
-    try {
-      // Only attempt deletion if the key actually exists in keychain to
-      // avoid spawning a subprocess on every write.
-      if (keychain.getKey(account) != null) {
-        keychain.deleteKey(account);
-      }
-    } catch {
-      /* best-effort */
-    }
-  }
-  return result;
+  return encryptedStore.setKey(account, value);
 }
 
+/** Result of a delete operation — distinguishes success, not-found, and error. */
+export type DeleteResult = "deleted" | "not-found" | "error";
+
 /**
- * Delete a secret from secure storage.
- * Returns `true` on success, `false` if not found or on error.
+ * Delete a secret from secure storage (sync — encrypted store only).
+ * Returns `"deleted"` on success, `"not-found"` if key doesn't exist,
+ * or `"error"` on failure.
  */
-export function deleteSecureKey(account: string): boolean {
-  const backend = getBackend();
-  if (backend === "encrypted") {
-    const result = encryptedStore.deleteKey(account);
-    // After a runtime downgrade, keys may still exist in the keychain.
-    // Attempt cleanup and return true if either backend had the key.
-    if (downgradedFromKeychain) {
-      keychainMissCache.delete(account);
-      const keychainResult = keychain.deleteKey(account);
-      return result || keychainResult;
-    }
-    return result;
-  }
-  if (backend !== "keychain") return false;
-
-  // keychain.deleteKey returns false for both "not found" and "runtime error".
-  // Check existence first so a missing key doesn't spuriously downgrade the
-  // backend — saveConfig routinely deletes keys for unset providers.
-  // getKey now returns null for "not found" and throws on runtime errors.
-  try {
-    if (keychain.getKey(account) == null) {
-      return false;
-    }
-  } catch {
-    // Keychain runtime error — fall through to withKeychainFallback which
-    // will handle the downgrade when deleteKey also fails.
-  }
-
-  return withKeychainFallback(
-    () => keychain.deleteKey(account),
-    () => encryptedStore.deleteKey(account),
-    false,
-  );
+export function deleteSecureKey(account: string): DeleteResult {
+  return encryptedStore.deleteKey(account);
 }
 
 /**
- * List all account names in secure storage.
- * Only supported by the encrypted backend; keychain returns empty array.
- * Throws if the store file exists but cannot be read (encrypted backend).
+ * List all account names in secure storage (sync — encrypted store only).
+ * Throws if the store file exists but cannot be read.
  */
 export function listSecureKeys(): string[] {
-  const backend = getBackend();
-  if (backend === "encrypted") return encryptedStore.listKeys();
-  // OS keychains don't provide a list API scoped to our service
-  return [];
+  return encryptedStore.listKeys();
 }
+
+// ---------------------------------------------------------------------------
+// Backend introspection
+// ---------------------------------------------------------------------------
 
 /**
  * Return the currently resolved backend type.
- * Useful for feature-gating behaviour that only works on certain backends.
+ * Returns `"broker"` when the keychain broker is reachable, `"encrypted"` otherwise.
  */
-export function getBackendType(): "keychain" | "encrypted" | null {
-  return getBackend();
+export function getBackendType(): "broker" | "encrypted" | null {
+  return getBroker().isAvailable() ? "broker" : "encrypted";
 }
 
 /**
  * Whether the backend was downgraded from keychain to encrypted at runtime.
- * When true, credentials may still be readable from keychain via fallback
- * even though the active backend is encrypted.
+ * Always returns false now that keychain CLI is removed.
  */
 export function isDowngradedFromKeychain(): boolean {
-  return downgradedFromKeychain;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
-// Async variants — non-blocking alternatives that avoid blocking the event
-// loop during keychain operations. Preferred for non-startup code paths.
+// Async variants — try broker first, fall back to encrypted store
 // ---------------------------------------------------------------------------
 
 /**
- * Async version of `getSecureKey` — retrieve a secret without blocking.
+ * Async version of `getSecureKey`. When the broker is available it is
+ * queried first. A `null` return from the broker means error (fall back
+ * to encrypted store). A `{ found: false }` also falls back to the
+ * encrypted store — keys may exist only in `keys.enc` (e.g. written
+ * while the broker was unavailable or via sync `setSecureKey`).
  */
 export async function getSecureKeyAsync(
   account: string,
 ): Promise<string | undefined> {
-  const backend = await getBackendAsync();
-  if (backend === "keychain") {
-    try {
-      return (await keychain.getKeyAsync(account)) ?? undefined;
-    } catch {
-      log.warn(
-        "Keychain read failed at runtime, falling back to encrypted file storage",
-      );
-      resolvedBackend = "encrypted";
-      downgradedFromKeychain = true;
-      return encryptedStore.getKey(account);
-    }
+  const broker = getBroker();
+  if (broker.isAvailable()) {
+    const result = await broker.get(account);
+    // null = broker error, fall back to encrypted store
+    if (result == null) return encryptedStore.getKey(account);
+    // Broker found the key — use it
+    if (result.found) return result.value;
+    // Broker says not found — check encrypted store as fallback
+    return encryptedStore.getKey(account);
   }
-  if (backend === "encrypted") {
-    const value = encryptedStore.getKey(account);
-    if (
-      value === undefined &&
-      downgradedFromKeychain &&
-      !keychainMissCache.has(account)
-    ) {
-      try {
-        const keychainValue =
-          (await keychain.getKeyAsync(account)) ?? undefined;
-        if (keychainValue === undefined) {
-          keychainMissCache.add(account);
-        }
-        return keychainValue;
-      } catch {
-        return undefined;
-      }
-    }
-    return value;
-  }
-  return undefined;
+  return encryptedStore.getKey(account);
 }
 
 /**
- * Async version of `setSecureKey` — store a secret without blocking.
+ * Async version of `setSecureKey`. When the broker is available the key
+ * is written there **and** to the encrypted store so that sync callers
+ * have a consistent view. Returns `true` only when both stores succeed.
+ *
+ * If the broker is available but `broker.set()` fails we return `false`
+ * immediately — falling through to an encrypted-store-only write would
+ * leave the broker with stale data that async readers would still see.
  */
 export async function setSecureKeyAsync(
   account: string,
   value: string,
 ): Promise<boolean> {
-  const backend = await getBackendAsync();
-  if (backend === "encrypted") {
-    const result = encryptedStore.setKey(account, value);
-    // Clean up stale keychain entry (mirrors setSecureKey logic).
-    if (result && downgradedFromKeychain) {
-      keychainMissCache.delete(account);
-      try {
-        // Only attempt deletion if the key actually exists in keychain to
-        // avoid spawning a subprocess on every write.
-        const exists = await keychain.getKeyAsync(account);
-        if (exists != null) {
-          await keychain.deleteKeyAsync(account);
-        }
-      } catch {
-        /* best-effort */
-      }
-    }
-    return result;
+  const broker = getBroker();
+  if (broker.isAvailable()) {
+    const brokerOk = await broker.set(account, value);
+    if (!brokerOk) return false;
+    // Broker succeeded — also persist to encrypted store for sync callers.
+    const encOk = encryptedStore.setKey(account, value);
+    return encOk;
   }
-  if (backend !== "keychain") return false;
-
-  const result = await keychain.setKeyAsync(account, value);
-  if (result === false) {
-    log.warn(
-      "Keychain operation failed at runtime, falling back to encrypted file storage",
-    );
-    resolvedBackend = "encrypted";
-    downgradedFromKeychain = true;
-    const fallbackResult = encryptedStore.setKey(account, value);
-    // Clean up stale keychain entry after runtime downgrade
-    if (fallbackResult) {
-      keychainMissCache.delete(account);
-      try {
-        const exists = await keychain.getKeyAsync(account);
-        if (exists != null) {
-          await keychain.deleteKeyAsync(account);
-        }
-      } catch {
-        /* best-effort */
-      }
-    }
-    return fallbackResult;
-  }
-  return result;
+  return encryptedStore.setKey(account, value);
 }
 
 /**
- * Async version of `deleteSecureKey` — delete a secret without blocking.
+ * Async version of `deleteSecureKey`. When the broker is available the
+ * key is deleted there **and** from the encrypted store so that sync
+ * callers have a consistent view.
+ *
+ * Returns `"deleted"` when the key was removed, `"not-found"` when it
+ * didn't exist (idempotent), or `"error"` on a real backend failure.
+ *
+ * If the broker is available but `broker.del()` fails we return `"error"`
+ * immediately — falling through to an encrypted-store-only delete would
+ * leave the broker with the key, and async readers would still see it.
  */
-export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
-  const backend = await getBackendAsync();
-  if (backend === "encrypted") {
-    const result = encryptedStore.deleteKey(account);
-    if (downgradedFromKeychain) {
-      keychainMissCache.delete(account);
-      const keychainResult = await keychain.deleteKeyAsync(account);
-      return result || keychainResult;
-    }
-    return result;
+export async function deleteSecureKeyAsync(
+  account: string,
+): Promise<DeleteResult> {
+  const broker = getBroker();
+  if (broker.isAvailable()) {
+    const brokerOk = await broker.del(account);
+    if (!brokerOk) return "error";
+    // Broker succeeded — also remove from encrypted store for sync callers.
+    const encResult = encryptedStore.deleteKey(account);
+    // Broker deletion succeeded; encrypted-store "not-found" is fine
+    // (key may only exist in the broker).
+    if (encResult === "error") return "error";
+    return "deleted";
   }
-  if (backend !== "keychain") return false;
-
-  try {
-    if ((await keychain.getKeyAsync(account)) == null) {
-      return false;
-    }
-  } catch {
-    // fall through
-  }
-
-  const result = await keychain.deleteKeyAsync(account);
-  if (result === false) {
-    log.warn(
-      "Keychain operation failed at runtime, falling back to encrypted file storage",
-    );
-    resolvedBackend = "encrypted";
-    downgradedFromKeychain = true;
-    return encryptedStore.deleteKey(account);
-  }
-  return result;
+  return encryptedStore.deleteKey(account);
 }
 
-/** @internal Test-only: reset the cached backend so it's re-evaluated. */
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+/** @internal Test-only: reset the cached broker so it's re-created. */
 export function _resetBackend(): void {
-  resolvedBackend = undefined;
-  downgradedFromKeychain = false;
-  keychainMissCache.clear();
+  _broker = undefined;
 }
 
 /** @internal Test-only: force a specific backend. Pass `undefined` to reset. */
-export function _setBackend(backend: Backend | undefined): void {
-  resolvedBackend = backend;
-  downgradedFromKeychain = false;
-  keychainMissCache.clear();
+export function _setBackend(
+  _backend: "keychain" | "encrypted" | "broker" | null | undefined,
+): void {
+  // No-op — kept for test compatibility.
 }

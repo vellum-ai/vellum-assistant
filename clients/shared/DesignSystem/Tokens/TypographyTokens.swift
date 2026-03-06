@@ -89,6 +89,9 @@ public enum VFont {
     public static let monoBodyMedium = dmMono("DMMono-Medium", size: 13)
     public static let monoMedium = dmMono("DMMono-Medium", size: 16)
 
+    /// Large monospaced font for displaying invite codes
+    public static let inviteCode = Font.system(size: 28, weight: .medium, design: .monospaced)
+
     /// Display font (used for panel headers like "AGENT", "GENERATED CONTENT")
     public static let display    = Font.custom("Inter-SemiBold", size: adaptiveSize(18))
     public static let panelTitle   = Font.custom("Inter-Medium", size: adaptiveSize(24))

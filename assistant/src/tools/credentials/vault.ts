@@ -9,12 +9,10 @@ import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
-  deleteSecureKey,
-  getBackendType,
+  deleteSecureKeyAsync,
   getSecureKey,
-  isDowngradedFromKeychain,
   listSecureKeys,
-  setSecureKey,
+  setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -227,7 +225,7 @@ class CredentialStoreTool implements Tool {
               required: ["hostPattern", "injectionType"],
             },
             description:
-              "Templates describing how to inject this credential into proxied requests (only for store action)",
+              "Templates describing how to inject this credential into proxied requests (for store and prompt actions)",
           },
           reason: {
             type: "string",
@@ -383,7 +381,7 @@ class CredentialStoreTool implements Tool {
         }
 
         const key = `credential:${service}:${field}`;
-        const ok = setSecureKey(key, value);
+        const ok = await setSecureKeyAsync(key, value);
         if (!ok) {
           return {
             content: "Error: failed to store credential",
@@ -426,30 +424,21 @@ class CredentialStoreTool implements Tool {
         }
 
         const allMetadata = listCredentialMetadata();
-        // On the encrypted backend we can verify secrets still exist by reading
-        // all key names once (instead of per-entry getSecureKey calls that each
-        // re-read/re-derive the store). On keychain we trust metadata since the
-        // OS keychain has no batch list API.
-        // In downgraded mode (keychain failed, switched to encrypted), skip
-        // batch verification because listSecureKeys() only returns keys from
-        // the encrypted store — keychain-only credentials would be hidden.
-        const downgraded = isDowngradedFromKeychain();
-        const verifySecrets = getBackendType() === "encrypted" && !downgraded;
+        // Verify secrets still exist by reading all key names once (instead of
+        // per-entry getSecureKey calls that each re-read/re-derive the store).
         let secureKeySet: Set<string> | undefined;
-        if (verifySecrets) {
-          try {
-            secureKeySet = new Set(listSecureKeys());
-          } catch (err) {
-            log.error(
-              { err },
-              "Failed to read secure store while listing credentials",
-            );
-            return {
-              content:
-                "Error: failed to read secure storage; cannot list credentials",
-              isError: true,
-            };
-          }
+        try {
+          secureKeySet = new Set(listSecureKeys());
+        } catch (err) {
+          log.error(
+            { err },
+            "Failed to read secure store while listing credentials",
+          );
+          return {
+            content:
+              "Error: failed to read secure storage; cannot list credentials",
+            isError: true,
+          };
         }
         const entries = allMetadata
           .filter((m) => {
@@ -505,8 +494,14 @@ class CredentialStoreTool implements Tool {
         }
 
         const key = `credential:${service}:${field}`;
-        const ok = deleteSecureKey(key);
-        if (!ok) {
+        const result = await deleteSecureKeyAsync(key);
+        if (result === "error") {
+          return {
+            content: `Error: failed to delete credential ${service}/${field} from secure storage`,
+            isError: true,
+          };
+        }
+        if (result === "not-found") {
           return {
             content: `Error: credential ${service}/${field} not found`,
             isError: true,
@@ -568,6 +563,90 @@ class CredentialStoreTool implements Tool {
         }
         const promptPolicy = toPolicyFromInput(promptPolicyInput);
 
+        // Parse and validate injection templates (same logic as store action)
+        const promptRawTemplates = input.injection_templates as
+          | unknown[]
+          | undefined;
+        let promptInjectionTemplates: CredentialInjectionTemplate[] | undefined;
+        if (promptRawTemplates !== undefined) {
+          if (!Array.isArray(promptRawTemplates)) {
+            return {
+              content: "Error: injection_templates must be an array",
+              isError: true,
+            };
+          }
+          const promptTemplateErrors: string[] = [];
+          promptInjectionTemplates = [];
+          for (let i = 0; i < promptRawTemplates.length; i++) {
+            const t = promptRawTemplates[i] as Record<string, unknown>;
+            if (typeof t !== "object" || t == null) {
+              promptTemplateErrors.push(
+                `injection_templates[${i}] must be an object`,
+              );
+              continue;
+            }
+            if (
+              typeof t.hostPattern !== "string" ||
+              t.hostPattern.trim().length === 0
+            ) {
+              promptTemplateErrors.push(
+                `injection_templates[${i}].hostPattern must be a non-empty string`,
+              );
+            }
+            if (t.injectionType !== "header" && t.injectionType !== "query") {
+              promptTemplateErrors.push(
+                `injection_templates[${i}].injectionType must be 'header' or 'query'`,
+              );
+            } else if (t.injectionType === "header") {
+              if (
+                typeof t.headerName !== "string" ||
+                t.headerName.trim().length === 0
+              ) {
+                promptTemplateErrors.push(
+                  `injection_templates[${i}].headerName is required when injectionType is 'header'`,
+                );
+              }
+            } else if (t.injectionType === "query") {
+              if (
+                typeof t.queryParamName !== "string" ||
+                t.queryParamName.trim().length === 0
+              ) {
+                promptTemplateErrors.push(
+                  `injection_templates[${i}].queryParamName is required when injectionType is 'query'`,
+                );
+              }
+            }
+            if (
+              t.valuePrefix !== undefined &&
+              typeof t.valuePrefix !== "string"
+            ) {
+              promptTemplateErrors.push(
+                `injection_templates[${i}].valuePrefix must be a string`,
+              );
+            }
+            if (promptTemplateErrors.length === 0) {
+              promptInjectionTemplates.push({
+                hostPattern: t.hostPattern as string,
+                injectionType: t.injectionType as "header" | "query",
+                headerName:
+                  typeof t.headerName === "string" ? t.headerName : undefined,
+                valuePrefix:
+                  typeof t.valuePrefix === "string" ? t.valuePrefix : undefined,
+                queryParamName:
+                  typeof t.queryParamName === "string"
+                    ? t.queryParamName
+                    : undefined,
+              });
+            }
+          }
+          if (promptTemplateErrors.length > 0) {
+            return {
+              content: `Error: ${promptTemplateErrors.join("; ")}`,
+              isError: true,
+            };
+          }
+        }
+
         try {
           assertMetadataWritable();
         } catch {
@@ -626,6 +705,7 @@ class CredentialStoreTool implements Tool {
                 allowedTools: promptPolicy.allowedTools,
                 allowedDomains: promptPolicy.allowedDomains,
                 usageDescription: promptPolicy.usageDescription,
+                injectionTemplates: promptInjectionTemplates,
               });
             } catch (err) {
               // Without metadata the broker's policy checks will reject usage,
@@ -654,7 +734,7 @@ class CredentialStoreTool implements Tool {
 
         // Default: persist to keychain
         const key = `credential:${service}:${field}`;
-        const ok = setSecureKey(key, result.value);
+        const ok = await setSecureKeyAsync(key, result.value);
         if (!ok) {
           return {
             content: "Error: failed to store credential",
@@ -666,6 +746,7 @@ class CredentialStoreTool implements Tool {
             allowedTools: promptPolicy.allowedTools,
             allowedDomains: promptPolicy.allowedDomains,
             usageDescription: promptPolicy.usageDescription,
+            injectionTemplates: promptInjectionTemplates,
           });
         } catch (err) {
           log.warn(

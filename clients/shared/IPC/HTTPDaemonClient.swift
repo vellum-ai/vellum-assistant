@@ -122,6 +122,15 @@ public final class HTTPTransport {
     /// Clients should persist the new token (e.g. to Keychain).
     var onTokenRefreshed: ((String) -> Void)?
 
+    /// The local session ID used by the client (set from the synthetic session_info).
+    /// Used to remap the daemon's internal conversation ID to the client's session ID
+    /// so that ChatViewModel's belongsToSession() filter passes.
+    private var activeLocalSessionId: String?
+
+    /// The daemon's internal conversation ID, learned from the first SSE event.
+    /// All occurrences are remapped to `activeLocalSessionId` in incoming events.
+    private var remoteSessionId: String?
+
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
@@ -161,7 +170,16 @@ public final class HTTPTransport {
         case pendingInteractions(conversationKey: String?)
         case contactsList(limit: Int, role: String?)
         case contactsGet(id: String)
-        case contactsChannelUpdate(channelId: String)
+        case contactsDelete(id: String)
+        case contactChannelUpdate(contactChannelId: String)
+        case contactChannelVerify(contactChannelId: String)
+        case contactsUpsert
+        case contactsInvitesCreate
+        case channelsReadiness
+        case surfaceContent(surfaceId: String, sessionId: String)
+        case usageTotals(from: Int, to: Int)
+        case usageDaily(from: Int, to: Int)
+        case usageBreakdown(from: Int, to: Int, groupBy: String)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -247,24 +265,44 @@ public final class HTTPTransport {
         case .contactsGet(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/contacts/\(encoded)", nil)
-        case .contactsChannelUpdate(let channelId):
-            let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-            return ("/v1/contacts/channels/\(encoded)", nil)
+        case .contactsDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/contacts/\(encoded)", nil)
+        case .contactChannelUpdate(let contactChannelId):
+            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+            return ("/v1/contact-channels/\(encoded)", nil)
+        case .contactChannelVerify(let contactChannelId):
+            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+            return ("/v1/contact-channels/\(encoded)/verify", nil)
+        case .contactsUpsert:
+            return ("/v1/contacts", nil)
+        case .contactsInvitesCreate:
+            return ("/v1/contacts/invites", nil)
+        case .channelsReadiness:
+            return ("/v1/channels/readiness", nil)
+        case .surfaceContent(let surfaceId, let sessionId):
+            let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
+            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            return ("/v1/surfaces/\(sEncoded)", "sessionId=\(qEncoded)")
+        case .usageTotals(let from, let to):
+            return ("/v1/usage/totals", "from=\(from)&to=\(to)")
+        case .usageDaily(let from, let to):
+            return ("/v1/usage/daily", "from=\(from)&to=\(to)")
+        case .usageBreakdown(let from, let to, let groupBy):
+            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
+            return ("/v1/usage/breakdown", "from=\(from)&to=\(to)&groupBy=\(encoded)")
         }
     }
 
     /// Builds paths for the platform assistant proxy layout
-    /// (e.g. /v1/assistants/{id}/health, /v1/assistants/{id}/messages/).
+    /// (e.g. /v1/assistants/{id}/healthz/, /v1/assistants/{id}/messages/).
     /// Trailing slashes match the Django URL convention.
     private func buildPlatformProxyPath(for endpoint: Endpoint, assistantId: String) -> (path: String, query: String?) {
         let prefix = "/v1/assistants/\(assistantId)"
 
         switch endpoint {
         case .healthz:
-            // Use /health (no trailing slash) so the gateway proxy rewrites to
-            // /v1/health, which the runtime serves. /healthz is a root-level
-            // endpoint that doesn't exist under /v1/.
-            return ("\(prefix)/health", nil)
+            return ("\(prefix)/healthz/", nil)
         case .events(let conversationKey):
             let encoded = conversationKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? conversationKey
             return ("\(prefix)/events/", "conversationKey=\(encoded)")
@@ -319,9 +357,32 @@ public final class HTTPTransport {
         case .contactsGet(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/contacts/\(encoded)/", nil)
-        case .contactsChannelUpdate(let channelId):
-            let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-            return ("\(prefix)/contacts/channels/\(encoded)/", nil)
+        case .contactsDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/contacts/\(encoded)/", nil)
+        case .contactChannelUpdate(let contactChannelId):
+            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+            return ("\(prefix)/contact-channels/\(encoded)/", nil)
+        case .contactChannelVerify(let contactChannelId):
+            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+            return ("\(prefix)/contact-channels/\(encoded)/verify/", nil)
+        case .contactsUpsert:
+            return ("\(prefix)/contacts/", nil)
+        case .contactsInvitesCreate:
+            return ("\(prefix)/contacts/invites/", nil)
+        case .channelsReadiness:
+            return ("\(prefix)/channels/readiness/", nil)
+        case .surfaceContent(let surfaceId, let sessionId):
+            let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
+            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            return ("\(prefix)/surfaces/\(sEncoded)/", "sessionId=\(qEncoded)")
+        case .usageTotals(let from, let to):
+            return ("\(prefix)/usage/totals/", "from=\(from)&to=\(to)")
+        case .usageDaily(let from, let to):
+            return ("\(prefix)/usage/daily/", "from=\(from)&to=\(to)")
+        case .usageBreakdown(let from, let to, let groupBy):
+            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
+            return ("\(prefix)/usage/breakdown/", "from=\(from)&to=\(to)&groupBy=\(encoded)")
         }
     }
 
@@ -464,19 +525,19 @@ public final class HTTPTransport {
                 self.setSSEConnected(true)
                 log.info("SSE stream connected to \(url.absoluteString, privacy: .public)")
 
-                var dataBuffer = ""
-
                 for try await line in bytes.lines {
                     if Task.isCancelled { break }
 
                     if line.hasPrefix("data: ") {
-                        dataBuffer += String(line.dropFirst(6))
-                    } else if line.isEmpty && !dataBuffer.isEmpty {
-                        // End of SSE event — parse accumulated data
-                        self.parseSSEData(dataBuffer)
-                        dataBuffer = ""
+                        // AsyncLineSequence strips blank lines, so we never
+                        // see the empty-line boundary that the SSE spec uses
+                        // to delimit events. Flush each data line immediately
+                        // to avoid delaying the last event of a turn until an
+                        // unrelated line (e.g. heartbeat) arrives.
+                        let payload = String(line.dropFirst(6))
+                        self.parseSSEData(payload)
                     }
-                    // Skip event:, id:, retry: lines — we only need data:
+                    // Non-data lines (event:, id:, heartbeat) are ignored.
                 }
             } catch {
                 if !Task.isCancelled {
@@ -491,7 +552,46 @@ public final class HTTPTransport {
     }
 
     private func parseSSEData(_ data: String) {
-        guard let jsonData = data.data(using: .utf8) else { return }
+        // Remap the daemon's internal session/conversation ID to the client's
+        // local session ID so that ChatViewModel.belongsToSession() passes.
+        // The daemon assigns its own UUID via getOrCreateConversation(), which
+        // differs from the correlationId the client uses as sessionId.
+        var jsonString = data
+        if let localId = activeLocalSessionId {
+            if remoteSessionId == nil {
+                // Learn the daemon's session ID from the first event envelope.
+                if let eventData = data.data(using: .utf8),
+                   let envelope = try? decoder.decode(AssistantEvent.self, from: eventData),
+                   let eventSessionId = envelope.sessionId,
+                   eventSessionId != localId {
+                    remoteSessionId = eventSessionId
+                    log.info("Learned remote sessionId \(eventSessionId, privacy: .public) → local \(localId, privacy: .public)")
+                }
+            }
+            if let remoteId = remoteSessionId {
+                // Replace only the sessionId JSON value — not arbitrary occurrences
+                // of the UUID elsewhere in the payload. Handle both compact
+                // ("sessionId":"…") and pretty-printed ("sessionId": "…") JSON.
+                jsonString = jsonString.replacingOccurrences(
+                    of: "\"sessionId\":\"\(remoteId)\"",
+                    with: "\"sessionId\":\"\(localId)\""
+                )
+                jsonString = jsonString.replacingOccurrences(
+                    of: "\"sessionId\": \"\(remoteId)\"",
+                    with: "\"sessionId\": \"\(localId)\""
+                )
+                jsonString = jsonString.replacingOccurrences(
+                    of: "\"parentSessionId\":\"\(remoteId)\"",
+                    with: "\"parentSessionId\":\"\(localId)\""
+                )
+                jsonString = jsonString.replacingOccurrences(
+                    of: "\"parentSessionId\": \"\(remoteId)\"",
+                    with: "\"parentSessionId\": \"\(localId)\""
+                )
+            }
+        }
+
+        guard let jsonData = jsonString.data(using: .utf8) else { return }
 
         do {
             let event = try decoder.decode(AssistantEvent.self, from: jsonData)
@@ -537,7 +637,9 @@ public final class HTTPTransport {
             // For HTTP transport, session creation is implicit — the conversationKey
             // acts as the session. Emit a synthetic session_info so ChatViewModel
             // records the session ID.
-            let sessionId = msg.correlationId ?? UUID().uuidString
+            let sessionId = (msg.correlationId.flatMap { $0.isEmpty ? nil : $0 }) ?? UUID().uuidString
+            activeLocalSessionId = sessionId
+            remoteSessionId = nil  // Reset — will be learned from the first SSE event
             let info = ServerMessage.sessionInfo(
                 SessionInfoMessage(sessionId: sessionId, title: msg.title ?? "New Chat", correlationId: msg.correlationId)
             )
@@ -901,6 +1003,12 @@ public final class HTTPTransport {
                 return
             }
             await updateContactChannel(channelId: channelId, status: msg.status, policy: msg.policy, reason: msg.reason)
+        case "delete":
+            guard let contactId = msg.contactId else {
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "contactId is required for delete")))
+                return
+            }
+            await deleteContact(contactId: contactId)
         default:
             onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Unknown action: \(msg.action)")))
         }
@@ -980,8 +1088,47 @@ public final class HTTPTransport {
         }
     }
 
+    private func deleteContact(contactId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .contactsDelete(id: contactId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        await deleteContact(contactId: contactId, isRetry: true)
+                    }
+                    return
+                }
+                if http.statusCode == 204 {
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true)))
+                    return
+                }
+                if http.statusCode == 404 {
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Contact not found")))
+                    return
+                }
+                if http.statusCode == 403 {
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Permission denied")))
+                    return
+                }
+                log.error("HTTPTransport: delete contact failed (\(http.statusCode))")
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
+            }
+        } catch {
+            log.error("HTTPTransport: delete contact error: \(error.localizedDescription)")
+            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
+        }
+    }
+
     private func updateContactChannel(channelId: String, status: String?, policy: String?, reason: String?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .contactsChannelUpdate(channelId: channelId)) else { return }
+        guard let url = buildURL(for: .contactChannelUpdate(contactChannelId: channelId)) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "PATCH"
@@ -1031,10 +1178,237 @@ public final class HTTPTransport {
         let contacts: [ContactPayload]
     }
 
-    /// Response wrapper for `GET /v1/contacts/:id` and `PATCH /v1/contacts/channels/:id`.
+    /// Response wrapper for `GET /v1/contacts/:id` and `PATCH /v1/contact-channels/:contactChannelId`.
     private struct HTTPContactResponse: Decodable {
         let ok: Bool
         let contact: ContactPayload?
+    }
+
+    /// Response wrapper for `POST /v1/contacts` (upsert).
+    private struct HTTPContactUpsertResponse: Decodable {
+        let ok: Bool
+        let contact: ContactPayload
+    }
+
+    /// Response wrapper for `POST /v1/contacts/invites` (create invite).
+    private struct HTTPCreateInviteResponse: Decodable {
+        let ok: Bool
+        let invite: InvitePayload?
+        struct InvitePayload: Decodable {
+            let id: String
+            let sourceChannel: String
+            let token: String?
+            let share: SharePayload?
+            let status: String
+            let inviteCode: String?
+            let guardianInstruction: String?
+            let channelHandle: String?
+        }
+        struct SharePayload: Decodable {
+            let url: String
+            let displayText: String
+        }
+    }
+
+    /// Response wrapper for `GET /v1/channels/readiness`.
+    private struct HTTPChannelReadinessResponse: Decodable {
+        let success: Bool
+        let snapshots: [ChannelReadinessSnapshot]
+
+        struct ChannelReadinessSnapshot: Decodable {
+            let channel: String
+            let ready: Bool
+            let channelHandle: String?
+            let localChecks: [CheckResult]?
+            let remoteChecks: [CheckResult]?
+        }
+        struct CheckResult: Decodable {
+            let name: String
+            let passed: Bool
+            let message: String
+        }
+    }
+
+    /// Update a contact's metadata via `POST /v1/contacts` and return the updated payload.
+    /// Routes through `buildURL`/`applyAuth` so managed-mode URL paths and auth headers
+    /// are applied correctly.
+    func updateContactAndReturn(
+        contactId: String,
+        displayName: String,
+        notes: String? = nil,
+        isRetry: Bool = false
+    ) async throws -> ContactPayload? {
+        guard let url = buildURL(for: .contactsUpsert) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = ["id": contactId, "displayName": displayName]
+        if let notes { body["notes"] = notes }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await updateContactAndReturn(contactId: contactId, displayName: displayName, notes: notes, isRetry: true)
+                }
+                return nil
+            }
+            guard (200...201).contains(http.statusCode) else {
+                return nil
+            }
+        }
+
+        let decoded = try decoder.decode(HTTPContactUpsertResponse.self, from: data)
+        return decoded.contact
+    }
+
+    /// Create a new contact via `POST /v1/contacts` and return the created payload.
+    /// Omits the `id` field to trigger creation instead of update.
+    func createContactAndReturn(
+        displayName: String,
+        notes: String? = nil,
+        channels: [DaemonClient.NewContactChannel]? = nil,
+        isRetry: Bool = false
+    ) async throws -> ContactPayload? {
+        guard let url = buildURL(for: .contactsUpsert) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = ["displayName": displayName]
+        if let notes { body["notes"] = notes }
+        if let channels {
+            body["channels"] = channels.map { ch -> [String: Any] in
+                ["type": ch.type, "address": ch.address, "isPrimary": ch.isPrimary]
+            }
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await createContactAndReturn(displayName: displayName, notes: notes, channels: channels, isRetry: true)
+                }
+                return nil
+            }
+            guard (200...201).contains(http.statusCode) else {
+                return nil
+            }
+        }
+
+        let decoded = try decoder.decode(HTTPContactUpsertResponse.self, from: data)
+        return decoded.contact
+    }
+
+    // MARK: - Invite Creation
+
+    /// Create an invite for a contact channel via `POST /v1/contacts/invites`.
+    func createInvite(
+        sourceChannel: String,
+        note: String? = nil,
+        maxUses: Int? = nil,
+        contactName: String? = nil,
+        isRetry: Bool = false
+    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?, channelHandle: String?)? {
+        guard let url = buildURL(for: .contactsInvitesCreate) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = ["sourceChannel": sourceChannel]
+        if let note { body["note"] = note }
+        if let maxUses { body["maxUses"] = maxUses }
+        if let contactName { body["contactName"] = contactName }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, isRetry: true)
+                }
+                return nil
+            }
+            guard (200...201).contains(http.statusCode) else { return nil }
+        }
+
+        let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
+        guard let invite = decoded.invite, let token = invite.token else { return nil }
+        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
+    }
+
+    // MARK: - Channel Readiness
+
+    /// Fetch per-channel readiness from `GET /v1/channels/readiness`.
+    /// Returns a dictionary mapping channel type strings to their readiness state.
+    func fetchChannelReadiness(isRetry: Bool = false) async throws -> [String: DaemonClient.ChannelReadinessInfo] {
+        guard let url = buildURL(for: .channelsReadiness) else { return [:] }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        applyAuth(&request)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await fetchChannelReadiness(isRetry: true)
+                }
+                return [:]
+            }
+            guard (200...299).contains(http.statusCode) else { return [:] }
+        }
+
+        let decoded = try decoder.decode(HTTPChannelReadinessResponse.self, from: data)
+        var result: [String: DaemonClient.ChannelReadinessInfo] = [:]
+        for snapshot in decoded.snapshots {
+            let checks = ((snapshot.localChecks ?? []) + (snapshot.remoteChecks ?? []))
+                .map { DaemonClient.ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
+            result[snapshot.channel] = DaemonClient.ChannelReadinessInfo(
+                ready: snapshot.ready,
+                channelHandle: snapshot.channelHandle,
+                checks: checks
+            )
+        }
+        return result
+    }
+
+    // MARK: - Channel Verification
+
+    /// Send a verification code to a contact's channel via the gateway.
+    func verifyContactChannel(contactChannelId: String, isRetry: Bool = false) async throws -> DaemonClient.ChannelVerificationResult? {
+        guard let url = buildURL(for: .contactChannelVerify(contactChannelId: contactChannelId)) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    return try await verifyContactChannel(contactChannelId: contactChannelId, isRetry: true)
+                }
+                return nil
+            }
+            guard (200...299).contains(http.statusCode) else { return nil }
+        }
+        return try JSONDecoder().decode(DaemonClient.ChannelVerificationResult.self, from: data)
     }
 
     // MARK: - Surface Actions
@@ -1077,6 +1451,47 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("HTTPTransport: surface action error: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Surface Content Fetch
+
+    /// Fetch the full surface payload from the daemon for a stripped surface.
+    /// Returns the parsed `SurfaceData` on success, or `nil` if the surface
+    /// was not found or the response could not be parsed.
+    func fetchSurfaceData(surfaceId: String, sessionId: String, isRetry: Bool = false) async -> SurfaceData? {
+        guard let url = buildURL(for: .surfaceContent(surfaceId: surfaceId, sessionId: sessionId)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else {
+                    log.error("HTTPTransport: surface content fetch failed (\(http.statusCode))")
+                    return nil
+                }
+            }
+
+            guard let surfaceData = Surface.parseSurfaceDataFromResponse(data) else {
+                log.error("HTTPTransport: surface content response could not be parsed")
+                return nil
+            }
+
+            return surfaceData
+        } catch {
+            log.error("HTTPTransport: surface content fetch error: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -1470,6 +1885,89 @@ public final class HTTPTransport {
         }
     }
 
+    // MARK: - Usage Reporting
+
+    /// Fetch aggregate usage totals from `GET /v1/usage/totals`.
+    func fetchUsageTotals(from: Int, to: Int, isRetry: Bool = false) async -> UsageTotalsResponse? {
+        guard let url = buildURL(for: .usageTotals(from: from, to: to)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchUsageTotals(from: from, to: to, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(UsageTotalsResponse.self, from: data)
+        } catch {
+            log.error("fetchUsageTotals failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Fetch per-day usage buckets from `GET /v1/usage/daily`.
+    func fetchUsageDaily(from: Int, to: Int, isRetry: Bool = false) async -> UsageDailyResponse? {
+        guard let url = buildURL(for: .usageDaily(from: from, to: to)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchUsageDaily(from: from, to: to, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(UsageDailyResponse.self, from: data)
+        } catch {
+            log.error("fetchUsageDaily failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Fetch grouped usage breakdown from `GET /v1/usage/breakdown`.
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String, isRetry: Bool = false) async -> UsageBreakdownResponse? {
+        guard let url = buildURL(for: .usageBreakdown(from: from, to: to, groupBy: groupBy)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchUsageBreakdown(from: from, to: to, groupBy: groupBy, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(UsageBreakdownResponse.self, from: data)
+        } catch {
+            log.error("fetchUsageBreakdown failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     // MARK: - Disconnect
 
     func disconnect() {
@@ -1697,6 +2195,9 @@ public final class HTTPTransport {
         case .sessionToken:
             if let token = SessionTokenManager.getToken() {
                 request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+            }
+            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+                request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
             }
         }
     }

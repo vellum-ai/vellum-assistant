@@ -24,10 +24,10 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-// readHttpToken return value — controlled per test
-let httpTokenValue: string | null = null;
-
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => testDir,
   getDataDir: () => testDir,
   getIpcBlobDir: () => join(testDir, "ipc-blobs"),
@@ -39,10 +39,12 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => httpTokenValue,
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -66,8 +68,8 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
 }));
 
-// Mock token service — triggerGatewayReconcile now uses mintDaemonDeliveryToken
-// instead of readHttpToken for the Bearer token.
+// Mock token service — triggerGatewayReconcile uses mintDaemonDeliveryToken
+// for the Bearer token.
 let mintedToken: string | null = null;
 mock.module("../runtime/auth/token-service.js", () => ({
   mintDaemonDeliveryToken: () => mintedToken ?? "test-delivery-token",
@@ -127,7 +129,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
   beforeEach(() => {
     rawConfigStore = {};
-    httpTokenValue = null;
     mintedToken = null;
     reconcileCalls = [];
     fetchShouldFail = false;
@@ -194,9 +195,7 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
   // ── Token present/missing behavior ──────────────────────────────────────
 
-  test("always triggers reconcile even when readHttpToken returns null (uses mintDaemonDeliveryToken)", async () => {
-    httpTokenValue = null;
-
+  test("always triggers reconcile using mintDaemonDeliveryToken", async () => {
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -243,8 +242,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   // ── Request payload normalization ───────────────────────────────────────
 
   test("sends ingressPublicBaseUrl in reconcile body when URL is set", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -263,8 +260,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   });
 
   test("sends POST to /internal/telegram/reconcile with correct content type", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -283,8 +278,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   });
 
   test("normalizes trailing slashes in publicBaseUrl before sending reconcile", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -304,7 +297,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   });
 
   test("uses GATEWAY_INTERNAL_BASE_URL when set", async () => {
-    httpTokenValue = "test-token";
     process.env.GATEWAY_INTERNAL_BASE_URL = "http://custom-gateway:9999";
 
     const msg: IngressConfigRequest = {
@@ -326,8 +318,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   });
 
   test("defaults to localhost:7830 when no GATEWAY env vars set", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -347,7 +337,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   });
 
   test("uses GATEWAY_PORT when GATEWAY_INTERNAL_BASE_URL is not set", async () => {
-    httpTokenValue = "test-token";
     process.env.GATEWAY_PORT = "8888";
 
     const msg: IngressConfigRequest = {
@@ -371,7 +360,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   // ── Non-fatal failure behavior ──────────────────────────────────────────
 
   test("reconcile failure does not cause handleIngressConfig to fail", async () => {
-    httpTokenValue = "test-token";
     fetchShouldFail = true;
 
     const msg: IngressConfigRequest = {
@@ -404,8 +392,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   });
 
   test("response is sent before reconcile fetch completes", async () => {
-    httpTokenValue = "test-token";
-
     // Track timing: response should be sent before fetch resolves
     let fetchResolved = false;
     const originalMockFetch = globalThis.fetch;
@@ -456,8 +442,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   // ── Set flow ────────────────────────────────────────────────────────────
 
   test("set action with enabled=true and URL triggers reconcile with the URL", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -483,8 +467,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   // ── Clear flow ──────────────────────────────────────────────────────────
 
   test("set action with empty URL and enabled=true (clear URL) still triggers reconcile", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -512,8 +494,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   // ── Disable flow ────────────────────────────────────────────────────────
 
   test("set action with enabled=false triggers reconcile with empty URL", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -539,8 +519,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   });
 
   test("disabling ingress removes INGRESS_PUBLIC_BASE_URL env var", () => {
-    httpTokenValue = "test-token";
-
     // First set ingress to populate env var
     process.env.INGRESS_PUBLIC_BASE_URL =
       "https://should-be-removed.example.com";
@@ -562,7 +540,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   // ── Get action does not trigger reconcile ───────────────────────────────
 
   test("get action does not trigger reconcile", async () => {
-    httpTokenValue = "test-token";
     rawConfigStore = {
       ingress: { publicBaseUrl: "https://existing.example.com", enabled: true },
     };
@@ -593,8 +570,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   // ── Env var propagation ─────────────────────────────────────────────────
 
   test("set action propagates URL to process.env when enabled", () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -611,8 +586,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   });
 
   test("reconcile uses effective URL from process.env (not raw value)", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",

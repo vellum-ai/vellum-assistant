@@ -44,7 +44,6 @@ describe("send-notification tool", () => {
       sourceEventName: "user.send_notification",
       sourceChannel: "assistant_tool",
       sourceSessionId: "conv-override",
-      assistantId: "ast-alpha",
       attentionHints: {
         requiresAction: true,
         urgency: "high",

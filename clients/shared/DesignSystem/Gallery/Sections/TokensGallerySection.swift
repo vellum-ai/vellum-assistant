@@ -107,6 +107,7 @@ struct TokensGallerySection: View {
                     typographySample("monoSmall", font: VFont.monoSmall)
                     typographySample("display", font: VFont.display)
                     typographySample("cardTitle", font: VFont.cardTitle)
+                    typographySample("inviteCode", font: VFont.inviteCode)
                 }
             }
 

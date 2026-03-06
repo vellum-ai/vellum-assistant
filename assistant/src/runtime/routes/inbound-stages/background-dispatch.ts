@@ -8,7 +8,8 @@
  * focused on orchestration.
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { resolveUserReference } from "../../../config/user-reference.js";
+import { resolveGuardianName } from "../../../config/user-reference.js";
+import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type { TrustContext } from "../../../daemon/session-runtime-assembly.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import {
@@ -23,7 +24,6 @@ import {
   getApprovalInfoByConversation,
   getChannelApprovalPrompt,
 } from "../../channel-approvals.js";
-import { getGuardianBinding } from "../../channel-guardian-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
@@ -58,6 +58,8 @@ export interface BackgroundProcessingParams {
   approvalCopyGenerator?: ApprovalCopyGenerator;
   commandIntent?: Record<string, unknown>;
   sourceLanguageCode?: string;
+  /** External message ID (e.g. Slack message ts) used for reaction indicators. */
+  externalMessageId?: string;
 }
 
 /**
@@ -85,6 +87,7 @@ export function processChannelMessageInBackground(
     approvalCopyGenerator,
     commandIntent,
     sourceLanguageCode,
+    externalMessageId,
   } = params;
 
   (async () => {
@@ -102,6 +105,19 @@ export function processChannelMessageInBackground(
           assistantId,
         )
       : undefined;
+
+    // Add 👀 reaction to the inbound Slack message as a processing indicator
+    const removeSlackReaction =
+      shouldEmitSlackReaction(sourceChannel, replyCallbackUrl) &&
+      externalMessageId
+        ? addSlackEyesReaction(
+            replyCallbackUrl!,
+            externalChatId,
+            externalMessageId,
+            mintBearerToken,
+            assistantId,
+          )
+        : undefined;
     const stopApprovalWatcher = replyCallbackUrl
       ? startPendingApprovalPromptWatcher({
           conversationId,
@@ -193,6 +209,7 @@ export function processChannelMessageInBackground(
       channelDeliveryStore.recordProcessingFailure(eventId, err);
     } finally {
       stopTypingHeartbeat?.();
+      removeSlackReaction?.();
       stopApprovalWatcher?.();
       stopTcApprovalNotifier?.();
     }
@@ -254,6 +271,83 @@ export function startTelegramTypingHeartbeat(
     active = false;
     clearInterval(interval);
   };
+}
+
+// ---------------------------------------------------------------------------
+// Slack eyes reaction indicator
+// ---------------------------------------------------------------------------
+
+export function shouldEmitSlackReaction(
+  sourceChannel: ChannelId,
+  replyCallbackUrl?: string,
+): boolean {
+  if (sourceChannel !== "slack" || !replyCallbackUrl) return false;
+  try {
+    return new URL(replyCallbackUrl).pathname.endsWith("/deliver/slack");
+  } catch {
+    return replyCallbackUrl.endsWith("/deliver/slack");
+  }
+}
+
+const SLACK_EYES_MAX_DURATION_MS = 120_000;
+
+/**
+ * Add a 👀 reaction to the inbound Slack message and return a cleanup
+ * function that removes it. Both operations are fire-and-forget.
+ *
+ * A safety timer auto-removes the reaction after {@link SLACK_EYES_MAX_DURATION_MS}
+ * to prevent stuck eyes when `processMessage` hangs (e.g. queued behind
+ * an active session turn that never completes for this message).
+ */
+export function addSlackEyesReaction(
+  callbackUrl: string,
+  chatId: string,
+  messageTs: string,
+  mintBearerToken: () => string,
+  assistantId?: string,
+): () => void {
+  let removed = false;
+
+  // Track the add promise so remove waits for it to settle first,
+  // preventing a race where remove arrives at Slack before add.
+  const addPromise = deliverChannelReply(
+    callbackUrl,
+    {
+      chatId,
+      assistantId,
+      reaction: { action: "add", name: "eyes", messageTs },
+    },
+    mintBearerToken(),
+  ).catch((err) => {
+    log.debug({ err, chatId, messageTs }, "Failed to add Slack eyes reaction");
+  });
+
+  const removeReaction = () => {
+    if (removed) return;
+    removed = true;
+    clearTimeout(safetyTimer);
+    void addPromise.then(() =>
+      deliverChannelReply(
+        callbackUrl,
+        {
+          chatId,
+          assistantId,
+          reaction: { action: "remove", name: "eyes", messageTs },
+        },
+        mintBearerToken(),
+      ).catch((err) => {
+        log.debug(
+          { err, chatId, messageTs },
+          "Failed to remove Slack eyes reaction",
+        );
+      }),
+    );
+  };
+
+  const safetyTimer = setTimeout(removeReaction, SLACK_EYES_MAX_DURATION_MS);
+  (safetyTimer as { unref?: () => void }).unref?.();
+
+  return removeReaction;
 }
 
 // ---------------------------------------------------------------------------
@@ -348,41 +442,6 @@ export function startPendingApprovalPromptWatcher(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Guardian display name resolver
-// ---------------------------------------------------------------------------
-
-/**
- * Resolve a human-readable guardian name from the guardian binding metadata.
- * Returns the display name, username (prefixed with @), or undefined if
- * no name is available.
- */
-export function resolveGuardianDisplayName(
-  assistantId: string,
-  sourceChannel: ChannelId,
-): string | undefined {
-  const binding = getGuardianBinding(assistantId, sourceChannel);
-  if (!binding?.metadataJson) return undefined;
-  try {
-    const parsed = JSON.parse(binding.metadataJson) as Record<string, unknown>;
-    if (
-      typeof parsed.displayName === "string" &&
-      parsed.displayName.trim().length > 0
-    ) {
-      return parsed.displayName.trim();
-    }
-    if (
-      typeof parsed.username === "string" &&
-      parsed.username.trim().length > 0
-    ) {
-      return `@${parsed.username.trim()}`;
-    }
-  } catch {
-    // ignore malformed metadata
-  }
-  return undefined;
-}
-
-// ---------------------------------------------------------------------------
 // Trusted contact approval notifier
 // ---------------------------------------------------------------------------
 
@@ -448,11 +507,10 @@ export function startTrustedContactApprovalNotifier(params: {
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
-          const guardianName =
-            resolveGuardianDisplayName(
-              assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-              sourceChannel,
-            ) ?? resolveUserReference();
+          const guardian = findGuardianForChannel(sourceChannel);
+          const guardianName = resolveGuardianName(
+            guardian?.contact.displayName,
+          );
           const waitingText = `Waiting for ${guardianName}'s approval...`;
           try {
             await deliverChannelReply(

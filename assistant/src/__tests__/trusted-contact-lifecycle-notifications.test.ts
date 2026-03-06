@@ -33,7 +33,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => "test-bearer-token",
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -92,7 +91,7 @@ import { getResolver } from "../approvals/guardian-request-resolvers.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import {
   createGuardianBinding,
-  upsertMember,
+  upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import { createApprovalRequest } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
@@ -169,15 +168,13 @@ describe("trusted contact lifecycle notification signals", () => {
   test("guardian deny emits guardian_decision and denied signals", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertMember({
-      assistantId: "self",
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -192,7 +189,6 @@ describe("trusted contact lifecycle notification signals", () => {
       runId: `ingress-access-request-${Date.now()}`,
       requestId: testRequestId,
       conversationId: "access-req-telegram-requester-user-456",
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
@@ -251,15 +247,13 @@ describe("trusted contact lifecycle notification signals", () => {
   test("guardian approve emits guardian_decision and verification_sent signals", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertMember({
-      assistantId: "self",
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -274,7 +268,6 @@ describe("trusted contact lifecycle notification signals", () => {
       runId: `ingress-access-request-${Date.now()}`,
       requestId: testRequestId,
       conversationId: "access-req-telegram-requester-user-456",
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
@@ -329,15 +322,13 @@ describe("trusted contact lifecycle notification signals", () => {
   test("deduplication keys prevent duplicate signals", async () => {
     // Set up guardian binding and member record (guardians must pass ACL)
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertMember({
-      assistantId: "self",
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -351,7 +342,6 @@ describe("trusted contact lifecycle notification signals", () => {
       runId: `ingress-access-request-${Date.now()}`,
       requestId: testRequestId,
       conversationId: "access-req-telegram-requester-user-456",
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-user-456",
       requesterChatId: "requester-chat-456",
@@ -396,7 +386,6 @@ describe("trusted contact activated notification signal", () => {
   test("successful trusted contact verification emits activated signal", async () => {
     // Set up a guardian binding so the verification path allows bypass
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -406,7 +395,6 @@ describe("trusted contact activated notification signal", () => {
 
     // Create an identity-bound outbound session (simulates M3 approval flow)
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-456",
       expectedChatId: "chat-123",
@@ -453,7 +441,6 @@ describe("trusted contact activated notification signal", () => {
 
   test("re-verification preserves an existing guardian-managed member display name", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -461,8 +448,7 @@ describe("trusted contact activated notification signal", () => {
       verifiedVia: "test",
     });
 
-    upsertMember({
-      assistantId: "self",
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "chat-123",
@@ -472,7 +458,6 @@ describe("trusted contact activated notification signal", () => {
     });
 
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-456",
       expectedChatId: "chat-123",
@@ -503,7 +488,7 @@ describe("trusted contact activated notification signal", () => {
     // Create an inbound challenge (guardian flow, not trusted contact)
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
-    const { secret } = createVerificationChallenge("self", "telegram");
+    const { secret } = createVerificationChallenge("telegram");
 
     // "Guardian" enters the verification code
     const verifyReq = buildInboundRequest({
@@ -524,7 +509,7 @@ describe("trusted contact activated notification signal", () => {
   test("voice access_request resolver has registered handler for access_request kind", () => {
     // The access_request resolver is registered during module load. When the
     // source channel is 'voice', it should directly activate the member via
-    // upsertMember (no verification session). This test validates the resolver
+    // upsertContactChannel (no verification session). This test validates the resolver
     // is registered and accessible.
     const resolver = getResolver("access_request");
     expect(resolver).toBeDefined();
@@ -534,7 +519,6 @@ describe("trusted contact activated notification signal", () => {
   test("member is persisted BEFORE activated signal is emitted", async () => {
     // Set up a guardian binding
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -543,7 +527,6 @@ describe("trusted contact activated notification signal", () => {
     });
 
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-456",
       expectedChatId: "chat-123",
@@ -566,7 +549,7 @@ describe("trusted contact activated notification signal", () => {
     );
     expect(activatedSignals.length).toBe(1);
 
-    // Verify the member was already persisted (the signal fires after upsertMember)
+    // Verify the member was already persisted (the signal fires after upsertContactChannel)
     const result = findContactChannel({
       channelType: "telegram",
       externalUserId: "requester-user-456",

@@ -340,7 +340,7 @@ The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsAp
 
 1. **Webhook verification**: Meta sends a `GET` with `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`. The gateway compares `hub.verify_token` against `WHATSAPP_WEBHOOK_VERIFY_TOKEN` and echoes `hub.challenge` as plain text.
 2. On `POST`, the gateway verifies the `X-Hub-Signature-256` header (HMAC-SHA256 of the raw request body using `WHATSAPP_APP_SECRET`) when the app secret is configured. Fail-closed: requests are rejected when the secret is set but the signature fails.
-3. **Normalization**: Only `type=text` messages from `messages` change fields are forwarded. Delivery receipts, read receipts, and non-text message types (image, audio, video, document, sticker) are silently acknowledged with `{ ok: true }`.
+3. **Normalization**: Text and media messages (image, audio, video, document, sticker) from `messages` change fields are forwarded. Delivery receipts, read receipts, and unsupported message types (contacts, location) are silently acknowledged with `{ ok: true }`. Media attachments are downloaded from the WhatsApp Cloud API, uploaded to the runtime attachment store, and their IDs are passed alongside the message content.
 4. **`/new` command**: When the message body is `/new` (case-insensitive), the gateway resolves routing, resets the conversation, and sends a confirmation message without forwarding to the runtime.
 5. The payload is normalized into a `GatewayInboundEvent` with `sourceChannel: "whatsapp"` and `conversationExternalId` set to the sender's WhatsApp phone number (E.164).
 6. WhatsApp message IDs are deduplicated via `StringDedupCache` (24-hour TTL).
@@ -363,7 +363,7 @@ The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsAp
 
 These can be set via environment variables or stored in the credential vault (keychain / encrypted store) under the `whatsapp` service prefix.
 
-**Limitations (v1)**: Text-only — non-text message types are acknowledged but not forwarded; rich approval UI (inline buttons) is not supported.
+**Limitations (v1)**: Rich approval UI (inline buttons) is not supported. Contacts and location message types are acknowledged but not forwarded.
 
 **Channel Readiness**: The channel readiness HTTP endpoints (`GET /v1/channels/readiness`, `POST /v1/channels/readiness/refresh`) backed by `ChannelReadinessService` in `src/runtime/channel-readiness-service.ts` provide a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress; remote checks query Twilio toll-free verification status for toll-free numbers) and Telegram (bot token, webhook secret, ingress). The GET endpoint returns cached snapshots; the refresh endpoint invalidates the cache first. Unknown channels return `unsupported_channel`. Route handlers live in `src/runtime/routes/channel-readiness-routes.ts`.
 
@@ -441,13 +441,13 @@ External users who are not the guardian can gain access to the assistant through
 
 **HTTP API (for management):**
 
-| Endpoint                    | Method | Description                                                      |
-| --------------------------- | ------ | ---------------------------------------------------------------- |
-| `/v1/contacts`              | GET    | List contacts (filterable by role, search by query/channel/etc.) |
-| `/v1/contacts`              | POST   | Create or update a contact                                       |
-| `/v1/contacts/:id`          | GET    | Get a contact by ID                                              |
-| `/v1/contacts/merge`        | POST   | Merge two contacts                                               |
-| `/v1/contacts/channels/:id` | PATCH  | Update a contact channel's status/policy                         |
+| Endpoint                                 | Method | Description                                                      |
+| ---------------------------------------- | ------ | ---------------------------------------------------------------- |
+| `/v1/contacts`                           | GET    | List contacts (filterable by role, search by query/channel/etc.) |
+| `/v1/contacts`                           | POST   | Create or update a contact                                       |
+| `/v1/contacts/:id`                       | GET    | Get a contact by ID                                              |
+| `/v1/contacts/merge`                     | POST   | Merge two contacts                                               |
+| `/v1/contact-channels/:contactChannelId` | PATCH  | Update a contact channel's status/policy                         |
 
 **Key source files:**
 
@@ -497,7 +497,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 3. The skill calls the ingress HTTP API to create an invite token, then calls the Telegram transport adapter to build a deep link: `https://t.me/<bot>?start=iv_<token>`.
 4. Guardian shares the link with the invitee out-of-band.
 5. Invitee clicks the link, opening Telegram which sends `/start iv_<token>` to the bot.
-6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getTransport('telegram').extractInboundToken()` to parse the `iv_` token.
+6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getInviteAdapterRegistry().get('telegram').extractInboundToken()` to parse the `iv_` token.
 7. The token is redeemed via `invite-redemption-service.ts`, which validates, activates the contact, and returns a `redeemed` outcome.
 8. A deterministic welcome message is delivered to the invitee (bypasses the LLM pipeline).
 
@@ -672,8 +672,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 **Public API:**
 
 - `isAssistantFeatureFlagEnabled(key, config)` — full resolver with the canonical key
-- `isAssistantSkillEnabled(skillId, config)` — convenience wrapper that constructs `feature_flags.<skillId>.enabled` and delegates
-- `isSkillFeatureEnabled(skillId, config)` — deprecated legacy wrapper in `config/skill-state.ts`
+- `skillFlagKey(skillId)` — derives the canonical flag key for a skill, respecting overrides (in `config/skill-state.ts`)
 
 **Skill-gating guarantee:** For skills that are explicitly mapped to declared assistant flags, when the flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at five independent points:
 
@@ -685,24 +684,24 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
 
-All five enforcement points use `isAssistantSkillEnabled()` from `config/assistant-feature-flags.ts` for consistency.
+All five enforcement points use `isAssistantFeatureFlagEnabled(skillFlagKey(skillId), config)` for consistency.
 
 **Migration path:** The legacy `skills.<id>.enabled` key format is no longer supported. All code must use the canonical `feature_flags.<id>.enabled` format. Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
 
 **Key source files:**
 
-| File                                            | Purpose                                                                                                                                  |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `isAssistantSkillEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader |
-| `src/config/skill-state.ts`                     | `isSkillFeatureEnabled()` (deprecated wrapper) — delegates to canonical resolver; `resolveSkillStates()` — enforcement point 1           |
-| `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                                            |
-| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                        |
-| `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                                              |
-| `src/config/schema.ts`                          | `featureFlags` and `assistantFeatureFlagValues` field definitions in `AssistantConfig` (Zod schema)                                      |
-| `src/config/types.ts`                           | Type definitions for `FeatureFlags` (legacy) and `AssistantFeatureFlagValues` (canonical)                                                |
-| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses                                                              |
-| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                       |
-| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                                      |
+| File                                            | Purpose                                                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader        |
+| `src/config/skill-state.ts`                     | `skillFlagKey()` — derives canonical flag key for skills; `resolveSkillStates()` — enforcement point 1             |
+| `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                      |
+| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                  |
+| `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                        |
+| `src/config/schema.ts`                          | `featureFlags` and `assistantFeatureFlagValues` field definitions in `AssistantConfig` (Zod schema)                |
+| `src/config/types.ts`                           | Type definitions for `FeatureFlags` (legacy) and `AssistantFeatureFlagValues` (canonical)                          |
+| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses                                        |
+| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
+| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                |
 
 ---
 
@@ -883,7 +882,7 @@ graph LR
         C5["user_message<br/>text, attachments"]
         C6["confirmation_response<br/>decision"]
         C7["cancel / undo"]
-        C8["model_get / model_set<br/>sandbox_set (deprecated no-op)"]
+        C8["model_get / model_set"]
         C9["ping"]
         C10["ipc_blob_probe<br/>probeId, nonceSha256"]
         C11["work_items_list / work_item_get<br/>work_item_create / work_item_update<br/>work_item_complete / work_item_run_task<br/>(planned)"]
@@ -1408,19 +1407,19 @@ Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKIL
 
 ### Bundled Skill Retrieval Contract (CLI-First)
 
-Config/status retrieval instructions in bundled `SKILL.md` files are CLI-first. Retrieval should flow through canonical `vellum` CLI surfaces (`vellum config get` for generic settings, secure credential surfaces for secrets, and domain reads where available) instead of direct gateway curl snippets or keychain lookups.
+Config/status retrieval instructions in bundled `SKILL.md` files are CLI-first. Retrieval should flow through canonical `vellum` CLI surfaces (`assistant config get` for generic settings, secure credential surfaces for secrets, and domain reads where available) instead of direct gateway curl snippets or keychain lookups.
 
 ```mermaid
 graph LR
     SKILL["SKILL.md retrieval instruction"] --> BASH["bash tool"]
-    BASH --> CLI["vellum config get / secure credential surfaces / domain reads"]
+    BASH --> CLI["assistant config get / secure credential surfaces / domain reads"]
     CLI --> GW["Gateway read route (when needed)"]
     GW --> RT["Runtime handler/config service"]
 ```
 
 Rules enforced by guard tests:
 
-- Retrieval reads use `bash` + canonical CLI surfaces (`vellum config get` and domain read commands where available).
+- Retrieval reads use `bash` + canonical CLI surfaces (`assistant config get` and domain read commands where available).
 - Direct gateway `curl` + manual bearer headers are for control-plane writes/actions, not retrieval reads.
 - Bundled skill docs must not instruct direct keychain lookups (`security find-generic-password`, `secret-tool`) for retrieval.
 - `host_bash` is not used for Vellum CLI retrieval commands unless intentionally allowlisted.
@@ -1549,7 +1548,7 @@ graph TB
 
 ## Permission and Trust Security Model
 
-The permission system controls which tool actions the agent can execute without explicit user approval. It supports three operating modes (`workspace`, `strict`, and `legacy`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
+The permission system controls which tool actions the agent can execute without explicit user approval. It supports two operating modes (`workspace` and `strict`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
 
 ### Permission Evaluation Flow
 
@@ -1577,35 +1576,31 @@ graph TB
     RISK_FALLBACK_WS -->|"Low"| AUTO_WS_LOW["decision: allow<br/>Low risk auto-allow"]
     RISK_FALLBACK_WS -->|"Medium"| PROMPT_WS_MED["decision: prompt"]
     RISK_FALLBACK_WS -->|"High"| PROMPT_WS_HIGH["decision: prompt"]
-    NO_MATCH -->|"legacy mode"| RISK_FALLBACK{"Risk level?"}
-    RISK_FALLBACK -->|"Low"| AUTO_LOW["decision: allow<br/>Low risk auto-allow"]
-    RISK_FALLBACK -->|"Medium"| PROMPT_MED["decision: prompt"]
-    RISK_FALLBACK -->|"High"| PROMPT_HIGH2["decision: prompt"]
 ```
 
-### Permission Modes: Workspace, Strict, and Legacy
+### Permission Modes: Workspace and Strict
 
-The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
+The `permissions.mode` config option (`workspace` or `strict`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
 
-| Behavior                                           | Workspace mode (default)                      | Strict mode                                   | Legacy mode (deprecated)                      |
-| -------------------------------------------------- | --------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
-| Workspace-scoped ops with no matching rule         | Auto-allowed                                  | Prompted                                      | Auto-allowed (low risk)                       |
-| Non-workspace low-risk tools with no matching rule | Auto-allowed                                  | Prompted                                      | Auto-allowed                                  |
-| Medium-risk tools with no matching rule            | Prompted                                      | Prompted                                      | Prompted                                      |
-| High-risk tools with no matching rule              | Prompted                                      | Prompted                                      | Prompted                                      |
-| `skill_load` with no matching rule                 | Prompted                                      | Prompted                                      | Auto-allowed (low risk)                       |
-| `skill_load` with system default rule              | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
-| `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
-| Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      | Prompted                                      |
-| Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  | Auto-allowed                                  |
-| Allow rules with `allowHighRisk: true`             | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 |
-| Deny rules                                         | Blocked                                       | Blocked                                       | Blocked                                       |
+| Behavior                                           | Workspace mode (default)                      | Strict mode                                   |
+| -------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
+| Workspace-scoped ops with no matching rule         | Auto-allowed                                  | Prompted                                      |
+| Non-workspace low-risk tools with no matching rule | Auto-allowed                                  | Prompted                                      |
+| Medium-risk tools with no matching rule            | Prompted                                      | Prompted                                      |
+| High-risk tools with no matching rule              | Prompted                                      | Prompted                                      |
+| `skill_load` with no matching rule                 | Prompted                                      | Prompted                                      |
+| `skill_load` with system default rule              | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
+| `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
+| Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      |
+| Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  |
+| Allow rules with `allowHighRisk: true`             | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 |
+| Deny rules                                         | Blocked                                       | Blocked                                       |
 
 **Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
 
 **Strict mode** is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
 
-**Legacy mode** (deprecated) auto-allows all low-risk tools regardless of scope. It is deprecated and will be removed in a future release. A one-time runtime warning is emitted when legacy mode is active. Users should migrate to `workspace` (default) or `strict`.
+> **Migration note:** Existing config files with `permissions.mode = "legacy"` are automatically migrated to `workspace` during config loading. The `legacy` value is not a supported steady-state mode.
 
 ### Trust Rules (v3 Schema)
 
@@ -1649,7 +1644,7 @@ The `skill_load` tool generates version-aware command candidates for rule matchi
 2. `skill_load:<skill-id>` — matches any-version rules
 3. `skill_load:<raw-selector>` — matches the raw user-provided selector
 
-In strict mode, `skill_load` without a matching rule is always prompted. In legacy mode, it is auto-allowed as a Low-risk tool. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
+In strict mode, `skill_load` without a matching rule is always prompted. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
 
 ### Starter Approval Bundle
 
@@ -1684,7 +1679,7 @@ In addition to the opt-in starter bundle, the permission system seeds unconditio
 | `default:allow-browser_extract-global`         | `browser_extract`         | `browser_extract:*`         | (same)                                                                                                   |
 | `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same)                                                                                                   |
 
-These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both strict and legacy modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
+These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both workspace and strict modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
 
 ### Shell Command Identity and Allowlist Options
 
@@ -1732,7 +1727,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
 | `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
 | `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
-| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict` / `legacy`)                                                                                                  |
+| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict`)                                                                                                             |
 | `assistant/src/tools/executor.ts`             | `ToolExecutor` — orchestrates risk classification, permission check, and execution                                                                                                  |
 | `assistant/src/daemon/handlers/config.ts`     | `handleToolPermissionSimulate()` — dry-run simulation handler                                                                                                                       |
 

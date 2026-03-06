@@ -116,6 +116,24 @@ public enum ActorTokenManager {
         _ = APIKeyManager.shared.deleteAPIKey(provider: refreshAfterProvider)
     }
 
+    // MARK: - Async Token Resolution
+
+    /// Waits for a non-empty token to become available, polling at 500ms intervals.
+    /// Returns the token once available, or `nil` if the timeout elapses.
+    /// Use this in callsites that fire during the bootstrap window (e.g. on
+    /// daemonDidReconnect) where the JWT may not yet be populated.
+    public static func waitForToken(timeout: TimeInterval = 10) async -> String? {
+        if let token = getToken(), !token.isEmpty { return token }
+
+        let deadline = CFAbsoluteTimeGetCurrent() + timeout
+        while CFAbsoluteTimeGetCurrent() < deadline {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return nil }
+            if let token = getToken(), !token.isEmpty { return token }
+        }
+        return nil
+    }
+
     // MARK: - Proactive Refresh Checks
 
     /// Whether the access token needs proactive refresh.

@@ -33,31 +33,6 @@ const THREAD_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_MAPPINGS = 5_000;
 
 /**
- * Look up the Slack thread timestamp for a conversation.
- * Returns null if no active thread mapping exists or the mapping has expired.
- */
-export function getThreadTs(
-  conversationId: string,
-  channelId: string,
-): string | null {
-  const mapping = threadMappings.get(conversationId);
-  if (!mapping) return null;
-
-  // Must be for the same channel
-  if (mapping.channelId !== channelId) return null;
-
-  // Check TTL
-  if (Date.now() - mapping.lastUsedAt > THREAD_TTL_MS) {
-    threadMappings.delete(conversationId);
-    return null;
-  }
-
-  // Update last-used timestamp
-  mapping.lastUsedAt = Date.now();
-  return mapping.threadTs;
-}
-
-/**
  * Associate a conversation with a Slack thread. Called when:
  * - An inbound message arrives with a threadTs (from the gateway callback URL)
  * - The assistant creates a new thread for a channel conversation
@@ -85,41 +60,6 @@ export function setThreadTs(
   });
 
   log.debug({ conversationId, channelId, threadTs }, "Thread mapping created");
-}
-
-/**
- * Remove the thread mapping for a conversation.
- * Called when a conversation should start a fresh thread.
- */
-export function clearThreadTs(conversationId: string): void {
-  threadMappings.delete(conversationId);
-}
-
-/**
- * Get all active thread mappings for a channel.
- * Useful for diagnostics and the configure tool.
- */
-export function getChannelThreadMappings(
-  channelId: string,
-): Array<{ conversationId: string; threadTs: string; lastUsedAt: number }> {
-  const results: Array<{
-    conversationId: string;
-    threadTs: string;
-    lastUsedAt: number;
-  }> = [];
-
-  const now = Date.now();
-  for (const [convId, mapping] of threadMappings) {
-    if (mapping.channelId !== channelId) continue;
-    if (now - mapping.lastUsedAt > THREAD_TTL_MS) continue;
-    results.push({
-      conversationId: convId,
-      threadTs: mapping.threadTs,
-      lastUsedAt: mapping.lastUsedAt,
-    });
-  }
-
-  return results;
 }
 
 /**
@@ -175,13 +115,4 @@ function evictExpiredIfNeeded(): void {
       threadMappings.delete(convId);
     }
   }
-}
-
-// ── Test helpers ────────────────────────────────────────────────────
-
-/**
- * Clear all thread mappings. Used in tests for isolation.
- */
-export function resetAllThreadMappings(): void {
-  threadMappings.clear();
 }

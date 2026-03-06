@@ -13,12 +13,16 @@
 
 import { answerCall } from "../calls/call-domain.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
-import { upsertMember } from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import {
+  isNotificationSourceChannel,
+  type NotificationSourceChannel,
+} from "../notifications/signal.js";
 import { addRule } from "../permissions/trust-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
@@ -42,8 +46,10 @@ const log = getLogger("guardian-request-resolvers");
 
 /** Actor context for the entity making the decision. */
 export interface ActorContext {
-  /** External user ID of the deciding actor (undefined for desktop actors). */
-  externalUserId: string | undefined;
+  /** Auth-identity principal ID of the deciding actor (undefined for callback-only actors). */
+  actorPrincipalId: string | undefined;
+  /** Channel-native external user ID (Telegram user ID, E.164 phone, etc.) of the deciding actor (undefined for desktop actors). Maps to `decided_by_external_user_id` DB column. */
+  actorExternalUserId: string | undefined;
   /** Channel the decision arrived on. */
   channel: string;
   /** Principal ID for authorization — must match the request's guardianPrincipalId. */
@@ -343,13 +349,17 @@ const accessRequestResolver: GuardianRequestResolver = {
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, channelDeliveryContext } = ctx;
-    const channel = request.sourceChannel ?? "unknown";
+    const channel: NotificationSourceChannel = isNotificationSourceChannel(
+      request.sourceChannel,
+    )
+      ? request.sourceChannel
+      : "vellum";
     const requesterExternalUserId = request.requesterExternalUserId ?? "";
     const requesterChatId =
       request.requesterChatId ?? request.requesterExternalUserId ?? "";
     const requesterLabel =
       requesterExternalUserId || requesterChatId || "the requester";
-    const decidedByExternalUserId = ctx.actor.externalUserId ?? "";
+    const decidedByExternalUserId = ctx.actor.actorExternalUserId ?? "";
     const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     const desktopDeliverUrl = resolveDeliverCallbackUrlForChannel(channel);
     const desktopBearerToken = mintDaemonDeliveryToken();
@@ -391,7 +401,6 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceEventName: "ingress.trusted_contact.guardian_decision",
           sourceChannel: channel,
           sourceSessionId: request.conversationId ?? "",
-          assistantId,
           attentionHints: {
             requiresAction: false,
             urgency: "medium",
@@ -406,7 +415,6 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceEventName: "ingress.trusted_contact.denied",
           sourceChannel: channel,
           sourceSessionId: request.conversationId ?? "",
-          assistantId,
           attentionHints: {
             requiresAction: false,
             urgency: "low",
@@ -451,8 +459,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "voice") {
       try {
-        upsertMember({
-          assistantId,
+        upsertContactChannel({
           sourceChannel: "voice",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,
@@ -482,7 +489,6 @@ const accessRequestResolver: GuardianRequestResolver = {
     // Non-voice approvals: mint an identity-bound verification session so the
     // requester can verify their identity.
     const session = createOutboundSession({
-      assistantId,
       channel,
       expectedExternalUserId: requesterExternalUserId,
       expectedChatId: requesterChatId,
@@ -580,7 +586,6 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceEventName: "ingress.trusted_contact.verification_sent",
           sourceChannel: channel,
           sourceSessionId: request.conversationId ?? "",
-          assistantId,
           attentionHints: {
             requiresAction: false,
             urgency: "low",

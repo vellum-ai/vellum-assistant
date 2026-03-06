@@ -4,7 +4,11 @@ import {
   invalidateConfigCache,
 } from "../../config/loader.js";
 import { initializeProviders } from "../../providers/registry.js";
-import { deleteSecureKey, setSecureKey } from "../../security/secure-keys.js";
+import {
+  deleteSecureKeyAsync,
+  getSecureKeyAsync,
+  setSecureKeyAsync,
+} from "../../security/secure-keys.js";
 import {
   assertMetadataWritable,
   deleteCredentialMetadata,
@@ -12,6 +16,7 @@ import {
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("runtime-http");
 
@@ -47,7 +52,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
           400,
         );
       }
-      const stored = setSecureKey(name, value);
+      const stored = await setSecureKeyAsync(name, value);
       if (!stored) {
         return httpError(
           "INTERNAL_ERROR",
@@ -74,7 +79,7 @@ export async function handleAddSecret(req: Request): Promise<Response> {
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
       const key = `credential:${service}:${field}`;
-      const stored = setSecureKey(key, value);
+      const stored = await setSecureKeyAsync(key, value);
       if (!stored) {
         return httpError(
           "INTERNAL_ERROR",
@@ -127,9 +132,19 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
           400,
         );
       }
-      const deleted = deleteSecureKey(name);
-      if (!deleted) {
+      // Check existence first — the broker always returns "deleted" even
+      // for keys that don't exist, so we need a pre-check for 404 semantics.
+      const existing = await getSecureKeyAsync(name);
+      if (existing === undefined) {
         return httpError("NOT_FOUND", `API key not found: ${name}`, 404);
+      }
+      const deleteResult = await deleteSecureKeyAsync(name);
+      if (deleteResult === "error") {
+        return httpError(
+          "INTERNAL_ERROR",
+          `Failed to delete API key from secure storage: ${name}`,
+          500,
+        );
       }
       invalidateConfigCache();
       initializeProviders(getConfig());
@@ -150,9 +165,19 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       const field = name.slice(colonIdx + 1);
       assertMetadataWritable();
       const key = `credential:${service}:${field}`;
-      const deleted = deleteSecureKey(key);
-      if (!deleted) {
+      // Check existence first — the broker always returns "deleted" even
+      // for keys that don't exist, so we need a pre-check for 404 semantics.
+      const existing = await getSecureKeyAsync(key);
+      if (existing === undefined) {
         return httpError("NOT_FOUND", `Credential not found: ${name}`, 404);
+      }
+      const deleteResult = await deleteSecureKeyAsync(key);
+      if (deleteResult === "error") {
+        return httpError(
+          "INTERNAL_ERROR",
+          `Failed to delete credential from secure storage: ${name}`,
+          500,
+        );
       }
       deleteCredentialMetadata(service, field);
       log.info({ service, field }, "Credential deleted via HTTP");
@@ -169,4 +194,23 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
     log.error({ err, type, name }, "Failed to delete secret via HTTP");
     return httpError("INTERNAL_ERROR", message, 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function secretRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "secrets",
+      method: "POST",
+      handler: async ({ req }) => handleAddSecret(req),
+    },
+    {
+      endpoint: "secrets",
+      method: "DELETE",
+      handler: async ({ req }) => handleDeleteSecret(req),
+    },
+  ];
 }

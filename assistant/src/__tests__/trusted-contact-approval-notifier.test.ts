@@ -17,7 +17,10 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 const testDir = mkdtempSync(join(tmpdir(), "tc-approval-notifier-test-"));
 
 // ── Platform mock ──
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getDataDir: () => testDir,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -26,7 +29,6 @@ mock.module("../util/platform.js", () => ({
   getPidPath: () => join(testDir, "test.pid"),
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
-  readHttpToken: () => "test-token",
   ensureDataDir: () => {},
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},
@@ -35,7 +37,10 @@ mock.module("../util/platform.js", () => ({
 }));
 
 // ── Logger mock ──
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -80,10 +85,15 @@ mock.module("../runtime/gateway-client.js", () => ({
 }));
 
 // ── Guardian binding mock ──
-let mockGuardianBinding: Record<string, unknown> | null = null;
+// mockGuardianContact controls what findGuardianForChannel returns.
+// When non-null, it should look like { contact: { displayName: "..." }, channel: { ... } }.
+let mockGuardianContact: {
+  contact: { displayName: string };
+  channel: Record<string, unknown>;
+} | null = null;
 
 mock.module("../runtime/channel-guardian-service.js", () => ({
-  getGuardianBinding: () => mockGuardianBinding,
+  getGuardianBinding: () => null,
   // Re-export stubs for other functions to prevent import errors
   bindSessionIdentity: () => {},
   createOutboundSession: () => ({}),
@@ -98,6 +108,11 @@ mock.module("../runtime/channel-guardian-service.js", () => ({
     success: false,
     reason: "no_challenge",
   }),
+}));
+
+// ── Contact store mock ──
+mock.module("../contacts/contact-store.js", () => ({
+  findGuardianForChannel: () => mockGuardianContact,
 }));
 
 // ── Pending interactions mock ──
@@ -121,13 +136,26 @@ mock.module("../config/env.js", () => ({
 }));
 
 // ── User reference mock ──
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realUserReference = require("../config/user-reference.js");
 mock.module("../config/user-reference.js", () => ({
+  ...realUserReference,
   resolveUserReference: () => "my human",
+  resolveGuardianName: (guardianDisplayName?: string | null): string => {
+    // Mirror the real implementation: USER.md name > guardianDisplayName > default
+    const userRef = "my human"; // In tests, resolveUserReference() returns this
+    if (userRef !== "my human") return userRef;
+    if (guardianDisplayName && guardianDisplayName.trim().length > 0) {
+      return guardianDisplayName.trim();
+    }
+    return "my human";
+  },
 }));
 
 // Import module under test AFTER mocks are set up
 import type { ChannelId } from "../channels/types.js";
-import { resolveUserReference } from "../config/user-reference.js";
+import { resolveGuardianName } from "../config/user-reference.js";
+import { findGuardianForChannel } from "../contacts/contact-store.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 
 // We need to test the private functions by importing the module.
@@ -178,8 +206,6 @@ async function simulateNotifierPoll(params: {
   const { getApprovalInfoByConversation } =
     await import("../runtime/channel-approvals.js");
   const { deliverChannelReply } = await import("../runtime/gateway-client.js");
-  const { getGuardianBinding } =
-    await import("../runtime/channel-guardian-service.js");
 
   const pending = getApprovalInfoByConversation(params.conversationId);
   const info = pending[0];
@@ -198,37 +224,11 @@ async function simulateNotifierPoll(params: {
 
   notifiedRequestIds.set(info.requestId, conversationId);
 
-  // Resolve guardian name
-  let guardianName: string | undefined;
-  const binding = getGuardianBinding(
-    params.assistantId ?? "self",
-    params.sourceChannel,
-  );
-  if (binding?.metadataJson) {
-    try {
-      const parsed = JSON.parse(binding.metadataJson as string) as Record<
-        string,
-        unknown
-      >;
-      if (
-        typeof parsed.displayName === "string" &&
-        parsed.displayName.trim().length > 0
-      ) {
-        guardianName = parsed.displayName.trim();
-      } else if (
-        typeof parsed.username === "string" &&
-        parsed.username.trim().length > 0
-      ) {
-        guardianName = `@${parsed.username.trim()}`;
-      }
-    } catch {
-      // ignore
-    }
-  }
+  // Resolve guardian name via the contacts-based approach
+  const guardian = findGuardianForChannel(params.sourceChannel);
+  const guardianName = resolveGuardianName(guardian?.contact.displayName);
 
-  const waitingText = `Waiting for ${
-    guardianName ?? resolveUserReference()
-  }'s approval...`;
+  const waitingText = `Waiting for ${guardianName}'s approval...`;
 
   try {
     await deliverChannelReply(
@@ -256,7 +256,7 @@ describe("trusted-contact pending-approval notifier", () => {
     deliveredReplies.length = 0;
     deliverShouldFail = false;
     mockPendingApprovals = [];
-    mockGuardianBinding = null;
+    mockGuardianContact = null;
   });
 
   afterAll(() => {
@@ -277,9 +277,9 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianBinding = {
-      id: "binding-1",
-      metadataJson: JSON.stringify({ displayName: "Mom" }),
+    mockGuardianContact = {
+      contact: { displayName: "Mom" },
+      channel: {},
     };
 
     const notified = new Map<string, string>();
@@ -291,7 +291,6 @@ describe("trusted-contact pending-approval notifier", () => {
       guardianExternalUserId: "guardian-1",
       replyCallbackUrl: "http://localhost:3000/deliver/telegram",
       bearerToken: "test-token",
-      assistantId: "self",
       notifiedRequestIds: notified,
     });
 
@@ -304,7 +303,7 @@ describe("trusted-contact pending-approval notifier", () => {
     expect(notified.has("req-1")).toBe(true);
   });
 
-  test("uses username with @ prefix when display name is not available", async () => {
+  test("uses contact displayName from contact store", async () => {
     mockPendingApprovals = [
       {
         requestId: "req-2",
@@ -314,9 +313,9 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianBinding = {
-      id: "binding-1",
-      metadataJson: JSON.stringify({ username: "guardian_user" }),
+    mockGuardianContact = {
+      contact: { displayName: "Guardian User" },
+      channel: {},
     };
 
     const notified = new Map<string, string>();
@@ -332,11 +331,11 @@ describe("trusted-contact pending-approval notifier", () => {
 
     expect(deliveredReplies).toHaveLength(1);
     expect(deliveredReplies[0].payload.text).toBe(
-      "Waiting for @guardian_user's approval...",
+      "Waiting for Guardian User's approval...",
     );
   });
 
-  test("falls back to user reference when no guardian name is available", async () => {
+  test("falls back to user reference when guardian has empty display name", async () => {
     mockPendingApprovals = [
       {
         requestId: "req-3",
@@ -346,10 +345,10 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    // No binding metadata
-    mockGuardianBinding = {
-      id: "binding-1",
-      metadataJson: null,
+    // Guardian contact exists but has an empty displayName
+    mockGuardianContact = {
+      contact: { displayName: "" },
+      channel: {},
     };
 
     const notified = new Map<string, string>();
@@ -369,7 +368,7 @@ describe("trusted-contact pending-approval notifier", () => {
     );
   });
 
-  test("falls back to user reference when no guardian binding exists", async () => {
+  test("falls back to user reference when no guardian contact exists", async () => {
     mockPendingApprovals = [
       {
         requestId: "req-4",
@@ -379,7 +378,7 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianBinding = null;
+    mockGuardianContact = null;
 
     const notified = new Map<string, string>();
     await simulateNotifierPoll({
@@ -408,9 +407,9 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianBinding = {
-      id: "binding-1",
-      metadataJson: JSON.stringify({ displayName: "Guardian" }),
+    mockGuardianContact = {
+      contact: { displayName: "Guardian" },
+      channel: {},
     };
 
     const notified = new Map<string, string>();
@@ -436,9 +435,9 @@ describe("trusted-contact pending-approval notifier", () => {
   });
 
   test("sends separate messages for different requestIds", async () => {
-    mockGuardianBinding = {
-      id: "binding-1",
-      metadataJson: JSON.stringify({ displayName: "Guardian" }),
+    mockGuardianContact = {
+      contact: { displayName: "Guardian" },
+      channel: {},
     };
 
     const notified = new Map<string, string>();
@@ -478,9 +477,9 @@ describe("trusted-contact pending-approval notifier", () => {
   });
 
   test("concurrent pollers for different conversations do not evict each other", async () => {
-    mockGuardianBinding = {
-      id: "binding-1",
-      metadataJson: JSON.stringify({ displayName: "Guardian" }),
+    mockGuardianContact = {
+      contact: { displayName: "Guardian" },
+      channel: {},
     };
 
     // Shared dedupe map simulating the module-level global
@@ -630,9 +629,9 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianBinding = {
-      id: "binding-1",
-      metadataJson: JSON.stringify({ displayName: "Guardian" }),
+    mockGuardianContact = {
+      contact: { displayName: "Guardian" },
+      channel: {},
     };
 
     const notified = new Map<string, string>();
@@ -678,7 +677,7 @@ describe("trusted-contact pending-approval notifier", () => {
     expect(deliveredReplies).toHaveLength(0);
   });
 
-  test("prefers displayName over username when both are present", async () => {
+  test("uses contact displayName from guardian contact record", async () => {
     mockPendingApprovals = [
       {
         requestId: "req-10",
@@ -688,12 +687,9 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianBinding = {
-      id: "binding-1",
-      metadataJson: JSON.stringify({
-        displayName: "Sarah",
-        username: "sarah_bot",
-      }),
+    mockGuardianContact = {
+      contact: { displayName: "Sarah" },
+      channel: {},
     };
 
     const notified = new Map<string, string>();
@@ -713,7 +709,7 @@ describe("trusted-contact pending-approval notifier", () => {
     );
   });
 
-  test("handles malformed metadataJson gracefully", async () => {
+  test("falls back to default when guardian contact has whitespace-only displayName", async () => {
     mockPendingApprovals = [
       {
         requestId: "req-11",
@@ -723,9 +719,9 @@ describe("trusted-contact pending-approval notifier", () => {
       },
     ];
 
-    mockGuardianBinding = {
-      id: "binding-1",
-      metadataJson: "not-valid-json{{{",
+    mockGuardianContact = {
+      contact: { displayName: "   " },
+      channel: {},
     };
 
     const notified = new Map<string, string>();
@@ -740,7 +736,7 @@ describe("trusted-contact pending-approval notifier", () => {
     });
 
     expect(deliveredReplies).toHaveLength(1);
-    // Falls back to generic phrasing
+    // Falls back to default user reference
     expect(deliveredReplies[0].payload.text).toBe(
       "Waiting for my human's approval...",
     );

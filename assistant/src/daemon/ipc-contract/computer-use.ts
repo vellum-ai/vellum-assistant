@@ -217,6 +217,14 @@ export interface WatchCompleteRequest {
   watchId: string;
 }
 
+/** Server → Client: bootstrap failure during learn-mode recording setup. */
+export interface RideShotgunError {
+  type: "ride_shotgun_error";
+  watchId: string;
+  sessionId: string;
+  message: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _ComputerUseClientMessages =
@@ -236,6 +244,7 @@ export type _ComputerUseServerMessages =
   | TaskRouted
   | RideShotgunProgress
   | RideShotgunResult
+  | RideShotgunError
   | WatchStarted
   | WatchCompleteRequest
   | RecordingStart

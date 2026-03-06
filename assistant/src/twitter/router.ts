@@ -1,9 +1,8 @@
 /**
  * Strategy router for Twitter operations.
- * Selects OAuth or browser path based on persisted preference and capability.
+ * Selects OAuth or browser path based on the caller-provided strategy.
  */
 
-import { loadRawConfig } from "../config/loader.js";
 import type { PostTweetResult } from "./client.js";
 import {
   postTweet as browserPostTweet,
@@ -29,30 +28,23 @@ export interface RoutedError {
   alternativeSetupHint?: string;
 }
 
-function getPreferredStrategy(): TwitterStrategy {
-  try {
-    const raw = loadRawConfig();
-    const strategy = raw.twitterOperationStrategy as string | undefined;
-    if (strategy === "oauth" || strategy === "browser") return strategy;
-  } catch {
-    /* fall through */
-  }
-  return "auto";
-}
-
 export async function routedPostTweet(
   text: string,
-  opts?: { inReplyToTweetId?: string },
+  opts: {
+    inReplyToTweetId?: string;
+    strategy: TwitterStrategy;
+    oauthToken?: string;
+  },
 ): Promise<RoutedResult<PostTweetResult>> {
-  const strategy = getPreferredStrategy();
-  const operation = opts?.inReplyToTweetId ? "reply" : "post";
+  const strategy = opts.strategy;
+  const operation = opts.inReplyToTweetId ? "reply" : "post";
 
   if (strategy === "oauth") {
     // User explicitly wants OAuth
-    if (!oauthIsAvailable()) {
+    if (!oauthIsAvailable(opts.oauthToken)) {
       throw Object.assign(
         new Error(
-          "OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy: `vellum x strategy set browser`.",
+          "OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy: `assistant config set twitter.operationStrategy browser`.",
         ),
         {
           pathUsed: "oauth" as const,
@@ -60,7 +52,10 @@ export async function routedPostTweet(
         },
       );
     }
-    const result = await oauthPostTweet(text, opts);
+    const result = await oauthPostTweet(text, {
+      inReplyToTweetId: opts.inReplyToTweetId,
+      oauthToken: opts.oauthToken!,
+    });
     return {
       result: {
         tweetId: result.tweetId,
@@ -74,7 +69,9 @@ export async function routedPostTweet(
   if (strategy === "browser") {
     // User explicitly wants browser
     try {
-      const result = await browserPostTweet(text, opts);
+      const result = await browserPostTweet(text, {
+        inReplyToTweetId: opts.inReplyToTweetId,
+      });
       return { result, pathUsed: "browser" };
     } catch (err) {
       if (err instanceof SessionExpiredError) {
@@ -89,9 +86,12 @@ export async function routedPostTweet(
 
   // auto strategy: try OAuth first if available and supported, fallback to browser
   let oauthError: Error | undefined;
-  if (oauthIsAvailable() && oauthSupportsOperation(operation)) {
+  if (oauthIsAvailable(opts.oauthToken) && oauthSupportsOperation(operation)) {
     try {
-      const result = await oauthPostTweet(text, opts);
+      const result = await oauthPostTweet(text, {
+        inReplyToTweetId: opts.inReplyToTweetId,
+        oauthToken: opts.oauthToken!,
+      });
       return {
         result: {
           tweetId: result.tweetId,
@@ -108,7 +108,9 @@ export async function routedPostTweet(
 
   // Fallback to browser
   try {
-    const result = await browserPostTweet(text, opts);
+    const result = await browserPostTweet(text, {
+      inReplyToTweetId: opts.inReplyToTweetId,
+    });
     return { result, pathUsed: "browser" };
   } catch (err) {
     if (err instanceof SessionExpiredError) {

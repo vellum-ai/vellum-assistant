@@ -1,5 +1,4 @@
-import { randomBytes } from "node:crypto";
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
@@ -11,16 +10,15 @@ import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
+  getQdrantHttpPortEnv,
   getQdrantUrlEnv,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
-  getRuntimeProxyBearerToken,
   validateEnv,
 } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import { ensurePromptFiles } from "../config/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../config/update-bulletin.js";
-import { migrateContactsFromLegacyTables } from "../contacts/startup-migration.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
@@ -44,15 +42,15 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
+  mintCliEdgeToken,
+  mintPairingBearerToken,
 } from "../runtime/auth/token-service.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import { migrateKeychainToEncrypted } from "../security/keychain-to-encrypted-migration.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
-  getHttpTokenPath,
   getInterfacesDir,
   getRootDir,
   getSocketPath,
@@ -145,35 +143,19 @@ export async function runDaemon(): Promise<void> {
     migrateToWorkspaceLayout();
     ensureDataDir();
 
-    // Copy any existing macOS keychain secrets into the encrypted file store
-    // before config loads, so the new encrypted-store-first read path sees them.
-    migrateKeychainToEncrypted();
-
-    // Resolve and write the bearer token as early as possible so the CLI
-    // (which polls for this file during gateway startup) doesn't time out
-    // waiting for Qdrant or other slow init steps to finish.
-    const httpTokenPath = getHttpTokenPath();
-    let bearerToken = getRuntimeProxyBearerToken();
-    if (!bearerToken) {
-      try {
-        const existing = readFileSync(httpTokenPath, "utf-8").trim();
-        if (existing) bearerToken = existing;
-      } catch {
-        // File doesn't exist or can't be read — will generate below
-      }
-    }
-    if (!bearerToken) {
-      bearerToken = randomBytes(32).toString("hex");
-    }
-    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
-    chmodSync(httpTokenPath, 0o600);
-    log.info("Daemon startup: bearer token written");
-
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
     // protected directory.
     const signingKey = loadOrCreateSigningKey();
     initAuthSigningKey(signingKey);
+
+    // Mint a CLI edge token (JWT) so the CLI can authenticate with the
+    // gateway. Written early so the CLI doesn't time out polling.
+    const httpTokenPath = join(getRootDir(), "http-token");
+    const bearerToken = mintCliEdgeToken();
+    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+    chmodSync(httpTokenPath, 0o600);
+    log.info("Daemon startup: bearer token written");
 
     log.info("Daemon startup: migrations complete");
 
@@ -201,18 +183,6 @@ export async function runDaemon(): Promise<void> {
       log.warn(
         { err },
         "Vellum guardian binding backfill failed — continuing startup",
-      );
-    }
-
-    // Catch-up migration: populate contacts table from legacy guardian
-    // bindings and contact rows. Ensures upgrades from pre-contacts
-    // versions have a populated contacts table on first boot.
-    try {
-      migrateContactsFromLegacyTables("self");
-    } catch (err) {
-      log.warn(
-        { err },
-        "Contacts startup migration failed — continuing startup",
       );
     }
 
@@ -281,7 +251,13 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: DaemonServer started");
 
     // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
-    const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
+    // Prefer QDRANT_HTTP_PORT (locally-spawned Qdrant on a specific port) over
+    // QDRANT_URL (external Qdrant instance) so the CLI can set the port without
+    // triggering QdrantManager's external mode which skips local process spawn.
+    const qdrantHttpPort = getQdrantHttpPortEnv();
+    const qdrantUrl = qdrantHttpPort
+      ? `http://127.0.0.1:${qdrantHttpPort}`
+      : getQdrantUrlEnv() || config.memory.qdrant.url;
     log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
     const qdrantManager = new QdrantManager({ url: qdrantUrl });
     try {
@@ -417,10 +393,15 @@ export async function runDaemon(): Promise<void> {
 
     const hostname = getRuntimeHttpHost();
 
+    // Mint a JWT bearer token for the pairing flow. This replaces the
+    // old static http-token that was removed — the pairing IPC handler
+    // and HTTP auto-approve logic both guard on a non-empty bearer token.
+    const pairingBearerToken = mintPairingBearerToken();
+
     runtimeHttp = new RuntimeHttpServer({
       port: httpPort,
       hostname,
-      bearerToken,
+      bearerToken: pairingBearerToken,
       processMessage: (
         conversationId,
         content,
@@ -430,22 +411,6 @@ export async function runDaemon(): Promise<void> {
         sourceInterface,
       ) =>
         server.processMessage(
-          conversationId,
-          content,
-          attachmentIds,
-          options,
-          sourceChannel,
-          sourceInterface,
-        ),
-      persistAndProcessMessage: (
-        conversationId,
-        content,
-        attachmentIds,
-        options,
-        sourceChannel,
-        sourceInterface,
-      ) =>
-        server.persistAndProcessMessage(
           conversationId,
           content,
           attachmentIds,
@@ -633,7 +598,7 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp.setPairingBroadcast((msg) =>
         server.broadcast(msg as ServerMessage),
       );
-      initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
+      initPairingHandlers(runtimeHttp.getPairingStore(), pairingBearerToken);
       initSlashPairingContext(runtimeHttp.getPairingStore());
       server.setHttpPort(httpPort);
       log.info(

@@ -52,7 +52,7 @@ struct SearchResultSchedule: Identifiable, Decodable {
 struct SearchResultContact: Identifiable, Decodable {
     let id: String
     let displayName: String
-    let relationship: String?
+    let notes: String?
     let lastInteraction: Double?
 }
 

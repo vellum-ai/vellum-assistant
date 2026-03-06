@@ -86,7 +86,6 @@ describe("conversation-attention-store", () => {
       ensureConversation("conv-1");
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
@@ -104,13 +103,11 @@ describe("conversation-attention-store", () => {
       ensureConversation("conv-1");
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-2",
         messageAt: 2000,
       });
@@ -125,13 +122,11 @@ describe("conversation-attention-store", () => {
       ensureConversation("conv-1");
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-2",
         messageAt: 2000,
       });
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
@@ -146,13 +141,11 @@ describe("conversation-attention-store", () => {
       ensureConversation("conv-1");
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1-dup",
         messageAt: 1000,
       });
@@ -170,7 +163,6 @@ describe("conversation-attention-store", () => {
       ensureConversation("conv-1");
       const event = recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "vellum",
         signalType: "macos_conversation_opened",
         confidence: "explicit",
@@ -189,7 +181,6 @@ describe("conversation-attention-store", () => {
       // Project an assistant message first
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
@@ -197,7 +188,6 @@ describe("conversation-attention-store", () => {
       // Now record a seen signal
       recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "vellum",
         signalType: "macos_conversation_opened",
         confidence: "explicit",
@@ -215,7 +205,6 @@ describe("conversation-attention-store", () => {
 
       recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "telegram",
         signalType: "telegram_inbound_message",
         confidence: "inferred",
@@ -236,7 +225,6 @@ describe("conversation-attention-store", () => {
       // Project two assistant messages
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
@@ -244,7 +232,6 @@ describe("conversation-attention-store", () => {
       // Mark as seen at msg-1
       recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "vellum",
         signalType: "macos_conversation_opened",
         confidence: "explicit",
@@ -254,7 +241,6 @@ describe("conversation-attention-store", () => {
       // Project a second message
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-2",
         messageAt: 2000,
       });
@@ -262,7 +248,6 @@ describe("conversation-attention-store", () => {
       // Mark as seen at msg-2
       recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "vellum",
         signalType: "macos_conversation_opened",
         confidence: "explicit",
@@ -280,7 +265,6 @@ describe("conversation-attention-store", () => {
 
       const event = recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "telegram",
         signalType: "telegram_callback",
         confidence: "explicit",
@@ -301,7 +285,6 @@ describe("conversation-attention-store", () => {
       // Record seen signal without any assistant message
       recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "vellum",
         signalType: "macos_notification_view",
         confidence: "inferred",
@@ -320,7 +303,6 @@ describe("conversation-attention-store", () => {
 
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
@@ -328,7 +310,6 @@ describe("conversation-attention-store", () => {
       // Mark as seen
       recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "vellum",
         signalType: "macos_conversation_opened",
         confidence: "explicit",
@@ -338,7 +319,6 @@ describe("conversation-attention-store", () => {
       // Record another seen signal (should not regress)
       recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "telegram",
         signalType: "telegram_inbound_message",
         confidence: "inferred",
@@ -369,13 +349,11 @@ describe("conversation-attention-store", () => {
 
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
         conversationId: "conv-2",
-        assistantId: "self",
         messageId: "msg-2",
         messageAt: 2000,
       });
@@ -392,7 +370,6 @@ describe("conversation-attention-store", () => {
 
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
@@ -413,18 +390,16 @@ describe("conversation-attention-store", () => {
 
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
         conversationId: "conv-2",
-        assistantId: "self",
         messageId: "msg-2",
         messageAt: 2000,
       });
 
-      const result = listConversationAttention({ assistantId: "self" });
+      const result = listConversationAttention({});
       expect(result).toHaveLength(2);
     });
 
@@ -435,7 +410,6 @@ describe("conversation-attention-store", () => {
       // conv-1: has assistant message, not seen
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
@@ -443,13 +417,11 @@ describe("conversation-attention-store", () => {
       // conv-2: has assistant message, seen
       projectAssistantMessage({
         conversationId: "conv-2",
-        assistantId: "self",
         messageId: "msg-2",
         messageAt: 2000,
       });
       recordConversationSeenSignal({
         conversationId: "conv-2",
-        assistantId: "self",
         sourceChannel: "vellum",
         signalType: "macos_conversation_opened",
         confidence: "explicit",
@@ -457,7 +429,6 @@ describe("conversation-attention-store", () => {
       });
 
       const unseen = listConversationAttention({
-        assistantId: "self",
         state: "unseen",
       });
       expect(unseen).toHaveLength(1);
@@ -470,20 +441,17 @@ describe("conversation-attention-store", () => {
 
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
 
       projectAssistantMessage({
         conversationId: "conv-2",
-        assistantId: "self",
         messageId: "msg-2",
         messageAt: 2000,
       });
       recordConversationSeenSignal({
         conversationId: "conv-2",
-        assistantId: "self",
         sourceChannel: "vellum",
         signalType: "macos_conversation_opened",
         confidence: "explicit",
@@ -491,7 +459,6 @@ describe("conversation-attention-store", () => {
       });
 
       const seen = listConversationAttention({
-        assistantId: "self",
         state: "seen",
       });
       expect(seen).toHaveLength(1);
@@ -505,25 +472,21 @@ describe("conversation-attention-store", () => {
 
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
         conversationId: "conv-2",
-        assistantId: "self",
         messageId: "msg-2",
         messageAt: 2000,
       });
       projectAssistantMessage({
         conversationId: "conv-3",
-        assistantId: "self",
         messageId: "msg-3",
         messageAt: 3000,
       });
 
       const result = listConversationAttention({
-        assistantId: "self",
         limit: 2,
       });
       expect(result).toHaveLength(2);
@@ -536,24 +499,21 @@ describe("conversation-attention-store", () => {
 
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
         conversationId: "conv-2",
-        assistantId: "self",
         messageId: "msg-2",
         messageAt: 3000,
       });
       projectAssistantMessage({
         conversationId: "conv-3",
-        assistantId: "self",
         messageId: "msg-3",
         messageAt: 2000,
       });
 
-      const result = listConversationAttention({ assistantId: "self" });
+      const result = listConversationAttention({});
       expect(result[0].conversationId).toBe("conv-2");
       expect(result[1].conversationId).toBe("conv-3");
       expect(result[2].conversationId).toBe("conv-1");
@@ -566,46 +526,26 @@ describe("conversation-attention-store", () => {
 
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
       projectAssistantMessage({
         conversationId: "conv-2",
-        assistantId: "self",
         messageId: "msg-2",
         messageAt: 2000,
       });
       projectAssistantMessage({
         conversationId: "conv-3",
-        assistantId: "self",
         messageId: "msg-3",
         messageAt: 3000,
       });
 
       const result = listConversationAttention({
-        assistantId: "self",
         before: 2500,
       });
       expect(result).toHaveLength(2);
       expect(result[0].conversationId).toBe("conv-2");
       expect(result[1].conversationId).toBe("conv-1");
-    });
-
-    test("filters by different assistant ID", () => {
-      ensureConversation("conv-1");
-
-      projectAssistantMessage({
-        conversationId: "conv-1",
-        assistantId: "self",
-        messageId: "msg-1",
-        messageAt: 1000,
-      });
-
-      const result = listConversationAttention({
-        assistantId: "other-assistant",
-      });
-      expect(result).toHaveLength(0);
     });
   });
 
@@ -617,14 +557,12 @@ describe("conversation-attention-store", () => {
 
       projectAssistantMessage({
         conversationId: "conv-1",
-        assistantId: "self",
         messageId: "msg-1",
         messageAt: 1000,
       });
 
       recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "vellum",
         signalType: "macos_notification_view",
         confidence: "inferred",
@@ -633,7 +571,6 @@ describe("conversation-attention-store", () => {
 
       recordConversationSeenSignal({
         conversationId: "conv-1",
-        assistantId: "self",
         sourceChannel: "vellum",
         signalType: "macos_conversation_opened",
         confidence: "explicit",

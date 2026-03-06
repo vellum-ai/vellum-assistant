@@ -38,6 +38,8 @@ struct GeneratedPanel: View {
     @State private var sharingAppId: String?
     @State private var isBundling = false
     @State private var shareFileURL: URL?
+    @State private var shareAppName: String = ""
+    @State private var shareAppIcon: NSImage?
     @State private var showShareSheet = false
     @State private var pendingDeleteId: String?
 
@@ -249,9 +251,7 @@ struct GeneratedPanel: View {
 
         return HStack(spacing: VSpacing.md) {
             // Icon / Preview thumbnail
-            if let preview,
-               let data = Data(base64Encoded: preview),
-               let nsImage = NSImage(data: data) {
+            if let nsImage = AppPreviewImageStore.image(appId: item.id, base64: preview) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -424,7 +424,7 @@ struct GeneratedPanel: View {
     private func shareButton(for item: DisplayAppItem) -> some View {
         if let localId = item.localAppId {
             ZStack {
-                ShareSheetButton(
+                AppSharePanel(
                     items: shareFileURL != nil && sharingAppId == item.id ? [shareFileURL!] : [],
                     isPresented: Binding(
                         get: { showShareSheet && sharingAppId == item.id },
@@ -432,7 +432,9 @@ struct GeneratedPanel: View {
                             showShareSheet = newValue
                             if !newValue { sharingAppId = nil }
                         }
-                    )
+                    ),
+                    appName: shareAppName,
+                    appIcon: shareAppIcon
                 )
                 .frame(width: 0, height: 0)
                 .opacity(0)
@@ -443,7 +445,7 @@ struct GeneratedPanel: View {
             }
         } else if item.isShared, let uuid = item.sharedUUID {
             ZStack {
-                ShareSheetButton(
+                AppSharePanel(
                     items: shareFileURL != nil && sharingAppId == item.id ? [shareFileURL!] : [],
                     isPresented: Binding(
                         get: { showShareSheet && sharingAppId == item.id },
@@ -451,7 +453,9 @@ struct GeneratedPanel: View {
                             showShareSheet = newValue
                             if !newValue { sharingAppId = nil }
                         }
-                    )
+                    ),
+                    appName: shareAppName,
+                    appIcon: shareAppIcon
                 )
                 .frame(width: 0, height: 0)
                 .opacity(0)
@@ -649,7 +653,7 @@ struct GeneratedPanel: View {
                 signerDisplayName: nil,
                 version: app.version,
                 updateAvailable: nil,
-                appType: app.appType,
+                appType: nil,
                 localAppId: app.id,
                 sharedUUID: nil
             ))
@@ -728,9 +732,14 @@ struct GeneratedPanel: View {
         isBundling = true
 
         Task { @MainActor in
+            let previousHandler = daemonClient.onBundleAppResponse
             daemonClient.onBundleAppResponse = { response in
-                let url = URL(fileURLWithPath: response.bundlePath)
+                daemonClient.onBundleAppResponse = previousHandler
+                let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
+                MainWindowView.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
                 self.shareFileURL = url
+                self.shareAppName = response.manifest.name
+                self.shareAppIcon = MainWindowView.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
                 self.isBundling = false
                 self.showShareSheet = true
             }
@@ -740,6 +749,7 @@ struct GeneratedPanel: View {
             } catch {
                 isBundling = false
                 sharingAppId = nil
+                daemonClient.onBundleAppResponse = previousHandler
             }
         }
     }
@@ -748,8 +758,11 @@ struct GeneratedPanel: View {
         // Share the existing unpacked directory as a folder
         let appDir = BundleSandbox.sharedAppsDirectory.appendingPathComponent(uuid)
         guard FileManager.default.fileExists(atPath: appDir.path) else { return }
+        let item = displayItems.first { $0.id == itemId }
         sharingAppId = itemId
         shareFileURL = appDir
+        shareAppName = item?.name ?? "App"
+        shareAppIcon = nil
         showShareSheet = true
     }
 

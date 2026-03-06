@@ -5,16 +5,18 @@
 Bun + TypeScript monorepo with multiple packages:
 
 - `assistant/` — Main backend service (Bun + TypeScript)
-- `gateway/` — Channel ingress gateway (Bun + TypeScript)
+- `cli/` — Multi-assistant management CLI (Bun + TypeScript). See `cli/AGENTS.md`.
 - `clients/` — Client apps (macOS/iOS/etc). See `clients/AGENTS.md` and platform docs like `clients/macos/CLAUDE.md`.
+- `gateway/` — Channel ingress gateway (Bun + TypeScript)
 - `scripts/` — Utility scripts
+- `skills/` — First-party skill catalog (portable skill packages). See `skills/AGENTS.md`.
 - `.claude/` — Claude Code slash commands and helper scripts (see `.claude/README.md`). Most commands are shared from [`claude-skills`](https://github.com/vellum-ai/claude-skills) via symlinks; repo-local commands (`/update`, `/release`) live in `.claude/skills/<name>/` as local skill directories.
 
 ## Conventions
 
 - **Bun PATH**: Run `export PATH="$HOME/.bun/bin:$PATH"` before any bun/bunx commands.
 - **Imports**: All imports use `.js` extensions (NodeNext module resolution).
-- **Package manager**: Use `bun install` for dependencies, `bun test` for tests, `bunx tsc --noEmit` for type-checking.
+- **Package manager**: Use `bun install` for dependencies, `bun test <file>` for tests (always scope to specific files), `bunx tsc --noEmit` for type-checking.
 - **Install dependencies**: `cd assistant && bun install` (each package has its own `bun.lock`).
 
 ## Development
@@ -26,12 +28,21 @@ cd assistant && bun install
 # Type-check
 cd assistant && bunx tsc --noEmit
 
-# Run tests
-cd assistant && bun test
+# Run tests (always scope to specific files)
+cd assistant && bun test src/path/to/changed.test.ts
 
 # Lint
 cd assistant && bun run lint
 ```
+
+## Testing
+
+The full test suite is large and will hang or timeout if run unscoped. **Never run `bun test` without specifying file paths.**
+
+- After making changes, run only the tests relevant to what you changed:
+  `cd assistant && bun test src/path/to/file.test.ts`
+- To run tests matching a pattern: `cd assistant && bun test src/path/to/file.test.ts --grep "pattern"`
+- Use `bunx tsc --noEmit` for full-project type-checking instead of running all tests.
 
 ## Keep the README up to date
 
@@ -146,6 +157,18 @@ Judgement calls affecting user experience should be made by the assistant throug
 ## User-Facing Terminology: "daemon" vs "assistant"
 
 "Daemon" is an internal implementation detail. In all user-facing text — CLI output, error messages, help strings, SKILL.md instructions that would be relayed to users, README documentation, and UI strings — use **"assistant"** instead of "daemon". Internal code (variable names, class names, file paths, log messages, comments explaining architecture) may continue using "daemon" since users don't see those. When in doubt, ask: "Would a user ever read this?" If yes, say "assistant".
+
+## Multi-Instance Path Invariant
+
+When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/.vellum/instances/alice/`), `getRootDir()` resolves to `join(BASE_DATA_DIR, ".vellum")`. All CLI and daemon code that references instance-scoped files must use `join(instanceDir, ".vellum", ...)` — never assume the root is `~/.vellum/` directly. This ensures socket paths, PID files, tokens, and config are correctly scoped per instance.
+
+## Qdrant Port Override
+
+Use `QDRANT_HTTP_PORT` (not `QDRANT_URL`) when allocating per-instance Qdrant ports. Setting `QDRANT_URL` triggers QdrantManager's external/remote mode which bypasses the local managed Qdrant lifecycle (download, start, health checks). The CLI deletes `QDRANT_URL` from the environment when spawning instance daemons to ensure local Qdrant management is used.
+
+## Memory Conflict Handling — Internal Only
+
+Memory conflicts must never surface as user-facing clarification prompts. The conflict gate evaluates and resolves conflicts internally without producing any user-visible output — no injected instructions, no clarification questions, no blocking the user's request. The response path always continues answering the user. If you add or modify conflict-related code, verify that `ConflictGate.evaluate()` returns `void` (not a user-facing string), that no conflict text is emitted into the agent loop's message stream, and that `session-runtime-assembly.ts` does not inject conflict instructions. Guard tests: `session-conflict-gate.test.ts`, `session-agent-loop.test.ts`, `memory-lifecycle-e2e.test.ts`.
 
 ## Release Update Hygiene
 

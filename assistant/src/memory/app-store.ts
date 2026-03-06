@@ -47,11 +47,19 @@ export interface AppDefinition {
   schemaJson: string;
   htmlDefinition: string;
   version?: string;
-  appType?: "app" | "site";
   /** Additional pages keyed by filename (e.g. "settings.html" → HTML content). */
   pages?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
+  /** App format version. undefined or 1 = legacy single-HTML, 2 = multi-file TSX. */
+  formatVersion?: number;
+}
+
+/**
+ * Returns true if the app uses the multi-file TSX format (formatVersion 2).
+ */
+export function isMultifileApp(app: AppDefinition): boolean {
+  return app.formatVersion === 2;
 }
 
 export interface AppRecord {
@@ -195,8 +203,8 @@ export function createApp(params: {
   schemaJson: string;
   htmlDefinition: string;
   version?: string;
-  appType?: "app" | "site";
   pages?: Record<string, string>;
+  formatVersion?: number;
 }): AppDefinition {
   const dir = getAppsDir();
   const now = Date.now();
@@ -209,9 +217,9 @@ export function createApp(params: {
     schemaJson: params.schemaJson,
     htmlDefinition: params.htmlDefinition,
     version: params.version,
-    appType: params.appType,
     createdAt: now,
     updatedAt: now,
+    formatVersion: params.formatVersion,
   };
 
   // Write htmlDefinition to {appId}/index.html on disk
@@ -355,7 +363,6 @@ export function updateApp(
       | "schemaJson"
       | "htmlDefinition"
       | "version"
-      | "appType"
       | "pages"
     >
   >,

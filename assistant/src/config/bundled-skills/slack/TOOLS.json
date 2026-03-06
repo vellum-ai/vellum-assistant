@@ -11,7 +11,9 @@
         "properties": {
           "channel_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Specific channel IDs to scan. If omitted, scans preferred or top active channels."
           },
           "hours_back": {
@@ -30,6 +32,10 @@
             "type": "string",
             "enum": ["text", "blocks"],
             "description": "Output format: 'text' returns JSON (default), 'blocks' returns Slack Block Kit structured output"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         }
       },
@@ -47,6 +53,10 @@
           "channel_id": {
             "type": "string",
             "description": "The Slack channel ID to get details for"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["channel_id"]
@@ -69,8 +79,14 @@
           },
           "channel_ids": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Channel IDs to add, remove, or set (not needed for 'list')"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["action"]
@@ -101,6 +117,10 @@
           "confidence": {
             "type": "number",
             "description": "Confidence score (0-1) for this action"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["channel", "timestamp", "emoji", "confidence"]
@@ -127,6 +147,10 @@
           "confidence": {
             "type": "number",
             "description": "Confidence score (0-1) for this action"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["channel", "timestamp", "confidence"]
@@ -157,6 +181,10 @@
           "confidence": {
             "type": "number",
             "description": "Confidence score (0-1) for this action"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["channel", "timestamp", "text", "confidence"]
@@ -179,6 +207,10 @@
           "confidence": {
             "type": "number",
             "description": "Confidence score (0-1) for this action"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["channel", "confidence"]
@@ -209,18 +241,26 @@
           },
           "allowed_tool_categories": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Tool categories allowed in this channel. When set, only tools in these categories can be invoked (for 'set' action)"
           },
           "blocked_tools": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Specific tool names blocked in this channel (for 'set' action)"
           },
           "trust_level": {
             "type": "string",
             "enum": ["restricted", "standard"],
             "description": "Trust level override: 'restricted' limits tool access, 'standard' uses defaults (for 'set' action)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["action"]

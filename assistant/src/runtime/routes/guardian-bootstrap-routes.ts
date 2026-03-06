@@ -19,6 +19,7 @@ import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { mintCredentialPair } from "../auth/credential-service.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 /** Bun server shape needed for requestIP -- avoids importing the full Bun type. */
 type ServerWithRequestIP = {
@@ -44,7 +45,7 @@ function ensureGuardianPrincipal(assistantId: string): {
   guardianPrincipalId: string;
   isNew: boolean;
 } {
-  const guardianResult = findGuardianForChannel("vellum", assistantId);
+  const guardianResult = findGuardianForChannel("vellum");
   if (guardianResult && guardianResult.contact.principalId) {
     return {
       guardianPrincipalId: guardianResult.contact.principalId,
@@ -56,7 +57,6 @@ function ensureGuardianPrincipal(assistantId: string): {
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
 
   createGuardianBinding({
-    assistantId,
     channel: "vellum",
     guardianExternalUserId: guardianPrincipalId,
     guardianDeliveryChatId: "local",
@@ -114,7 +114,7 @@ export async function handleGuardianBootstrap(
       );
     }
 
-    if (platform !== "macos" && platform !== "cli") {
+    if (platform !== "macos" && platform !== "cli" && platform !== "web") {
       return httpError(
         "BAD_REQUEST",
         "Invalid platform. Bootstrap is macOS/CLI-only; iOS uses QR pairing.",
@@ -122,13 +122,13 @@ export async function handleGuardianBootstrap(
       );
     }
 
-    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-    const { guardianPrincipalId, isNew } = ensureGuardianPrincipal(assistantId);
+    const { guardianPrincipalId, isNew } = ensureGuardianPrincipal(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+    );
     const hashedDeviceId = hashDeviceId(deviceId);
 
     // Mint credential pair (access token + refresh token)
     const credentials = mintCredentialPair({
-      assistantId,
       platform,
       deviceId,
       guardianPrincipalId,
@@ -136,7 +136,7 @@ export async function handleGuardianBootstrap(
     });
 
     log.info(
-      { assistantId, platform, guardianPrincipalId, isNew },
+      { platform, guardianPrincipalId, isNew },
       "Guardian bootstrap completed",
     );
 
@@ -153,4 +153,23 @@ export async function handleGuardianBootstrap(
     log.error({ err }, "Guardian bootstrap failed");
     return httpError("INTERNAL_ERROR", "Internal server error", 500);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+/**
+ * Guardian bootstrap is a pre-auth endpoint (handled before JWT auth in
+ * http-server.ts), so these definitions are exported for completeness but
+ * are not added to the authenticated route table.
+ */
+export function guardianBootstrapRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "integrations/guardian/vellum/bootstrap",
+      method: "POST",
+      handler: async ({ req, server }) => handleGuardianBootstrap(req, server),
+    },
+  ];
 }

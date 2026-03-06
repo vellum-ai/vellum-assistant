@@ -22,6 +22,7 @@ export {
 export type { InboundResult, RecordInboundOptions } from "./delivery-crud.js";
 export {
   clearPayload,
+  deleteInbound,
   findMessageBySourceId,
   getLatestStoredPayload,
   linkMessage,

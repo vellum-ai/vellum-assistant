@@ -133,10 +133,6 @@ public final class AmbientAgent: ObservableObject {
         showProgress()
     }
 
-    // NOTE: Learn sessions depend on Chrome running with CDP (--remote-debugging-port=9222)
-    // for network recording. The daemon's ride-shotgun-handler connects directly to
-    // localhost:9222. If Chrome isn't running with CDP, network capture will silently fail.
-    // TODO: Move CDP Chrome launch to the daemon side (ride-shotgun-handler.ts).
     func startLearnSession(targetDomain: String, durationSeconds: Int = 300) {
         Task { @MainActor in
             startRideShotgun(durationSeconds: durationSeconds, mode: "learn", targetDomain: targetDomain)
@@ -169,7 +165,7 @@ public final class AmbientAgent: ObservableObject {
             let recordingId = currentSession?.recordingId
             log.debug("Session complete: hasSession=\(hasSession) summaryLength=\(summary.count) recordingId=\(recordingId ?? "nil")")
             if summary.isEmpty {
-                showSummary("I watched your screen but wasn't able to generate a report. No response was received from the daemon.", recordingId: recordingId)
+                showSummary("I watched your screen but wasn't able to generate a report. No response was received from the assistant.", recordingId: recordingId)
             } else if summary.hasPrefix("[error]") {
                 let errorDetail = String(summary.dropFirst("[error] ".count))
                 showSummary("Something went wrong during analysis:\n\n\(errorDetail)", recordingId: recordingId)
@@ -184,7 +180,7 @@ public final class AmbientAgent: ObservableObject {
             log.error("Ride shotgun session failed: \(reason)")
             progressWindow?.close()
             progressWindow = nil
-            setCurrentSession(nil)
+            showSummary("The assistant failed to start the session:\n\n\(reason)")
             sessionCancellable?.cancel()
             sessionCancellable = nil
 

@@ -22,10 +22,9 @@ struct ChatEmptyStateView: View {
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
     let onFileDrop: ([URL]) -> Void
+    var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
-    @Binding var editorContentHeight: CGFloat
-    @Binding var isComposerExpanded: Bool
 
     @State private var visible = false
     @State private var title: String = titles.randomElement()!
@@ -115,10 +114,9 @@ struct ChatEmptyStateView: View {
                     onRemoveAttachment: onRemoveAttachment,
                     onPaste: onPaste,
                     onFileDrop: onFileDrop,
+                    onDropImageData: onDropImageData,
                     onMicrophoneToggle: onMicrophoneToggle,
-                    placeholderText: placeholder,
-                    editorContentHeight: $editorContentHeight,
-                    isComposerExpanded: $isComposerExpanded
+                    placeholderText: placeholder
                 )
             }
             .frame(maxWidth: 500)
@@ -161,10 +159,9 @@ struct ChatTemporaryChatEmptyStateView: View {
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
     let onFileDrop: ([URL]) -> Void
+    var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
-    @Binding var editorContentHeight: CGFloat
-    @Binding var isComposerExpanded: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -222,10 +219,9 @@ struct ChatTemporaryChatEmptyStateView: View {
                     onRemoveAttachment: onRemoveAttachment,
                     onPaste: onPaste,
                     onFileDrop: onFileDrop,
+                    onDropImageData: onDropImageData,
                     onMicrophoneToggle: onMicrophoneToggle,
-                    placeholderText: "Ask anything...",
-                    editorContentHeight: $editorContentHeight,
-                    isComposerExpanded: $isComposerExpanded
+                    placeholderText: "Ask anything..."
                 )
             }
 

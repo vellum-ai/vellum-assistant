@@ -74,7 +74,6 @@ afterAll(() => {
 describe("mintCredentialPair", () => {
   test("returns JWT access token and opaque refresh token", () => {
     const result = mintCredentialPair({
-      assistantId: "self",
       platform: "macos",
       deviceId: "device-123",
       guardianPrincipalId: "principal-abc",
@@ -91,7 +90,6 @@ describe("mintCredentialPair", () => {
 
   test("access token is a valid 3-part JWT", () => {
     const result = mintCredentialPair({
-      assistantId: "self",
       platform: "macos",
       deviceId: "device-jwt",
       guardianPrincipalId: "principal-jwt",
@@ -104,7 +102,6 @@ describe("mintCredentialPair", () => {
 
   test("access token verifies against vellum-gateway audience", () => {
     const result = mintCredentialPair({
-      assistantId: "self",
       platform: "macos",
       deviceId: "device-verify",
       guardianPrincipalId: "principal-verify",
@@ -125,7 +122,6 @@ describe("mintCredentialPair", () => {
 
   test("access token hash is stored in actor-token store", () => {
     const result = mintCredentialPair({
-      assistantId: "self",
       platform: "macos",
       deviceId: "device-store",
       guardianPrincipalId: "principal-store",
@@ -144,7 +140,6 @@ describe("mintCredentialPair", () => {
       .update("device-dup")
       .digest("hex");
     const params = {
-      assistantId: "self",
       platform: "macos" as const,
       deviceId: "device-dup",
       guardianPrincipalId: "principal-dup",
@@ -179,7 +174,6 @@ describe("rotateCredentials", () => {
       .update("device-rot")
       .digest("hex");
     const initial = mintCredentialPair({
-      assistantId: "self",
       platform: "ios",
       deviceId: "device-rot",
       guardianPrincipalId: "principal-rot",
@@ -209,7 +203,6 @@ describe("rotateCredentials", () => {
       .update("device-replay")
       .digest("hex");
     const initial = mintCredentialPair({
-      assistantId: "self",
       platform: "ios",
       deviceId: "device-replay",
       guardianPrincipalId: "principal-replay",
@@ -254,7 +247,6 @@ describe("rotateCredentials", () => {
       .update("device-bind")
       .digest("hex");
     const initial = mintCredentialPair({
-      assistantId: "self",
       platform: "ios",
       deviceId: "device-bind",
       guardianPrincipalId: "principal-bind",
@@ -279,7 +271,6 @@ describe("rotateCredentials", () => {
       .update("device-plat")
       .digest("hex");
     const initial = mintCredentialPair({
-      assistantId: "self",
       platform: "ios",
       deviceId: "device-plat",
       guardianPrincipalId: "principal-plat",

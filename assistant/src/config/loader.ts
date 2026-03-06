@@ -19,6 +19,8 @@ import {
   getWorkspaceConfigPath,
   migrateToDataLayout,
   migrateToWorkspaceLayout,
+  readLockfile,
+  writeLockfile,
 } from "../util/platform.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
@@ -53,6 +55,21 @@ function ensureMigratedDataDir(): void {
   migrateToDataLayout();
   migrateToWorkspaceLayout();
   ensureDataDir();
+}
+
+/**
+ * Migrate deprecated raw config values before Zod validation.
+ * This prevents `validateWithSchema` from silently dropping fields whose
+ * values were valid in older releases but have since been removed from the
+ * schema enum, which would cause a fallback to the default and silently
+ * change behavior on upgrade.
+ */
+function migrateRawConfig(raw: Record<string, unknown>): void {
+  const permissions = raw.permissions as Record<string, unknown> | undefined;
+  if (permissions?.mode === "legacy") {
+    permissions.mode = "workspace";
+    log.info('Migrated permissions.mode from "legacy" to "workspace".');
+  }
 }
 
 /**
@@ -226,6 +243,10 @@ export function loadConfig(): AssistantConfig {
         }
       }
     }
+
+    // Migrate removed config values before validation so existing configs
+    // don't silently change behavior when Zod drops unknown enum values.
+    migrateRawConfig(fileConfig);
 
     // Validate and apply defaults via Zod schema
     const config = validateWithSchema(fileConfig);
@@ -401,6 +422,30 @@ export function saveRawConfig(config: Record<string, unknown>): void {
   }
 
   cached = null; // invalidate cache
+}
+
+/**
+ * Sync client-relevant config values (e.g. platform.baseUrl) to the lockfile
+ * so external tools (e.g. vel) can discover them without importing the full
+ * config schema.  Mirrors the behaviour of `syncConfigToLockfile` in the
+ * lightweight CLI (`cli/src/lib/assistant-config.ts`).
+ */
+export function syncConfigToLockfile(): void {
+  const configPath = getWorkspaceConfigPath();
+  if (!existsSync(configPath)) return;
+
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    const platform = raw.platform as Record<string, unknown> | undefined;
+    const data = readLockfile() ?? {};
+    data.platformBaseUrl = (platform?.baseUrl as string) || undefined;
+    writeLockfile(data);
+  } catch {
+    // Config file unreadable — skip sync
+  }
 }
 
 export function getNestedValue(

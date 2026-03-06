@@ -31,7 +31,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => "test-bearer-token",
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -244,7 +243,6 @@ describe("Verification control messages are deterministic (guard)", () => {
     const challengeHash = createHash("sha256").update(secret).digest("hex");
     createChallenge({
       id: "challenge-guard-test",
-      assistantId: "self",
       channel: "telegram",
       challengeHash,
       expiresAt: Date.now() + 600_000,
@@ -330,7 +328,6 @@ describe("Verification control messages are deterministic (guard)", () => {
       .digest("hex");
 
     createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       identityBindingStatus: "pending_bootstrap",
       destinationAddress: "test_user",

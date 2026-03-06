@@ -72,13 +72,7 @@ public struct SubagentThreadView: View {
     }
 
     public var body: some View {
-        if isRunning {
-            TimelineView(.periodic(from: .now, by: 0.4)) { context in
-                threadContent(phase: Int(context.date.timeIntervalSince1970 / 0.4) % 3)
-            }
-        } else {
-            threadContent(phase: 0)
-        }
+        threadContent(phase: 0)
     }
 
     @ViewBuilder
@@ -170,13 +164,17 @@ public struct SubagentThreadView: View {
 
     // MARK: - Animated Dots
 
-    private func animatedDots(phase: Int) -> some View {
+    private func animatedDots(phase _: Int) -> some View {
         HStack(spacing: 2) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
                     .fill(VColor.textSecondary)
                     .frame(width: 4, height: 4)
-                    .opacity(phase % 3 == index ? 1.0 : 0.3)
+                    .phaseAnimator([0, 1, 2]) { content, phase in
+                        content.opacity(phase == index ? 1.0 : 0.3)
+                    } animation: { _ in
+                        .easeInOut(duration: 0.4)
+                    }
             }
         }
     }
@@ -221,6 +219,37 @@ public struct SubagentThreadView: View {
 
     private func truncated(_ s: String, to length: Int) -> String {
         s.count > length ? String(s.prefix(length - 1)) + "…" : s
+    }
+}
+
+// MARK: - Subagent Events Reader
+
+/// Thin wrapper that isolates `SubagentDetailStore` observation from the
+/// parent `MessageListView`. Each reader resolves the per-subagent
+/// `SubagentState` and reads its `events` property, so observation is
+/// per-subagent: only this reader invalidates when this subagent's data
+/// changes. The parent message list is untouched.
+public struct SubagentEventsReader: View {
+    var store: SubagentDetailStore
+    let subagent: SubagentInfo
+    var onAbort: (() -> Void)?
+    var onTap: (() -> Void)?
+
+    public init(store: SubagentDetailStore, subagent: SubagentInfo, onAbort: (() -> Void)? = nil, onTap: (() -> Void)? = nil) {
+        self.store = store
+        self.subagent = subagent
+        self.onAbort = onAbort
+        self.onTap = onTap
+    }
+
+    public var body: some View {
+        let state = store.subagentStates[subagent.id]
+        SubagentThreadView(
+            subagent: subagent,
+            events: state?.events ?? [],
+            onAbort: onAbort,
+            onTap: onTap
+        )
     }
 }
 

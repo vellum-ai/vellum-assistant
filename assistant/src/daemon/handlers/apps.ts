@@ -1,11 +1,19 @@
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import * as net from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { v4 as uuid } from "uuid";
 
 import { packageApp } from "../../bundler/app-bundler.js";
+import { compileApp } from "../../bundler/app-compiler.js";
 import { defaultGallery } from "../../gallery/default-gallery.js";
 import { resolveHomeBaseAppId } from "../../home-base/bootstrap.js";
 import { isPrebuiltHomeBaseApp } from "../../home-base/prebuilt-home-base-updater.js";
@@ -22,6 +30,7 @@ import {
   deleteAppRecord,
   getApp,
   getAppPreview,
+  getAppsDir,
   listApps,
   queryAppRecords,
   updateApp,
@@ -128,7 +137,7 @@ export function handleAppOpenRequest(
         surfaceId,
         surfaceType: "dynamic_page",
         title: app.name,
-        data: { html: app.htmlDefinition, appId: app.id, appType: app.appType },
+        data: { html: app.htmlDefinition, appId: app.id },
         display: "panel",
       } as UiSurfaceShow);
       return;
@@ -233,7 +242,6 @@ export function handleAppsList(socket: net.Socket, ctx: HandlerContext): void {
           createdAt: a.createdAt,
           version,
           contentId,
-          appType: a.appType,
         };
       }),
     });
@@ -560,6 +568,7 @@ export async function handleBundleApp(
     ctx.send(socket, {
       type: "bundle_app_response",
       bundlePath: result.bundlePath,
+      iconImageBase64: result.iconImageBase64,
       manifest: result.manifest,
     });
   } catch (err) {
@@ -579,11 +588,11 @@ export function handleGalleryList(
   ctx.send(socket, { type: "gallery_list_response", gallery: defaultGallery });
 }
 
-export function handleGalleryInstall(
+export async function handleGalleryInstall(
   msg: GalleryInstallRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   try {
     const galleryApp = defaultGallery.apps.find(
       (a) => a.id === msg.galleryAppId,
@@ -602,7 +611,25 @@ export function handleGalleryInstall(
       description: galleryApp.description,
       schemaJson: galleryApp.schemaJson,
       htmlDefinition: galleryApp.htmlDefinition,
+      formatVersion: galleryApp.formatVersion,
     });
+
+    // For multifile apps, write source files to the app directory and compile
+    if (galleryApp.formatVersion === 2 && galleryApp.sourceFiles) {
+      const appDir = join(getAppsDir(), app.id);
+      for (const [relPath, content] of Object.entries(galleryApp.sourceFiles)) {
+        const fullPath = join(appDir, relPath);
+        mkdirSync(dirname(fullPath), { recursive: true });
+        writeFileSync(fullPath, content, "utf-8");
+      }
+      const result = await compileApp(appDir);
+      if (!result.ok) {
+        log.warn(
+          { appId: app.id, errors: result.errors },
+          "Gallery app compilation had errors; falling back to htmlDefinition",
+        );
+      }
+    }
 
     ctx.send(socket, {
       type: "gallery_install_response",

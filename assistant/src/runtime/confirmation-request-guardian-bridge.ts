@@ -18,6 +18,7 @@ import {
   createCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../notifications/signal.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -144,9 +145,8 @@ export function bridgeConfirmationRequestToGuardian(
   // Emit guardian.question notification so the guardian is alerted.
   const signalPromise = emitNotificationSignal({
     sourceEventName: "guardian.question",
-    sourceChannel,
+    sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceSessionId: conversationId,
-    assistantId,
     attentionHints: {
       requiresAction: true,
       urgency: "high",

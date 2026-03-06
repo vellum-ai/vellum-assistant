@@ -8,6 +8,7 @@ import type { Message, ToolDefinition } from "../providers/types.js";
 
 let lastStreamParams: Record<string, unknown> | null = null;
 let _lastStreamOptions: Record<string, unknown> | null = null;
+let lastConstructorArgs: Record<string, unknown> | null = null;
 
 const fakeResponse = {
   content: [{ type: "text", text: "Hello" }],
@@ -33,7 +34,9 @@ class FakeAPIError extends Error {
 mock.module("@anthropic-ai/sdk", () => ({
   default: class MockAnthropic {
     static APIError = FakeAPIError;
-    constructor() {}
+    constructor(args: Record<string, unknown>) {
+      lastConstructorArgs = { ...args };
+    }
     messages = {
       stream: (
         params: Record<string, unknown>,
@@ -127,6 +130,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   beforeEach(() => {
     lastStreamParams = null;
     _lastStreamOptions = null;
+    lastConstructorArgs = null;
     provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
   });
 
@@ -933,5 +937,86 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Turn 3: cache on last block only
     expect(userMsgs[2].content[0].cache_control).toBeUndefined();
     expect(userMsgs[2].content[1].cache_control).toEqual({ type: "ephemeral" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — Managed Proxy Fallback
+// ---------------------------------------------------------------------------
+
+describe("AnthropicProvider — Managed Proxy Fallback", () => {
+  beforeEach(() => {
+    lastStreamParams = null;
+    _lastStreamOptions = null;
+    lastConstructorArgs = null;
+  });
+
+  test("constructor passes baseURL to Anthropic SDK when provided", () => {
+    new AnthropicProvider("managed-key", "claude-sonnet-4-6", {
+      baseURL: "https://platform.example.com/v1/runtime-proxy/anthropic",
+    });
+
+    expect(lastConstructorArgs).not.toBeNull();
+    expect(lastConstructorArgs!.apiKey).toBe("managed-key");
+    expect(lastConstructorArgs!.baseURL).toBe(
+      "https://platform.example.com/v1/runtime-proxy/anthropic",
+    );
+  });
+
+  test("constructor does not set baseURL when option is omitted", () => {
+    new AnthropicProvider("sk-ant-user-key", "claude-sonnet-4-6");
+
+    expect(lastConstructorArgs).not.toBeNull();
+    expect(lastConstructorArgs!.apiKey).toBe("sk-ant-user-key");
+    expect(lastConstructorArgs!.baseURL).toBeUndefined();
+  });
+
+  test("managed mode provider preserves tool-pairing behavior", async () => {
+    const provider = new AnthropicProvider("managed-key", "claude-sonnet-4-6", {
+      baseURL: "https://platform.example.com/v1/runtime-proxy/anthropic",
+    });
+
+    const messages: Message[] = [
+      userMsg("Read file"),
+      toolUseMsg("tu_1", "file_read"),
+      toolResultMsg("tu_1", "file contents"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{ type: string; tool_use_id?: string }>;
+    }>;
+
+    expect(sent).toHaveLength(3);
+    const toolResults = sent[2].content.filter((b) => b.type === "tool_result");
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0].tool_use_id).toBe("tu_1");
+  });
+
+  test("managed mode provider preserves cache-control behavior", async () => {
+    const provider = new AnthropicProvider("managed-key", "claude-sonnet-4-6", {
+      baseURL: "https://platform.example.com/v1/runtime-proxy/anthropic",
+    });
+
+    await provider.sendMessage(
+      [userMsg("Hi")],
+      sampleTools,
+      "You are helpful.",
+    );
+
+    // System prompt cache control
+    const system = lastStreamParams!.system as Array<{
+      cache_control?: { type: string };
+    }>;
+    expect(system[0].cache_control).toEqual({ type: "ephemeral" });
+
+    // Last tool cache control
+    const tools = lastStreamParams!.tools as Array<{
+      cache_control?: { type: string };
+    }>;
+    expect(tools[tools.length - 1].cache_control).toEqual({
+      type: "ephemeral",
+    });
   });
 });

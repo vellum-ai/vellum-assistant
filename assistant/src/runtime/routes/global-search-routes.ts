@@ -19,8 +19,8 @@ import { rawAll } from "../../memory/raw-query.js";
 import { semanticSearch } from "../../memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("global-search");
 
@@ -58,7 +58,7 @@ interface GlobalSearchSchedule {
 interface GlobalSearchContact {
   id: string;
   displayName: string;
-  relationship: string | null;
+  notes: string | null;
   lastInteraction: number | null;
 }
 
@@ -249,18 +249,31 @@ export async function handleGlobalSearch(url: URL): Promise<Response> {
 
   if (categories.has("contacts")) {
     const contactResults = searchContacts({
-      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
       query,
       limit,
     });
     results.contacts = contactResults.map((c) => ({
       id: c.id,
       displayName: c.displayName,
-      relationship: c.relationship,
+      notes: c.notes,
       lastInteraction: c.lastInteraction,
     }));
   }
 
   const response: GlobalSearchResponse = { query, results };
   return Response.json(response);
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function globalSearchRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "search/global",
+      method: "GET",
+      handler: async ({ url }) => handleGlobalSearch(url),
+    },
+  ];
 }

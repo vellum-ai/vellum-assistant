@@ -10,10 +10,21 @@ import {
   isRejection,
 } from "../../routing/resolve-assistant.js";
 import {
-  CircuitBreakerOpenError,
-  resetConversation,
+  AttachmentValidationError,
+  uploadAttachment,
 } from "../../runtime/client.js";
-import { markWhatsAppMessageRead } from "../../whatsapp/api.js";
+import {
+  handleCircuitBreakerError,
+  handleNewCommand,
+  isNewCommand,
+  processInboundResult,
+} from "../../webhook-pipeline.js";
+import { ROUTING_REJECTION_NOTICE } from "../../webhook-copy.js";
+import { downloadWhatsAppFile } from "../../whatsapp/download.js";
+import {
+  markWhatsAppMessageRead,
+  WhatsAppNonRetryableError,
+} from "../../whatsapp/api.js";
 import { normalizeWhatsAppWebhook } from "../../whatsapp/normalize.js";
 import { sendWhatsAppReply } from "../../whatsapp/send.js";
 import { verifyWhatsAppWebhookSignature } from "../../whatsapp/verify.js";
@@ -144,29 +155,6 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
         "WhatsApp webhook received",
       );
 
-      if (mediaType) {
-        tlog.warn(
-          {
-            whatsappMessageId,
-            mediaType,
-            hasCaption: event.message.content.length > 0,
-          },
-          "WhatsApp media attachment not processed — media download not yet supported",
-        );
-
-        // No caption and no text — nothing to forward to the assistant
-        if (event.message.content.length === 0) {
-          markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
-            tlog.debug(
-              { err, messageId: whatsappMessageId },
-              "Failed to mark WhatsApp message as read",
-            );
-          });
-          dedupCache.mark(whatsappMessageId);
-          continue;
-        }
-      }
-
       // Mark message as read (best-effort, do not await)
       markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
         tlog.debug(
@@ -179,46 +167,30 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
       const routing = resolveAssistant(config, from, from);
 
       // Handle /new command — reset conversation before it reaches the runtime
-      if (event.message.content.trim().toLowerCase() === "/new") {
+      if (isNewCommand(event.message.content)) {
         if (isRejection(routing)) {
           tlog.warn(
             { from, reason: routing.reason },
             "Routing rejected /new command",
           );
-          sendWhatsAppReply(
-            config,
-            from,
-            "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-          ).catch((err) => {
-            tlog.error(
-              { err, to: from },
-              "Failed to send /new routing rejection notice",
-            );
-          });
+          sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
+            (err) => {
+              tlog.error(
+                { err, to: from },
+                "Failed to send /new routing rejection notice",
+              );
+            },
+          );
         } else {
-          try {
-            await resetConversation(
-              config,
-              event.sourceChannel,
-              event.message.conversationExternalId,
-            );
-            sendWhatsAppReply(
-              config,
-              from,
-              "Starting a new conversation!",
-            ).catch((err) => {
-              tlog.error({ err }, "Failed to send /new confirmation");
-            });
-          } catch (err) {
-            tlog.error({ err }, "Failed to reset conversation");
-            sendWhatsAppReply(
-              config,
-              from,
-              "Failed to reset conversation. Please try again.",
-            ).catch((replyErr) => {
-              tlog.error({ err: replyErr }, "Failed to send /new error reply");
-            });
-          }
+          await handleNewCommand(
+            config,
+            event.sourceChannel,
+            event.message.conversationExternalId,
+            async (text) => {
+              await sendWhatsAppReply(config, from, text);
+            },
+            tlog,
+          );
         }
 
         dedupCache.mark(whatsappMessageId);
@@ -231,80 +203,170 @@ export function createWhatsAppWebhookHandler(config: GatewayConfig) {
           "Routing rejected inbound WhatsApp message",
         );
         if (rejectionLimiter.shouldSend(from)) {
-          sendWhatsAppReply(
-            config,
-            from,
-            "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-          ).catch((err) => {
-            tlog.error(
-              { err, to: from },
-              "Failed to send routing rejection notice",
-            );
-          });
+          sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
+            (err) => {
+              tlog.error(
+                { err, to: from },
+                "Failed to send routing rejection notice",
+              );
+            },
+          );
         }
+        dedupCache.mark(whatsappMessageId);
+        continue;
+      }
+
+      // Download and upload attachments if present
+      let attachmentIds: string[] | undefined;
+      const eventAttachments = event.message.attachments;
+      if (eventAttachments && eventAttachments.length > 0) {
+        try {
+          attachmentIds = [];
+
+          // Filter oversized attachments
+          const eligible = eventAttachments.filter((att) => {
+            if (
+              att.fileSize !== undefined &&
+              att.fileSize > config.maxAttachmentBytes
+            ) {
+              tlog.warn(
+                {
+                  fileId: att.fileId,
+                  fileSize: att.fileSize,
+                  limit: config.maxAttachmentBytes,
+                },
+                "Skipping oversized WhatsApp attachment",
+              );
+              return false;
+            }
+            return true;
+          });
+
+          // Process with bounded concurrency. Validation errors (unsupported
+          // MIME type, dangerous extension) are skipped so that a bad attachment
+          // doesn't drop the user's message. Transient errors (download timeout,
+          // upload 5xx, network failures) are propagated so that Meta retries
+          // the webhook delivery.
+          for (
+            let i = 0;
+            i < eligible.length;
+            i += config.maxAttachmentConcurrency
+          ) {
+            const batch = eligible.slice(
+              i,
+              i + config.maxAttachmentConcurrency,
+            );
+            const results = await Promise.allSettled(
+              batch.map(async (att) => {
+                const downloaded = await downloadWhatsAppFile(
+                  config,
+                  att.fileId,
+                  {
+                    fileName: att.fileName,
+                    mimeType: att.mimeType,
+                  },
+                );
+                return uploadAttachment(config, downloaded);
+              }),
+            );
+            for (const result of results) {
+              if (result.status === "fulfilled") {
+                attachmentIds.push(result.value.id);
+              } else if (result.reason instanceof AttachmentValidationError) {
+                tlog.warn(
+                  { err: result.reason },
+                  "Skipping WhatsApp attachment with validation error",
+                );
+              } else if (result.reason instanceof WhatsAppNonRetryableError) {
+                tlog.warn(
+                  { err: result.reason },
+                  "Skipping WhatsApp attachment with non-retryable error",
+                );
+              } else {
+                // Transient failure — propagate so the webhook returns 500 and
+                // Meta retries the update delivery.
+                throw result.reason;
+              }
+            }
+          }
+        } catch (err) {
+          // Transient attachment failure — return 500 so Meta retries.
+          tlog.error(
+            { err },
+            "WhatsApp attachment processing failed with transient error",
+          );
+          dedupCache.unreserve(whatsappMessageId);
+          hasFailure = true;
+          continue;
+        }
+      }
+
+      // Media-only messages with no successfully uploaded attachments have
+      // nothing to forward — skip silently.
+      if (
+        event.message.content.length === 0 &&
+        (!attachmentIds || attachmentIds.length === 0)
+      ) {
         dedupCache.mark(whatsappMessageId);
         continue;
       }
 
       try {
         const result = await handleInbound(config, event, {
+          attachmentIds,
           transportMetadata: buildWhatsAppTransportMetadata(),
           replyCallbackUrl: `${config.gatewayInternalBaseUrl}/deliver/whatsapp`,
           traceId,
           routingOverride: routing,
         });
 
-        if (result.rejected) {
-          tlog.warn(
-            { from, reason: result.rejectionReason },
-            "Routing rejected inbound WhatsApp message",
-          );
-          if (rejectionLimiter.shouldSend(from)) {
-            sendWhatsAppReply(
-              config,
-              from,
-              "This message could not be routed to an assistant. Please check your gateway routing configuration.",
-            ).catch((err) => {
-              tlog.error(
-                { err, to: from },
-                "Failed to send routing rejection notice",
+        const processed = processInboundResult(
+          result,
+          dedupCache,
+          whatsappMessageId,
+          () => {
+            if (rejectionLimiter.shouldSend(from)) {
+              sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
+                (err) => {
+                  tlog.error(
+                    { err, to: from },
+                    "Failed to send routing rejection notice",
+                  );
+                },
               );
-            });
-          }
-          dedupCache.mark(whatsappMessageId);
-          continue;
-        }
+            }
+          },
+          tlog,
+        );
 
-        if (!result.forwarded) {
-          tlog.error(
-            { whatsappMessageId },
-            "Failed to forward WhatsApp message to runtime",
-          );
-          dedupCache.unreserve(whatsappMessageId);
+        if (!processed.ok) {
           hasFailure = true;
           continue;
         }
 
+        // Rejected messages are processed successfully (ok: true) but should
+        // not be logged as "forwarded" — the rejection callback already handled them.
+        if (result.rejected) {
+          dedupCache.mark(whatsappMessageId);
+          continue;
+        }
+
         dedupCache.mark(whatsappMessageId);
-        tlog.info(
-          { status: "forwarded", whatsappMessageId },
-          "WhatsApp message forwarded to runtime",
-        );
-      } catch (err) {
-        if (err instanceof CircuitBreakerOpenError) {
-          tlog.warn(
-            { retryAfterSecs: err.retryAfterSecs },
-            "Circuit breaker open — returning 503",
-          );
-          dedupCache.unreserve(whatsappMessageId);
-          return Response.json(
-            { error: "Service temporarily unavailable" },
-            {
-              status: 503,
-              headers: { "Retry-After": String(err.retryAfterSecs) },
-            },
+        if (!processed.rejected) {
+          tlog.info(
+            { status: "forwarded", whatsappMessageId },
+            "WhatsApp message forwarded to runtime",
           );
         }
+      } catch (err) {
+        const cbResponse = handleCircuitBreakerError(
+          err,
+          dedupCache,
+          whatsappMessageId,
+          tlog,
+        );
+        if (cbResponse) return cbResponse;
+
         tlog.error(
           { err, whatsappMessageId },
           "Failed to process inbound WhatsApp message",

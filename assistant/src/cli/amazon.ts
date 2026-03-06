@@ -1,5 +1,5 @@
 /**
- * CLI command group: `vellum amazon`
+ * CLI command group: `assistant amazon`
  *
  * Shop on Amazon and Amazon Fresh via the command line.
  * All commands output JSON to stdout. Use --json for machine-readable output.
@@ -90,6 +90,38 @@ export function registerAmazonCommand(program: Command): void {
     )
     .option("--json", "Machine-readable JSON output");
 
+  amz.addHelpText(
+    "after",
+    `
+Amazon shopping is powered by session cookies captured via Ride Shotgun.
+A valid session must be established before any shopping commands will work.
+
+Session lifecycle:
+  1. "refresh" opens Chrome and captures cookies via a Ride Shotgun learn session.
+     The user must sign into Amazon when prompted. Existing Chrome tabs are unaffected.
+  2. "refresh-headless" reads cookies directly from Chrome's local SQLite database.
+     No visible browser window is needed, but Chrome must already be signed into Amazon.
+  3. "status" checks whether a valid session exists.
+  4. "login" imports a session from a previously saved Ride Shotgun recording file.
+  5. "logout" clears the saved session.
+
+Product workflow: search for products, view details/variations by ASIN, then add
+to cart. Use --fresh flag for Amazon Fresh grocery items throughout the workflow.
+
+Cart and checkout: add/remove items, view cart, get checkout summary, list payment
+methods, and place an order. For Amazon Fresh orders, select a delivery slot first.
+
+WARNING: "order place" is IRREVERSIBLE — it charges the user's payment method and
+places a real Amazon order. Always confirm with the user before running it.
+
+Examples:
+  $ assistant amazon status
+  $ assistant amazon refresh
+  $ assistant amazon search "AA batteries" --limit 5
+  $ assistant amazon cart add --asin B07XXXXX --quantity 2
+  $ assistant amazon order place --payment-method-id pm_abc123`,
+  );
+
   // =========================================================================
   // login — import session from a recording
   // =========================================================================
@@ -97,6 +129,18 @@ export function registerAmazonCommand(program: Command): void {
     .command("login")
     .description("Import an Amazon session from a Ride Shotgun recording")
     .requiredOption("--recording <path>", "Path to the recording JSON file")
+    .addHelpText(
+      "after",
+      `
+Imports Amazon session cookies from a previously saved Ride Shotgun recording
+file. The recording must contain captured cookies from an authenticated Amazon
+session. Typically used to restore a session from a saved recording rather than
+re-authenticating via "refresh".
+
+Examples:
+  $ assistant amazon login --recording /path/to/recording.json
+  $ assistant amazon login --recording ~/recordings/amazon-2024-01-15.json`,
+    )
     .action(async (opts: { recording: string }, cmd: Command) => {
       await run(cmd, async () => {
         const session = importFromRecording(opts.recording);
@@ -114,6 +158,16 @@ export function registerAmazonCommand(program: Command): void {
   amz
     .command("logout")
     .description("Clear the saved Amazon session")
+    .addHelpText(
+      "after",
+      `
+Removes all saved Amazon session cookies from local storage. After logout,
+all shopping commands will fail until a new session is established via
+"refresh", "refresh-headless", or "login".
+
+Examples:
+  $ assistant amazon logout`,
+    )
     .action((_opts: unknown, cmd: Command) => {
       clearSession();
       output({ ok: true, message: "Session cleared" }, getJson(cmd));
@@ -130,6 +184,24 @@ export function registerAmazonCommand(program: Command): void {
         "Your existing Chrome and tabs are not affected.",
     )
     .option("--duration <seconds>", "Recording duration in seconds", "180")
+    .addHelpText(
+      "after",
+      `
+Opens amazon.com in a separate Chrome window via Ride Shotgun and starts a
+learn session to capture session cookies. The user must sign into Amazon when
+prompted. The existing Chrome profile and open tabs are not affected — a
+separate Chrome instance is launched.
+
+The recording runs for --duration seconds (default: 180). After completion,
+captured cookies are automatically imported as the active session. Request
+templates are also extracted for self-healing capabilities.
+
+After cookie capture, the Chrome window is minimized automatically.
+
+Examples:
+  $ assistant amazon refresh
+  $ assistant amazon refresh --duration 120`,
+    )
     .action(async (opts: { duration: string }, cmd: Command) => {
       const json = getJson(cmd);
       const duration = parseInt(opts.duration, 10);
@@ -204,6 +276,26 @@ export function registerAmazonCommand(program: Command): void {
       "Refresh Amazon session by reading cookies directly from Chrome's local database. " +
         "No visible Chrome window needed. Requires Chrome to be signed into Amazon.",
     )
+    .addHelpText(
+      "after",
+      `
+Reads Amazon session cookies directly from Chrome's local SQLite cookie
+database (~/Library/Application Support/Google/Chrome/Default/Cookies).
+No visible Chrome window or user interaction is required.
+
+Requirements:
+  - Chrome must be installed with a Default profile
+  - The user must already be signed into Amazon in Chrome
+  - macOS Keychain access for "Chrome Safe Storage" (may prompt once)
+
+The cookie database is copied to a temp file before reading to avoid
+interfering with Chrome's WAL journaling. Required cookies (session-id,
+ubid-main, and at-main or x-main) are validated after extraction.
+
+Examples:
+  $ assistant amazon refresh-headless
+  $ assistant amazon refresh-headless --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
       try {
@@ -228,6 +320,19 @@ export function registerAmazonCommand(program: Command): void {
   amz
     .command("status")
     .description("Check if an Amazon session is active")
+    .addHelpText(
+      "after",
+      `
+Reports whether an Amazon session is currently stored locally. If a session
+exists, returns the cookie count, import timestamp, and recording ID. If no
+session exists, returns loggedIn: false.
+
+Use this to verify session health before running shopping commands.
+
+Examples:
+  $ assistant amazon status
+  $ assistant amazon status --json`,
+    )
     .action((_opts: unknown, cmd: Command) => {
       const session = loadSession();
       if (session) {
@@ -255,6 +360,25 @@ export function registerAmazonCommand(program: Command): void {
     .argument("<query>", 'Search query (e.g. "AA batteries", "milk")')
     .option("--fresh", "Search Amazon Fresh grocery items")
     .option("--limit <n>", "Max results", "20")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  query   Free-text search query (e.g. "AA batteries", "organic milk").
+          Wrap multi-word queries in quotes.
+
+Searches Amazon product listings and returns matching results with ASINs,
+titles, prices, and ratings. Use the returned ASINs with "product" or
+"cart add" commands.
+
+The --fresh flag restricts results to Amazon Fresh grocery items. The
+--limit flag controls the maximum number of results returned (default: 20).
+
+Examples:
+  $ assistant amazon search "AA batteries"
+  $ assistant amazon search "whole milk" --fresh --limit 10
+  $ assistant amazon search "USB-C cable" --limit 5 --json`,
+    )
     .action(
       async (
         query: string,
@@ -279,6 +403,22 @@ export function registerAmazonCommand(program: Command): void {
     .description("Get product details for an ASIN")
     .argument("<asin>", "Amazon ASIN (e.g. B07XXXXX)")
     .option("--fresh", "Product is an Amazon Fresh item")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  asin   Amazon Standard Identification Number (e.g. B07XXXXX). Obtain
+         ASINs from search results or product URLs.
+
+Returns detailed product information including title, price, availability,
+description, images, and available variations. Use --fresh if the product
+is an Amazon Fresh grocery item.
+
+Examples:
+  $ assistant amazon product B07XXXXX
+  $ assistant amazon product B08YYYYY --fresh
+  $ assistant amazon product B07XXXXX --json`,
+    )
     .action(async (asin: string, opts: { fresh?: boolean }, cmd: Command) => {
       await run(cmd, async () => {
         const product = await getProductDetails(asin, { isFresh: opts.fresh });
@@ -295,6 +435,21 @@ export function registerAmazonCommand(program: Command): void {
       "List available variations (sizes, colors, etc.) for a product",
     )
     .argument("<asin>", "Parent ASIN")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  asin   Parent ASIN to list variations for. Returns child ASINs
+         representing different sizes, colors, styles, or configurations.
+
+Fetches the product and returns its available variations (child ASINs).
+Each variation includes dimension labels (e.g. "Size: Large", "Color: Blue")
+and its own ASIN for use with "product" or "cart add".
+
+Examples:
+  $ assistant amazon variations B07XXXXX
+  $ assistant amazon variations B07XXXXX --json`,
+    )
     .action(async (asin: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const product = await getProductDetails(asin);
@@ -312,10 +467,36 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   const cart = amz.command("cart").description("Cart operations");
 
+  cart.addHelpText(
+    "after",
+    `
+Manage the Amazon shopping cart. Items are identified by ASIN when adding
+and by cart-item-id when removing (cart-item-id is returned by "cart view").
+
+The cart is shared between regular Amazon and Amazon Fresh items. Use
+--fresh when adding grocery items to route them through the Fresh workflow.
+
+Examples:
+  $ assistant amazon cart view
+  $ assistant amazon cart add --asin B07XXXXX --quantity 2
+  $ assistant amazon cart remove --cart-item-id CXYZ123`,
+  );
+
   // cart view
   cart
     .command("view")
     .description("View cart contents")
+    .addHelpText(
+      "after",
+      `
+Returns all items currently in the cart, including ASIN, title, quantity,
+price, and cart-item-id. Use the cart-item-id with "cart remove" to delete
+individual items.
+
+Examples:
+  $ assistant amazon cart view
+  $ assistant amazon cart view --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const result = await viewCart();
@@ -331,6 +512,24 @@ export function registerAmazonCommand(program: Command): void {
     .option("--quantity <n>", "Quantity", "1")
     .option("--fresh", "Amazon Fresh item")
     .option("--verbose", "Show detailed diagnostics for debugging")
+    .addHelpText(
+      "after",
+      `
+Adds a product to the Amazon cart by ASIN.
+
+Options:
+  --asin <asin>      Required. The product ASIN to add (from search or product details).
+  --quantity <n>     Number of units to add (default: 1).
+  --fresh            Flag the item as an Amazon Fresh grocery product. Required for
+                     Fresh items to route through the correct add-to-cart workflow.
+  --verbose          Print detailed diagnostics to stderr for debugging add-to-cart
+                     failures. Includes raw Amazon API response data.
+
+Examples:
+  $ assistant amazon cart add --asin B07XXXXX
+  $ assistant amazon cart add --asin B08YYYYY --quantity 3 --fresh
+  $ assistant amazon cart add --asin B07XXXXX --verbose`,
+    )
     .action(
       async (
         opts: {
@@ -391,6 +590,20 @@ export function registerAmazonCommand(program: Command): void {
     .command("remove")
     .description("Remove an item from the cart")
     .requiredOption("--cart-item-id <id>", "Cart item ID (from cart view)")
+    .addHelpText(
+      "after",
+      `
+Removes a single item from the cart by its cart-item-id.
+
+Options:
+  --cart-item-id <id>   Required. The cart item identifier returned by "cart view".
+                        This is NOT the product ASIN — it is Amazon's internal cart
+                        line-item ID.
+
+Examples:
+  $ assistant amazon cart remove --cart-item-id CXYZ123
+  $ assistant amazon cart remove --cart-item-id CXYZ123 --json`,
+    )
     .action(async (opts: { cartItemId: string }, cmd: Command) => {
       await run(cmd, async () => {
         const result = await removeFromCart({ cartItemId: opts.cartItemId });
@@ -405,10 +618,39 @@ export function registerAmazonCommand(program: Command): void {
     .command("fresh")
     .description("Amazon Fresh grocery delivery operations");
 
+  fresh.addHelpText(
+    "after",
+    `
+Amazon Fresh grocery delivery management. Before placing a Fresh order, a
+delivery slot must be selected. Use "delivery-slots" to list available time
+windows, then "select-slot" to reserve one.
+
+Fresh items must also be added to cart with the --fresh flag:
+  $ assistant amazon cart add --asin B08YYYYY --fresh
+
+Examples:
+  $ assistant amazon fresh delivery-slots
+  $ assistant amazon fresh select-slot --slot-id slot_abc123`,
+  );
+
   // fresh delivery-slots
   fresh
     .command("delivery-slots")
     .description("Get available Amazon Fresh delivery slots")
+    .addHelpText(
+      "after",
+      `
+Lists available Amazon Fresh delivery time windows. Each slot includes a
+slot ID, date, time range, and availability status. Use the slot ID with
+"fresh select-slot" to reserve a delivery window before placing an order.
+
+Slot availability changes frequently. Re-check before placing an order if
+significant time has passed since the last query.
+
+Examples:
+  $ assistant amazon fresh delivery-slots
+  $ assistant amazon fresh delivery-slots --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const slots = await getFreshDeliverySlots();
@@ -424,6 +666,17 @@ export function registerAmazonCommand(program: Command): void {
       "--slot-id <id>",
       "Delivery slot ID (from delivery-slots command)",
     )
+    .addHelpText(
+      "after",
+      `
+Reserves an Amazon Fresh delivery slot for the current order. The slot ID
+must be obtained from "fresh delivery-slots". A slot must be selected before
+placing an Amazon Fresh order via "order place".
+
+Examples:
+  $ assistant amazon fresh select-slot --slot-id slot_abc123
+  $ assistant amazon fresh select-slot --slot-id slot_abc123 --json`,
+    )
     .action(async (opts: { slotId: string }, cmd: Command) => {
       await run(cmd, async () => {
         const result = await selectFreshDeliverySlot(opts.slotId);
@@ -437,6 +690,21 @@ export function registerAmazonCommand(program: Command): void {
   amz
     .command("payment-methods")
     .description("List saved payment methods")
+    .addHelpText(
+      "after",
+      `
+Lists all payment methods saved on the user's Amazon account. Each method
+includes a payment-method-id, type (credit card, debit, etc.), and a
+masked description. Use the payment-method-id with "order place" to select
+a specific payment method.
+
+If no --payment-method-id is passed to "order place", Amazon uses the
+account's default payment method.
+
+Examples:
+  $ assistant amazon payment-methods
+  $ assistant amazon payment-methods --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const methods = await getPaymentMethods();
@@ -450,6 +718,20 @@ export function registerAmazonCommand(program: Command): void {
   amz
     .command("checkout")
     .description("Get checkout summary (totals, shipping, payment options)")
+    .addHelpText(
+      "after",
+      `
+Retrieves the checkout summary without placing an order. Returns item
+totals, shipping cost, tax, estimated delivery dates, selected payment
+method, and shipping address.
+
+Use this to review the order before committing with "order place". This
+command is read-only and does not charge or modify the cart.
+
+Examples:
+  $ assistant amazon checkout
+  $ assistant amazon checkout --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const summary = await getCheckoutSummary();
@@ -462,6 +744,20 @@ export function registerAmazonCommand(program: Command): void {
   // =========================================================================
   const order = amz.command("order").description("Order operations");
 
+  order.addHelpText(
+    "after",
+    `
+Order management commands. Currently supports placing orders.
+
+WARNING: "order place" is IRREVERSIBLE. It charges the user's payment
+method and submits a real Amazon order that cannot be undone via this CLI.
+Always confirm with the user and review checkout summary first.
+
+Examples:
+  $ assistant amazon checkout
+  $ assistant amazon order place`,
+  );
+
   // order place
   order
     .command("place")
@@ -472,28 +768,47 @@ export function registerAmazonCommand(program: Command): void {
       "--payment-method-id <id>",
       "Payment method ID (uses default if omitted)",
     )
-    .option("--slot-id <id>", "Amazon Fresh delivery slot ID")
-    .action(
-      async (
-        opts: { paymentMethodId?: string; slotId?: string },
-        cmd: Command,
-      ) => {
-        await run(cmd, async () => {
-          const result = await placeOrder({
-            paymentMethodId: opts.paymentMethodId,
-            deliverySlotId: opts.slotId,
-          });
-          return { order: result };
+    .addHelpText(
+      "after",
+      `
+*** IRREVERSIBLE *** This command places a real Amazon order. It charges the
+user's payment method and cannot be cancelled or undone through this CLI.
+Always review "checkout" output and get explicit user confirmation first.
+
+Options:
+  --payment-method-id <id>   Payment method to charge. Obtain IDs from
+                             "payment-methods". If omitted, Amazon uses the
+                             account's default payment method.
+
+For Amazon Fresh orders, select a delivery slot before placing the order:
+  $ assistant amazon fresh select-slot --slot-id slot_abc123
+
+Recommended workflow before placing an order:
+  1. assistant amazon cart view          (verify cart contents)
+  2. assistant amazon checkout           (review totals and shipping)
+  3. Confirm with the user
+  4. assistant amazon order place
+
+Examples:
+  $ assistant amazon order place
+  $ assistant amazon order place --payment-method-id pm_abc123
+  $ assistant amazon order place --json`,
+    )
+    .action(async (opts: { paymentMethodId?: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const result = await placeOrder({
+          paymentMethodId: opts.paymentMethodId,
         });
-      },
-    );
+        return { order: result };
+      });
+    });
 }
 
 // ---------------------------------------------------------------------------
-// Chrome CDP restart helper
+// Chrome CDP helpers (delegated to shared module)
 // ---------------------------------------------------------------------------
 
-import { execSync, spawn as spawnChild } from "node:child_process";
+import { execSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import {
   copyFileSync,
@@ -503,156 +818,11 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
 
-const CDP_BASE = "http://localhost:9222";
-const CHROME_DATA_DIR = pathJoin(
-  homedir(),
-  "Library/Application Support/Google/Chrome-CDP",
-);
-
-async function isCdpReady(): Promise<boolean> {
-  try {
-    const res = await fetch(`${CDP_BASE}/json/version`);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureChromeWithCDP(): Promise<void> {
-  if (await isCdpReady()) return;
-
-  const chromeApp =
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  spawnChild(
-    chromeApp,
-    [
-      `--remote-debugging-port=9222`,
-      `--force-renderer-accessibility`,
-      `--user-data-dir=${CHROME_DATA_DIR}`,
-      `https://www.amazon.com/`,
-    ],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  ).unref();
-
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    if (await isCdpReady()) return;
-  }
-  throw new Error("Chrome started but CDP endpoint not responding after 15s");
-}
-
-async function minimizeChromeWindow(): Promise<void> {
-  const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{
-    type: string;
-    webSocketDebuggerUrl: string;
-  }>;
-  const pageTarget = targets.find((t) => t.type === "page");
-  if (!pageTarget) return;
-
-  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("CDP minimize timed out"));
-    }, 5000);
-
-    ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(String(event.data)) as {
-        id: number;
-        result?: { windowId: number };
-      };
-      if (msg.id === 1 && msg.result) {
-        ws.send(
-          JSON.stringify({
-            id: 2,
-            method: "Browser.setWindowBounds",
-            params: {
-              windowId: msg.result.windowId,
-              bounds: { windowState: "minimized" },
-            },
-          }),
-        );
-      } else if (msg.id === 1) {
-        clearTimeout(timeout);
-        ws.close();
-        reject(new Error("Browser.getWindowForTarget failed"));
-      } else if (msg.id === 2) {
-        clearTimeout(timeout);
-        ws.close();
-        resolve();
-      }
-    });
-
-    ws.addEventListener("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
-
-async function restoreChromeWindow(): Promise<void> {
-  const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{
-    type: string;
-    webSocketDebuggerUrl: string;
-  }>;
-  const pageTarget = targets.find((t) => t.type === "page");
-  if (!pageTarget) return;
-
-  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("CDP restore timed out"));
-    }, 5000);
-
-    ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(String(event.data)) as {
-        id: number;
-        result?: { windowId: number };
-      };
-      if (msg.id === 1 && msg.result) {
-        ws.send(
-          JSON.stringify({
-            id: 2,
-            method: "Browser.setWindowBounds",
-            params: {
-              windowId: msg.result.windowId,
-              bounds: { windowState: "normal" },
-            },
-          }),
-        );
-      } else if (msg.id === 1) {
-        clearTimeout(timeout);
-        ws.close();
-        reject(new Error("Browser.getWindowForTarget failed"));
-      } else if (msg.id === 2) {
-        clearTimeout(timeout);
-        ws.close();
-        resolve();
-      }
-    });
-
-    ws.addEventListener("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
+import {
+  ensureChromeWithCdp,
+  minimizeChromeWindow,
+  restoreChromeWindow,
+} from "../tools/browser/chrome-cdp.js";
 
 // ---------------------------------------------------------------------------
 // Headless cookie extraction from Chrome's SQLite database
@@ -834,7 +1004,7 @@ interface LearnResult {
 async function startLearnSession(
   durationSeconds: number,
 ): Promise<LearnResult> {
-  await ensureChromeWithCDP();
+  await ensureChromeWithCdp({ startUrl: "https://www.amazon.com/" });
 
   return new Promise((resolve, reject) => {
     const socketPath = getSocketPath();
@@ -893,6 +1063,13 @@ async function startLearnSession(
         }
 
         if (m.type === "auth_result") {
+          continue;
+        }
+
+        if (m.type === "ride_shotgun_error") {
+          clearTimeout(timeoutHandle);
+          socket.destroy();
+          reject(new Error((m as { message: string }).message));
           continue;
         }
 

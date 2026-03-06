@@ -19,6 +19,7 @@ import { getConfig } from "../../config/loader.js";
 import { VALID_CALLER_IDENTITY_MODES } from "../../config/schema.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError, httpErrorCodeFromStatus } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 // ── Idempotency cache ─────────────────────────────────────────────────────────
 // Stores serialized 201 responses keyed by idempotencyKey for 5 minutes so
@@ -274,4 +275,44 @@ export async function handleInstructionCall(
   }
 
   return Response.json({ ok: true });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function callRouteDefinitions(deps: {
+  assistantId: string;
+}): RouteDefinition[] {
+  return [
+    {
+      endpoint: "calls/start",
+      method: "POST",
+      handler: async ({ req }) => handleStartCall(req, deps.assistantId),
+    },
+    {
+      endpoint: "calls/:id/cancel",
+      method: "POST",
+      policyKey: "calls/cancel",
+      handler: async ({ req, params }) => handleCancelCall(req, params.id),
+    },
+    {
+      endpoint: "calls/:id/answer",
+      method: "POST",
+      policyKey: "calls/answer",
+      handler: async ({ req, params }) => handleAnswerCall(req, params.id),
+    },
+    {
+      endpoint: "calls/:id/instruction",
+      method: "POST",
+      policyKey: "calls/instruction",
+      handler: async ({ req, params }) => handleInstructionCall(req, params.id),
+    },
+    {
+      endpoint: "calls/:id",
+      method: "GET",
+      policyKey: "calls",
+      handler: ({ params }) => handleGetCallStatus(params.id),
+    },
+  ];
 }

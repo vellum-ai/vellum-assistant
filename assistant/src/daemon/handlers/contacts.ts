@@ -1,12 +1,13 @@
 import * as net from "node:net";
 
+import { resolveGuardianName } from "../../config/user-reference.js";
 import {
+  deleteContact,
   getContact,
   listContacts,
   updateChannelStatus,
 } from "../../contacts/contact-store.js";
 import type { ContactWithChannels } from "../../contacts/types.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import type {
   ContactChannelPayload,
   ContactPayload,
@@ -36,10 +37,13 @@ function toChannelPayload(
 function toContactPayload(contact: ContactWithChannels): ContactPayload {
   return {
     id: contact.id,
-    displayName: contact.displayName,
+    displayName:
+      contact.role === "guardian"
+        ? resolveGuardianName(contact.displayName)
+        : contact.displayName,
     role: contact.role,
-    relationship: contact.relationship ?? undefined,
-    importance: contact.importance,
+    notes: contact.notes ?? undefined,
+    contactType: contact.contactType ?? undefined,
     lastInteraction: contact.lastInteraction ?? undefined,
     interactionCount: contact.interactionCount,
     channels: contact.channels.map(toChannelPayload),
@@ -54,11 +58,7 @@ export function handleContacts(
   try {
     switch (msg.action) {
       case "list": {
-        const results = listContacts(
-          DAEMON_INTERNAL_ASSISTANT_ID,
-          msg.limit ?? 50,
-          msg.role,
-        );
+        const results = listContacts(msg.limit ?? 50, msg.role);
         ctx.send(socket, {
           type: "contacts_response",
           success: true,
@@ -76,7 +76,7 @@ export function handleContacts(
           });
           return;
         }
-        const contact = getContact(msg.contactId, DAEMON_INTERNAL_ASSISTANT_ID);
+        const contact = getContact(msg.contactId);
         if (!contact) {
           ctx.send(socket, {
             type: "contacts_response",
@@ -127,14 +127,44 @@ export function handleContacts(
           return;
         }
         // Return the parent contact with all channels so the client has the full picture
-        const parentContact = getContact(
-          updated.contactId,
-          DAEMON_INTERNAL_ASSISTANT_ID,
-        );
+        const parentContact = getContact(updated.contactId);
         ctx.send(socket, {
           type: "contacts_response",
           success: true,
           contact: parentContact ? toContactPayload(parentContact) : undefined,
+        });
+        return;
+      }
+
+      case "delete": {
+        if (!msg.contactId) {
+          ctx.send(socket, {
+            type: "contacts_response",
+            success: false,
+            error: "contactId is required for delete",
+          });
+          return;
+        }
+        const result = deleteContact(msg.contactId);
+        if (result === "not_found") {
+          ctx.send(socket, {
+            type: "contacts_response",
+            success: false,
+            error: `Contact "${msg.contactId}" not found`,
+          });
+          return;
+        }
+        if (result === "is_guardian") {
+          ctx.send(socket, {
+            type: "contacts_response",
+            success: false,
+            error: "Cannot delete a guardian contact",
+          });
+          return;
+        }
+        ctx.send(socket, {
+          type: "contacts_response",
+          success: true,
         });
         return;
       }

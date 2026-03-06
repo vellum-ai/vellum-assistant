@@ -1,4 +1,5 @@
 @preconcurrency import AppKit
+import os
 import SwiftUI
 import VellumAssistantShared
 
@@ -7,7 +8,6 @@ import VellumAssistantShared
 /// unified Text views so that text selection can span across paragraphs.
 struct MarkdownSegmentView: View {
     let segments: [MarkdownSegment]
-    var isStreaming: Bool = false
     var maxContentWidth: CGFloat? = 520
     var textColor: Color = VColor.textPrimary
     var secondaryTextColor: Color = VColor.textSecondary
@@ -33,7 +33,7 @@ struct MarkdownSegmentView: View {
                         .lineSpacing(4)
                         .foregroundColor(textColor)
                         .tint(tintColor)
-                        .selectableText(!isStreaming)
+                        .textSelection(.enabled)
                         // Bound horizontal space BEFORE fixedSize so SwiftUI can wrap text
                         // within a finite width rather than measuring against an unconstrained
                         // parent, which causes O(N²) layout passes and stack overflows on
@@ -51,7 +51,7 @@ struct MarkdownSegmentView: View {
                     Text(headingText)
                         .font(headingFont)
                         .foregroundColor(textColor)
-                        .selectableText(!isStreaming)
+                        .textSelection(.enabled)
                         // Frame before fixedSize so the heading wraps within a known width.
                         .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -83,7 +83,7 @@ struct MarkdownSegmentView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(.leading, leftPad)
-                            .selectableText(!isStreaming)
+                            .textSelection(.enabled)
                         }
                     }
                     .frame(maxWidth: maxContentWidth ?? .infinity, alignment: .leading)
@@ -101,7 +101,7 @@ struct MarkdownSegmentView: View {
                             Text(code)
                                 .font(.custom("DMMono-Regular", size: 13 * zoomScale))
                                 .foregroundColor(textColor)
-                                .selectableText(!isStreaming)
+                                .textSelection(.enabled)
                                 .fixedSize(horizontal: true, vertical: true)
                                 .padding(VSpacing.sm)
                         }
@@ -111,7 +111,7 @@ struct MarkdownSegmentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
 
                 case .table(let headers, let rows):
-                    MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity, isStreaming: isStreaming)
+                    MarkdownTableView(headers: headers, rows: rows, maxWidth: maxContentWidth ?? .infinity)
 
                 case .image(let alt, let url):
                     AnimatedImageView(urlString: url)
@@ -146,7 +146,14 @@ struct MarkdownSegmentView: View {
 
     /// Groups consecutive text-selectable segments together so they render
     /// as a single Text view, enabling cross-paragraph text selection.
-    private var groupedSegments: [SegmentGroup] {
+    /// `computeGroupedSegments` is a pure O(segment-count) switch/append walk
+    /// with no string operations, so it is cheap enough to call on every body
+    /// evaluation without a separate cache.
+    private var groupedSegments: [SegmentGroup] { computeGroupedSegments() }
+
+    private func computeGroupedSegments() -> [SegmentGroup] {
+        os_signpost(.begin, log: PerfSignposts.log, name: "markdownGroupSegments")
+        defer { os_signpost(.end, log: PerfSignposts.log, name: "markdownGroupSegments") }
         var groups: [SegmentGroup] = []
         var currentRun: [MarkdownSegment] = []
 
@@ -239,6 +246,8 @@ struct MarkdownSegmentView: View {
     /// Builds (or retrieves from cache) a single AttributedString from
     /// consecutive text-selectable segments.
     private func buildCombinedAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
+        os_signpost(.begin, log: PerfSignposts.log, name: "attributedStringBuild")
+        defer { os_signpost(.end, log: PerfSignposts.log, name: "attributedStringBuild") }
         // Build a stable cache key from the segment contents and style
         // inputs that affect the output (e.g. secondaryTextColor for list
         // prefix coloring, zoomScale for font sizing) so different visual
@@ -360,21 +369,6 @@ struct MarkdownSegmentView: View {
         }
 
         return result
-    }
-}
-
-// MARK: - Conditional text selection
-
-extension View {
-    /// Wraps `.textSelection(.enabled)` / `.textSelection(.disabled)` behind a
-    /// `@ViewBuilder` branch so the compiler doesn't try to unify the two
-    /// distinct `TextSelectability` conformances in a single ternary expression.
-    @ViewBuilder func selectableText(_ enabled: Bool) -> some View {
-        if enabled {
-            self.textSelection(.enabled)
-        } else {
-            self.textSelection(.disabled)
-        }
     }
 }
 

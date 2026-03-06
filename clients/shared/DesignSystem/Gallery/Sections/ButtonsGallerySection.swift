@@ -141,25 +141,29 @@ struct ButtonsGallerySection: View {
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
-            // MARK: - VIconButton (Filled)
+            // MARK: - VIconButton (Semantic Variants)
             GallerySectionHeader(
-                title: "VIconButton (Filled)",
-                description: "Filled icon buttons with a solid background color and white icon."
+                title: "VIconButton (Semantic Variants)",
+                description: "Filled icon buttons using semantic variants aligned with VButton styles."
             )
 
             VCard {
                 HStack(spacing: VSpacing.xl) {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Primary").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "More", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary)) {}
+                        VIconButton(label: "More", icon: "ellipsis", iconOnly: true, variant: .primary) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Accent").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Add", icon: "plus", iconOnly: true, variant: .filled(VColor.accent)) {}
+                        Text("Secondary").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Add", icon: "plus", iconOnly: true, variant: .secondary) {}
                     }
                     VStack(alignment: .leading, spacing: VSpacing.md) {
-                        Text("Error").font(VFont.caption).foregroundColor(VColor.textMuted)
-                        VIconButton(label: "Delete", icon: "trash", iconOnly: true, variant: .filled(VColor.error)) {}
+                        Text("Danger").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Delete", icon: "trash", iconOnly: true, variant: .danger) {}
+                    }
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Neutral").font(VFont.caption).foregroundColor(VColor.textMuted)
+                        VIconButton(label: "Stop", icon: "stop.fill", iconOnly: true, variant: .neutral) {}
                     }
                 }
             }

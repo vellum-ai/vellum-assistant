@@ -295,7 +295,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     pendingInteractions.clear();
 
     createGuardianBinding({
-      assistantId: "self",
       channel: "vellum",
       guardianExternalUserId: "dev-bypass",
       guardianDeliveryChatId: "vellum",

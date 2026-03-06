@@ -18,10 +18,11 @@ import { findContactChannel } from "../../../contacts/contact-store.js";
 import {
   createGuardianBinding,
   revokeGuardianBinding,
-  upsertMember,
+  upsertContactChannel,
 } from "../../../contacts/contacts-write.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { canonicalizeInboundIdentity } from "../../../util/canonicalize-identity.js";
 import { getLogger } from "../../../util/logger.js";
 import {
@@ -95,8 +96,8 @@ export async function handleVerificationIntercept(
   // Only intercept when there is a pending challenge or active outbound session
   const shouldIntercept =
     guardianVerifyCode !== undefined &&
-    (!!getPendingChallenge(canonicalAssistantId, sourceChannel) ||
-      !!findActiveSession(canonicalAssistantId, sourceChannel));
+    (!!getPendingChallenge(sourceChannel) ||
+      !!findActiveSession(sourceChannel));
 
   if (
     isDuplicate ||
@@ -108,7 +109,6 @@ export async function handleVerificationIntercept(
   }
 
   const verifyResult = validateAndConsumeChallenge(
-    canonicalAssistantId,
     sourceChannel,
     guardianVerifyCode,
     canonicalSenderId ?? rawSenderId,
@@ -143,8 +143,7 @@ export async function handleVerificationIntercept(
         ? existingContact.displayName
         : actorDisplayName;
 
-    upsertMember({
-      assistantId: canonicalAssistantId,
+    upsertContactChannel({
       sourceChannel,
       externalUserId: canonicalSenderId ?? rawSenderId,
       externalChatId: conversationExternalId,
@@ -170,7 +169,7 @@ export async function handleVerificationIntercept(
           (canonicalSenderId ?? rawSenderId)
       ) {
         // Edge case: another user already bound. Log and skip binding creation.
-        // The upsertMember above already succeeded, so the sender is a known contact,
+        // The upsertContactChannel above already succeeded, so the sender is a known contact,
         // but they won't get guardian role.
         log.warn(
           {
@@ -181,7 +180,7 @@ export async function handleVerificationIntercept(
         );
       } else {
         // Revoke any existing active binding before creating a new one (same-user re-verification)
-        revokeGuardianBinding(canonicalAssistantId, sourceChannel);
+        revokeGuardianBinding(sourceChannel);
 
         const metadata: Record<string, string> = {};
         if (actorUsername && actorUsername.trim().length > 0) {
@@ -202,7 +201,6 @@ export async function handleVerificationIntercept(
           rawSenderId;
 
         createGuardianBinding({
-          assistantId: canonicalAssistantId,
           channel: sourceChannel,
           guardianExternalUserId: canonicalSenderId ?? rawSenderId,
           guardianDeliveryChatId: conversationExternalId,
@@ -233,9 +231,8 @@ export async function handleVerificationIntercept(
     if (verifyResult.verificationType === "trusted_contact") {
       void emitNotificationSignal({
         sourceEventName: "ingress.trusted_contact.activated",
-        sourceChannel,
+        sourceChannel: sourceChannel as NotificationSourceChannel,
         sourceSessionId: conversationId,
-        assistantId: canonicalAssistantId,
         attentionHints: {
           requiresAction: false,
           urgency: "low",

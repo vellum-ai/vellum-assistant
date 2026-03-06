@@ -80,6 +80,8 @@ export interface ToolUseStart {
   toolName: string;
   input: Record<string, unknown>;
   sessionId?: string;
+  /** The tool_use block ID for client-side correlation. */
+  toolUseId?: string;
 }
 
 export interface ToolOutputChunk {
@@ -240,6 +242,8 @@ export interface ConfirmationStateChanged {
   causedByRequestId?: string;
   /** Normalized user text for analytics/debug (e.g. "approve", "deny"). */
   decisionText?: string;
+  /** The tool_use block ID this confirmation applies to, for disambiguating parallel tool calls. */
+  toolUseId?: string;
 }
 
 /**

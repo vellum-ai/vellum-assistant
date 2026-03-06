@@ -14,12 +14,12 @@ enum SettingsTab: String {
     case advanced = "Advanced"
 
     /// Tabs shown in the sidebar. Contacts requires a feature flag; Advanced is only visible in dev mode.
-    static func visibleTabs(isDevMode: Bool) -> [SettingsTab] {
+    static func visibleTabs(isDevMode: Bool, contactsEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [
             .account, .channels, .modelsAndServices, .voice,
             .automation, .appearance, .permissions, .privacy
         ]
-        if MacOSClientFeatureFlagManager.shared.isEnabled("contacts_tab") {
+        if contactsEnabled {
             tabs.append(.contacts)
         }
         if isDevMode {
@@ -31,7 +31,7 @@ enum SettingsTab: String {
     /// Maps legacy tab names (from IPC or saved state) to current tabs.
     /// The `isDevMode` parameter gates dev-only tabs so external callers
     /// (e.g. daemon IPC) cannot navigate to them when dev mode is off.
-    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false) -> SettingsTab? {
+    static func fromLegacyRawValue(_ value: String, isDevMode: Bool = false, contactsEnabled: Bool = false) -> SettingsTab? {
         let tab: SettingsTab?
         // Try current values first
         if let direct = SettingsTab(rawValue: value) {
@@ -49,7 +49,7 @@ enum SettingsTab: String {
             }
         }
         // Block feature-flagged tabs when disabled
-        if tab == .contacts && !MacOSClientFeatureFlagManager.shared.isEnabled("contacts_tab") { return nil }
+        if tab == .contacts && !contactsEnabled { return nil }
         // Block dev-only tabs when dev mode is disabled
         if tab == .advanced && !isDevMode { return nil }
         return tab
@@ -97,35 +97,57 @@ struct SettingsPanel: View {
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var selectedTab: SettingsTab = .account
     @State private var settingsSnapshot: SettingsSnapshot? = nil
+    @State private var isContactsEnabled: Bool = false
+    private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
 
     var body: some View {
-        // Two-column layout: bare nav on window background, content in its own surface panel
-        HStack(alignment: .top, spacing: 0) {
-            // Left: nav sidebar sits directly on the window background — no card/surface wrapper
-            settingsNav
-                .frame(width: 200)
+        VStack(spacing: 0) {
+            // Header: back chevron + title
+            HStack(spacing: VSpacing.md) {
+                VIconButton(
+                    label: "Back",
+                    icon: "chevron.left",
+                    iconOnly: true,
+                    variant: .outlined,
+                    action: onClose
+                )
 
-            // Right: tab content — panel background on content only, nav floats on window chrome
-            // Contacts tab is a master-detail split that needs full height; wrapping it in
-            // a ScrollView would collapse maxHeight: .infinity to minimum content size.
-            if selectedTab == .contacts {
-                selectedTabContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .background(VColor.backgroundSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-            } else {
-                ScrollView {
-                    selectedTabContent
-                        .padding(VSpacing.lg)
-                        .frame(maxWidth: .infinity, alignment: .top)
-                }
-                .background(VColor.backgroundSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                Text("Settings")
+                    .font(VFont.panelTitle)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
             }
+            .padding(.bottom, VSpacing.md)
+
+            VColor.surfaceBorder.frame(height: 1)
+
+            // Body: nav pinned left + centered content with max width
+            HStack(alignment: .top, spacing: 0) {
+                settingsNav
+                    .frame(width: 200)
+
+                if selectedTab == .contacts {
+                    selectedTabContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                } else {
+                    ScrollView {
+                        selectedTabContent
+                            .padding(VSpacing.lg)
+                            .frame(maxWidth: 700, alignment: .top)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
         }
+        .padding(VSpacing.xl)
+        .background(VColor.backgroundSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .task {
-            // Refresh permission status when the view appears
+            // Refresh permission status and contacts feature flag when the view appears
             await refreshPermissionStatus()
+            await loadContactsFeatureFlag()
         }
         .task {
             // Delay baseline snapshot until after async IPC refreshes (refreshTwitterStatus,
@@ -152,7 +174,7 @@ struct SettingsPanel: View {
             setupIntegrationCallbacks()
             try? daemonClient?.sendIntegrationList()
             if let pending = store.pendingSettingsTab {
-                if SettingsTab.visibleTabs(isDevMode: store.isDevMode).contains(pending) {
+                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(pending) {
                     selectedTab = pending
                 }
                 store.pendingSettingsTab = nil
@@ -160,7 +182,7 @@ struct SettingsPanel: View {
         }
         .onChange(of: store.pendingSettingsTab) { _, newTab in
             if let tab = newTab {
-                if SettingsTab.visibleTabs(isDevMode: store.isDevMode).contains(tab) {
+                if SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(tab) {
                     selectedTab = tab
                 }
                 store.pendingSettingsTab = nil
@@ -173,8 +195,18 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToSettingsTab)) { notification in
             if let tab = notification.object as? SettingsTab {
-                guard SettingsTab.visibleTabs(isDevMode: store.isDevMode).contains(tab) else { return }
+                guard SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled).contains(tab) else { return }
                 selectedTab = tab
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
+            if let key = notification.userInfo?["key"] as? String,
+               let enabled = notification.userInfo?["enabled"] as? Bool,
+               key == Self.contactsFeatureFlagKey {
+                isContactsEnabled = enabled
+                if !enabled && selectedTab == .contacts {
+                    selectedTab = .account
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -236,14 +268,15 @@ struct SettingsPanel: View {
             .padding(.bottom, VSpacing.md)
 
             // Tab nav items
-            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode), id: \.self) { tab in
+            ForEach(SettingsTab.visibleTabs(isDevMode: store.isDevMode, contactsEnabled: isContactsEnabled), id: \.self) { tab in
                 SettingsNavRow(tab: tab, isSelected: selectedTab == tab) {
                     selectedTab = tab
                 }
             }
             Spacer()
         }
-        .padding(VSpacing.lg)
+        .padding(.top, VSpacing.lg)
+        .padding(.trailing, VSpacing.sm)
     }
 
     // MARK: - Tab Content Router
@@ -266,9 +299,9 @@ struct SettingsPanel: View {
         case .appearance:
             SettingsAppearanceTab(store: store)
         case .privacy:
-            SettingsPrivacyTab(daemonClient: daemonClient)
+            SettingsPrivacyTab(daemonClient: daemonClient, store: store)
         case .contacts:
-            ContactsContainerView(daemonClient: daemonClient)
+            ContactsContainerView(daemonClient: daemonClient, store: store)
         case .advanced:
             if store.isDevMode {
                 SettingsAdvancedDevTab(store: store, daemonClient: daemonClient)
@@ -315,8 +348,8 @@ struct SettingsPanel: View {
                     }
 
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Clear", style: .danger) {
                             store.clearAPIKey()
                             apiKeyText = ""
                             anthropicSetupExpanded = false
@@ -346,20 +379,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
+                            VButton(label: "Save", style: .secondary) {
                                 store.saveAPIKey(apiKeyText)
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
                             .disabled(apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            VButton(label: "Cancel", style: .tertiary) {
                                 apiKeyText = ""
                                 anthropicSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         anthropicSetupExpanded = true
                     }
                 }
@@ -381,8 +414,8 @@ struct SettingsPanel: View {
 
                 if store.hasPerplexityKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Clear", style: .danger) {
                             store.clearPerplexityKey()
                             perplexityKeyText = ""
                             perplexitySetupExpanded = false
@@ -412,20 +445,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
+                            VButton(label: "Save", style: .secondary) {
                                 store.savePerplexityKey(perplexityKeyText)
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
                             .disabled(perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            VButton(label: "Cancel", style: .tertiary) {
                                 perplexityKeyText = ""
                                 perplexitySetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         perplexitySetupExpanded = true
                     }
                 }
@@ -447,8 +480,8 @@ struct SettingsPanel: View {
 
                 if store.hasBraveKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Clear", style: .danger) {
                             store.clearBraveKey()
                             braveKeyText = ""
                             braveSetupExpanded = false
@@ -478,20 +511,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
+                            VButton(label: "Save", style: .secondary) {
                                 store.saveBraveKey(braveKeyText)
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
                             .disabled(braveKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            VButton(label: "Cancel", style: .tertiary) {
                                 braveKeyText = ""
                                 braveSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         braveSetupExpanded = true
                     }
                 }
@@ -513,8 +546,8 @@ struct SettingsPanel: View {
 
                 if store.hasImageGenKey {
                     HStack(spacing: VSpacing.sm) {
-                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                        VButton(label: "Clear", style: .danger, size: .medium) {
+                        VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                        VButton(label: "Clear", style: .danger) {
                             store.clearImageGenKey()
                             imageGenKeyText = ""
                             imageGenSetupExpanded = false
@@ -565,20 +598,20 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
+                            VButton(label: "Save", style: .secondary) {
                                 store.saveImageGenKey(imageGenKeyText)
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }
                             .disabled(imageGenKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            VButton(label: "Cancel", style: .tertiary) {
                                 imageGenKeyText = ""
                                 imageGenSetupExpanded = false
                             }
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         imageGenSetupExpanded = true
                     }
                 }
@@ -658,8 +691,8 @@ struct SettingsPanel: View {
                 if store.twitterConnected {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
-                            VButton(label: "Disconnect", style: .danger, size: .medium) {
+                            VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success) {}
+                            VButton(label: "Disconnect", style: .danger) {
                                 store.disconnectTwitter()
                             }
                         }
@@ -673,7 +706,7 @@ struct SettingsPanel: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         if store.twitterAuthInProgress {
                             HStack(spacing: VSpacing.sm) {
-                                VButton(label: "Connect", style: .primary, size: .medium) {}
+                                VButton(label: "Connect", style: .primary) {}
                                     .disabled(true)
                                 ProgressView()
                                     .controlSize(.small)
@@ -683,10 +716,10 @@ struct SettingsPanel: View {
                             }
                         } else {
                             HStack(spacing: VSpacing.sm) {
-                                VButton(label: "Connect", style: .primary, size: .medium) {
+                                VButton(label: "Connect", style: .primary) {
                                     store.connectTwitter()
                                 }
-                                VButton(label: "Reconfigure", style: .secondary, size: .medium) {
+                                VButton(label: "Reconfigure", style: .secondary) {
                                     store.clearTwitterLocalClient()
                                     twitterClientId = ""
                                     twitterClientSecret = ""
@@ -734,7 +767,7 @@ struct SettingsPanel: View {
                         }
 
                         HStack(spacing: VSpacing.sm) {
-                            VButton(label: "Save", style: .secondary, size: .medium) {
+                            VButton(label: "Save", style: .secondary) {
                                 store.saveTwitterLocalClient(
                                     clientId: twitterClientId,
                                     clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret
@@ -744,7 +777,7 @@ struct SettingsPanel: View {
                                 twitterSetupExpanded = false
                             }
                             .disabled(twitterClientId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            VButton(label: "Cancel", style: .tertiary, size: .medium) {
+                            VButton(label: "Cancel", style: .tertiary) {
                                 twitterSetupExpanded = false
                                 twitterClientId = ""
                                 twitterClientSecret = ""
@@ -752,7 +785,7 @@ struct SettingsPanel: View {
                         }
                     }
                 } else {
-                    VButton(label: "Set Up", style: .secondary, size: .medium) {
+                    VButton(label: "Set Up", style: .secondary) {
                         twitterSetupExpanded = true
                     }
                 }
@@ -847,7 +880,7 @@ struct SettingsPanel: View {
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
-                        VButton(label: "Manage...", style: .secondary, size: .medium) {
+                        VButton(label: "Manage...", style: .secondary) {
                             daemonClient?.isTrustRulesSheetOpen = true
                             showingTrustRules = true
                         }
@@ -1073,6 +1106,27 @@ struct SettingsPanel: View {
         notificationBadgesGranted = await PermissionManager.notificationBadgeStatus() == .granted
     }
 
+    // MARK: - Contacts Feature Flag
+
+    private func loadContactsFeatureFlag() async {
+        if let daemonClient {
+            do {
+                let flags = try await daemonClient.getFeatureFlags()
+                if let flag = flags.first(where: { $0.key == Self.contactsFeatureFlagKey }) {
+                    isContactsEnabled = flag.enabled
+                    return
+                }
+            } catch {
+                // Fall through to local config fallback.
+            }
+        }
+        let config = WorkspaceConfigIO.read()
+        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool],
+           let enabled = canonicalFlags[Self.contactsFeatureFlagKey] {
+            isContactsEnabled = enabled
+        }
+    }
+
     private func startPermissionPolling() {
         // Hybrid permission checking approach:
         // 1. Primary: NSApplication.didBecomeActiveNotification detects when user
@@ -1101,24 +1155,33 @@ private struct SettingsNavRow: View {
     let tab: SettingsTab
     let isSelected: Bool
     let action: () -> Void
+
     @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
-            Text(tab.rawValue)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .font(isSelected ? VFont.bodyMedium : VFont.body)
-                .foregroundColor(isSelected ? VColor.textPrimary : VColor.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-                .background(isSelected ? VColor.hoverOverlay.opacity(0.08) : (isHovered ? VColor.hoverOverlay.opacity(0.04) : Color.clear))
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .contentShape(Rectangle())
+            HStack {
+                Text(tab.rawValue)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.leading, VSpacing.sm)
+            .padding(.trailing, VSpacing.sm)
+            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                (isSelected ? VColor.navActive : isHovered ? VColor.navHover : .clear)
+                    .animation(VAnimation.fast, value: isHovered)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(tab.rawValue)
+        .padding(.trailing, VSpacing.md)
         .onHover { hovering in
             isHovered = hovering
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }

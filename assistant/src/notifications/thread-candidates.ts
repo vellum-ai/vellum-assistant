@@ -70,18 +70,13 @@ export type ThreadCandidateSet = Partial<
  */
 export function buildThreadCandidates(
   channels: NotificationChannel[],
-  assistantId: string,
 ): ThreadCandidateSet {
   const result: ThreadCandidateSet = {};
   const cutoff = Date.now() - CANDIDATE_RECENCY_WINDOW_MS;
 
   for (const channel of channels) {
     try {
-      const candidates = buildCandidatesForChannel(
-        channel,
-        assistantId,
-        cutoff,
-      );
+      const candidates = buildCandidatesForChannel(channel, cutoff);
       if (candidates.length > 0) {
         result[channel] = candidates;
       }
@@ -108,7 +103,6 @@ export function buildThreadCandidates(
  */
 function buildCandidatesForChannel(
   channel: NotificationChannel,
-  assistantId: string,
   cutoffMs: number,
 ): ThreadCandidate[] {
   const db = getDb();
@@ -143,7 +137,6 @@ function buildCandidatesForChannel(
     .where(
       and(
         eq(notificationDeliveries.channel, channel),
-        eq(notificationDeliveries.assistantId, assistantId),
         eq(notificationDeliveries.status, "sent"),
         isNotNull(notificationDeliveries.conversationId),
       ),
@@ -180,7 +173,6 @@ function buildCandidatesForChannel(
   if (candidates.length > 0) {
     const pendingCounts = batchCountPendingByConversation(
       candidates.map((c) => c.conversationId),
-      assistantId,
     );
     for (const candidate of candidates) {
       const pendingCount = pendingCounts.get(candidate.conversationId) ?? 0;
@@ -204,7 +196,6 @@ function buildCandidatesForChannel(
  */
 function batchCountPendingByConversation(
   conversationIds: string[],
-  assistantId: string,
 ): Map<string, number> {
   const result = new Map<string, number>();
   if (conversationIds.length === 0) return result;
@@ -225,7 +216,6 @@ function batchCountPendingByConversation(
             conversationIds,
           ),
           eq(channelGuardianApprovalRequests.status, "pending"),
-          eq(channelGuardianApprovalRequests.assistantId, assistantId),
         ),
       )
       .groupBy(channelGuardianApprovalRequests.conversationId)

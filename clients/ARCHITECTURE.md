@@ -706,7 +706,6 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 ### Prerequisites
 
 - A gateway URL must be configured (cloud tunnel or LAN). LAN pairing works automatically via `localLanUrl` in the QR payload.
-- The legacy bearer token from `~/.vellum/http-token` is used only as a fallback for initial bootstrap before the first JWT is issued.
 - A conversation key is auto-generated on first connect and stored in UserDefaults.
 - iOS maintains a stable `deviceId` (UUID) in the Keychain across reinstalls.
 

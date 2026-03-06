@@ -48,6 +48,7 @@ import {
   startOutbound,
 } from "../guardian-outbound-actions.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 import { guardianVerificationLimiter } from "../verification-rate-limiter.js";
 
 /**
@@ -138,8 +139,8 @@ export async function handleSetSlackChannelConfig(
 /**
  * DELETE /v1/integrations/slack/channel/config
  */
-export function handleClearSlackChannelConfig(): Response {
-  const result = clearSlackChannelConfig();
+export async function handleClearSlackChannelConfig(): Promise<Response> {
+  const result = await clearSlackChannelConfig();
   return Response.json(result);
 }
 
@@ -234,7 +235,7 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
     );
   }
 
-  const result = startOutbound({
+  const result = await startOutbound({
     channel: body.channel,
     destination: body.destination,
     rebind: body.rebind,
@@ -295,4 +296,86 @@ export async function handleCancelOutbound(req: Request): Promise<Response> {
   });
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function integrationRouteDefinitions(): RouteDefinition[] {
+  return [
+    // Telegram
+    {
+      endpoint: "integrations/telegram/config",
+      method: "GET",
+      handler: () => handleGetTelegramConfig(),
+    },
+    {
+      endpoint: "integrations/telegram/config",
+      method: "POST",
+      handler: async ({ req }) => handleSetTelegramConfig(req),
+    },
+    {
+      endpoint: "integrations/telegram/config",
+      method: "DELETE",
+      handler: async () => handleClearTelegramConfig(),
+    },
+    {
+      endpoint: "integrations/telegram/commands",
+      method: "POST",
+      handler: async ({ req }) => handleSetTelegramCommands(req),
+    },
+    {
+      endpoint: "integrations/telegram/setup",
+      method: "POST",
+      handler: async ({ req }) => handleSetupTelegram(req),
+    },
+    // Slack
+    {
+      endpoint: "integrations/slack/channel/config",
+      method: "GET",
+      handler: () => handleGetSlackChannelConfig(),
+    },
+    {
+      endpoint: "integrations/slack/channel/config",
+      method: "POST",
+      handler: async ({ req }) => handleSetSlackChannelConfig(req),
+    },
+    {
+      endpoint: "integrations/slack/channel/config",
+      method: "DELETE",
+      handler: () => handleClearSlackChannelConfig(),
+    },
+    // Guardian
+    {
+      endpoint: "integrations/guardian/challenge",
+      method: "POST",
+      handler: async ({ req }) => handleCreateGuardianChallenge(req),
+    },
+    {
+      endpoint: "integrations/guardian/status",
+      method: "GET",
+      handler: ({ url }) => handleGetGuardianStatus(url),
+    },
+    {
+      endpoint: "integrations/guardian/revoke",
+      method: "POST",
+      handler: async ({ req }) => handleRevokeGuardian(req),
+    },
+    {
+      endpoint: "integrations/guardian/outbound/start",
+      method: "POST",
+      handler: async ({ req }) => handleStartOutbound(req),
+    },
+    {
+      endpoint: "integrations/guardian/outbound/resend",
+      method: "POST",
+      handler: async ({ req }) => handleResendOutbound(req),
+    },
+    {
+      endpoint: "integrations/guardian/outbound/cancel",
+      method: "POST",
+      handler: async ({ req }) => handleCancelOutbound(req),
+    },
+  ];
 }

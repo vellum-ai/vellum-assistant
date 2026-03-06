@@ -1,5 +1,7 @@
-import { getGatewayInternalBaseUrl } from "../../../../config/env.js";
-import { mintEdgeRelayToken } from "../../../../runtime/auth/token-service.js";
+import {
+  gatewayPost,
+  GatewayRequestError,
+} from "../../../../runtime/gateway-internal-client.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -14,21 +16,14 @@ interface ContactChannel {
 interface ContactResponse {
   id: string;
   displayName: string;
-  relationship: string | null;
-  importance: number;
-  responseExpectation: string | null;
-  preferredTone: string | null;
+  notes: string | null;
   interactionCount: number;
   channels: ContactChannel[];
 }
 
 function formatContact(c: ContactResponse): string {
   const lines = [`Contact ${c.id}`, `  Name: ${c.displayName}`];
-  if (c.relationship) lines.push(`  Relationship: ${c.relationship}`);
-  lines.push(`  Importance: ${c.importance.toFixed(2)}`);
-  if (c.responseExpectation)
-    lines.push(`  Response expectation: ${c.responseExpectation}`);
-  if (c.preferredTone) lines.push(`  Preferred tone: ${c.preferredTone}`);
+  if (c.notes) lines.push(`  Notes: ${c.notes}`);
   if (c.interactionCount > 0)
     lines.push(`  Interactions: ${c.interactionCount}`);
   if (c.channels.length > 0) {
@@ -57,17 +52,6 @@ export async function executeContactUpsert(
     };
   }
 
-  const importance = input.importance as number | undefined;
-  if (
-    importance !== undefined &&
-    (typeof importance !== "number" || importance < 0 || importance > 1)
-  ) {
-    return {
-      content: "Error: importance must be a number between 0 and 1",
-      isError: true,
-    };
-  }
-
   const rawChannels = input.channels as
     | Array<{ type: string; address: string; is_primary?: boolean }>
     | undefined;
@@ -78,49 +62,26 @@ export async function executeContactUpsert(
   }));
 
   try {
-    const gatewayBase = getGatewayInternalBaseUrl();
-    const token = mintEdgeRelayToken();
-
-    const resp = await fetch(`${gatewayBase}/v1/contacts`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        id: input.id as string | undefined,
-        displayName: displayName.trim(),
-        relationship: input.relationship as string | undefined,
-        importance,
-        responseExpectation: input.response_expectation as string | undefined,
-        preferredTone: input.preferred_tone as string | undefined,
-        channels,
-      }),
-    });
-
-    if (!resp.ok) {
-      const body = await resp.text();
-      let message = `Gateway request failed (${resp.status})`;
-      try {
-        const parsed = JSON.parse(body) as { error?: string };
-        if (parsed.error) message = parsed.error;
-      } catch {
-        if (body) message = body;
-      }
-      return { content: `Error: ${message}`, isError: true };
-    }
-
-    const data = (await resp.json()) as {
+    const { status, data } = await gatewayPost<{
       ok: boolean;
       contact: ContactResponse;
-    };
-    const created = resp.status === 201;
+    }>("/v1/contacts", {
+      id: input.id as string | undefined,
+      displayName: displayName.trim(),
+      notes: input.notes as string | undefined,
+      channels,
+    });
+
+    const created = status === 201;
 
     return {
       content: `${created ? "Created" : "Updated"} contact:\n${formatContact(data.contact)}`,
       isError: false,
     };
   } catch (err) {
+    if (err instanceof GatewayRequestError) {
+      return { content: `Error: ${err.message}`, isError: true };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };
   }

@@ -154,6 +154,7 @@ public final class AuthManager {
             log.error("Logout request failed: \(error.localizedDescription)")
         }
         await SessionTokenManager.deleteTokenAsync()
+        UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
         state = .unauthenticated
         errorMessage = nil
     }

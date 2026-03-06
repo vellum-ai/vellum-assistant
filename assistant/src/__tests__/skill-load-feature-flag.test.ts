@@ -51,18 +51,39 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   migrateToDataLayout: () => {},
   removeSocketFile: () => {},
 };
-mock.module("../util/platform.js", () => platformOverrides);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
+mock.module("../util/platform.js", () => ({
+  ...realPlatform,
+  ...platformOverrides,
+}));
 
+const noopLogger = new Proxy({} as Record<string, unknown>, {
+  get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
+});
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  ...realLogger,
+  getLogger: () => noopLogger,
+  getCliLogger: () => noopLogger,
   isDebug: () => false,
+  truncateForLog: (value: string) => value,
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
 }));
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => currentConfig,
+  loadConfig: () => currentConfig,
+  loadRawConfig: () => ({}),
+  saveConfig: () => {},
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  syncConfigToLockfile: () => {},
 }));
 
 await import("../tools/skills/load.js");

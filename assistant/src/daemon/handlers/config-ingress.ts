@@ -1,6 +1,7 @@
 import * as net from "node:net";
 
 import {
+  getTwilioCredentials,
   hasTwilioCredentials,
   updatePhoneNumberWebhooks,
 } from "../../calls/twilio-rest.js";
@@ -22,7 +23,6 @@ import {
   type IngressConfig,
 } from "../../inbound/public-ingress-urls.js";
 import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
-import { getSecureKey } from "../../security/secure-keys.js";
 import type { IngressConfigRequest } from "../ipc-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
@@ -280,8 +280,8 @@ export async function handleIngressConfig(
         }
 
         if (assignedNumbers.size > 0) {
-          const acctSid = getSecureKey("credential:twilio:account_sid")!;
-          const acctToken = getSecureKey("credential:twilio:auth_token")!;
+          const { accountSid: acctSid, authToken: acctToken } =
+            getTwilioCredentials();
           // Fire-and-forget: webhook sync failure must not block the ingress save.
           // Reconcile every assigned number so assistant-scoped mappings do not
           // retain stale Twilio webhook URLs after ingress URL changes.

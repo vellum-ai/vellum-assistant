@@ -18,6 +18,8 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
  *  - No assistant-scoped route handlers in the daemon HTTP server
  *  - No hardcoded `'self'` string for assistant scoping (use the constant)
  *  - The constant itself equals `'self'`
+ *  - No `assistantId` columns in daemon SQLite schema definitions
+ *  - No `assistantId` parameter in daemon store function signatures
  */
 
 // ---------------------------------------------------------------------------
@@ -464,6 +466,202 @@ describe("assistant ID boundary", () => {
         probeContextMatch[1],
         "ChannelProbeContext must not contain assistantId",
       ).not.toContain("assistantId");
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Rule (f): No assistantId columns in daemon SQLite schema definitions
+  //
+  // The daemon is assistant-agnostic — it uses DAEMON_INTERNAL_ASSISTANT_ID
+  // implicitly. Schema files must not define assistantId columns, which would
+  // re-introduce assistant-scoped storage in the daemon layer.
+  // -------------------------------------------------------------------------
+
+  test("no assistantId columns in daemon SQLite schema definitions", () => {
+    const repoRoot = getRepoRoot();
+
+    // Scan all Drizzle schema files for assistantId column definitions.
+    // Match `assistantId:` followed by any Drizzle column builder (text(,
+    // integer(, blob(, real(, etc.) — not just text(.
+    const schemaGlobs = [
+      "assistant/src/memory/schema/*.ts",
+      "assistant/src/memory/schema/**/*.ts",
+    ];
+
+    let grepOutput = "";
+    try {
+      grepOutput = execFileSync(
+        "git",
+        ["grep", "-nE", "assistantId\\s*:", "--", ...schemaGlobs],
+        { encoding: "utf-8", cwd: repoRoot },
+      ).trim();
+    } catch (err) {
+      // Exit code 1 means no matches — happy path
+      if ((err as { status?: number }).status === 1) {
+        return;
+      }
+      throw err;
+    }
+
+    const lines = grepOutput.split("\n").filter((l) => l.length > 0);
+    const violations = lines.filter((line) => {
+      // Allow comments
+      const parts = line.split(":");
+      const content = parts.slice(2).join(":").trim();
+      if (
+        content.startsWith("//") ||
+        content.startsWith("*") ||
+        content.startsWith("/*")
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    if (violations.length > 0) {
+      const message = [
+        "Found `assistantId` column definitions in daemon SQLite schema files.",
+        "`assistantId` columns are not allowed in daemon schema — the daemon uses",
+        "`DAEMON_INTERNAL_ASSISTANT_ID` implicitly and is assistant-agnostic.",
+        "",
+        "Violations:",
+        ...violations.map((v) => `  - ${v}`),
+      ].join("\n");
+
+      expect(violations, message).toEqual([]);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Rule (g): No assistantId parameter in daemon store function signatures
+  //
+  // Store functions in the daemon layer must not accept assistantId as a
+  // parameter. The daemon is assistant-agnostic — all assistant scoping
+  // uses DAEMON_INTERNAL_ASSISTANT_ID internally.
+  // -------------------------------------------------------------------------
+
+  test("no assistantId parameter in daemon store function signatures", () => {
+    const repoRoot = getRepoRoot();
+
+    // Scan store files for exported function signatures that include
+    // assistantId as a parameter. This covers memory stores, contact stores,
+    // notification stores, credential/token stores, and call stores.
+    //
+    // We read each file and extract full parameter lists (which may span
+    // multiple lines) from exported functions to catch multiline signatures.
+    const storeGlobs = [
+      "assistant/src/memory/*.ts",
+      "assistant/src/contacts/*.ts",
+      "assistant/src/notifications/*.ts",
+      "assistant/src/runtime/auth/credential-service.ts",
+      "assistant/src/runtime/actor-token-store.ts",
+      "assistant/src/runtime/actor-refresh-token-store.ts",
+      "assistant/src/calls/call-store.ts",
+    ];
+
+    // Find matching files using git ls-files with each glob
+    const matchedFiles: string[] = [];
+    for (const glob of storeGlobs) {
+      try {
+        const output = execFileSync("git", ["ls-files", "--", glob], {
+          encoding: "utf-8",
+          cwd: repoRoot,
+        }).trim();
+        if (output) {
+          matchedFiles.push(...output.split("\n").filter((f) => f.length > 0));
+        }
+      } catch {
+        // Ignore errors — glob may not match anything
+      }
+    }
+
+    const violations: string[] = [];
+
+    // Regex to find the start of an exported function declaration or
+    // arrow-function expression. We capture everything from `export` up to
+    // and including the opening parenthesis of the parameter list.
+    const exportFnStartRegex =
+      /export\s+(?:async\s+)?function\s+\w+\s*\(|export\s+const\s+\w+\s*=\s*(?:async\s+)?\(/g;
+
+    for (const relPath of matchedFiles) {
+      if (isTestFile(relPath) || isMigrationFile(relPath)) continue;
+
+      const content = readFileSync(join(repoRoot, relPath), "utf-8");
+
+      exportFnStartRegex.lastIndex = 0;
+      for (
+        let match = exportFnStartRegex.exec(content);
+        match;
+        match = exportFnStartRegex.exec(content)
+      ) {
+        // Skip matches that fall inside comments. Find the beginning of
+        // the line containing the match and check for comment prefixes.
+        const lineStart = content.lastIndexOf("\n", match.index) + 1;
+        const linePrefix = content.slice(lineStart, match.index).trim();
+        if (linePrefix.startsWith("//")) {
+          continue;
+        }
+        // For block comments: check if the match is inside an unclosed
+        // block comment. A prefix starting with `*` (continuation line)
+        // or `/*` only counts if there is no closing `*/` between the
+        // last `/*` opener and the match position — otherwise the
+        // comment was already closed (e.g. `/** docs */ export …`).
+        if (linePrefix.startsWith("*") || linePrefix.startsWith("/*")) {
+          const textBeforeMatch = content.slice(lineStart, match.index);
+          const lastOpen = textBeforeMatch.lastIndexOf("/*");
+          if (lastOpen === -1) {
+            // No block-comment opener on this line but starts with `*`,
+            // so it's a continuation line inside a multi-line comment.
+            continue;
+          }
+          const closeBetween = textBeforeMatch.indexOf("*/", lastOpen + 2);
+          if (closeBetween === -1) {
+            // The block comment is still open at the match position.
+            continue;
+          }
+          // The block comment was closed before the match — fall through
+          // and evaluate the match normally.
+        }
+
+        // Find the matching closing paren to extract the full parameter list,
+        // which may span multiple lines.
+        const parenStart = match.index + match[0].length - 1; // index of '('
+        let depth = 1;
+        let paramEnd = parenStart + 1;
+        for (let i = parenStart + 1; i < content.length && depth > 0; i++) {
+          if (content[i] === "(") depth++;
+          if (content[i] === ")") depth--;
+          if (depth === 0) {
+            paramEnd = i;
+            break;
+          }
+        }
+
+        const paramList = content.slice(parenStart + 1, paramEnd);
+
+        // Check if the parameter list contains assistantId as a word boundary
+        if (/\bassistantId\b/.test(paramList)) {
+          // Determine the line number of the export keyword for reporting
+          const lineNum = content.slice(0, match.index).split("\n").length;
+          const firstLine = content
+            .slice(match.index, match.index + match[0].length)
+            .trim();
+          violations.push(`${relPath}:${lineNum}: ${firstLine}...`);
+        }
+      }
+    }
+
+    if (violations.length > 0) {
+      const message = [
+        "Found daemon store functions with `assistantId` in their parameter signatures.",
+        "Store functions must not accept `assistantId` — the daemon is assistant-agnostic",
+        "and uses `DAEMON_INTERNAL_ASSISTANT_ID` implicitly.",
+        "",
+        "Violations:",
+        ...violations.map((v) => `  - ${v}`),
+      ].join("\n");
+
+      expect(violations, message).toEqual([]);
     }
   });
 });

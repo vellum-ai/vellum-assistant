@@ -5,7 +5,6 @@ import {
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
@@ -275,7 +274,6 @@ export class ToolApprovalHandler {
         inputDigest,
         consumingRequestId:
           context.requestId ?? `preexec-${context.sessionId}-${Date.now()}`,
-        assistantId: context.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
         executionChannel: context.executionChannel,
         conversationId: context.conversationId,
         callSessionId: context.callSessionId,

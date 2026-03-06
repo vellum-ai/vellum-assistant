@@ -8,7 +8,6 @@
  *   3. tryMintGuardianActionGrant mints a tool_signature grant
  *   4. Voice consumer can consume the grant for the same tool+input
  *   5. Second consume attempt is denied (one-time use)
- *   6. Grant for a different assistantId is not consumable
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -75,7 +74,6 @@ afterAll(() => {
 
 // ── Constants ───────────────────────────────────────────────────────
 
-const ASSISTANT_ID = "self";
 const TOOL_NAME = "execute_shell";
 const TOOL_INPUT = { command: "rm -rf /tmp/test" };
 const CONVERSATION_ID = "conv-e2e";
@@ -175,7 +173,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
     // Step 1: Create a guardian action request with tool metadata
     // (simulates the voice ASK_GUARDIAN path)
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -217,7 +214,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
     expect(grants[0].inputDigest).toBe(inputDigest);
     expect(grants[0].scopeMode).toBe("tool_signature");
     expect(grants[0].status).toBe("active");
-    expect(grants[0].assistantId).toBe(ASSISTANT_ID);
     expect(grants[0].callSessionId).toBe(CALL_SESSION_ID);
 
     // Step 4: Voice consumer consumes the grant
@@ -225,7 +221,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
       toolName: TOOL_NAME,
       inputDigest,
       consumingRequestId: "voice-req-1",
-      assistantId: ASSISTANT_ID,
       executionChannel: "voice",
       callSessionId: CALL_SESSION_ID,
       conversationId: CONVERSATION_ID,
@@ -240,7 +235,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
       toolName: TOOL_NAME,
       inputDigest,
       consumingRequestId: "voice-req-2",
-      assistantId: ASSISTANT_ID,
       executionChannel: "voice",
       callSessionId: CALL_SESSION_ID,
       conversationId: CONVERSATION_ID,
@@ -249,64 +243,9 @@ describe("guardian-action grant mint -> voice consume integration", () => {
     expect(secondConsume.grant).toBeNull();
   });
 
-  test("grant minted for one assistantId cannot be consumed by another", async () => {
-    const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
-
-    const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
-      kind: "ask_guardian",
-      sourceChannel: "voice",
-      sourceConversationId: CONVERSATION_ID,
-      callSessionId: CALL_SESSION_ID,
-      pendingQuestionId: nextPendingQuestionId(),
-      questionText: "Can I run the command?",
-      expiresAt: Date.now() + 60_000,
-      toolName: TOOL_NAME,
-      inputDigest,
-    });
-
-    const resolved = resolveGuardianActionRequest(
-      request.id,
-      "Yes",
-      "telegram",
-    );
-    expect(resolved).not.toBeNull();
-
-    await tryMintGuardianActionGrant({
-      request: resolved!,
-      answerText: "Yes",
-      decisionChannel: "telegram",
-    });
-
-    // Attempt to consume with a different assistantId
-    const wrongAssistant = consumeScopedApprovalGrantByToolSignature({
-      toolName: TOOL_NAME,
-      inputDigest,
-      consumingRequestId: "voice-req-wrong",
-      assistantId: "other-assistant",
-      executionChannel: "voice",
-      callSessionId: CALL_SESSION_ID,
-      conversationId: CONVERSATION_ID,
-    });
-    expect(wrongAssistant.ok).toBe(false);
-
-    // Correct assistantId succeeds
-    const correctAssistant = consumeScopedApprovalGrantByToolSignature({
-      toolName: TOOL_NAME,
-      inputDigest,
-      consumingRequestId: "voice-req-correct",
-      assistantId: ASSISTANT_ID,
-      executionChannel: "voice",
-      callSessionId: CALL_SESSION_ID,
-      conversationId: CONVERSATION_ID,
-    });
-    expect(correctAssistant.ok).toBe(true);
-  });
-
   test("no grant minted when guardian action request lacks tool metadata", async () => {
     // Create a request without toolName/inputDigest (informational consult)
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -340,7 +279,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -372,7 +310,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
       toolName: TOOL_NAME,
       inputDigest,
       consumingRequestId: "voice-req-desktop",
-      assistantId: ASSISTANT_ID,
       executionChannel: "voice",
       callSessionId: CALL_SESSION_ID,
       conversationId: CONVERSATION_ID,
@@ -384,7 +321,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -424,7 +360,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
       const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
       const request = createGuardianActionRequest({
-        assistantId: ASSISTANT_ID,
         kind: "ask_guardian",
         sourceChannel: "voice",
         sourceConversationId: CONVERSATION_ID,
@@ -459,7 +394,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -497,7 +431,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
       const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
       const request = createGuardianActionRequest({
-        assistantId: ASSISTANT_ID,
         kind: "ask_guardian",
         sourceChannel: "voice",
         sourceConversationId: CONVERSATION_ID,
@@ -544,7 +477,6 @@ describe("guardian-action grant minter: two-tier classification (deterministic +
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -585,7 +517,6 @@ describe("guardian-action grant minter: two-tier classification (deterministic +
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -626,7 +557,6 @@ describe("guardian-action grant minter: two-tier classification (deterministic +
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -666,7 +596,6 @@ describe("guardian-action grant minter: two-tier classification (deterministic +
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -705,7 +634,6 @@ describe("guardian-action grant minter: two-tier classification (deterministic +
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -740,7 +668,6 @@ describe("guardian-action grant minter: two-tier classification (deterministic +
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,
@@ -783,7 +710,6 @@ describe("guardian-action grant minter: two-tier classification (deterministic +
     const inputDigest = computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT);
 
     const request = createGuardianActionRequest({
-      assistantId: ASSISTANT_ID,
       kind: "ask_guardian",
       sourceChannel: "voice",
       sourceConversationId: CONVERSATION_ID,

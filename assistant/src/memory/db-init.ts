@@ -32,6 +32,8 @@ import {
   createSequenceTables,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
+  migrateAssistantContactMetadata,
+  migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
@@ -40,9 +42,12 @@ import {
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
   migrateContactsAssistantId,
+  migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
+  migrateDropAssistantIdColumns,
   migrateDropLegacyMemberGuardianTables,
+  migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
   migrateGuardianActionSupersession,
@@ -53,11 +58,13 @@ import {
   migrateGuardianPrincipalIdNotNull,
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
+  migrateInviteCodeHashColumn,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
   migrateSchemaIndexesAndColumns,
+  migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
   recoverCrashedMigrations,
@@ -243,6 +250,9 @@ export function initializeDb(): void {
   // 27. Voice invite display metadata (friend_name, guardian_name) for personalized prompts
   migrateVoiceInviteDisplayMetadata(database);
 
+  // 27b. 6-digit invite code hash column for non-voice channel invite redemption
+  migrateInviteCodeHashColumn(database);
+
   // 28. Actor token records (hash-only actor token persistence)
   createActorTokenRecordsTable(database);
 
@@ -272,6 +282,27 @@ export function initializeDb(): void {
 
   // 36. Add assistant_id to contacts for per-assistant guardian scoping
   migrateContactsAssistantId(database);
+
+  // 37. Add contact_type to contacts and assistant_contact_metadata table
+  migrateAssistantContactMetadata(database);
+
+  // 38. Consolidate contact metadata columns into single notes field
+  migrateContactsNotesColumn(database);
+
+  // 39. Backfill contact interaction stats from channel lastSeenAt
+  migrateBackfillContactInteractionStats(database);
+
+  // 40. Drop assistant_id columns from all 16 daemon tables
+  migrateDropAssistantIdColumns(database);
+
+  // 41. Indexes on llm_usage_events for usage dashboard time-range and breakdown queries
+  migrateUsageDashboardIndexes(database);
+
+  // 42. (skipped) migrateReorderUsageDashboardIndexes — superseded by 43 which drops
+  // all composite indexes that 42 would create, so running it is wasted work.
+
+  // 43. Drop all composite usage indexes — they don't eliminate temp B-trees for GROUP BY
+  migrateDropUsageCompositeIndexes(database);
 
   validateMigrationState(database);
 

@@ -98,8 +98,8 @@ function getClientIp(
   return addr?.address ?? "unknown";
 }
 
-function main() {
-  const config = loadConfig();
+async function main() {
+  const config = await loadConfig();
   initLogger(config.logFile);
 
   log.info("Starting Vellum Gateway...");
@@ -367,11 +367,18 @@ function main() {
       handler: (req) => contactsControlPlaneProxy.handleMergeContacts(req),
     },
     {
-      path: /^\/v1\/contacts\/channels\/([^/]+)$/,
+      path: /^\/v1\/contact-channels\/([^/]+)$/,
       method: "PATCH",
       auth: "edge",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
+    },
+    {
+      path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req, params) =>
+        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
     },
 
     // ── Contacts/invites control plane ──
@@ -399,6 +406,13 @@ function main() {
       auth: "edge",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
+    },
+    {
+      path: /^\/v1\/contacts\/([^/]+)$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) =>
+        contactsControlPlaneProxy.handleDeleteContact(req, params[0]),
     },
     {
       path: /^\/v1\/contacts\/([^/]+)$/,
@@ -888,20 +902,55 @@ function main() {
   credentialWatcher.start();
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
-    if (event.smsPhoneNumberChanged) {
-      config.twilioPhoneNumber = event.smsPhoneNumber;
+    if (event.changedKeys.has("sms")) {
+      const sms = event.data.sms as
+        | {
+            phoneNumber?: string;
+            assistantPhoneNumbers?: Record<string, string>;
+          }
+        | undefined;
+      config.twilioPhoneNumber =
+        typeof sms?.phoneNumber === "string"
+          ? sms.phoneNumber || undefined
+          : undefined;
+      if (
+        sms?.assistantPhoneNumbers &&
+        typeof sms.assistantPhoneNumbers === "object" &&
+        !Array.isArray(sms.assistantPhoneNumbers)
+      ) {
+        config.assistantPhoneNumbers = sms.assistantPhoneNumbers as Record<
+          string,
+          string
+        >;
+      } else {
+        config.assistantPhoneNumbers = undefined;
+      }
     }
 
-    if (event.assistantPhoneNumbersChanged) {
-      config.assistantPhoneNumbers = event.assistantPhoneNumbers;
+    if (event.changedKeys.has("email")) {
+      const email = event.data.email as { address?: string } | undefined;
+      config.assistantEmail =
+        typeof email?.address === "string"
+          ? email.address || undefined
+          : undefined;
     }
 
-    if (event.assistantEmailChanged) {
-      config.assistantEmail = event.assistantEmail;
+    if (event.changedKeys.has("twilio")) {
+      const twilio = event.data.twilio as { accountSid?: string } | undefined;
+      config.twilioAccountSid =
+        typeof twilio?.accountSid === "string"
+          ? twilio.accountSid || undefined
+          : undefined;
     }
 
-    if (event.ingressChanged) {
-      config.ingressPublicBaseUrl = event.ingressPublicBaseUrl;
+    if (event.changedKeys.has("ingress")) {
+      const ingress = event.data.ingress as
+        | { publicBaseUrl?: string }
+        | undefined;
+      config.ingressPublicBaseUrl =
+        typeof ingress?.publicBaseUrl === "string"
+          ? ingress.publicBaseUrl || undefined
+          : undefined;
       if (isTelegramConfigured()) {
         reconcileTelegramWebhook(config).catch((err) => {
           log.error(

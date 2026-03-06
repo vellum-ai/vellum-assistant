@@ -19,12 +19,14 @@ interface PendingPrompt {
   }) => void;
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  toolUseId?: string;
 }
 
 export type ConfirmationStateCallback = (
   requestId: string,
   state: "pending" | "approved" | "denied" | "timed_out" | "resolved_stale",
   source: "button" | "inline_nl" | "auto_deny" | "timeout" | "system",
+  toolUseId?: string,
 ) => void;
 
 export class PermissionPrompter {
@@ -62,6 +64,7 @@ export class PermissionPrompter {
     persistentDecisionsAllowed?: boolean,
     signal?: AbortSignal,
     temporaryOptionsAvailable?: Array<"allow_10m" | "allow_thread">,
+    toolUseId?: string,
   ): Promise<{
     decision: UserDecision;
     selectedPattern?: string;
@@ -80,11 +83,11 @@ export class PermissionPrompter {
           { requestId, toolName },
           "Permission prompt timed out, defaulting to deny",
         );
-        this.onStateChanged?.(requestId, "timed_out", "timeout");
+        this.onStateChanged?.(requestId, "timed_out", "timeout", toolUseId);
         resolve({ decision: "deny" });
       }, timeoutMs);
 
-      this.pending.set(requestId, { resolve, reject, timer });
+      this.pending.set(requestId, { resolve, reject, timer, toolUseId });
 
       if (signal) {
         const onAbort = () => {
@@ -120,12 +123,17 @@ export class PermissionPrompter {
         temporaryOptionsAvailable,
       });
 
-      this.onStateChanged?.(requestId, "pending", "system");
+      this.onStateChanged?.(requestId, "pending", "system", toolUseId);
     });
   }
 
   hasPendingRequest(requestId: string): boolean {
     return this.pending.has(requestId);
+  }
+
+  /** Returns the toolUseId associated with a pending request, if any. */
+  getToolUseId(requestId: string): string | undefined {
+    return this.pending.get(requestId)?.toolUseId;
   }
 
   resolveConfirmation(

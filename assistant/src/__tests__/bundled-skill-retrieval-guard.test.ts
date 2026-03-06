@@ -90,16 +90,16 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
   {
     skillPath: "voice-setup/SKILL.md",
     bannedSnippets: [
-      "vellum config get elevenlabs.voiceId",
-      "vellum config get calls.enabled",
+      "assistant config get elevenlabs.voiceId",
+      "assistant config get calls.enabled",
     ],
   },
   {
     skillPath: "email-setup/SKILL.md",
     bannedSnippets: [
       "host_bash",
-      "vellum email create",
-      "vellum config set email.address",
+      "assistant email create",
+      "assistant config set email.address",
     ],
   },
 ];
@@ -118,11 +118,11 @@ const HOST_BASH_RETRIEVAL_ALLOWLIST = new Set<string>([
 ]);
 
 const RETRIEVAL_MARKERS = [
-  "vellum integrations ",
-  "vellum config get",
-  "vellum email status",
-  "vellum email inbox list",
-  "vellum email provider get",
+  "assistant integrations ",
+  "assistant config get",
+  "assistant email status",
+  "assistant email inbox list",
+  "assistant email provider get",
 ];
 
 describe("bundled skill retrieval guard", () => {

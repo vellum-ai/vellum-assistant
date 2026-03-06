@@ -20,6 +20,7 @@ set -euo pipefail
 #   DISPLAY_VERSION   Override CFBundleShortVersionString (default: 0.1.0)
 #   BUILD_VERSION     Override CFBundleVersion (default: 1)
 #   SIGN_IDENTITY     Override code signing identity
+#   VELLUM_ASSISTANT_PLATFORM_URL  Override managed sign-in platform URL for app launches
 
 # ---------------------------------------------------------------------------
 # swift_with_retry — run a swift command with retries for transient SPM
@@ -534,6 +535,20 @@ for SPM_BUNDLE in "$BIN_PATH"/*.bundle; do
 done
 
 # Always regenerate Info.plist (fast, depends on env vars like DISPLAY_VERSION)
+LSE_ENVIRONMENT_PLIST=""
+if [ -n "${VELLUM_ASSISTANT_PLATFORM_URL:-}" ]; then
+    PLATFORM_URL_OVERRIDE="${VELLUM_ASSISTANT_PLATFORM_URL%/}"
+    echo "Embedding app platform URL override: $PLATFORM_URL_OVERRIDE"
+    LSE_ENVIRONMENT_PLIST=$(cat <<EOF
+    <key>LSEnvironment</key>
+    <dict>
+        <key>VELLUM_ASSISTANT_PLATFORM_URL</key>
+        <string>$PLATFORM_URL_OVERRIDE</string>
+    </dict>
+EOF
+)
+fi
+
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -559,6 +574,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <string>en</string>
     <key>LSUIElement</key>
     <true/>
+    $LSE_ENVIRONMENT_PLIST
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSApplicationCategoryType</key>
@@ -635,14 +651,16 @@ cat > "$CONTENTS/Info.plist" <<PLIST
             </array>
             <key>UTTypeDescription</key>
             <string>Vellum App Bundle</string>
+            <key>UTTypeIconFile</key>
+            <string>VellumDocument</string>
             <key>UTTypeTagSpecification</key>
             <dict>
                 <key>public.filename-extension</key>
                 <array>
-                    <string>vellumapp</string>
+                    <string>vellum</string>
                 </array>
                 <key>public.mime-type</key>
-                <string>application/x-vellumapp</string>
+                <string>application/x-vellum</string>
             </dict>
         </dict>
     </array>
@@ -651,7 +669,7 @@ cat > "$CONTENTS/Info.plist" <<PLIST
         <dict>
             <key>CFBundleTypeExtensions</key>
             <array>
-                <string>vellumapp</string>
+                <string>vellum</string>
             </array>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
@@ -675,6 +693,68 @@ if [ -d "$XCASSETS" ]; then
         --app-icon AppIcon \
         --output-partial-info-plist /dev/null \
         > /dev/null 2>&1 || true
+fi
+
+# Copy document type icon for .vellum UTI
+cp "$SCRIPT_DIR/vellum-assistant/Resources/VellumDocument.icns" "$RESOURCES_DIR/"
+
+# Build and embed Quick Look Thumbnail extension (appex)
+QLTHUMB_SRC="$SCRIPT_DIR/VellumQLThumbnail"
+if [ -d "$QLTHUMB_SRC" ]; then
+    echo "Building VellumQLThumbnail appex..."
+    QLTHUMB_APPEX="$CONTENTS/PlugIns/VellumQLThumbnail.appex"
+    QLTHUMB_APPEX_CONTENTS="$QLTHUMB_APPEX/Contents"
+    QLTHUMB_APPEX_MACOS="$QLTHUMB_APPEX_CONTENTS/MacOS"
+    mkdir -p "$QLTHUMB_APPEX_MACOS"
+
+    # Compile the extension as an appex binary.
+    # App extensions use NSExtensionMain as the entry point (provided by Foundation).
+    # The -Xlinker -e -Xlinker _NSExtensionMain flags tell the linker to use it
+    # instead of a regular main() function.
+    xcrun swiftc \
+        -module-name VellumQLThumbnail \
+        -emit-executable \
+        -target "$(uname -m)-apple-macosx14.0" \
+        -sdk "$(xcrun --show-sdk-path)" \
+        -framework QuickLookThumbnailing \
+        -framework AppKit \
+        -framework CoreGraphics \
+        -Xlinker -e -Xlinker _NSExtensionMain \
+        -o "$QLTHUMB_APPEX_MACOS/VellumQLThumbnail" \
+        "$QLTHUMB_SRC/ThumbnailProvider.swift"
+
+    # Copy Info.plist
+    cp "$QLTHUMB_SRC/Info.plist" "$QLTHUMB_APPEX_CONTENTS/Info.plist"
+
+    echo "VellumQLThumbnail appex built"
+fi
+
+# Build and embed Quick Look Preview extension (appex)
+QLPREV_SRC="$SCRIPT_DIR/VellumQLPreview"
+if [ -d "$QLPREV_SRC" ]; then
+    echo "Building VellumQLPreview appex..."
+    QLPREV_APPEX="$CONTENTS/PlugIns/VellumQLPreview.appex"
+    QLPREV_APPEX_CONTENTS="$QLPREV_APPEX/Contents"
+    QLPREV_APPEX_MACOS="$QLPREV_APPEX_CONTENTS/MacOS"
+    mkdir -p "$QLPREV_APPEX_MACOS"
+
+    # Compile the extension as an appex binary.
+    # App extensions use NSExtensionMain as the entry point (provided by Foundation).
+    xcrun swiftc \
+        -module-name VellumQLPreview \
+        -emit-executable \
+        -target "$(uname -m)-apple-macosx14.0" \
+        -sdk "$(xcrun --show-sdk-path)" \
+        -framework QuickLookUI \
+        -framework UniformTypeIdentifiers \
+        -Xlinker -e -Xlinker _NSExtensionMain \
+        -o "$QLPREV_APPEX_MACOS/VellumQLPreview" \
+        "$QLPREV_SRC/PreviewProvider.swift"
+
+    # Copy Info.plist
+    cp "$QLPREV_SRC/Info.plist" "$QLPREV_APPEX_CONTENTS/Info.plist"
+
+    echo "VellumQLPreview appex built"
 fi
 
 # Remove transient runtime artifacts that may be written into the app bundle
@@ -722,6 +802,28 @@ if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
         codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
     fi
     echo "Sparkle.framework signed (including nested binaries)"
+fi
+
+# Sign Quick Look Thumbnail extension (must be signed before outer app bundle)
+QLTHUMB_APPEX="$CONTENTS/PlugIns/VellumQLThumbnail.appex"
+if [ -d "$QLTHUMB_APPEX" ]; then
+    QLTHUMB_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        QLTHUMB_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${QLTHUMB_SIGN_FLAGS[@]}" "$QLTHUMB_APPEX"
+    echo "VellumQLThumbnail.appex signed"
+fi
+
+# Sign Quick Look Preview extension (must be signed before outer app bundle)
+QLPREV_APPEX="$CONTENTS/PlugIns/VellumQLPreview.appex"
+if [ -d "$QLPREV_APPEX" ]; then
+    QLPREV_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        QLPREV_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${QLPREV_SIGN_FLAGS[@]}" "$QLPREV_APPEX"
+    echo "VellumQLPreview.appex signed"
 fi
 
 # Sign CLI binary
@@ -868,7 +970,7 @@ if [ "$CMD" = "run" ]; then
                 echo "───────────────────────────────────"
                 touch "$WATCH_MARKER"
                 snapshot_watched_files
-                if VELLUM_NO_WATCH=1 "$0" run; then
+                if VELLUM_NO_WATCH=1 "$SCRIPT_DIR/build.sh" run; then
                     echo "✓ Rebuilt and relaunched"
                 else
                     echo "✗ Build failed"

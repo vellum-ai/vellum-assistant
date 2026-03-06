@@ -34,21 +34,10 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Use encrypted backend (no keychain) with a temp store path
+// Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
 
-import { _overrideDeps, _resetDeps } from "../security/keychain.js";
-
-_overrideDeps({
-  isMacOS: () => false,
-  isLinux: () => false,
-  execFileSync: (() =>
-    "") as unknown as typeof import("node:child_process").execFileSync,
-});
-
-// Restore process-level keychain deps so later test files are not affected
 afterAll(() => {
-  _resetDeps();
   mock.restore();
 });
 
@@ -206,8 +195,8 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     expect(browserSrc).not.toContain("getCredentialValue");
   });
 
-  test("getSecureKey is only imported by authorized modules", () => {
-    // Hard boundary: only these production files may import getSecureKey.
+  test("secure-keys is only imported by authorized modules", () => {
+    // Hard boundary: only these production files may import from secure-keys.
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
       "security/secure-keys.ts", // self (re-export infrastructure)
@@ -229,11 +218,13 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "calls/twilio-config.ts", // call infrastructure credential lookup
       "calls/twilio-provider.ts", // call infrastructure credential lookup
       "calls/twilio-rest.ts", // Twilio REST API credential lookup
-      "cli/config-commands.ts", // CLI credential management commands
+      "runtime/channel-invite-transports/sms.ts", // SMS invite transport phone number lookup
+      "runtime/channel-invite-transports/telegram.ts", // Telegram invite transport bot token lookup
+      "cli/keys.ts", // CLI credential management commands
+      "cli/credentials.ts", // CLI credential management commands
       "runtime/http-server.ts", // HTTP server credential lookup
       "daemon/handlers/twitter-auth.ts", // Twitter OAuth token storage
       "twitter/oauth-client.ts", // Twitter OAuth API client (reads access token for API calls)
-      "cli/config-commands.ts", // CLI config management
       "messaging/providers/telegram-bot/adapter.ts", // Telegram bot token lookup for connectivity check
       "messaging/providers/sms/adapter.ts", // Twilio credential lookup for SMS connectivity check
       "runtime/channel-readiness-service.ts", // channel readiness probes for SMS/Telegram connectivity
@@ -241,6 +232,12 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "schedule/integration-status.ts", // integration status checks for scheduled reports
       "daemon/handlers/oauth-connect.ts", // OAuth connect handler for integration setup
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
+      "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
+      "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
+      "mcp/client.ts", // MCP client cached-token lookup
+      "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
+      "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
+      "daemon/session-messaging.ts", // credential storage during session messaging
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -268,11 +265,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
 
     for (const filePath of allFiles) {
       const content = readFileSync(filePath, "utf-8");
-      // Check for imports of getSecureKey via static import, dynamic import(), or require()
+      // Check for any import from the secure-keys module (static import, dynamic import(), or require())
       if (
-        content.match(/\bgetSecureKey\b/) &&
-        (content.match(/from\s+['"].*secure-keys/) ||
-          content.match(/(?:import|require)\s*\(\s*['"].*secure-keys/))
+        content.match(/from\s+['"].*secure-keys/) ||
+        content.match(/(?:import|require)\s*\(\s*['"].*secure-keys/)
       ) {
         const relative = filePath.slice(srcDir.length + 1);
         if (!ALLOWED_IMPORTERS.has(relative)) {

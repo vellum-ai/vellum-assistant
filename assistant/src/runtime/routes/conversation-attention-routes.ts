@@ -10,8 +10,8 @@ import {
 } from "../../memory/conversation-attention-store.js";
 import * as conversationStore from "../../memory/conversation-store.js";
 import { truncate } from "../../util/truncate.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 export function handleListConversationAttention(url: URL): Response {
   const stateParam = url.searchParams.get("state") ?? "all";
@@ -37,7 +37,6 @@ export function handleListConversationAttention(url: URL): Response {
   }
 
   const attentionStates = listConversationAttention({
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     state: stateParam as AttentionFilterState,
     sourceChannel: channel,
     source: sourceParam !== "all" ? sourceParam : undefined,
@@ -123,4 +122,18 @@ export function handleListConversationAttention(url: URL): Response {
     conversations: results,
     hasMore,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function conversationAttentionRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "conversations/attention",
+      method: "GET",
+      handler: ({ url }) => handleListConversationAttention(url),
+    },
+  ];
 }

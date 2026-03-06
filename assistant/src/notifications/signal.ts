@@ -6,6 +6,110 @@
 
 import type { GuardianQuestionPayload } from "./guardian-question-mode.js";
 
+// ── Source channel registry ────────────────────────────────────────────
+
+export const NOTIFICATION_SOURCE_CHANNELS = [
+  { id: "assistant_tool", description: "Assistant skill/tool invocation" },
+  { id: "vellum", description: "Vellum native client (macOS/iOS)" },
+  { id: "voice", description: "Voice call pipeline" },
+  { id: "telegram", description: "Telegram channel" },
+  { id: "sms", description: "SMS channel" },
+  { id: "slack", description: "Slack channel" },
+  { id: "scheduler", description: "Scheduled task runner (reminders, cron)" },
+  { id: "watcher", description: "File/event watcher subsystem" },
+] as const;
+
+export type NotificationSourceChannel =
+  (typeof NOTIFICATION_SOURCE_CHANNELS)[number]["id"];
+
+export function isNotificationSourceChannel(
+  value: unknown,
+): value is NotificationSourceChannel {
+  return (
+    typeof value === "string" &&
+    NOTIFICATION_SOURCE_CHANNELS.some((c) => c.id === value)
+  );
+}
+
+// ── Source event name registry ─────────────────────────────────────────
+
+export const NOTIFICATION_SOURCE_EVENT_NAMES = [
+  {
+    id: "user.send_notification",
+    description: "User-initiated notification via assistant tool",
+  },
+  { id: "reminder.fired", description: "Scheduled reminder triggered" },
+  { id: "schedule.complete", description: "Scheduled task finished running" },
+  {
+    id: "guardian.question",
+    description: "Guardian approval question requiring response",
+  },
+  { id: "ingress.access_request", description: "Non-member requesting access" },
+  {
+    id: "ingress.access_request.callback_handoff",
+    description: "Caller requested callback while unreachable",
+  },
+  {
+    id: "ingress.escalation",
+    description: "Incoming message escalated for attention",
+  },
+  {
+    id: "ingress.trusted_contact.guardian_decision",
+    description: "Guardian decided on trusted contact request",
+  },
+  {
+    id: "ingress.trusted_contact.denied",
+    description: "Trusted contact request denied",
+  },
+  {
+    id: "ingress.trusted_contact.verification_sent",
+    description: "Verification sent to trusted contact",
+  },
+  {
+    id: "ingress.trusted_contact.activated",
+    description: "Trusted contact activated",
+  },
+  {
+    id: "watcher.notification",
+    description: "Watcher detected a notable event",
+  },
+  {
+    id: "watcher.escalation",
+    description: "Watcher event requiring immediate attention",
+  },
+  {
+    id: "tool_confirmation.required_action",
+    description: "Tool requires user confirmation before executing",
+  },
+  { id: "activity.complete", description: "Background activity finished" },
+  {
+    id: "quick_chat.response_ready",
+    description: "Quick chat response ready for review",
+  },
+  {
+    id: "voice.response_ready",
+    description: "Voice response ready for playback",
+  },
+  {
+    id: "ride_shotgun.invitation",
+    description: "Invitation to ride shotgun on a session",
+  },
+] as const;
+
+export type NotificationSourceEventName =
+  (typeof NOTIFICATION_SOURCE_EVENT_NAMES)[number]["id"];
+
+export function isNotificationSourceEventName(
+  value: unknown,
+): value is NotificationSourceEventName {
+  return (
+    typeof value === "string" &&
+    NOTIFICATION_SOURCE_EVENT_NAMES.some((e) => e.id === value)
+  );
+}
+
+// ── Attention hints & routing ──────────────────────────────────────────
+
 export interface AttentionHints {
   requiresAction: boolean;
   urgency: "low" | "medium" | "high";
@@ -27,9 +131,8 @@ export type NotificationContextPayload<TEventName extends string = string> =
 
 export interface NotificationSignal<TEventName extends string = string> {
   signalId: string;
-  assistantId: string;
   createdAt: number; // epoch ms
-  sourceChannel: string; // free-form: 'vellum', 'telegram', 'voice', 'scheduler', etc.
+  sourceChannel: NotificationSourceChannel; // see NOTIFICATION_SOURCE_CHANNELS registry
   sourceSessionId: string;
   sourceEventName: TEventName; // free-form: 'reminder_fired', 'schedule_complete', 'guardian_question', etc.
   contextPayload: NotificationContextPayload<TEventName>;

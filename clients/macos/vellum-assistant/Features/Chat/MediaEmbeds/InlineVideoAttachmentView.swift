@@ -562,27 +562,14 @@ struct InlineVideoAttachmentView: View {
     }
 }
 
-/// Resolve the local gateway base URL from the GATEWAY_PORT env var (default 7830).
+/// Resolve the local gateway base URL: env var > lockfile > default 7830.
 private func resolveGatewayBaseUrl() -> String {
-    let envPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-        ?? getenv("GATEWAY_PORT").flatMap({ String(cString: $0) })
-    let port = envPort.flatMap(Int.init) ?? 7830
-    return "http://127.0.0.1:\(port)"
+    "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
 }
 
 /// Fetch raw attachment bytes via the gateway's runtime proxy.
 private func fetchAttachmentContent(gatewayBaseUrl: String, attachmentId: String) async throws -> Data {
-    let tokenBase: String
-    if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-       !baseDir.isEmpty {
-        tokenBase = baseDir
-    } else {
-        tokenBase = NSHomeDirectory()
-    }
-    let tokenPath = tokenBase + "/.vellum/http-token"
-    guard let tokenData = try? Data(contentsOf: URL(fileURLWithPath: tokenPath)),
-          let token = String(data: tokenData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !token.isEmpty else {
+    guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
         throw URLError(.userAuthenticationRequired)
     }
     let url = URL(string: "\(gatewayBaseUrl)/v1/attachments/\(attachmentId)/content")!

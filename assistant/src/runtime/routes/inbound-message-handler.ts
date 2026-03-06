@@ -11,6 +11,7 @@ import {
   parseInterfaceId,
 } from "../../channels/types.js";
 import { getChannelPermissionProfile } from "../../config/channel-permission-profiles.js";
+import { touchContactInteraction } from "../../contacts/contacts-write.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
@@ -43,9 +44,6 @@ import { handleEscalationIntercept } from "./inbound-stages/escalation-intercept
 import { handleGuardianReplyIntercept } from "./inbound-stages/guardian-reply-intercept.js";
 import { runSecretIngressCheck } from "./inbound-stages/secret-ingress-check.js";
 import { handleVerificationIntercept } from "./inbound-stages/verification-intercept.js";
-
-import "../channel-invite-transports/telegram.js";
-import "../channel-invite-transports/voice.js";
 
 const log = getLogger("runtime-http");
 
@@ -251,6 +249,7 @@ export async function handleChannelInbound(
       canonicalAssistantId,
       assistantId,
       content,
+      contactId: resolvedMember?.contact.id,
     });
   }
 
@@ -300,6 +299,13 @@ export async function handleChannelInbound(
         eventId: result.eventId,
       });
     }
+  }
+
+  // Track contact interaction only for genuinely new messages (not webhook
+  // retries). This was previously in ACL enforcement which runs before dedup,
+  // causing retries to inflate interaction counts.
+  if (!result.duplicate && resolvedMember) {
+    touchContactInteraction(resolvedMember.contact.id);
   }
 
   // external_conversation_bindings is assistant-agnostic. Restrict writes to
@@ -495,7 +501,6 @@ export async function handleChannelInbound(
                 : body.callbackData!;
             recordConversationSeenSignal({
               conversationId: result.conversationId,
-              assistantId: canonicalAssistantId,
               signalType: `${sourceChannel}_callback` as SignalType,
               confidence: "inferred",
               sourceChannel,
@@ -509,7 +514,6 @@ export async function handleChannelInbound(
                 : trimmedContent;
             recordConversationSeenSignal({
               conversationId: result.conversationId,
-              assistantId: canonicalAssistantId,
               signalType: `${sourceChannel}_inbound_message` as SignalType,
               confidence: "inferred",
               sourceChannel,
@@ -548,7 +552,6 @@ export async function handleChannelInbound(
               : body.callbackData!;
           recordConversationSeenSignal({
             conversationId: result.conversationId,
-            assistantId: canonicalAssistantId,
             signalType: `${sourceChannel}_callback` as SignalType,
             confidence: "inferred",
             sourceChannel,
@@ -615,6 +618,7 @@ export async function handleChannelInbound(
       mintBearerToken,
       assistantId: canonicalAssistantId,
       approvalCopyGenerator,
+      externalMessageId: sourceMessageId ?? externalMessageId,
     });
   }
 

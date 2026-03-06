@@ -33,6 +33,10 @@ mock.module("../util/logger.js", () => ({
 let mockAuthToken: string | undefined = "test-auth-token-secret";
 let mockAccountSid: string | undefined = "AC_test_account";
 
+mock.module("../config/loader.js", () => ({
+  loadConfig: () => ({ twilio: { accountSid: mockAccountSid } }),
+}));
+
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => {
     if (account === "credential:twilio:auth_token") return mockAuthToken;

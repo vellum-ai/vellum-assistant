@@ -13,6 +13,8 @@ struct ChatBubble: View {
     let onDismissDocumentWidget: (String) -> Void
     let dismissedDocumentSurfaceIds: Set<String>
     var onReportMessage: ((String?) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
     /// Called when expanding a tool call with truncated content to fetch the full text.
     var onRehydrate: (() -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
@@ -27,14 +29,12 @@ struct ChatBubble: View {
     var isProcessingAfterTools: Bool = false
     /// Status text from the assistant activity state, forwarded for inline display.
     var processingStatusText: String?
-
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
 
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
-    @State var stepsExpanded = false
     /// Injected from the parent instead of observing the shared singleton directly.
     /// This avoids every ChatBubble in the list re-rendering whenever the overlay
     /// manager publishes any change (the "thundering herd" problem).
@@ -175,7 +175,7 @@ struct ChatBubble: View {
                         // Skip surfaces that are currently shown in the floating overlay
                         if !message.inlineSurfaces.isEmpty {
                             ForEach(message.inlineSurfaces.filter { $0.id != activeSurfaceId }) { surface in
-                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
+                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                             }
                         }
 
@@ -347,7 +347,6 @@ struct ChatBubble: View {
                     if hasRichContent {
                         MarkdownSegmentView(
                             segments: segments,
-                            isStreaming: message.isStreaming,
                             maxContentWidth: nil,
                             textColor: isUser ? VColor.userBubbleText : VColor.textPrimary,
                             secondaryTextColor: isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary,
@@ -363,9 +362,10 @@ struct ChatBubble: View {
                             .lineSpacing(6)
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                            .selectableText(!message.isStreaming)
-                            // Frame before fixedSize to bound horizontal measurement.
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            // For assistant messages, fill available width for readability.
+                            // For user messages, let the bubble shrink-wrap to text width.
+                            .frame(maxWidth: isUser ? nil : .infinity, alignment: .leading)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if !message.attachments.isEmpty {

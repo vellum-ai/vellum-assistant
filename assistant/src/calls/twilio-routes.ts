@@ -197,7 +197,6 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
 
     return buildVoiceWebhookTwiml(
       session.id,
-      session.assistantId ?? undefined,
       session.task,
       session.guardianVerificationSessionId,
     );
@@ -226,7 +225,6 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
 
   return buildVoiceWebhookTwiml(
     callSessionId,
-    session.assistantId ?? undefined,
     session.task,
     session.guardianVerificationSessionId,
   );
@@ -244,7 +242,6 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
  */
 function buildVoiceWebhookTwiml(
   callSessionId: string,
-  assistantId: string | undefined,
   task: string | null,
   guardianVerificationSessionId?: string | null,
 ): Response {

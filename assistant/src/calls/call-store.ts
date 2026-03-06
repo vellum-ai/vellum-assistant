@@ -38,7 +38,6 @@ const parseCallSession = createRowMapper<
   guardianVerificationSessionId: "guardianVerificationSessionId",
   callerIdentityMode: "callerIdentityMode",
   callerIdentitySource: "callerIdentitySource",
-  assistantId: "assistantId",
   initiatedFromConversationId: "initiatedFromConversationId",
   startedAt: "startedAt",
   endedAt: "endedAt",
@@ -83,7 +82,6 @@ export function createCallSession(opts: {
   guardianVerificationSessionId?: string;
   callerIdentityMode?: string;
   callerIdentitySource?: string;
-  assistantId?: string;
   initiatedFromConversationId?: string;
 }): CallSession {
   const db = getDb();
@@ -101,7 +99,6 @@ export function createCallSession(opts: {
     guardianVerificationSessionId: opts.guardianVerificationSessionId ?? null,
     callerIdentityMode: opts.callerIdentityMode ?? null,
     callerIdentitySource: opts.callerIdentitySource ?? null,
-    assistantId: opts.assistantId ?? null,
     initiatedFromConversationId: opts.initiatedFromConversationId ?? null,
     startedAt: null,
     endedAt: null,

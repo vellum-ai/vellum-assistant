@@ -81,6 +81,7 @@ public struct VTab: View {
                 .opacity(isSelected ? 1 : 0)
         )
         .onHover { hovering in isHovered = hovering }
+        .pointerCursor()
     }
 }
 

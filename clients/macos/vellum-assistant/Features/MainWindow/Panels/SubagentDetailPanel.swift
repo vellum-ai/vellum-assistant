@@ -4,15 +4,16 @@ import VellumAssistantShared
 struct SubagentDetailPanel: View {
     let subagentId: String
     @ObservedObject var viewModel: ChatViewModel
-    @ObservedObject var detailStore: SubagentDetailStore
+    var detailStore: SubagentDetailStore
     var onAbort: (() -> Void)?
     var onRequestDetail: (() -> Void)?
     var onClose: () -> Void
 
     private var subagentInfo: SubagentInfo? { viewModel.activeSubagents.first(where: { $0.id == subagentId }) }
-    private var objective: String? { detailStore.objectives[subagentId] }
-    private var usage: SubagentUsageStats? { detailStore.usageStats[subagentId] }
-    private var events: [SubagentEventItem] { detailStore.eventsBySubagent[subagentId] ?? [] }
+    private var state: SubagentState? { detailStore.subagentStates[subagentId] }
+    private var objective: String? { state?.objective }
+    private var usage: SubagentUsageStats? { state?.usageStats }
+    private var events: [SubagentEventItem] { state?.events ?? [] }
     private var isRunning: Bool { subagentInfo?.status == .running || subagentInfo?.status == .pending }
 
     var body: some View {
@@ -286,8 +287,8 @@ struct SubagentDetailPanel: View {
     }
 
     private func formatCost(_ cost: Double) -> String {
-        if cost == 0 { return "$0.00" }
-        if cost < 0.01 { return "<$0.01" }
-        return String(format: "$%.2f", cost)
+        if cost == 0 { return UsageFormatting.formatCostShort(0) }
+        if cost < 0.01 { return "<\(UsageFormatting.formatCostShort(0.01))" }
+        return UsageFormatting.formatCostShort(cost)
     }
 }

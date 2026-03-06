@@ -1,4 +1,3 @@
-import { getTwilioPhoneNumberEnv, getTwilioWssBaseUrl } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import {
   getPublicBaseUrl,
@@ -18,39 +17,14 @@ export interface TwilioConfig {
   wssBaseUrl: string;
 }
 
-function resolveTwilioPhoneNumber(
-  config: ReturnType<typeof loadConfig>,
-  assistantId?: string,
-): string {
-  if (assistantId) {
-    const scoped = (
-      config.sms?.assistantPhoneNumbers as Record<string, string> | undefined
-    )?.[assistantId];
-    if (scoped) return scoped;
-  }
-  return (
-    getTwilioPhoneNumberEnv() ||
-    config.sms?.phoneNumber ||
-    getSecureKey("credential:twilio:phone_number") ||
-    ""
-  );
-}
-
-export function getTwilioConfig(assistantId?: string): TwilioConfig {
-  const accountSid = getSecureKey("credential:twilio:account_sid");
-  const authToken = getSecureKey("credential:twilio:auth_token");
+export function getTwilioConfig(): TwilioConfig {
   const config = loadConfig();
-  const phoneNumber = resolveTwilioPhoneNumber(config, assistantId);
+  const accountSid = config.twilio?.accountSid || "";
+  const authToken = getSecureKey("credential:twilio:auth_token");
+  const phoneNumber = config.twilio?.phoneNumber || "";
   const webhookBaseUrl = getPublicBaseUrl(config);
 
-  // Always use the centralized relay URL derived from the public ingress base URL.
-  // TWILIO_WSS_BASE_URL is ignored.
   let wssBaseUrl: string;
-  if (getTwilioWssBaseUrl()) {
-    log.warn(
-      "TWILIO_WSS_BASE_URL env var is deprecated. Relay URL is derived from ingress.publicBaseUrl.",
-    );
-  }
   try {
     wssBaseUrl = getTwilioRelayUrl(config);
   } catch {
@@ -59,7 +33,7 @@ export function getTwilioConfig(assistantId?: string): TwilioConfig {
 
   if (!accountSid || !authToken) {
     throw new ConfigError(
-      "Twilio credentials not configured. Set credential:twilio:account_sid and credential:twilio:auth_token via the credential_store tool.",
+      "Twilio credentials not configured. Set twilio.accountSid via config and twilio:auth_token via the credential_store tool.",
     );
   }
   if (!phoneNumber) {

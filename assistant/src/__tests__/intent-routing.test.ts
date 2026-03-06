@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // ── Mock platform to isolate tests from the real workspace ────────────
 const TEST_DIR = join(tmpdir(), `vellum-routing-test-${crypto.randomUUID()}`);
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   getWorkspaceDir: () => TEST_DIR,
@@ -30,19 +33,27 @@ mock.module("../util/platform.js", () => ({
   isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
+  readSessionToken: () => null,
   removeSocketFile: () => {},
   migratePath: () => {},
   migrateToWorkspaceLayout: () => {},
   migrateToDataLayout: () => {},
 }));
 
+const noopLogger = new Proxy({} as Record<string, unknown>, {
+  get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
+});
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  ...realLogger,
+  getLogger: () => noopLogger,
+  getCliLogger: () => noopLogger,
   isDebug: () => false,
   truncateForLog: (v: string) => v,
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -54,6 +65,14 @@ mock.module("../config/loader.js", () => ({
       "feature_flags.guardian-verify-setup.enabled": true,
     },
   }),
+  loadConfig: () => ({}),
+  loadRawConfig: () => ({}),
+  saveConfig: () => {},
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  syncConfigToLockfile: () => {},
 }));
 
 // ── Import after mocks ───────────────────────────────────────────────

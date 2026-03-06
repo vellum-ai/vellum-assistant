@@ -4,6 +4,10 @@ import { AnthropicProvider } from "./anthropic/client.js";
 import { FailoverProvider, type ProviderHealthStatus } from "./failover.js";
 import { FireworksProvider } from "./fireworks/client.js";
 import { GeminiProvider } from "./gemini/client.js";
+import {
+  buildManagedBaseUrl,
+  resolveManagedProxyContext,
+} from "./managed-proxy/context.js";
 import { getProviderDefaultModel } from "./model-intents.js";
 import { OllamaProvider } from "./ollama/client.js";
 import { OpenAIProvider } from "./openai/client.js";
@@ -12,6 +16,7 @@ import { RetryProvider } from "./retry.js";
 import type { Provider } from "./types.js";
 
 const providers = new Map<string, Provider>();
+const routingSources = new Map<string, "user-key" | "managed-proxy">();
 let cachedFailoverProvider: FailoverProvider | null = null;
 let cachedFailoverKey: string | null = null;
 
@@ -117,6 +122,12 @@ export function listProviders(): string[] {
   return Array.from(providers.keys());
 }
 
+export function getProviderRoutingSource(
+  name: string,
+): "user-key" | "managed-proxy" | undefined {
+  return routingSources.get(name);
+}
+
 /**
  * Return the default model for a given provider name.
  * Falls back to the Anthropic default if the provider name is unknown.
@@ -195,6 +206,7 @@ export function getProviderDebugStatus(
 
 export function initializeProviders(config: ProvidersConfig): void {
   providers.clear();
+  routingSources.clear();
   cachedFailoverProvider = null;
   cachedFailoverKey = null;
 
@@ -214,6 +226,28 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+    routingSources.set("anthropic", "user-key");
+  } else {
+    // No user Anthropic key — try managed proxy fallback
+    const managedBaseUrl = buildManagedBaseUrl("anthropic");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      const model = resolveModel(config, "anthropic");
+      registerProvider(
+        "anthropic",
+        new RetryProvider(
+          wrapWithLogfire(
+            new AnthropicProvider(ctx.assistantApiKey, model, {
+              useNativeWebSearch:
+                config.webSearchProvider === "anthropic-native",
+              streamTimeoutMs,
+              baseURL: managedBaseUrl,
+            }),
+          ),
+        ),
+      );
+      routingSources.set("anthropic", "managed-proxy");
+    }
   }
   if (config.apiKeys.openai) {
     const model = resolveModel(config, "openai");
@@ -225,6 +259,25 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+    routingSources.set("openai", "user-key");
+  } else {
+    const managedBaseUrl = buildManagedBaseUrl("openai");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      const model = resolveModel(config, "openai");
+      registerProvider(
+        "openai",
+        new RetryProvider(
+          wrapWithLogfire(
+            new OpenAIProvider(ctx.assistantApiKey, model, {
+              baseURL: managedBaseUrl,
+              streamTimeoutMs,
+            }),
+          ),
+        ),
+      );
+      routingSources.set("openai", "managed-proxy");
+    }
   }
   if (config.apiKeys.gemini) {
     const model = resolveModel(config, "gemini");
@@ -236,6 +289,26 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+    routingSources.set("gemini", "user-key");
+  } else {
+    // No user Gemini key — try managed proxy fallback
+    const managedBaseUrl = buildManagedBaseUrl("gemini");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      const model = resolveModel(config, "gemini");
+      registerProvider(
+        "gemini",
+        new RetryProvider(
+          wrapWithLogfire(
+            new GeminiProvider(ctx.assistantApiKey, model, {
+              streamTimeoutMs,
+              managedBaseUrl,
+            }),
+          ),
+        ),
+      );
+      routingSources.set("gemini", "managed-proxy");
+    }
   }
   if (config.provider === "ollama" || config.apiKeys.ollama) {
     const model = resolveModel(config, "ollama");
@@ -250,6 +323,7 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+    routingSources.set("ollama", "user-key");
   }
   if (config.apiKeys.fireworks) {
     const model = resolveModel(config, "fireworks");
@@ -263,6 +337,25 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+    routingSources.set("fireworks", "user-key");
+  } else {
+    const managedBaseUrl = buildManagedBaseUrl("fireworks");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      const model = resolveModel(config, "fireworks");
+      registerProvider(
+        "fireworks",
+        new RetryProvider(
+          wrapWithLogfire(
+            new FireworksProvider(ctx.assistantApiKey, model, {
+              baseURL: managedBaseUrl,
+              streamTimeoutMs,
+            }),
+          ),
+        ),
+      );
+      routingSources.set("fireworks", "managed-proxy");
+    }
   }
   if (config.apiKeys.openrouter) {
     const model = resolveModel(config, "openrouter");
@@ -276,5 +369,24 @@ export function initializeProviders(config: ProvidersConfig): void {
         ),
       ),
     );
+    routingSources.set("openrouter", "user-key");
+  } else {
+    const managedBaseUrl = buildManagedBaseUrl("openrouter");
+    if (managedBaseUrl) {
+      const ctx = resolveManagedProxyContext();
+      const model = resolveModel(config, "openrouter");
+      registerProvider(
+        "openrouter",
+        new RetryProvider(
+          wrapWithLogfire(
+            new OpenRouterProvider(ctx.assistantApiKey, model, {
+              baseURL: managedBaseUrl,
+              streamTimeoutMs,
+            }),
+          ),
+        ),
+      );
+      routingSources.set("openrouter", "managed-proxy");
+    }
   }
 }

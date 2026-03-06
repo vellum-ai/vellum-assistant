@@ -23,21 +23,18 @@
           },
           "html": {
             "type": "string",
-            "description": "HTML definition for rendering the app (main index.html page)"
+            "description": "Optional HTML definition for the main index.html page. If omitted, a minimal scaffold is created and you can write index.html later via app_file_write."
           },
           "pages": {
             "type": "object",
-            "description": "Optional additional pages as a mapping of filename to HTML content (e.g. {\"settings.html\": \"<html>...</html>\"}). Navigate between pages with <a href=\"settings.html\">. Do not include index.html here — use the html parameter instead.",
-            "additionalProperties": { "type": "string" }
-          },
-          "type": {
-            "type": "string",
-            "enum": ["app", "site"],
-            "description": "Type of creation: 'app' for interactive apps with data/state, 'site' for presentational content (portfolios, landing pages, blogs)"
+            "description": "Optional additional pages as a mapping of filename to HTML content (e.g. {\"settings.html\": \"<html>...</html>\"}). Navigate between pages with <a href=\"settings.html\">. Do not include index.html here \u2014 use the html parameter instead.",
+            "additionalProperties": {
+              "type": "string"
+            }
           },
           "auto_open": {
             "type": "boolean",
-            "description": "When true (default), an inline preview card is shown in chat after creation. The app is NOT automatically opened in a workspace panel — users can open it explicitly via the 'Open App' button on the inline card."
+            "description": "When true (default), an inline preview card is shown in chat after creation. The app is NOT automatically opened in a workspace panel \u2014 users can open it explicitly via the 'Open App' button on the inline card."
           },
           "set_as_home_base": {
             "type": "boolean",
@@ -47,27 +44,47 @@
             "type": "object",
             "description": "Inline preview card shown in chat after creation. Always include this so users see a compact summary of what was built. Required fields: title.",
             "properties": {
-              "title": { "type": "string", "description": "Preview card title" },
-              "subtitle": { "type": "string", "description": "Optional subtitle" },
-              "description": { "type": "string", "description": "Optional short description" },
-              "icon": { "type": "string", "description": "Optional icon — image URL preferred when available (logo, favicon, photo, etc.), emoji as fallback" },
+              "title": {
+                "type": "string",
+                "description": "Preview card title"
+              },
+              "subtitle": {
+                "type": "string",
+                "description": "Optional subtitle"
+              },
+              "description": {
+                "type": "string",
+                "description": "Optional short description"
+              },
+              "icon": {
+                "type": "string",
+                "description": "Optional icon \u2014 image URL preferred when available (logo, favicon, photo, etc.), emoji as fallback"
+              },
               "metrics": {
                 "type": "array",
                 "description": "Optional key-value metrics",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "label": { "type": "string" },
-                    "value": { "type": "string" }
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
                   },
                   "required": ["label", "value"]
                 }
               }
             },
             "required": ["title"]
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["name", "html"]
+        "required": ["name"]
       },
       "executor": "tools/app-create.ts",
       "execution_target": "host"
@@ -79,7 +96,12 @@
       "risk": "low",
       "input_schema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        }
       },
       "executor": "tools/app-list.ts",
       "execution_target": "host"
@@ -95,6 +117,10 @@
           "app_id": {
             "type": "string",
             "description": "The ID of the app to query records for"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id"]
@@ -133,7 +159,13 @@
           "pages": {
             "type": "object",
             "description": "Updated additional pages as a mapping of filename to HTML content.",
-            "additionalProperties": { "type": "string" }
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id"]
@@ -152,6 +184,10 @@
           "app_id": {
             "type": "string",
             "description": "The ID of the app to delete"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id"]
@@ -170,6 +206,10 @@
           "app_id": {
             "type": "string",
             "description": "The ID of the app"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id"]
@@ -200,6 +240,10 @@
           "limit": {
             "type": "number",
             "description": "Number of lines to return (default: all)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id", "path"]
@@ -238,6 +282,10 @@
           "status": {
             "type": "string",
             "description": "Optional short human-readable progress message shown to the user (e.g. 'adding dark mode styles')"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id", "path", "old_string", "new_string"]
@@ -268,11 +316,41 @@
           "status": {
             "type": "string",
             "description": "Optional short human-readable progress message shown to the user (e.g. 'adding dark mode styles')"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["app_id", "path", "content"]
       },
       "executor": "tools/app-file-write.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "app_generate_icon",
+      "description": "Generate or regenerate an AI-designed icon for an app. Uses Gemini to create a professional app icon. Call this when the user wants a new or different icon for their app.",
+      "category": "apps",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The ID of the app to generate an icon for"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description to guide icon generation (e.g. 'a blue calendar with a checkmark'). If omitted, the app name and description are used."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app_id"]
+      },
+      "executor": "tools/app-generate-icon.ts",
       "execution_target": "host"
     }
   ]

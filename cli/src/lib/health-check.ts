@@ -12,18 +12,26 @@ export interface HealthCheckResult {
 
 export async function checkHealth(
   runtimeUrl: string,
+  bearerToken?: string,
 ): Promise<HealthCheckResult> {
   try {
-    const url = `${runtimeUrl}/healthz`;
+    const url = `${runtimeUrl}/v1/health`;
     const controller = new AbortController();
     const timeoutId = setTimeout(
       () => controller.abort(),
       HEALTH_CHECK_TIMEOUT_MS,
     );
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (bearerToken) {
+      headers["Authorization"] = `Bearer ${bearerToken}`;
+    }
+
     const response = await fetch(url, {
       signal: controller.signal,
-      headers: { "Content-Type": "application/json" },
+      headers,
     });
 
     clearTimeout(timeoutId);

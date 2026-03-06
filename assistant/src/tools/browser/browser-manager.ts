@@ -1,11 +1,11 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
 import { authSessionCache } from "./auth-cache.js";
 import type { ExtractedCredential } from "./network-recording-types.js";
-import { checkBrowserRuntime } from "./runtime-check.js";
+import { importPlaywright } from "./runtime-check.js";
 
 const log = getLogger("browser-manager");
 
@@ -129,11 +129,6 @@ export function setLaunchFn(fn: LaunchFn | null): void {
   launchPersistentContext = fn;
 }
 
-async function getDefaultLaunchFn(): Promise<LaunchFn> {
-  const pw = await import("playwright");
-  return pw.chromium.launchPersistentContext.bind(pw.chromium);
-}
-
 function getProfileDir(): string {
   return join(getDataDir(), "browser-profile");
 }
@@ -168,10 +163,24 @@ class BrowserManager {
     this.contextCreating = (async () => {
       await authSessionCache.load();
 
-      // Auto-install Chromium if needed (skip when test launcher is injected)
-      if (!launchPersistentContext) {
-        const status = await checkBrowserRuntime();
-        if (status.playwrightAvailable && !status.chromiumInstalled) {
+      // Resolve launch function: use injected test launcher or resolve
+      // playwright (may install at runtime in compiled binaries).
+      let launch: LaunchFn;
+      if (launchPersistentContext) {
+        launch = launchPersistentContext;
+      } else {
+        const pw = await importPlaywright();
+
+        // Auto-install Chromium if the browser binary is missing
+        let chromiumInstalled = false;
+        try {
+          const execPath = pw.chromium.executablePath();
+          chromiumInstalled = existsSync(execPath);
+        } catch {
+          // executablePath() may throw if registry is missing
+        }
+
+        if (!chromiumInstalled) {
           log.info("Chromium not installed, installing via playwright...");
           const proc = Bun.spawn(
             ["bunx", "playwright", "install", "chromium"],
@@ -204,11 +213,12 @@ class BrowserManager {
             throw new Error(`Failed to install Chromium: ${msg}`);
           }
         }
+
+        launch = pw.chromium.launchPersistentContext.bind(pw.chromium);
       }
 
       const profileDir = getProfileDir();
       mkdirSync(profileDir, { recursive: true });
-      const launch = launchPersistentContext ?? (await getDefaultLaunchFn());
       const headless = !canDisplayGui();
       const ctx = await launch(profileDir, { headless });
       log.info(

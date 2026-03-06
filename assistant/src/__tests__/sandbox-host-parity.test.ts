@@ -679,11 +679,14 @@ describe("Terminal output format: formatShellOutput shared by sandbox and host",
     expect(result.isError).toBe(false);
   });
 
-  test("non-zero exit code with empty output produces <command_exit /> tag", () => {
+  test("non-zero exit code with empty output produces <command_exit /> tag and descriptive message", () => {
     const result = formatShellOutput("", "", 42, false, 120);
 
-    expect(result.content).toBe('<command_exit code="42" />');
+    expect(result.content).toContain('<command_exit code="42" />');
+    expect(result.content).toContain("Command failed with exit code 42");
+    expect(result.content).toContain("No stdout or stderr output was produced");
     expect(result.isError).toBe(true);
+    expect(result.status).toContain('<command_exit code="42" />');
   });
 
   test("stderr is appended to stdout with a newline separator", () => {

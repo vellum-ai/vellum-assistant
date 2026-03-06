@@ -9,32 +9,54 @@ describe("matchContactsControlPlaneRoute", () => {
     expect(matchContactsControlPlaneRoute("/v1/contacts", "POST")).toEqual({
       kind: "upsertContact",
     });
-    expect(matchContactsControlPlaneRoute("/v1/contacts/merge", "POST")).toEqual(
-      { kind: "mergeContacts" },
-    );
     expect(
-      matchContactsControlPlaneRoute("/v1/contacts/channels/ch_1", "PATCH"),
-    ).toEqual({ kind: "updateContactChannel", channelId: "ch_1" });
+      matchContactsControlPlaneRoute("/v1/contacts/merge", "POST"),
+    ).toEqual({ kind: "mergeContacts" });
+    expect(
+      matchContactsControlPlaneRoute("/v1/contact-channels/ch_1", "PATCH"),
+    ).toEqual({ kind: "updateContactChannel", contactChannelId: "ch_1" });
     expect(matchContactsControlPlaneRoute("/v1/contacts/ct_1", "GET")).toEqual({
       kind: "getContact",
       contactId: "ct_1",
     });
   });
 
+  test("matches verify contact channel route", () => {
+    expect(
+      matchContactsControlPlaneRoute(
+        "/v1/contact-channels/ch_1/verify",
+        "POST",
+      ),
+    ).toEqual({
+      kind: "verifyContactChannel",
+      contactChannelId: "ch_1",
+    });
+
+    // Only POST is supported
+    expect(
+      matchContactsControlPlaneRoute(
+        "/v1/contact-channels/ch_1/verify",
+        "GET",
+      ),
+    ).toBeNull();
+  });
+
   test("returns null for unsupported methods on contact routes", () => {
     expect(matchContactsControlPlaneRoute("/v1/contacts", "DELETE")).toBeNull();
-    // GET /v1/contacts/channels/ch_1 does not match (PATCH only)
+    // GET /v1/contact-channels/ch_1 does not match (PATCH only)
     expect(
-      matchContactsControlPlaneRoute("/v1/contacts/channels/ch_1", "GET"),
+      matchContactsControlPlaneRoute("/v1/contact-channels/ch_1", "GET"),
     ).toBeNull();
   });
 
   test("GET /v1/contacts/merge falls through to getContact", () => {
     // No GET handler for /merge, so the contactId catch-all picks it up
-    expect(matchContactsControlPlaneRoute("/v1/contacts/merge", "GET")).toEqual({
-      kind: "getContact",
-      contactId: "merge",
-    });
+    expect(matchContactsControlPlaneRoute("/v1/contacts/merge", "GET")).toEqual(
+      {
+        kind: "getContact",
+        contactId: "merge",
+      },
+    );
   });
 
   test("matches redeem invite only for POST", () => {

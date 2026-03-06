@@ -1,7 +1,11 @@
 import * as net from "node:net";
 
 import type { ChannelId } from "../../channels/types.js";
-import { findContactChannel } from "../../contacts/contact-store.js";
+import { resolveGuardianName } from "../../config/user-reference.js";
+import {
+  findContactChannel,
+  findGuardianForChannel,
+} from "../../contacts/contact-store.js";
 import { revokeMember } from "../../contacts/contacts-write.js";
 import type { ChannelStatus } from "../../contacts/types.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
@@ -87,11 +91,7 @@ export function createGuardianChallenge(
     };
   }
 
-  const result = createVerificationChallenge(
-    resolvedAssistantId,
-    resolvedChannel,
-    sessionId,
-  );
+  const result = createVerificationChallenge(resolvedChannel, sessionId);
 
   return {
     success: true,
@@ -108,54 +108,29 @@ export function getGuardianStatus(
   const resolvedChannel = channel ?? "telegram";
 
   const binding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
+
+  // Read the contact directly to get displayName — getGuardianBinding is a
+  // compatibility shim that doesn't carry metadataJson.
+  const guardianResult = findGuardianForChannel(resolvedChannel);
+  const bindingDisplayName = guardianResult?.contact.displayName;
+  const guardianDisplayName = resolveGuardianName(bindingDisplayName);
+
+  // Resolve username from external conversation store.
   let guardianUsername: string | undefined;
-  let guardianDisplayName: string | undefined;
-  if (binding?.metadataJson) {
-    try {
-      const parsed = JSON.parse(binding.metadataJson) as Record<
-        string,
-        unknown
-      >;
-      if (
-        typeof parsed.username === "string" &&
-        parsed.username.trim().length > 0
-      ) {
-        guardianUsername = parsed.username.trim();
-      }
-      if (
-        typeof parsed.displayName === "string" &&
-        parsed.displayName.trim().length > 0
-      ) {
-        guardianDisplayName = parsed.displayName.trim();
-      }
-    } catch {
-      // ignore malformed metadata
-    }
-  }
-  if (
-    binding?.guardianDeliveryChatId &&
-    (!guardianUsername || !guardianDisplayName)
-  ) {
+  if (binding?.guardianDeliveryChatId) {
     const ext = externalConversationStore.getBindingByChannelChat(
       resolvedChannel,
       binding.guardianDeliveryChatId,
     );
-    if (!guardianUsername && ext?.username) {
+    if (ext?.username) {
       guardianUsername = ext.username;
     }
-    if (!guardianDisplayName && ext?.displayName) {
-      guardianDisplayName = ext.displayName;
-    }
   }
-  const hasPendingChallenge =
-    getPendingChallenge(resolvedAssistantId, resolvedChannel) != null;
+  const hasPendingChallenge = getPendingChallenge(resolvedChannel) != null;
 
   // Include active outbound session state so the UI can resume
   // after app restart and detect bootstrap completion.
-  const activeOutboundSession = findActiveSession(
-    resolvedAssistantId,
-    resolvedChannel,
-  );
+  const activeOutboundSession = findActiveSession(resolvedChannel);
   const outboundFields: Record<string, unknown> = {};
   if (activeOutboundSession) {
     outboundFields.verificationSessionId = activeOutboundSession.id;
@@ -194,7 +169,7 @@ export function revokeGuardianForChannel(
   // Always revoke pending challenges first — the macOS app uses
   // action: "revoke" to cancel an in-flight challenge even before
   // a binding exists (e.g. during verification setup).
-  revokePendingChallenges(assistantId, resolvedChannel);
+  revokePendingChallenges(resolvedChannel);
 
   // Capture binding before revoking so we can revoke the guardian's
   // contact record — without this, the guardian would still pass
@@ -243,11 +218,11 @@ export function revokeGuardianForChannel(
 // Guardian verification handler
 // ---------------------------------------------------------------------------
 
-export function handleGuardianVerification(
+export async function handleGuardianVerification(
   msg: GuardianVerificationRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   const channel = msg.channel ?? "telegram";
 
   try {
@@ -265,7 +240,7 @@ export function handleGuardianVerification(
       const result = revokeGuardianForChannel(channel);
       ctx.send(socket, { type: "guardian_verification_response", ...result });
     } else if (msg.action === "start_outbound") {
-      const result = startOutbound({
+      const result = await startOutbound({
         channel,
         destination: msg.destination,
         rebind: msg.rebind,

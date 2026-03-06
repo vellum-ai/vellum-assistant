@@ -1,4 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
+import { tableHasColumn } from "./schema-introspection.js";
 
 /**
  * Extend channel_guardian_verification_challenges with outbound verification
@@ -83,13 +84,31 @@ export function migrateGuardianVerificationSessions(database: DrizzleDb): void {
   }
 
   // -- Indexes for session lookups --
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_active ON channel_guardian_verification_challenges(assistant_id, channel, status)`,
-  );
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_identity ON channel_guardian_verification_challenges(assistant_id, channel, expected_external_user_id, expected_chat_id, status)`,
-  );
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_destination ON channel_guardian_verification_challenges(assistant_id, channel, destination_address)`,
-  );
+  if (
+    tableHasColumn(
+      database,
+      "channel_guardian_verification_challenges",
+      "assistant_id",
+    )
+  ) {
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_active ON channel_guardian_verification_challenges(assistant_id, channel, status)`,
+    );
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_identity ON channel_guardian_verification_challenges(assistant_id, channel, expected_external_user_id, expected_chat_id, status)`,
+    );
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_destination ON channel_guardian_verification_challenges(assistant_id, channel, destination_address)`,
+    );
+  } else {
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_active ON channel_guardian_verification_challenges(channel, status)`,
+    );
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_identity ON channel_guardian_verification_challenges(channel, expected_external_user_id, expected_chat_id, status)`,
+    );
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_guardian_sessions_destination ON channel_guardian_verification_challenges(channel, destination_address)`,
+    );
+  }
 }

@@ -123,7 +123,6 @@ export type CallerIdentityResult =
 export async function resolveCallerIdentity(
   config: AssistantConfig,
   requestedMode?: "assistant_number" | "user_number",
-  assistantId?: string,
 ): Promise<CallerIdentityResult> {
   const identityConfig = config.calls.callerIdentity;
   let mode: "assistant_number" | "user_number";
@@ -161,7 +160,7 @@ export async function resolveCallerIdentity(
   }
 
   if (mode === "assistant_number") {
-    const twilioConfig = getTwilioConfig(assistantId);
+    const twilioConfig = getTwilioConfig();
     log.info(
       { mode, source, fromNumber: twilioConfig.phoneNumber },
       "Resolved caller identity",
@@ -290,7 +289,6 @@ export function createInboundVoiceSession(
     provider: "twilio",
     fromNumber,
     toNumber,
-    assistantId,
   });
 
   updateCallSession(session.id, { providerCallSid: callSid });
@@ -396,7 +394,6 @@ export async function startCall(
     const identityResult = await resolveCallerIdentity(
       ingressConfig,
       callerIdentityMode,
-      assistantId,
     );
     if (!identityResult.ok) {
       return { ok: false, error: identityResult.error, status: 400 };
@@ -411,7 +408,6 @@ export async function startCall(
       task: callContext ? `${task}\n\nContext: ${callContext}` : task,
       callerIdentityMode: identityResult.mode,
       callerIdentitySource: identityResult.source,
-      assistantId,
       initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;
@@ -885,12 +881,8 @@ export type StartGuardianVerificationCallResult =
 export async function startGuardianVerificationCall(
   input: StartGuardianVerificationCallInput,
 ): Promise<StartGuardianVerificationCallResult> {
-  const {
-    phoneNumber,
-    guardianVerificationSessionId,
-    assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
-    originConversationId,
-  } = input;
+  const { phoneNumber, guardianVerificationSessionId, originConversationId } =
+    input;
 
   if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {
     return {
@@ -907,11 +899,7 @@ export async function startGuardianVerificationCall(
     const provider = new TwilioConversationRelayProvider();
 
     // Resolve the assistant's Twilio number as the caller ID
-    const identityResult = await resolveCallerIdentity(
-      config,
-      undefined,
-      assistantId,
-    );
+    const identityResult = await resolveCallerIdentity(config);
     if (!identityResult.ok) {
       return { ok: false, error: identityResult.error, status: 400 };
     }
@@ -935,7 +923,6 @@ export async function startGuardianVerificationCall(
       toNumber: phoneNumber,
       callMode: "guardian_verification",
       guardianVerificationSessionId,
-      assistantId,
       initiatedFromConversationId: originConversationId,
     });
     sessionId = session.id;

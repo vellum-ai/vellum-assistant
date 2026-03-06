@@ -10,17 +10,30 @@ const testDir = mkdtempSync(join(tmpdir(), "handlers-twitter-auth-test-"));
 let rawConfigStore: Record<string, unknown> = {};
 let mockIngressPublicBaseUrl: string | undefined = "https://test.example.com";
 
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const keys = path.split(".");
+  let current: unknown = obj;
+  for (const key of keys) {
+    if (current == null || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
   }),
   loadConfig: () => ({ ingress: { publicBaseUrl: mockIngressPublicBaseUrl } }),
-  loadRawConfig: () => ({ ...rawConfigStore }),
+  loadRawConfig: () => structuredClone(rawConfigStore),
   saveRawConfig: (cfg: Record<string, unknown>) => {
-    rawConfigStore = { ...cfg };
+    rawConfigStore = structuredClone(cfg);
   },
   saveConfig: () => {},
   invalidateConfigCache: () => {},
+  getNestedValue,
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({
@@ -79,9 +92,9 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKey: (account: string) => {
     if (account in secureKeyStore) {
       delete secureKeyStore[account];
-      return true;
+      return "deleted";
     }
-    return false;
+    return "not-found";
   },
   listSecureKeys: () => Object.keys(secureKeyStore),
   getBackendType: () => "encrypted",
@@ -207,7 +220,7 @@ describe("Twitter auth handler", () => {
 
   describe("twitter_auth_start", () => {
     test("fails if mode is not local_byo", async () => {
-      rawConfigStore = { twitterIntegrationMode: "managed" };
+      rawConfigStore = { twitter: { integrationMode: "managed" } };
 
       const msg: TwitterAuthStartRequest = { type: "twitter_auth_start" };
       const { ctx, sent } = createTestContext();
@@ -228,7 +241,7 @@ describe("Twitter auth handler", () => {
     });
 
     test("fails if no client credentials configured", async () => {
-      rawConfigStore = { twitterIntegrationMode: "local_byo" };
+      rawConfigStore = { twitter: { integrationMode: "local_byo" } };
       // No client ID in secure storage
 
       const msg: TwitterAuthStartRequest = { type: "twitter_auth_start" };
@@ -249,7 +262,7 @@ describe("Twitter auth handler", () => {
     });
 
     test("succeeds with valid config (mock orchestrator)", async () => {
-      rawConfigStore = { twitterIntegrationMode: "local_byo" };
+      rawConfigStore = { twitter: { integrationMode: "local_byo" } };
       secureKeyStore["credential:integration:twitter:oauth_client_id"] =
         "test-client-id";
       secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
@@ -283,7 +296,7 @@ describe("Twitter auth handler", () => {
     });
 
     test("delegates to orchestrateOAuthConnect with correct options", async () => {
-      rawConfigStore = { twitterIntegrationMode: "local_byo" };
+      rawConfigStore = { twitter: { integrationMode: "local_byo" } };
       secureKeyStore["credential:integration:twitter:oauth_client_id"] =
         "test-client-id";
       secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
@@ -312,7 +325,7 @@ describe("Twitter auth handler", () => {
     });
 
     test("fails fast with actionable error when no ingress URL is configured", async () => {
-      rawConfigStore = { twitterIntegrationMode: "local_byo" };
+      rawConfigStore = { twitter: { integrationMode: "local_byo" } };
       secureKeyStore["credential:integration:twitter:oauth_client_id"] =
         "test-client-id";
       mockIngressPublicBaseUrl = undefined;
@@ -349,7 +362,7 @@ describe("Twitter auth handler", () => {
     });
 
     test("maps orchestrator error result to twitter_auth_result", async () => {
-      rawConfigStore = { twitterIntegrationMode: "local_byo" };
+      rawConfigStore = { twitter: { integrationMode: "local_byo" } };
       secureKeyStore["credential:integration:twitter:oauth_client_id"] =
         "test-client-id";
 
@@ -379,7 +392,7 @@ describe("Twitter auth handler", () => {
 
     describe("auth hardening", () => {
       test("OAuth cancel path returns sanitized failure", async () => {
-        rawConfigStore = { twitterIntegrationMode: "local_byo" };
+        rawConfigStore = { twitter: { integrationMode: "local_byo" } };
         secureKeyStore["credential:integration:twitter:oauth_client_id"] =
           "test-client-id";
 
@@ -404,7 +417,7 @@ describe("Twitter auth handler", () => {
       });
 
       test("OAuth timeout path returns sanitized failure", async () => {
-        rawConfigStore = { twitterIntegrationMode: "local_byo" };
+        rawConfigStore = { twitter: { integrationMode: "local_byo" } };
         secureKeyStore["credential:integration:twitter:oauth_client_id"] =
           "test-client-id";
 
@@ -431,7 +444,7 @@ describe("Twitter auth handler", () => {
       });
 
       test("error payload never includes secrets or raw provider bodies", async () => {
-        rawConfigStore = { twitterIntegrationMode: "local_byo" };
+        rawConfigStore = { twitter: { integrationMode: "local_byo" } };
         secureKeyStore["credential:integration:twitter:oauth_client_id"] =
           "test-client-id";
 
@@ -466,7 +479,7 @@ describe("Twitter auth handler", () => {
       });
 
       test("succeeds even when identity verification returns no accountInfo", async () => {
-        rawConfigStore = { twitterIntegrationMode: "local_byo" };
+        rawConfigStore = { twitter: { integrationMode: "local_byo" } };
         secureKeyStore["credential:integration:twitter:oauth_client_id"] =
           "test-client-id";
 
@@ -499,7 +512,7 @@ describe("Twitter auth handler", () => {
 
   describe("twitter_auth_status", () => {
     test("returns disconnected when no token exists", () => {
-      rawConfigStore = { twitterIntegrationMode: "local_byo" };
+      rawConfigStore = { twitter: { integrationMode: "local_byo" } };
 
       const msg: TwitterAuthStatusRequest = { type: "twitter_auth_status" };
       const { ctx, sent } = createTestContext();
@@ -519,7 +532,7 @@ describe("Twitter auth handler", () => {
     });
 
     test("returns connected with account info when token exists", () => {
-      rawConfigStore = { twitterIntegrationMode: "local_byo" };
+      rawConfigStore = { twitter: { integrationMode: "local_byo" } };
       secureKeyStore["credential:integration:twitter:access_token"] =
         "test-access-token";
       credentialMetadataStore.push({

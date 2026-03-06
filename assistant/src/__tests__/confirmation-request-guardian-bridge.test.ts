@@ -351,11 +351,12 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test("passes assistantId to notification signal", () => {
+  test("does not pass assistantId to notification signal", () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext();
 
-    // Use default assistantId 'self' which has a binding
+    // assistantId is used internally for guardian binding lookup but is no
+    // longer forwarded to the notification signal after the assistantId removal refactor.
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
@@ -363,7 +364,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
       toolName: "bash",
     });
 
-    expect(emittedSignals[0].assistantId).toBe("self");
+    expect(emittedSignals[0].assistantId).toBeUndefined();
   });
 
   test("includes requesterChatId as null when not provided", () => {

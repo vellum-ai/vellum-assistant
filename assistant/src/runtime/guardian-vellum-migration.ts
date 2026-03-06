@@ -29,7 +29,7 @@ const log = getLogger("guardian-vellum-migration");
 export function ensureVellumGuardianBinding(
   assistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
 ): string {
-  const guardianResult = findGuardianForChannel("vellum", assistantId);
+  const guardianResult = findGuardianForChannel("vellum");
   if (guardianResult && guardianResult.contact.principalId) {
     log.debug(
       { assistantId, guardianPrincipalId: guardianResult.contact.principalId },
@@ -42,7 +42,6 @@ export function ensureVellumGuardianBinding(
 
   try {
     createGuardianBinding({
-      assistantId,
       channel: "vellum",
       guardianExternalUserId: guardianPrincipalId,
       guardianDeliveryChatId: "local",
@@ -53,7 +52,7 @@ export function ensureVellumGuardianBinding(
   } catch (err) {
     // A concurrent call or legacy binding may already occupy this slot.
     // Re-check contacts; if a binding now exists, return it instead of throwing.
-    const existing = findGuardianForChannel("vellum", assistantId);
+    const existing = findGuardianForChannel("vellum");
     if (existing?.contact.principalId) {
       log.debug(
         { assistantId, guardianPrincipalId: existing.contact.principalId },

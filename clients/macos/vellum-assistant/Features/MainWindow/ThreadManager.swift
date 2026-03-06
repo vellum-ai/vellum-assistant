@@ -83,6 +83,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private let daemonClient: DaemonClient
     private let sessionRestorer: ThreadSessionRestorer
     private let activityNotificationService: ActivityNotificationService?
+    /// Queued renames for threads that don't yet have a sessionId.
+    /// Flushed in backfillSessionId when the daemon assigns a session.
+    private var pendingRenames: [UUID: String] = [:]
     /// Flag to suppress lastActiveThreadIdString writes during initialization and session restoration.
     private var isRestoringThreads = false
     /// Subscription to activeViewModel's messages count changes.
@@ -218,6 +221,27 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         evictStaleCachedViewModels()
         activeThreadId = thread.id
         log.info("Created thread \(thread.id) with title \"\(thread.title)\"")
+    }
+
+    /// Ensures an active thread exists, selecting or creating one if needed.
+    ///
+    /// Selection priority:
+    /// 1. If `preferredSessionId` is provided, select a non-archived thread with that session.
+    /// 2. Otherwise, select the first visible thread.
+    /// 3. If no threads exist, create a new one.
+    ///
+    /// Used by `.onAppear` handlers in panel layouts to guarantee a `ChatViewModel`
+    /// is available before the chat view renders.
+    func ensureActiveThread(preferredSessionId: String? = nil) {
+        guard activeViewModel == nil else { return }
+        if let sessionId = preferredSessionId,
+           let match = threads.first(where: { $0.sessionId == sessionId && !$0.isArchived }) {
+            selectThread(id: match.id)
+        } else if let first = visibleThreads.first {
+            selectThread(id: first.id)
+        } else {
+            createThread()
+        }
     }
 
     /// Enter draft mode: show an empty chat without creating a sidebar thread.
@@ -943,6 +967,25 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         threads[index].title = title
     }
 
+    /// Rename a thread and send the rename to the daemon.
+    /// If the thread doesn't have a sessionId yet, the rename is queued
+    /// and flushed when backfillSessionId is called.
+    func renameThread(id: UUID, title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
+        threads[index].title = trimmed
+        if let sessionId = threads[index].sessionId {
+            try? daemonClient.send(IPCSessionRenameRequest(
+                type: "session_rename",
+                sessionId: sessionId,
+                title: trimmed
+            ))
+        } else {
+            pendingRenames[id] = trimmed
+        }
+    }
+
     func makeViewModel() -> ChatViewModel {
         let viewModel = ChatViewModel(daemonClient: daemonClient)
         viewModel.onToolCallsComplete = { [weak self, weak viewModel] toolCalls in
@@ -1198,6 +1241,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // a session would have been skipped by sendReorderThreads()
         // because it filters out threads without a sessionId.
         sendReorderThreads()
+        // Flush any rename that was queued before the session ID was assigned.
+        if let pendingTitle = pendingRenames.removeValue(forKey: threadId) {
+            try? daemonClient.send(IPCSessionRenameRequest(
+                type: "session_rename",
+                sessionId: sessionId,
+                title: pendingTitle
+            ))
+        }
     }
 
     // MARK: - Lazy VM Creation

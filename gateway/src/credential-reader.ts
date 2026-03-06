@@ -1,25 +1,18 @@
 /**
  * Read-only reader for the assistant's credential stores.
  *
- * The assistant persists secrets in either:
- * 1. macOS Keychain (via `security` CLI) — preferred on darwin
- * 2. Encrypted-at-rest file (~/.vellum/protected/keys.enc) — fallback
- *
- * This module tries the OS keychain first on macOS, then falls back to
- * the encrypted store, mirroring the assistant's own secure-keys module.
+ * Tries the keychain broker (UDS) first, then falls back to the
+ * encrypted-at-rest file (~/.vellum/protected/keys.enc).
  */
 
-import { execFileSync } from "node:child_process";
-import { createDecipheriv, pbkdf2Sync } from "node:crypto";
+import { createDecipheriv, pbkdf2Sync, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("credential-reader");
-
-/** Service name matching the assistant's keychain module. */
-const KEYCHAIN_SERVICE = "vellum-assistant";
 
 const ALGORITHM = "aes-256-gcm";
 const AUTH_TAG_LENGTH = 16;
@@ -123,52 +116,16 @@ export function getMetadataPath(): string {
   );
 }
 
-/**
- * Read a single credential from the macOS Keychain.
- * Returns `undefined` on non-macOS platforms, when the credential
- * doesn't exist, or on any error.
- *
- * Exit code 44 from `security` means errSecItemNotFound — the credential
- * genuinely doesn't exist. Other non-zero exit codes indicate transient
- * errors (locked keychain, timeout, etc.) and are logged as warnings so
- * operators have visibility into keychain health.
- */
-export function readKeychainCredential(account: string): string | undefined {
-  if (process.platform !== "darwin") return undefined;
-
-  try {
-    const result = execFileSync(
-      "security",
-      ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account, "-w"],
-      {
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 5000,
-        encoding: "utf-8",
-      },
-    );
-    const value = result.replace(/\n$/, "");
-    if (!value) return undefined;
-    log.debug({ account }, "Credential found in keychain");
-    return value;
-  } catch (err: unknown) {
-    // Exit code 44 = errSecItemNotFound — credential genuinely missing
-    const exitCode = (err as { status?: number }).status;
-    if (exitCode !== 44) {
-      log.warn(
-        { account, exitCode },
-        "Keychain lookup failed with unexpected error",
-      );
-    }
-    return undefined;
-  }
-}
+// ---------------------------------------------------------------------------
+// Encrypted store reader
+// ---------------------------------------------------------------------------
 
 /**
  * Read a single credential from the encrypted store.
  * Returns `undefined` if the store doesn't exist, the key is missing,
  * or decryption fails.
  */
-export function readCredential(account: string): string | undefined {
+function readEncryptedCredential(account: string): string | undefined {
   try {
     const store = readStore(getEncryptedStorePath());
     if (!store) return undefined;
@@ -185,6 +142,144 @@ export function readCredential(account: string): string | undefined {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Keychain broker reader (UDS) — native async implementation
+// ---------------------------------------------------------------------------
+
+const BROKER_TIMEOUT_MS = 5_000;
+
+function getBrokerTokenPath(): string {
+  return join(getRootDir(), "protected", "keychain-broker.token");
+}
+
+/**
+ * Try to read a credential from the keychain broker over its Unix domain socket.
+ * Uses a native UDS connection (no external process spawn).
+ * Returns `undefined` if the broker is unavailable, the socket env var is unset,
+ * the token file is missing, or the broker doesn't have the requested key.
+ */
+async function readBrokerCredential(
+  account: string,
+): Promise<string | undefined> {
+  const socketPath = process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+  if (!socketPath) return undefined;
+
+  // Check socket file exists before attempting connection — createConnection
+  // can throw synchronously in some runtimes (e.g. Bun) for ENOENT.
+  if (!existsSync(socketPath)) return undefined;
+
+  const tokenPath = getBrokerTokenPath();
+  let token: string;
+  try {
+    if (!existsSync(tokenPath)) return undefined;
+    token = readFileSync(tokenPath, "utf-8").trim();
+    if (!token) return undefined;
+  } catch {
+    return undefined;
+  }
+
+  const reqId = randomUUID();
+  const request = JSON.stringify({
+    v: 1,
+    id: reqId,
+    method: "key.get",
+    token,
+    params: { account },
+  });
+
+  try {
+    return await new Promise<string | undefined>((resolve) => {
+      let buf = "";
+      let settled = false;
+
+      // Declare socket before the timer so the timeout closure never
+      // hits a TDZ if createConnection throws synchronously.
+      let socket: ReturnType<typeof createConnection> | undefined;
+
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          try {
+            socket?.destroy();
+          } catch {
+            /* already destroyed or never created */
+          }
+          log.debug({ account }, "Broker read timed out");
+          resolve(undefined);
+        }
+      }, BROKER_TIMEOUT_MS);
+
+      try {
+        socket = createConnection({ path: socketPath });
+      } catch (err) {
+        clearTimeout(timer);
+        settled = true;
+        log.debug({ err, account }, "Failed to connect to keychain broker");
+        resolve(undefined);
+        return;
+      }
+
+      socket.on("connect", () => {
+        socket!.write(request + "\n");
+      });
+
+      socket.on("data", (chunk) => {
+        buf += chunk.toString();
+        const idx = buf.indexOf("\n");
+        if (idx !== -1) {
+          clearTimeout(timer);
+          if (settled) return;
+          settled = true;
+          try {
+            const resp = JSON.parse(buf.slice(0, idx));
+            if (
+              resp.ok &&
+              resp.result?.found &&
+              typeof resp.result.value === "string"
+            ) {
+              resolve(resp.result.value);
+            } else {
+              resolve(undefined);
+            }
+          } catch {
+            resolve(undefined);
+          }
+          socket!.destroy();
+        }
+      });
+
+      socket.on("error", (err) => {
+        clearTimeout(timer);
+        if (!settled) {
+          settled = true;
+          log.debug({ err, account }, "Failed to read from keychain broker");
+          resolve(undefined);
+        }
+      });
+    });
+  } catch (err) {
+    log.debug({ err, account }, "Failed to read from keychain broker");
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public credential reader — tries broker, then encrypted store
+// ---------------------------------------------------------------------------
+
+/**
+ * Read a single credential by account key.
+ * Tries the keychain broker first (when available), then falls back
+ * to the encrypted-at-rest store.
+ */
+export async function readCredential(
+  account: string,
+): Promise<string | undefined> {
+  const brokerValue = await readBrokerCredential(account);
+  if (brokerValue !== undefined) return brokerValue;
+  return readEncryptedCredential(account);
+}
+
 export type TelegramCredentials = {
   botToken: string;
   webhookSecret: string;
@@ -196,29 +291,15 @@ export type TwilioCredentials = {
 };
 
 /**
- * Read a credential by trying keychain first (on macOS), then encrypted store.
- */
-function readCredentialWithFallback(account: string): string | undefined {
-  const keychainValue = readKeychainCredential(account);
-  if (keychainValue !== undefined) return keychainValue;
-
-  const encValue = readCredential(account);
-  if (encValue !== undefined) {
-    log.debug({ account }, "Credential found in encrypted store");
-  }
-  return encValue;
-}
-
-/**
  * Check the credential metadata file for Telegram credentials and read
- * them from secure storage (keychain on macOS, then encrypted store).
+ * them from the encrypted store.
  *
  * Returns `null` if:
  * - The metadata file doesn't exist or can't be parsed
  * - Telegram bot_token or webhook_secret entries are missing from metadata
- * - The actual secret values can't be read from any backend
+ * - The actual secret values can't be read from the encrypted store
  */
-export function readTelegramCredentials(): TelegramCredentials | null {
+export async function readTelegramCredentials(): Promise<TelegramCredentials | null> {
   try {
     const metadataPath = getMetadataPath();
     if (!existsSync(metadataPath)) return null;
@@ -238,16 +319,14 @@ export function readTelegramCredentials(): TelegramCredentials | null {
 
     if (!hasBotToken || !hasWebhookSecret) return null;
 
-    const botToken = readCredentialWithFallback(
-      "credential:telegram:bot_token",
-    );
-    const webhookSecret = readCredentialWithFallback(
+    const botToken = await readCredential("credential:telegram:bot_token");
+    const webhookSecret = await readCredential(
       "credential:telegram:webhook_secret",
     );
 
     if (!botToken || !webhookSecret) {
       log.warn(
-        "Telegram credential metadata exists but secrets could not be read from any backend",
+        "Telegram credential metadata exists but secrets could not be read",
       );
       return null;
     }
@@ -261,14 +340,14 @@ export function readTelegramCredentials(): TelegramCredentials | null {
 
 /**
  * Check the credential metadata file for Twilio credentials and read
- * them from secure storage (keychain on macOS, then encrypted store).
+ * them from the encrypted store.
  *
  * Returns `null` if:
  * - The metadata file doesn't exist or can't be parsed
  * - Twilio account_sid or auth_token entries are missing from metadata
- * - The actual secret values can't be read from any backend
+ * - The actual secret values can't be read from the encrypted store
  */
-export function readTwilioCredentials(): TwilioCredentials | null {
+export async function readTwilioCredentials(): Promise<TwilioCredentials | null> {
   try {
     const metadataPath = getMetadataPath();
     if (!existsSync(metadataPath)) return null;
@@ -288,16 +367,12 @@ export function readTwilioCredentials(): TwilioCredentials | null {
 
     if (!hasAccountSid || !hasAuthToken) return null;
 
-    const accountSid = readCredentialWithFallback(
-      "credential:twilio:account_sid",
-    );
-    const authToken = readCredentialWithFallback(
-      "credential:twilio:auth_token",
-    );
+    const accountSid = await readCredential("credential:twilio:account_sid");
+    const authToken = await readCredential("credential:twilio:auth_token");
 
     if (!accountSid || !authToken) {
       log.warn(
-        "Twilio credential metadata exists but secrets could not be read from any backend",
+        "Twilio credential metadata exists but secrets could not be read",
       );
       return null;
     }
@@ -318,14 +393,14 @@ export type SlackChannelCredentials = {
 
 /**
  * Check the credential metadata file for Slack channel credentials and read
- * them from secure storage (keychain on macOS, then encrypted store).
+ * them from the encrypted store.
  *
  * Returns `null` if:
  * - The metadata file doesn't exist or can't be parsed
  * - Slack channel bot_token or app_token entries are missing from metadata
- * - The actual secret values can't be read from any backend
+ * - The actual secret values can't be read from the encrypted store
  */
-export function readSlackChannelCredentials(): SlackChannelCredentials | null {
+export async function readSlackChannelCredentials(): Promise<SlackChannelCredentials | null> {
   try {
     const metadataPath = getMetadataPath();
     if (!existsSync(metadataPath)) return null;
@@ -345,16 +420,12 @@ export function readSlackChannelCredentials(): SlackChannelCredentials | null {
 
     if (!hasBotToken || !hasAppToken) return null;
 
-    const botToken = readCredentialWithFallback(
-      "credential:slack_channel:bot_token",
-    );
-    const appToken = readCredentialWithFallback(
-      "credential:slack_channel:app_token",
-    );
+    const botToken = await readCredential("credential:slack_channel:bot_token");
+    const appToken = await readCredential("credential:slack_channel:app_token");
 
     if (!botToken || !appToken) {
       log.warn(
-        "Slack channel credential metadata exists but secrets could not be read from any backend",
+        "Slack channel credential metadata exists but secrets could not be read",
       );
       return null;
     }
@@ -379,14 +450,14 @@ export type WhatsAppCredentials = {
 
 /**
  * Check the credential metadata file for WhatsApp credentials and read
- * them from secure storage (keychain on macOS, then encrypted store).
+ * them from the encrypted store.
  *
  * Returns `null` if:
  * - The metadata file doesn't exist or can't be parsed
  * - Required WhatsApp entries are missing from metadata
- * - The actual secret values can't be read from any backend
+ * - The actual secret values can't be read from the encrypted store
  */
-export function readWhatsAppCredentials(): WhatsAppCredentials | null {
+export async function readWhatsAppCredentials(): Promise<WhatsAppCredentials | null> {
   try {
     const metadataPath = getMetadataPath();
     if (!existsSync(metadataPath)) return null;
@@ -420,22 +491,20 @@ export function readWhatsAppCredentials(): WhatsAppCredentials | null {
     )
       return null;
 
-    const phoneNumberId = readCredentialWithFallback(
+    const phoneNumberId = await readCredential(
       "credential:whatsapp:phone_number_id",
     );
-    const accessToken = readCredentialWithFallback(
+    const accessToken = await readCredential(
       "credential:whatsapp:access_token",
     );
-    const appSecret = readCredentialWithFallback(
-      "credential:whatsapp:app_secret",
-    );
-    const webhookVerifyToken = readCredentialWithFallback(
+    const appSecret = await readCredential("credential:whatsapp:app_secret");
+    const webhookVerifyToken = await readCredential(
       "credential:whatsapp:webhook_verify_token",
     );
 
     if (!phoneNumberId || !accessToken || !appSecret || !webhookVerifyToken) {
       log.warn(
-        "WhatsApp credential metadata exists but secrets could not be read from any backend",
+        "WhatsApp credential metadata exists but secrets could not be read",
       );
       return null;
     }

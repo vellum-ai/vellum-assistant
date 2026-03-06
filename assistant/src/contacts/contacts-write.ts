@@ -8,7 +8,6 @@
 
 import type { ChannelId } from "../channels/types.js";
 import type { GuardianBinding } from "../memory/channel-guardian-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { emitContactChange } from "./contact-events.js";
@@ -19,6 +18,7 @@ import {
   getContactInternal,
   updateChannelLastSeenById,
   updateChannelStatus,
+  updateContactInteraction,
   upsertContact,
 } from "./contact-store.js";
 import type {
@@ -57,7 +57,6 @@ function parseDisplayNameFromMetadata(
  * (so callers expecting binding.id still work).
  */
 export function createGuardianBinding(params: {
-  assistantId: string;
   channel: string;
   guardianExternalUserId: string;
   guardianDeliveryChatId: string;
@@ -78,8 +77,8 @@ export function createGuardianBinding(params: {
   upsertContact({
     displayName,
     role: "guardian",
+    notes: "guardian",
     principalId: params.guardianPrincipalId,
-    assistantId: params.assistantId,
     channels: [
       {
         type: params.channel,
@@ -96,7 +95,7 @@ export function createGuardianBinding(params: {
   const now = Date.now();
   const result: GuardianBinding = {
     id: `contact-binding-${params.channel}`,
-    assistantId: params.assistantId,
+    assistantId: "self",
     channel: params.channel,
     guardianExternalUserId: params.guardianExternalUserId,
     guardianDeliveryChatId: params.guardianDeliveryChatId,
@@ -109,7 +108,6 @@ export function createGuardianBinding(params: {
     updatedAt: now,
   };
 
-  emitContactChange();
   return result;
 }
 
@@ -117,11 +115,8 @@ export function createGuardianBinding(params: {
  * Revoke a guardian binding by updating the contacts table.
  * Returns true when a guardian channel was found and revoked, false otherwise.
  */
-export function revokeGuardianBinding(
-  assistantId: string,
-  channel: string,
-): boolean {
-  const guardian = findGuardianForChannel(channel, assistantId);
+export function revokeGuardianBinding(channel: string): boolean {
+  const guardian = findGuardianForChannel(channel);
   if (!guardian) return false;
 
   updateChannelStatus(guardian.channel.id, {
@@ -139,7 +134,7 @@ export function revokeGuardianBinding(
  * Returns the native Contact + ContactChannel, or null if no usable
  * identity was provided or the lookup failed after upsert.
  */
-export function upsertMember(params: {
+export function upsertContactChannel(params: {
   sourceChannel: string;
   externalUserId?: string;
   externalChatId?: string;
@@ -149,7 +144,8 @@ export function upsertMember(params: {
   status?: string;
   inviteId?: string;
   createdBySessionId?: string;
-  assistantId?: string;
+  verifiedAt?: number;
+  verifiedVia?: string;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -178,7 +174,6 @@ export function upsertMember(params: {
 
   upsertContact({
     displayName,
-    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     channels: [
       {
         type: params.sourceChannel,
@@ -194,6 +189,8 @@ export function upsertMember(params: {
         inviteId: params.inviteId ?? null,
         revokedReason: params.status === "active" ? null : undefined,
         blockedReason: params.status === "active" ? null : undefined,
+        verifiedAt: params.verifiedAt ?? undefined,
+        verifiedVia: params.verifiedVia ?? undefined,
       },
     ],
   });
@@ -203,8 +200,6 @@ export function upsertMember(params: {
     externalUserId: canonicalId ?? undefined,
     externalChatId: params.externalChatId,
   });
-
-  emitContactChange();
 
   if (contactResult) {
     return { contact: contactResult.contact, channel: contactResult.channel };
@@ -283,5 +278,17 @@ export function touchChannelLastSeen(channelId: string): void {
     updateChannelLastSeenById(channelId);
   } catch (err) {
     log.warn({ err }, "Failed to update channel lastSeenAt");
+  }
+}
+
+/**
+ * Increment the interaction count and update lastInteraction on a contact.
+ * Expects a plain contact UUID (Contact.id).
+ */
+export function touchContactInteraction(contactId: string): void {
+  try {
+    updateContactInteraction(contactId);
+  } catch (err) {
+    log.warn({ err }, "Failed to update contact interaction stats");
   }
 }

@@ -42,11 +42,3 @@ function migrate(db: Database): void {
     )
   `);
 }
-
-/** Reset the singleton — used by tests. */
-export function resetGatewayDb(): void {
-  if (db) {
-    db.close();
-    db = null;
-  }
-}

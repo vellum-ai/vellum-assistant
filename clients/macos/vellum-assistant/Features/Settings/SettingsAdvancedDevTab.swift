@@ -122,6 +122,11 @@ struct SettingsAdvancedDevTab: View {
                     )
                 }
                 // Persist via gateway API
+                NotificationCenter.default.post(
+                    name: .assistantFeatureFlagDidChange,
+                    object: nil,
+                    userInfo: ["key": flag.key, "enabled": newValue]
+                )
                 Task {
                     do {
                         try await daemonClient?.setFeatureFlag(key: flag.key, enabled: newValue)
@@ -136,6 +141,11 @@ struct SettingsAdvancedDevTab: View {
                                 label: flag.label
                             )
                         }
+                        NotificationCenter.default.post(
+                            name: .assistantFeatureFlagDidChange,
+                            object: nil,
+                            userInfo: ["key": flag.key, "enabled": !newValue]
+                        )
                     }
                 }
             }
@@ -235,7 +245,7 @@ struct SettingsAdvancedDevTab: View {
                             .font(VFont.caption)
                             .foregroundColor(VColor.textMuted)
                     }
-                    VButton(label: "View...", style: .secondary, size: .medium) {
+                    VButton(label: "View...", style: .secondary) {
                         appEnvVars = ProcessInfo.processInfo.environment
                             .sorted(by: { $0.key < $1.key })
                             .map { ($0.key, $0.value) }

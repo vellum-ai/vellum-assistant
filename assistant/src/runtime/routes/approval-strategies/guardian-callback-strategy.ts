@@ -11,6 +11,7 @@ import {
   type GuardianApprovalRequest,
 } from "../../../memory/channel-guardian-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { getLogger } from "../../../util/logger.js";
 import { runApprovalConversationTurn } from "../../approval-conversation-turn.js";
 import { composeApprovalMessageGenerative } from "../../approval-message-composer.js";
@@ -99,7 +100,6 @@ export async function handleGuardianCallbackDecision(
         callbackDecision.requestId,
         sourceChannel,
         conversationExternalId,
-        assistantId,
       )
     : null;
 
@@ -110,7 +110,6 @@ export async function handleGuardianCallbackDecision(
     const allPending = getAllPendingApprovalsByGuardianChat(
       sourceChannel,
       conversationExternalId,
-      assistantId,
     );
     if (allPending.length === 1) {
       guardianApproval = allPending[0];
@@ -141,7 +140,6 @@ export async function handleGuardianCallbackDecision(
     const allPending = getAllPendingApprovalsByGuardianChat(
       sourceChannel,
       conversationExternalId,
-      assistantId,
     );
     if (allPending.length === 1) {
       guardianApproval = allPending[0];
@@ -204,7 +202,6 @@ export async function handleGuardianCallbackDecision(
   const allGuardianPending = getAllPendingApprovalsByGuardianChat(
     sourceChannel,
     conversationExternalId,
-    assistantId,
   );
   // Only present approvals that belong to this sender so the engine
   // does not offer disambiguation for requests assigned to a rotated
@@ -297,7 +294,8 @@ async function handleCallbackDecision(params: {
   const result = applyGuardianDecision({
     approval: guardianApproval,
     decision: callbackDecision,
-    actorExternalUserId: actorExternalId,
+    actorPrincipalId: undefined, // Callback path — principal not available at this layer
+    actorExternalUserId: actorExternalId, // Channel-native ID (Telegram user ID, phone, etc.)
     actorChannel: sourceChannel,
   });
 
@@ -491,7 +489,8 @@ async function handleConversationalDecision(params: {
   const result = applyGuardianDecision({
     approval: targetApproval,
     decision: engineDecision,
-    actorExternalUserId: actorExternalId,
+    actorPrincipalId: undefined, // Callback path — principal not available at this layer
+    actorExternalUserId: actorExternalId, // Channel-native ID (Telegram user ID, phone, etc.)
     actorChannel: sourceChannel,
   });
 
@@ -607,7 +606,6 @@ async function handleLegacyDecision(params: {
         legacyGuardianDecision.requestId,
         sourceChannel,
         conversationExternalId,
-        assistantId,
       );
       if (!resolvedByRequest) {
         // The referenced request doesn't match any pending guardian
@@ -675,7 +673,8 @@ async function handleLegacyDecision(params: {
     const result = applyGuardianDecision({
       approval: targetLegacyApproval,
       decision: legacyGuardianDecision,
-      actorExternalUserId: actorExternalId,
+      actorPrincipalId: undefined, // Callback path — principal not available at this layer
+      actorExternalUserId: actorExternalId, // Channel-native ID (Telegram user ID, phone, etc.)
       actorChannel: sourceChannel,
     });
 
@@ -786,12 +785,14 @@ async function handleAccessRequestApproval(
       requesterChatId: approval.requesterChatId,
       assistantId,
       bearerToken,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
     });
 
     // Emit both guardian_decision and denied signals so all lifecycle
     // observers are notified of the denial.
     const deniedPayload = {
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       requesterExternalUserId: approval.requesterExternalUserId,
       requesterChatId: approval.requesterChatId,
       decidedByExternalUserId,
@@ -800,9 +801,8 @@ async function handleAccessRequestApproval(
 
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
-      assistantId,
       attentionHints: {
         requiresAction: false,
         urgency: "medium",
@@ -815,9 +815,8 @@ async function handleAccessRequestApproval(
 
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.denied",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
-      assistantId,
       attentionHints: {
         requiresAction: false,
         urgency: "low",
@@ -860,6 +859,8 @@ async function handleAccessRequestApproval(
       requesterChatId: approval.requesterChatId,
       assistantId,
       bearerToken,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
     });
   } else {
     // Let the requester know something went wrong without revealing details
@@ -868,6 +869,8 @@ async function handleAccessRequestApproval(
       requesterChatId: approval.requesterChatId,
       assistantId,
       bearerToken,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
     });
   }
 
@@ -880,9 +883,8 @@ async function handleAccessRequestApproval(
   if (!decisionResult.verificationSessionId) {
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
-      assistantId,
       attentionHints: {
         requiresAction: false,
         urgency: "medium",
@@ -890,7 +892,7 @@ async function handleAccessRequestApproval(
         visibleInSourceNow: false,
       },
       contextPayload: {
-        sourceChannel: approval.channel,
+        sourceChannel: approval.channel as NotificationSourceChannel,
         requesterExternalUserId: approval.requesterExternalUserId,
         requesterChatId: approval.requesterChatId,
         decidedByExternalUserId,
@@ -907,9 +909,8 @@ async function handleAccessRequestApproval(
   if (decisionResult.verificationSessionId && codeDelivered) {
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.verification_sent",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
-      assistantId,
       attentionHints: {
         requiresAction: false,
         urgency: "low",
@@ -917,7 +918,7 @@ async function handleAccessRequestApproval(
         visibleInSourceNow: true,
       },
       contextPayload: {
-        sourceChannel: approval.channel,
+        sourceChannel: approval.channel as NotificationSourceChannel,
         requesterExternalUserId: approval.requesterExternalUserId,
         requesterChatId: approval.requesterChatId,
         verificationSessionId: decisionResult.verificationSessionId,

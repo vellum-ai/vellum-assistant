@@ -28,7 +28,6 @@ const log = getLogger("destination-resolver");
  * resolved (e.g. no Telegram binding configured) are omitted from the result.
  */
 export function resolveDestinations(
-  assistantId: string,
   channels: readonly (ChannelId | NotificationChannel)[],
 ): Map<NotificationChannel, ChannelDestination> {
   const result = new Map<NotificationChannel, ChannelDestination>();
@@ -44,7 +43,7 @@ export function resolveDestinations(
         // Vellum delivery is local IPC — no external endpoint required.
         // Include the guardianPrincipalId so the adapter can annotate
         // guardian-sensitive notifications for scoped delivery.
-        const guardianResult = findGuardianForChannel("vellum", assistantId);
+        const guardianResult = findGuardianForChannel("vellum");
         const metadata: Record<string, unknown> = {};
         if (guardianResult) {
           metadata.guardianPrincipalId = guardianResult.contact.principalId;
@@ -64,15 +63,21 @@ export function resolveDestinations(
         break;
       }
       case "telegram":
-      case "sms":
-      case "slack": {
-        const guardianResult = findGuardianForChannel(channel, assistantId);
+      case "sms": {
+        const guardianResult = findGuardianForChannel(channel);
         if (guardianResult && guardianResult.channel.externalChatId) {
+          const externalChatId = guardianResult.channel.externalChatId;
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,
-            endpoint: guardianResult.channel.externalChatId ?? undefined,
+            endpoint: externalChatId,
             metadata: {
               externalUserId: guardianResult.channel.externalUserId,
+            },
+            bindingContext: {
+              sourceChannel: channel as NotificationChannel,
+              externalChatId,
+              externalUserId:
+                guardianResult.channel.externalUserId ?? undefined,
             },
           });
         }
@@ -87,7 +92,7 @@ export function resolveDestinations(
         break;
       }
       case "slack": {
-        const guardianResult = findGuardianForChannel("slack", assistantId);
+        const guardianResult = findGuardianForChannel("slack");
         const chatId = guardianResult?.channel.externalChatId;
         // Slack bindings can originate from app_mention in shared channels.
         // Only route notifications to DM channels (IDs starting with "D")
@@ -98,6 +103,12 @@ export function resolveDestinations(
             endpoint: chatId,
             metadata: {
               externalUserId: guardianResult.channel.externalUserId,
+            },
+            bindingContext: {
+              sourceChannel: "slack",
+              externalChatId: chatId,
+              externalUserId:
+                guardianResult.channel.externalUserId ?? undefined,
             },
           });
         } else if (guardianResult && chatId) {

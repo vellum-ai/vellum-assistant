@@ -13,6 +13,7 @@
  */
 
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
 import { deliverChannelReply } from "../../runtime/gateway-client.js";
 import { getLogger } from "../../util/logger.js";
@@ -70,7 +71,7 @@ export class SmsAdapter implements ChannelAdapter {
         {
           chatId: phoneNumber,
           text: messageText,
-          assistantId: payload.assistantId,
+          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         },
         mintDaemonDeliveryToken(),
       );

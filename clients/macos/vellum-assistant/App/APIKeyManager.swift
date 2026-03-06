@@ -9,9 +9,10 @@ extension Notification.Name {
     static let navigateToSettingsTab = Notification.Name("MainWindow.navigateToSettingsTab")
     static let activationKeyChanged = Notification.Name("activationKeyChanged")
     static let identityChanged = Notification.Name("identityChanged")
-    static let pinAppToHomebase = Notification.Name("MainWindow.pinAppToHomebase")
+    static let shareAppCloud = Notification.Name("MainWindow.shareAppCloud")
     static let appPreviewImageCaptured = Notification.Name("MainWindow.appPreviewImageCaptured")
     static let requestAppPreview = Notification.Name("MainWindow.requestAppPreview")
+    static let assistantFeatureFlagDidChange = Notification.Name("assistantFeatureFlagDidChange")
 }
 
 /// Manages API keys using UserDefaults. The daemon owns the canonical encrypted

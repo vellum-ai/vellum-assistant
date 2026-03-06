@@ -31,7 +31,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => "test-bearer-token",
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -48,7 +47,7 @@ import {
 import {
   createGuardianBinding,
   revokeMember,
-  upsertMember,
+  upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
@@ -92,7 +91,6 @@ describe("trusted contact verification → member activation", () => {
   test("successful verification creates active member with allow policy", () => {
     // Simulate M3: guardian approves, outbound session created for the requester
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-123",
       expectedChatId: "requester-chat-123",
@@ -103,7 +101,6 @@ describe("trusted contact verification → member activation", () => {
 
     // Requester enters the 6-digit code
     const result = validateAndConsumeChallenge(
-      "self",
       "telegram",
       session.secret,
       "requester-user-123",
@@ -118,7 +115,7 @@ describe("trusted contact verification → member activation", () => {
     }
 
     // Simulate the member upsert that inbound-message-handler performs on success
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-123",
       externalChatId: "requester-chat-123",
@@ -144,7 +141,7 @@ describe("trusted contact verification → member activation", () => {
   });
 
   test("resolveActorTrust surfaces member displayName when sender displayName is missing", () => {
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-jeff",
       externalChatId: "requester-chat-jeff",
@@ -172,7 +169,7 @@ describe("trusted contact verification → member activation", () => {
   });
 
   test("resolveActorTrust prioritizes member displayName over sender displayName", () => {
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-jeff-priority",
       externalChatId: "requester-chat-jeff-priority",
@@ -204,7 +201,7 @@ describe("trusted contact verification → member activation", () => {
   test("resolveActorTrust falls back to sender metadata when member record matches chat but not sender (group chat)", () => {
     // Simulate a group chat: member record exists for a different user who
     // shares the same externalChatId (e.g., Telegram group).
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "other-user-in-group",
       externalChatId: "shared-group-chat",
@@ -238,7 +235,6 @@ describe("trusted contact verification → member activation", () => {
   test("post-verify message is accepted (ACL check passes)", () => {
     // Create and verify a trusted contact
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-456",
       expectedChatId: "requester-chat-456",
@@ -248,7 +244,6 @@ describe("trusted contact verification → member activation", () => {
     });
 
     validateAndConsumeChallenge(
-      "self",
       "telegram",
       session.secret,
       "requester-user-456",
@@ -256,7 +251,7 @@ describe("trusted contact verification → member activation", () => {
     );
 
     // Simulate member upsert on verification success
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "requester-chat-456",
@@ -279,7 +274,6 @@ describe("trusted contact verification → member activation", () => {
   test("member lookup is scoped by channel type", () => {
     // Create member on the telegram channel
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "user-cross-test",
       expectedChatId: "chat-cross-test",
@@ -289,14 +283,13 @@ describe("trusted contact verification → member activation", () => {
     });
 
     validateAndConsumeChallenge(
-      "self",
       "telegram",
       session.secret,
       "user-cross-test",
       "chat-cross-test",
     );
 
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-cross-test",
       externalChatId: "chat-cross-test",
@@ -322,7 +315,7 @@ describe("trusted contact verification → member activation", () => {
 
   test("re-verification of previously revoked member reactivates them", () => {
     // Create and activate a member
-    const member = upsertMember({
+    const member = upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-revoked",
       externalChatId: "chat-revoked",
@@ -346,7 +339,6 @@ describe("trusted contact verification → member activation", () => {
 
     // Guardian re-approves, new outbound session created
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "user-revoked",
       expectedChatId: "chat-revoked",
@@ -357,7 +349,6 @@ describe("trusted contact verification → member activation", () => {
 
     // Requester enters the new code
     const result = validateAndConsumeChallenge(
-      "self",
       "telegram",
       session.secret,
       "user-revoked",
@@ -368,8 +359,8 @@ describe("trusted contact verification → member activation", () => {
       expect(result.verificationType).toBe("trusted_contact");
     }
 
-    // upsertMember reactivates the existing record
-    upsertMember({
+    // upsertContactChannel reactivates the existing record
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-revoked",
       externalChatId: "chat-revoked",
@@ -390,7 +381,6 @@ describe("trusted contact verification → member activation", () => {
   test("trusted contact verification does NOT create a guardian binding", () => {
     // Ensure there's an existing guardian binding we want to preserve
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-original",
       guardianDeliveryChatId: "guardian-chat-original",
@@ -401,7 +391,6 @@ describe("trusted contact verification → member activation", () => {
 
     // Create an outbound session for a requester (different user than guardian)
     const session = createOutboundSession({
-      assistantId: "self",
       channel: "telegram",
       expectedExternalUserId: "requester-user-789",
       expectedChatId: "requester-chat-789",
@@ -411,7 +400,6 @@ describe("trusted contact verification → member activation", () => {
     });
 
     const result = validateAndConsumeChallenge(
-      "self",
       "telegram",
       session.secret,
       "requester-user-789",
@@ -426,7 +414,7 @@ describe("trusted contact verification → member activation", () => {
     }
 
     // The original guardian binding should remain intact
-    const guardianResult = findGuardianForChannel("telegram", "self");
+    const guardianResult = findGuardianForChannel("telegram");
     expect(guardianResult).not.toBeNull();
     expect(guardianResult!.channel.externalUserId).toBe(
       "guardian-user-original",
@@ -438,10 +426,9 @@ describe("trusted contact verification → member activation", () => {
 
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
-    const { secret } = createVerificationChallenge("self", "telegram");
+    const { secret } = createVerificationChallenge("telegram");
 
     const result = validateAndConsumeChallenge(
-      "self",
       "telegram",
       secret,
       "guardian-user",
@@ -453,7 +440,7 @@ describe("trusted contact verification → member activation", () => {
       expect(result.verificationType).toBe("guardian");
     }
 
-    const guardianResult = findGuardianForChannel("telegram", "self");
+    const guardianResult = findGuardianForChannel("telegram");
     expect(guardianResult).toBeNull();
   });
 });

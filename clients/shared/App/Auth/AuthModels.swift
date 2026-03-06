@@ -111,6 +111,18 @@ public enum AuthServiceError: LocalizedError {
 
 public struct EmptyData: Codable, Sendable {}
 
+// MARK: - Organization Models
+
+public struct PlatformOrganization: Codable, Sendable {
+    public let id: String
+    public let name: String?
+}
+
+public struct PaginatedOrganizationsResponse: Codable, Sendable {
+    public let count: Int
+    public let results: [PlatformOrganization]
+}
+
 // MARK: - Platform Assistant API Models
 
 public struct PlatformAssistant: Codable, Sendable {

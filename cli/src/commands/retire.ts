@@ -4,7 +4,9 @@ import { homedir } from "os";
 import { basename, dirname, join } from "path";
 
 import {
+  defaultLocalResources,
   findAssistantByName,
+  loadAllAssistants,
   removeAssistantEntry,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
@@ -40,29 +42,52 @@ function extractHostFromUrl(url: string): string {
   }
 }
 
-function getBaseDir(): string {
-  return process.env.BASE_DATA_DIR?.trim() || homedir();
-}
-
 async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
 
-  const vellumDir = join(getBaseDir(), ".vellum");
+  // Use entry resources when available; for legacy entries, derive paths
+  // from baseDataDir (which may differ from homedir if BASE_DATA_DIR was set).
+  const resources = entry.resources ?? defaultLocalResources();
+  const legacyDir = entry.baseDataDir;
+  const vellumDir = legacyDir ?? join(resources.instanceDir, ".vellum");
 
-  // Stop daemon via PID file
-  const daemonPidFile = join(vellumDir, "vellum.pid");
-  const socketFile = join(vellumDir, "vellum.sock");
+  // Check whether another local assistant shares the same data directory.
+  // Legacy entries without `resources` all resolve to ~/.vellum/ — if we
+  // blindly kill processes and archive the directory, we'd destroy the
+  // other assistant's running daemon and data.
+  const otherSharesDir = loadAllAssistants().some((other) => {
+    if (other.cloud !== "local") return false;
+    if (other.assistantId === name) return false;
+    const otherVellumDir =
+      other.baseDataDir ??
+      join((other.resources ?? defaultLocalResources()).instanceDir, ".vellum");
+    return otherVellumDir === vellumDir;
+  });
+
+  if (otherSharesDir) {
+    console.log(
+      `   Skipping process stop and archive — another local assistant shares ${vellumDir}.`,
+    );
+    console.log("\u2705 Local instance retired (config entry removed only).");
+    return;
+  }
+
+  // Stop daemon via PID file — prefer resources paths, but for legacy entries
+  // with a custom baseDataDir, derive from that directory instead.
+  const daemonPidFile = legacyDir
+    ? join(legacyDir, "vellum.pid")
+    : resources.pidFile;
+  const socketFile = legacyDir
+    ? join(legacyDir, "vellum.sock")
+    : resources.socketPath;
   const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [
     socketFile,
   ]);
 
-  // Stop gateway via PID file
+  // Stop gateway via PID file — use a longer timeout because the gateway has a
+  // configurable drain window (GATEWAY_SHUTDOWN_DRAIN_MS, default 5s) before it exits.
   const gatewayPidFile = join(vellumDir, "gateway.pid");
-  await stopProcessByPidFile(gatewayPidFile, "gateway");
-
-  // Stop outbound proxy via PID file
-  const outboundProxyPidFile = join(vellumDir, "outbound-proxy.pid");
-  await stopProcessByPidFile(outboundProxyPidFile, "outbound-proxy");
+  await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
 
   // If the PID file didn't track a running daemon, scan for orphaned
   // daemon processes that may have been started without writing a PID.
@@ -70,14 +95,22 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
     await stopOrphanedDaemonProcesses();
   }
 
+  // For named instances (instanceDir differs from homedir), archive and
+  // remove the entire instance directory. For the default instance
+  // (instanceDir is homedir), archive only the .vellum subdirectory.
+  const isNamedInstance = resources.instanceDir !== homedir();
+  const dirToArchive = isNamedInstance ? resources.instanceDir : vellumDir;
+
   // Move the data directory out of the way so the path is immediately available
   // for the next hatch, then kick off the tar archive in the background.
   const archivePath = getArchivePath(name);
   const metadataPath = getMetadataPath(name);
   const stagingDir = `${archivePath}.staging`;
 
-  if (!existsSync(vellumDir)) {
-    console.log(`   No data directory at ${vellumDir} — nothing to archive.`);
+  if (!existsSync(dirToArchive)) {
+    console.log(
+      `   No data directory at ${dirToArchive} — nothing to archive.`,
+    );
     console.log("\u2705 Local instance retired.");
     return;
   }
@@ -86,10 +119,10 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   mkdirSync(dirname(stagingDir), { recursive: true });
 
   try {
-    renameSync(vellumDir, stagingDir);
+    renameSync(dirToArchive, stagingDir);
   } catch (err) {
     console.warn(
-      `⚠️  Failed to move ${vellumDir}: ${err instanceof Error ? err.message : err}`,
+      `⚠️  Failed to move ${dirToArchive}: ${err instanceof Error ? err.message : err}`,
     );
     console.warn("Skipping archive.");
     console.log("\u2705 Local instance retired.");

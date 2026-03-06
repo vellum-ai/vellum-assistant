@@ -101,7 +101,7 @@ async function dispatchGuardianQuestionInner(
     // level guardian identity. Resolve the principal from the contacts table.
     let guardianPrincipalId: string | undefined;
 
-    const guardianResult = findGuardianForChannel("vellum", assistantId);
+    const guardianResult = findGuardianForChannel("vellum");
     if (guardianResult?.contact.principalId) {
       guardianPrincipalId = guardianResult.contact.principalId;
     }
@@ -205,7 +205,6 @@ async function dispatchGuardianQuestionInner(
       sourceEventName: "guardian.question",
       sourceChannel: "voice",
       sourceSessionId: callSessionId,
-      assistantId,
       attentionHints: {
         requiresAction: true,
         urgency: "high",

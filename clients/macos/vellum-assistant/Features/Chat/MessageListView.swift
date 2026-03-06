@@ -6,6 +6,26 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListView")
 
+/// Holds the last-known anchor minY without triggering SwiftUI re-renders.
+/// Only `isVisible` is @Published so re-renders happen only when the
+/// visible/invisible boundary is crossed — not on every scroll tick.
+@MainActor final class AnchorVisibilityTracker: ObservableObject {
+    var lastMinY: CGFloat = .infinity  // NOT @Published — no re-render on scroll
+    @Published var isVisible: Bool = true
+
+    func update(minY: CGFloat, viewportHeight: CGFloat) {
+        lastMinY = minY
+        let newVisible = minY >= -20 && minY <= viewportHeight + 20
+        if isVisible != newVisible { isVisible = newVisible }
+    }
+
+    func updateViewport(height: CGFloat, storedViewportHeight: inout CGFloat) {
+        storedViewportHeight = height
+        let newVisible = lastMinY >= -20 && lastMinY <= height + 20
+        if isVisible != newVisible { isVisible = newVisible }
+    }
+}
+
 struct MessageListView: View {
     let messages: [ChatMessage]
     let isSending: Bool
@@ -37,7 +57,9 @@ struct MessageListView: View {
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
-    @ObservedObject var subagentDetailStore: SubagentDetailStore
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
+    var subagentDetailStore: SubagentDetailStore
 
     // MARK: - Pagination
 
@@ -55,6 +77,9 @@ struct MessageListView: View {
     /// Used by notification deep links to anchor the view to a specific message.
     @Binding var anchorMessageId: UUID?
     @Binding var isNearBottom: Bool
+    /// Measured width of the chat container, used to detect sidebar/split resizes
+    /// and stabilize scroll position during layout width changes.
+    var containerWidth: CGFloat = 0
     @Environment(\.conversationZoomScale) private var conversationZoomScale
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
@@ -82,16 +107,20 @@ struct MessageListView: View {
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
     /// resign first responder exactly once per new confirmation appearance.
     @State private var lastAutoFocusedRequestId: String?
-    /// Whether the scroll-bottom-anchor is physically within the scroll view's
-    /// visible viewport. Used alongside `isNearBottom` to suppress the "Scroll
-    /// to latest" button when all content fits on screen.
-    @State private var anchorIsVisible: Bool = true
+    /// Tracks whether the scroll-bottom-anchor is physically within the scroll
+    /// view's visible viewport. Used alongside `isNearBottom` to suppress the
+    /// "Scroll to latest" button when all content fits on screen. Stored as an
+    /// ObservableObject so only boundary crossings (not every scroll tick)
+    /// trigger re-renders.
+    @StateObject private var anchorTracker = AnchorVisibilityTracker()
+    /// Whether a physical scroll event (wheel/trackpad) has been received since
+    /// the current thread loaded. Before any scroll event, `isNearBottom`
+    /// (which defaults to `true`) is not trusted; the button relies solely on
+    /// `anchorTracker.isVisible` to decide visibility.
+    @State private var hasReceivedScrollEvent: Bool = false
     /// The scroll view's viewport height, captured via preference key. Used by
     /// the anchor GeometryReader to determine if the anchor is within bounds.
     @State private var scrollViewportHeight: CGFloat = .infinity
-    /// Last known anchor Y position, stored so `anchorIsVisible` can be
-    /// recalculated when the viewport height changes (e.g., window resize).
-    @State private var lastAnchorMinY: CGFloat = .infinity
     /// Timestamp when anchorMessageId was set. Used together with pagination
     /// exhaustion to decide when a stale anchor should be cleared.
     @State private var anchorSetTime: Date?
@@ -99,6 +128,11 @@ struct MessageListView: View {
     /// regardless of whether messages.count changes. This covers the edge
     /// case where pagination stalls without adding/removing messages.
     @State private var anchorTimeoutTask: Task<Void, Never>?
+    /// Last container width that triggered a resize scroll handler, used to
+    /// detect meaningful width changes (>20pt) and avoid sub-pixel jitter.
+    @State private var lastHandledContainerWidth: CGFloat = 0
+    /// In-flight resize scroll stabilization task; cancelled on each new resize.
+    @State private var resizeScrollTask: Task<Void, Never>?
 
     /// The subset of messages actually shown, honoring the pagination window.
     private var visibleMessages: [ChatMessage] {
@@ -140,22 +174,6 @@ struct MessageListView: View {
             }
         }
         return result
-    }
-
-    private func modelPickerView(for message: ChatMessage) -> some View {
-        ModelPickerBubble(
-            models: SettingsStore.availableModels.map { id in
-                (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
-            },
-            selectedModelId: selectedModel,
-            onSelect: { modelId in
-                onModelPickerSelect?(message.id, modelId)
-            }
-        )
-    }
-
-    private func modelListView(for message: ChatMessage) -> some View {
-        ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders)
     }
 
     private var shouldShowThreadScrollbar: Bool {
@@ -332,119 +350,45 @@ struct MessageListView: View {
                     let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
                     let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
                     ForEach(Array(zip(displayMessages.indices, displayMessages)), id: \.1.id) { index, message in
-                        if showTimestamp.contains(index) {
-                            TimestampDivider(date: message.timestamp)
-                        }
-
-                        if let confirmation = message.confirmation {
-                            if confirmation.state == .pending {
-                                ToolConfirmationBubble(
-                                    confirmation: confirmation,
-                                    isKeyboardActive: confirmation.requestId == activePendingRequestId,
-                                    onAllow: { onConfirmationAllow(confirmation.requestId) },
-                                    onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                    onAlwaysAllow: onAlwaysAllow,
-                                    onTemporaryAllow: onTemporaryAllow
-                                )
-                                .id(message.id)
-                                .transition(.opacity)
-                            } else {
-                                let hasPrecedingAssistant: Bool = {
-                                    guard index > 0 else { return false }
-                                    return displayMessages[index - 1].role == .assistant
-                                }()
-
-                                if !hasPrecedingAssistant {
-                                    ToolConfirmationBubble(
-                                        confirmation: confirmation,
-                                        onAllow: { onConfirmationAllow(confirmation.requestId) },
-                                        onDeny: { onConfirmationDeny(confirmation.requestId) },
-                                        onAlwaysAllow: onAlwaysAllow,
-                                        onTemporaryAllow: onTemporaryAllow
-                                    )
-                                    .id(message.id)
-                                    .transition(.opacity)
-                                }
-                            }
-                        } else if message.modelPicker != nil {
-                            modelPickerView(for: message)
-                                .id(message.id)
-                                .transition(.opacity)
-                        } else if message.modelList != nil {
-                            modelListView(for: message)
-                                .id(message.id)
-                                .transition(.opacity)
-                        } else if message.commandList != nil {
-                            CommandListBubble()
-                                .id(message.id)
-                                .transition(.opacity)
-                        } else if let guardianDecision = message.guardianDecision {
-                            GuardianDecisionBubble(
-                                decision: guardianDecision,
-                                onAction: { requestId, action in
-                                    onGuardianAction?(requestId, action)
-                                }
-                            )
-                            .id(message.id)
-                            .transition(.opacity)
-                        } else {
-                            let nextIsPendingConfirmation = index + 1 < displayMessages.count
-                                && displayMessages[index + 1].confirmation?.state == .pending
-
-                            let nextDecidedConfirmation: ToolConfirmationData? = {
-                                guard index + 1 < displayMessages.count,
-                                      let conf = displayMessages[index + 1].confirmation,
-                                      conf.state != .pending else { return nil }
-                                return conf
-                            }()
-
-                            let previousIsAssistant = index > 0 && displayMessages[index - 1].role == .assistant
-
-                            ChatBubble(
-                                message: message,
-                                hideToolCalls: nextIsPendingConfirmation,
-                                decidedConfirmation: nextDecidedConfirmation,
-                                onSurfaceAction: onSurfaceAction,
-                                onDismissDocumentWidget: { surfaceId in
-                                    onDismissDocumentWidget?(surfaceId)
-                                },
-                                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                                onReportMessage: onReportMessage,
-                                onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
-                                mediaEmbedSettings: mediaEmbedSettings,
-                                resolveHttpPort: resolveHttpPort,
-                                showAvatar: !previousIsAssistant || message.isNudge,
-                                isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
-                                isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
-                                processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
-                                activeSurfaceId: activeSurfaceId
-                            )
-                                .id(message.id)
-                                .transition(.opacity)
-                        }
-
-                        ForEach(subagentsByParent[message.id] ?? []) { subagent in
-                            SubagentThreadView(
-                                subagent: subagent,
-                                events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
-                                onAbort: { onAbortSubagent?(subagent.id) },
-                                onTap: { onSubagentTap?(subagent.id) }
-                            )
-                                .frame(maxWidth: 520, alignment: .leading)
-                                .padding(.leading, 36)
-                                .id("subagent-\(subagent.id)")
-                                .transition(.opacity)
-                        }
-
-                        if shouldShowThinkingIndicator && anchoredThinkingIndex == index {
-                            thinkingIndicatorRow(displayMessages: displayMessages)
-                        }
+                        MessageCellView(
+                            message: message,
+                            index: index,
+                            displayMessages: displayMessages,
+                            showTimestamp: showTimestamp,
+                            activePendingRequestId: activePendingRequestId,
+                            latestAssistantId: latestAssistantId,
+                            anchoredThinkingIndex: anchoredThinkingIndex,
+                            subagentsByParent: subagentsByParent,
+                            canInlineProcessing: canInlineProcessing,
+                            shouldShowThinkingIndicator: shouldShowThinkingIndicator,
+                            assistantStatusText: assistantStatusText,
+                            dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                            activeSurfaceId: activeSurfaceId,
+                            mediaEmbedSettings: mediaEmbedSettings,
+                            resolveHttpPort: resolveHttpPort,
+                            onConfirmationAllow: onConfirmationAllow,
+                            onConfirmationDeny: onConfirmationDeny,
+                            onAlwaysAllow: onAlwaysAllow,
+                            onTemporaryAllow: onTemporaryAllow,
+                            onGuardianAction: onGuardianAction,
+                            onSurfaceAction: onSurfaceAction,
+                            onDismissDocumentWidget: onDismissDocumentWidget,
+                            onReportMessage: onReportMessage,
+                            onRehydrateMessage: onRehydrateMessage,
+                            onSurfaceRefetch: onSurfaceRefetch,
+                            onAbortSubagent: onAbortSubagent,
+                            onSubagentTap: onSubagentTap,
+                            onModelPickerSelect: onModelPickerSelect,
+                            subagentDetailStore: subagentDetailStore,
+                            selectedModel: selectedModel,
+                            configuredProviders: configuredProviders
+                        )
                     }
 
                     ForEach(orphanSubagents) { subagent in
-                        SubagentThreadView(
+                        SubagentEventsReader(
+                            store: subagentDetailStore,
                             subagent: subagent,
-                            events: subagentDetailStore.eventsBySubagent[subagent.id] ?? [],
                             onAbort: { onAbortSubagent?(subagent.id) },
                             onTap: { onSubagentTap?(subagent.id) }
                         )
@@ -461,7 +405,14 @@ struct MessageListView: View {
                     Color.clear.frame(height: 1)
                         .id("scroll-bottom-anchor")
                         .onAppear {
-                            isNearBottom = true
+                            // Only auto-tether on initial load (before any scroll events).
+                            // After the user has scrolled, rely on ScrollWheelDetector and
+                            // anchorTracker preference tracking to manage isNearBottom —
+                            // LazyVStack fires onAppear in the prefetch zone (several screens
+                            // ahead) which would prematurely re-tether during normal scrolling.
+                            if !hasReceivedScrollEvent {
+                                isNearBottom = true
+                            }
                         }
                         .background {
                             GeometryReader { geo in
@@ -493,22 +444,29 @@ struct MessageListView: View {
                         scrollDebounceTask?.cancel()
                         scrollDebounceTask = nil
                         isNearBottom = false
+                        hasReceivedScrollEvent = true
                     },
-                    onScrollToBottom: { isNearBottom = true }
+                    onScrollToBottom: {
+                        isNearBottom = true
+                        hasReceivedScrollEvent = true
+                    }
                 )
                 ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
-            .onPreferenceChange(ScrollViewportHeightKey.self) {
-                scrollViewportHeight = $0
-                anchorIsVisible = lastAnchorMinY >= -20 && lastAnchorMinY <= $0 + 20
+            .onPreferenceChange(ScrollViewportHeightKey.self) { height in
+                os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
+                anchorTracker.updateViewport(height: height, storedViewportHeight: &scrollViewportHeight)
+                os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
             .onPreferenceChange(AnchorMinYKey.self) { minY in
-                lastAnchorMinY = minY
-                anchorIsVisible = minY >= -20 && minY <= scrollViewportHeight + 20
+                os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
+                anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
+                os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
             .overlay(alignment: .bottom) {
-                if !isNearBottom && !anchorIsVisible {
+                if (!isNearBottom || !hasReceivedScrollEvent) && !anchorTracker.isVisible {
                     Button(action: {
+                        hasReceivedScrollEvent = true
                         isNearBottom = true
                         withAnimation(VAnimation.fast) {
                             proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
@@ -582,9 +540,12 @@ struct MessageListView: View {
                 suppressScrollbarDuringThreadSwitch = false
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
+                resizeScrollTask?.cancel()
+                resizeScrollTask = nil
             }
             .onChange(of: isSending) {
                 if isSending {
+                    hasReceivedScrollEvent = true
                     isNearBottom = true
                     withAnimation(VAnimation.standard) {
                         proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
@@ -674,16 +635,53 @@ struct MessageListView: View {
                 }
                 // When mid-scroll, do nothing — let SwiftUI handle the text reflow naturally.
             }
+            .onChange(of: containerWidth) {
+                // Ignore sub-pixel jitter and initial zero value
+                guard containerWidth > 0, abs(containerWidth - lastHandledContainerWidth) > 20 else { return }
+                lastHandledContainerWidth = containerWidth
+
+                // Cancel competing scroll tasks to prevent jitter during resize
+                scrollDebounceTask?.cancel()
+                scrollDebounceTask = nil
+                resizeScrollTask?.cancel()
+
+                resizeScrollTask = Task { @MainActor in
+                    // Temporarily suppress bottom auto-scroll so streaming/message-count
+                    // handlers don't fight with the resize stabilization.
+                    isSuppressingBottomScroll = true
+                    defer {
+                        if !Task.isCancelled {
+                            isSuppressingBottomScroll = false
+                            resizeScrollTask = nil
+                        }
+                    }
+                    // Wait for layout to settle (~100ms ≈ 6 frames)
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    guard !Task.isCancelled else { return }
+
+                    if isNearBottom && anchorMessageId == nil {
+                        // Pin to bottom without animation to avoid visual bounce.
+                        // Skip when an anchor is pending (deep-link / notification)
+                        // to avoid yanking the viewport away from the target message.
+                        proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    }
+                    // If not near bottom or anchor is set, preserve viewport.
+                }
+            }
             .onChange(of: threadId) {
                 // Keep the underlying NSScrollView instance stable across thread
                 // switches (prevents default-scroller flash), and reset view-local
                 // scroll state explicitly instead of remounting the whole view.
                 scrollDebounceTask?.cancel()
                 scrollDebounceTask = nil
+                resizeScrollTask?.cancel()
+                resizeScrollTask = nil
                 isPaginationInFlight = false
                 isSuppressingBottomScroll = false
                 isNearBottom = true
-                anchorIsVisible = true
+                anchorTracker.isVisible = true
+                hasReceivedScrollEvent = false
+                lastHandledContainerWidth = containerWidth
                 hoverExitDebounceTask?.cancel()
                 hoverExitDebounceTask = nil
                 anchorTimeoutTask?.cancel()
@@ -797,6 +795,190 @@ struct MessageListView: View {
                 suppressScrollbarDuringThreadSwitch = false
                 isThreadContentHovered = false
             }
+        }
+    }
+}
+
+// MARK: - MessageCellView
+
+/// Per-message cell extracted from the ForEach body so SwiftUI has a typed
+/// struct boundary for diffing: when all `let` inputs are equal, SwiftUI can
+/// skip re-evaluating the body during LazySubviewPlacements.updateValue.
+private struct MessageCellView: View {
+    let message: ChatMessage
+    let index: Int
+    let displayMessages: [ChatMessage]
+    let showTimestamp: Set<Int>
+    let activePendingRequestId: String?
+    let latestAssistantId: UUID?
+    let anchoredThinkingIndex: Int?
+    let subagentsByParent: [UUID: [SubagentInfo]]
+    let canInlineProcessing: Bool
+    let shouldShowThinkingIndicator: Bool
+    let assistantStatusText: String?
+    let dismissedDocumentSurfaceIds: Set<String>
+    let activeSurfaceId: String?
+    let mediaEmbedSettings: MediaEmbedResolverSettings?
+    let resolveHttpPort: () -> Int?
+    let onConfirmationAllow: (String) -> Void
+    let onConfirmationDeny: (String) -> Void
+    let onAlwaysAllow: (String, String, String, String) -> Void
+    var onTemporaryAllow: ((String, String) -> Void)?
+    var onGuardianAction: ((String, String) -> Void)?
+    let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
+    let onDismissDocumentWidget: ((String) -> Void)?
+    let onReportMessage: ((String?) -> Void)?
+    var onRehydrateMessage: ((UUID) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
+    var onAbortSubagent: ((String) -> Void)?
+    var onSubagentTap: ((String) -> Void)?
+    var onModelPickerSelect: ((UUID, String) -> Void)?
+    var subagentDetailStore: SubagentDetailStore
+    let selectedModel: String
+    let configuredProviders: Set<String>
+
+    @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
+    @State private var appearance = AvatarAppearanceManager.shared
+
+    private func modelPickerView(for msg: ChatMessage) -> some View {
+        ModelPickerBubble(
+            models: SettingsStore.availableModels.map { id in
+                (id: id, name: SettingsStore.modelDisplayNames[id] ?? id)
+            },
+            selectedModelId: selectedModel,
+            onSelect: { modelId in
+                onModelPickerSelect?(msg.id, modelId)
+            }
+        )
+    }
+
+    private func modelListView(for msg: ChatMessage) -> some View {
+        ModelListBubble(currentModel: selectedModel, configuredProviders: configuredProviders)
+    }
+
+    @ViewBuilder
+    private func thinkingIndicatorRow() -> some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Image(nsImage: appearance.chatAvatarImage)
+                .interpolation(.none)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 28, height: 28)
+                .clipShape(Circle())
+                .padding(.top, 2)
+
+            RunningIndicator(
+                label: !hasEverSentMessage && displayMessages.contains(where: { $0.role == .user })
+                    ? "Waking up..."
+                    : assistantStatusText ?? "Thinking",
+                showIcon: false
+            )
+        }
+        .frame(maxWidth: 520, alignment: .leading)
+        .id("thinking-indicator")
+    }
+
+    var body: some View {
+        if showTimestamp.contains(index) {
+            TimestampDivider(date: message.timestamp)
+        }
+
+        if let confirmation = message.confirmation {
+            if confirmation.state == .pending {
+                ToolConfirmationBubble(
+                    confirmation: confirmation,
+                    isKeyboardActive: confirmation.requestId == activePendingRequestId,
+                    onAllow: { onConfirmationAllow(confirmation.requestId) },
+                    onDeny: { onConfirmationDeny(confirmation.requestId) },
+                    onAlwaysAllow: onAlwaysAllow,
+                    onTemporaryAllow: onTemporaryAllow
+                )
+                .id(message.id)
+            } else {
+                let hasPrecedingAssistant: Bool = {
+                    guard index > 0 else { return false }
+                    return displayMessages[index - 1].role == .assistant
+                }()
+
+                if !hasPrecedingAssistant {
+                    ToolConfirmationBubble(
+                        confirmation: confirmation,
+                        onAllow: { onConfirmationAllow(confirmation.requestId) },
+                        onDeny: { onConfirmationDeny(confirmation.requestId) },
+                        onAlwaysAllow: onAlwaysAllow,
+                        onTemporaryAllow: onTemporaryAllow
+                    )
+                    .id(message.id)
+                }
+            }
+        } else if message.modelPicker != nil {
+            modelPickerView(for: message)
+                .id(message.id)
+        } else if message.modelList != nil {
+            modelListView(for: message)
+                .id(message.id)
+        } else if message.commandList != nil {
+            CommandListBubble()
+                .id(message.id)
+        } else if let guardianDecision = message.guardianDecision {
+            GuardianDecisionBubble(
+                decision: guardianDecision,
+                onAction: { requestId, action in
+                    onGuardianAction?(requestId, action)
+                }
+            )
+            .id(message.id)
+        } else {
+            let nextIsPendingConfirmation = index + 1 < displayMessages.count
+                && displayMessages[index + 1].confirmation?.state == .pending
+
+            let nextDecidedConfirmation: ToolConfirmationData? = {
+                guard index + 1 < displayMessages.count,
+                      let conf = displayMessages[index + 1].confirmation,
+                      conf.state != .pending else { return nil }
+                return conf
+            }()
+
+            let previousIsAssistant = index > 0 && displayMessages[index - 1].role == .assistant
+
+            ChatBubble(
+                message: message,
+                hideToolCalls: nextIsPendingConfirmation,
+                decidedConfirmation: nextDecidedConfirmation,
+                onSurfaceAction: onSurfaceAction,
+                onDismissDocumentWidget: { surfaceId in
+                    onDismissDocumentWidget?(surfaceId)
+                },
+                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                onReportMessage: onReportMessage,
+                onSurfaceRefetch: onSurfaceRefetch,
+                onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
+                mediaEmbedSettings: mediaEmbedSettings,
+                resolveHttpPort: resolveHttpPort,
+                showAvatar: !previousIsAssistant,
+                isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
+                isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
+                processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
+                activeSurfaceId: activeSurfaceId
+            )
+            .id(message.id)
+        }
+
+        ForEach(subagentsByParent[message.id] ?? []) { subagent in
+            SubagentEventsReader(
+                store: subagentDetailStore,
+                subagent: subagent,
+                onAbort: { onAbortSubagent?(subagent.id) },
+                onTap: { onSubagentTap?(subagent.id) }
+            )
+                .frame(maxWidth: 520, alignment: .leading)
+                .padding(.leading, 36)
+                .id("subagent-\(subagent.id)")
+        }
+
+        if shouldShowThinkingIndicator && anchoredThinkingIndex == index {
+            thinkingIndicatorRow()
         }
     }
 }

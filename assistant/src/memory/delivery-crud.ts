@@ -126,6 +126,19 @@ export function recordInbound(
 }
 
 /**
+ * Delete an inbound event record by its event ID. Used to roll back a
+ * dedup record when downstream processing (e.g. invite redemption) fails,
+ * so that webhook retries can re-attempt instead of short-circuiting as
+ * duplicates.
+ */
+export function deleteInbound(eventId: string): void {
+  const db = getDb();
+  db.delete(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
+}
+
+/**
  * Link an inbound event to the user message it created, so edits can
  * later find the correct message by source_message_id -> message_id.
  */

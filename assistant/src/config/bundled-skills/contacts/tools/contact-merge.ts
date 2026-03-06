@@ -1,5 +1,8 @@
-import { getGatewayInternalBaseUrl } from "../../../../config/env.js";
-import { mintEdgeRelayToken } from "../../../../runtime/auth/token-service.js";
+import {
+  gatewayGet,
+  gatewayPost,
+  GatewayRequestError,
+} from "../../../../runtime/gateway-internal-client.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -14,8 +17,7 @@ interface ContactChannel {
 interface ContactResponse {
   id: string;
   displayName: string;
-  relationship: string | null;
-  importance: number;
+  notes: string | null;
   interactionCount: number;
   channels: ContactChannel[];
 }
@@ -35,72 +37,49 @@ export async function executeContactMerge(
   }
 
   try {
-    const gatewayBase = getGatewayInternalBaseUrl();
-    const token = mintEdgeRelayToken();
-    const headers = {
-      Accept: "application/json",
-      Authorization: `Bearer ${token}`,
-    };
-
     // Validate both contacts exist before merging
-    const [keepResp, mergeResp] = await Promise.all([
-      fetch(`${gatewayBase}/v1/contacts/${keepId}`, {
-        method: "GET",
-        headers,
-      }),
-      fetch(`${gatewayBase}/v1/contacts/${mergeId}`, {
-        method: "GET",
-        headers,
-      }),
+    const [keepResult, mergeResult] = await Promise.allSettled([
+      gatewayGet<{ ok: boolean; contact: ContactResponse }>(
+        `/v1/contacts/${keepId}`,
+      ),
+      gatewayGet<{ ok: boolean; contact: ContactResponse }>(
+        `/v1/contacts/${mergeId}`,
+      ),
     ]);
 
-    if (!keepResp.ok) {
-      return { content: `Error: Contact "${keepId}" not found`, isError: true };
+    if (keepResult.status === "rejected") {
+      if (
+        keepResult.reason instanceof GatewayRequestError &&
+        keepResult.reason.statusCode === 404
+      ) {
+        return {
+          content: `Error: Contact "${keepId}" not found`,
+          isError: true,
+        };
+      }
+      throw keepResult.reason;
     }
-    if (!mergeResp.ok) {
-      return {
-        content: `Error: Contact "${mergeId}" not found`,
-        isError: true,
-      };
+    if (mergeResult.status === "rejected") {
+      if (
+        mergeResult.reason instanceof GatewayRequestError &&
+        mergeResult.reason.statusCode === 404
+      ) {
+        return {
+          content: `Error: Contact "${mergeId}" not found`,
+          isError: true,
+        };
+      }
+      throw mergeResult.reason;
     }
 
-    const keepData = (await keepResp.json()) as {
-      ok: boolean;
-      contact: ContactResponse;
-    };
-    const mergeData = (await mergeResp.json()) as {
-      ok: boolean;
-      contact: ContactResponse;
-    };
-    const keepContact = keepData.contact;
-    const mergeContact = mergeData.contact;
+    const keepContact = keepResult.value.contact;
+    const mergeContact = mergeResult.value.contact;
 
     // Execute the merge
-    const mergeResult = await fetch(`${gatewayBase}/v1/contacts/merge`, {
-      method: "POST",
-      headers: {
-        ...headers,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ keepId, mergeId }),
-    });
-
-    if (!mergeResult.ok) {
-      const body = await mergeResult.text();
-      let message = `Gateway request failed (${mergeResult.status})`;
-      try {
-        const parsed = JSON.parse(body) as { error?: string };
-        if (parsed.error) message = parsed.error;
-      } catch {
-        if (body) message = body;
-      }
-      return { content: `Error: ${message}`, isError: true };
-    }
-
-    const resultData = (await mergeResult.json()) as {
+    const { data: resultData } = await gatewayPost<{
       ok: boolean;
       contact: ContactResponse;
-    };
+    }>("/v1/contacts/merge", { keepId, mergeId });
     const merged = resultData.contact;
 
     const channelList = merged.channels
@@ -116,9 +95,8 @@ export async function executeContactMerge(
         ``,
         `Surviving contact (${merged.id}):`,
         `  Name: ${merged.displayName}`,
-        `  Importance: ${merged.importance.toFixed(2)}`,
         `  Interactions: ${merged.interactionCount}`,
-        merged.relationship ? `  Relationship: ${merged.relationship}` : null,
+        merged.notes ? `  Notes: ${merged.notes}` : null,
         merged.channels.length > 0 ? `  Channels:\n${channelList}` : null,
         ``,
         `Deleted contact: ${mergeContact.displayName} (${mergeId})`,

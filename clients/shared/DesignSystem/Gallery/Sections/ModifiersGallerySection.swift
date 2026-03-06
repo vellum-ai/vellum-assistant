@@ -91,6 +91,44 @@ struct ModifiersGallerySection: View {
 
             Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
 
+            // MARK: - .pointerCursor()
+            GallerySectionHeader(
+                title: ".pointerCursor()",
+                description: "Shows a pointing-hand cursor on hover. Uses native .pointerStyle(.link) on macOS 15+, falls back to NSCursor on macOS 14."
+            )
+
+            VCard {
+                VStack(alignment: .leading, spacing: VSpacing.md) {
+                    Text("Hover over the items below to see the pointer cursor:")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+
+                    HStack(spacing: VSpacing.lg) {
+                        Button("Button") {}
+                            .buttonStyle(.plain)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .padding(VSpacing.md)
+                            .background(VColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .stroke(VColor.surfaceBorder, lineWidth: 1)
+                            )
+                            .pointerCursor()
+
+                        Text("Tappable label")
+                            .font(VFont.body)
+                            .foregroundColor(VColor.accent)
+                            .padding(VSpacing.md)
+                            .contentShape(Rectangle())
+                            .pointerCursor()
+                    }
+                }
+            }
+
+            Divider().background(VColor.surfaceBorder).padding(.vertical, VSpacing.md)
+
             // MARK: - .vPanelBackground()
             GallerySectionHeader(
                 title: ".vPanelBackground()",

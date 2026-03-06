@@ -4,12 +4,14 @@ import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { resolveConflictClarification } from "../clarification-resolver.js";
 import {
+  areStatementsCoherent,
   computeConflictRelevance,
   looksLikeClarificationReply,
   shouldAttemptConflictResolution,
 } from "../conflict-intent.js";
 import {
   isConflictKindPairEligible,
+  isConflictUserEvidenced,
   isStatementConflictEligible,
 } from "../conflict-policy.js";
 import {
@@ -26,7 +28,6 @@ import { memoryItemConflicts, messages } from "../schema.js";
 const log = getLogger("memory-jobs-worker");
 
 const CLEANUP_BATCH_LIMIT = 250;
-const BACKGROUND_RECENT_ASK_WINDOW_MS = 6 * 60 * 60 * 1000;
 
 export async function resolvePendingConflictsForMessageJob(
   job: MemoryJob,
@@ -83,6 +84,28 @@ export async function resolvePendingConflictsForMessageJob(
         status: "dismissed",
         resolutionNote: "Dismissed by conflict policy (transient/non-durable).",
       });
+    } else if (
+      !isConflictUserEvidenced(
+        conflict.existingVerificationState,
+        conflict.candidateVerificationState,
+      )
+    ) {
+      resolveConflict(conflict.id, {
+        status: "dismissed",
+        resolutionNote:
+          "Dismissed by conflict policy (no user-evidenced provenance).",
+      });
+    } else if (
+      !areStatementsCoherent(
+        conflict.existingStatement,
+        conflict.candidateStatement,
+      )
+    ) {
+      resolveConflict(conflict.id, {
+        status: "dismissed",
+        resolutionNote:
+          "Dismissed by conflict policy (incoherent — zero statement overlap).",
+      });
     }
   }
 
@@ -93,16 +116,10 @@ export async function resolvePendingConflictsForMessageJob(
   );
   if (eligible.length === 0) return;
   const candidates = eligible.filter((conflict) => {
-    const askedAt = conflict.lastAskedAt;
-    const wasRecentlyAsked =
-      typeof askedAt === "number" &&
-      askedAt <= message.createdAt &&
-      message.createdAt - askedAt <= BACKGROUND_RECENT_ASK_WINDOW_MS;
     const relevance = computeConflictRelevance(userMessage, conflict);
     return shouldAttemptConflictResolution({
       clarificationReply,
       relevance,
-      wasRecentlyAsked,
     });
   });
   if (candidates.length === 0) return;

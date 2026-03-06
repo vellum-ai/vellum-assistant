@@ -27,6 +27,7 @@ struct ComposerSection: View {
     let onRemoveAttachment: (String) -> Void
     let onPaste: () -> Void
     let onFileDrop: ([URL]) -> Void
+    var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
     let onRetrySessionError: () -> Void
@@ -40,8 +41,6 @@ struct ComposerSection: View {
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
-    @Binding var editorContentHeight: CGFloat
-    @Binding var isComposerExpanded: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -91,13 +90,12 @@ struct ComposerSection: View {
                 onRemoveAttachment: onRemoveAttachment,
                 onPaste: onPaste,
                 onFileDrop: onFileDrop,
+                onDropImageData: onDropImageData,
                 onMicrophoneToggle: onMicrophoneToggle,
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceService,
                 onEndVoiceMode: onEndVoiceMode,
-                placeholderText: "What would you like to do?",
-                editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded
+                placeholderText: "What would you like to do?"
             )
         }
         .background(

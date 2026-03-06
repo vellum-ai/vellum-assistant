@@ -98,7 +98,6 @@ mock.module("../config/env.js", () => ({
   getGatewayPort: () => 7830,
   getRuntimeHttpPort: () => 7821,
   getRuntimeHttpHost: () => "127.0.0.1",
-  getRuntimeProxyBearerToken: () => undefined,
   getRuntimeGatewayOriginSecret: () => undefined,
   getIngressPublicBaseUrl: () => undefined,
   setIngressPublicBaseUrl: () => {},

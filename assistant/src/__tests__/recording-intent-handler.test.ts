@@ -21,7 +21,10 @@ const noopLogger = {
   child: () => noopLogger,
 };
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => noopLogger,
   isDebug: () => false,
   truncateForLog: (v: string) => v,
@@ -34,7 +37,7 @@ mock.module("../config/loader.js", () => ({
     daemon: { standaloneRecording: true },
     provider: "mock-provider",
     model: "mock-model",
-    permissions: { mode: "legacy" },
+    permissions: { mode: "workspace" },
     apiKeys: {},
     sandbox: { enabled: false },
     timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
@@ -342,8 +345,10 @@ mock.module("../providers/provider-send-message.js", () => ({
 // ── Mock external conversation store ───────────────────────────────────────
 
 mock.module("../memory/external-conversation-store.js", () => ({
+  getBindingByChannelChat: () => null,
   getBindingsForConversations: () => new Map(),
   upsertBinding: () => {},
+  upsertOutboundBinding: () => {},
 }));
 
 // ── Mock subagent manager ──────────────────────────────────────────────────

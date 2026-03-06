@@ -178,7 +178,6 @@ export interface AppsListResponse {
     createdAt: number;
     version?: string;
     contentId?: string;
-    appType?: string;
   }>;
 }
 
@@ -239,6 +238,8 @@ export interface ForkSharedAppResponse {
 export interface BundleAppResponse {
   type: "bundle_app_response";
   bundlePath: string;
+  /** Base64-encoded PNG of the generated app icon, if available. */
+  iconImageBase64?: string;
   manifest: {
     format_version: number;
     name: string;

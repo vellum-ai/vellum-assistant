@@ -1914,6 +1914,59 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(msg.contentOrder, [.toolCall(0), .text(0)])
     }
 
+    // MARK: - Adjacent Text Segment Coalescing
+
+    func testMultipleAssistantDeltasWithNoToolBoundariesRemainOneTextSegment() {
+        // Multiple assistant text deltas without any tool calls between them
+        // should all accumulate into a single text segment.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Hello ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "from ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "the assistant.")))
+        // Flush buffered streaming text so assertions can inspect messages.
+        viewModel.flushStreamingBuffer()
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments, ["Hello from the assistant."])
+        XCTAssertEqual(msg.contentOrder, [.text(0)])
+    }
+
+    func testTextToolTextCreatesSeparateTextSegments() {
+        // Text delta → tool call start (flushes automatically) + result → more text delta
+        // should produce separate text segments with interleaved content order.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Let me check.")))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Here are the files.")))
+        // Flush the second text delta so it lands in messages.
+        viewModel.flushStreamingBuffer()
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        // The data model keeps separate text segments and interleaved contentOrder.
+        XCTAssertEqual(msg.textSegments.count, 2)
+        XCTAssertEqual(msg.textSegments[0], "Let me check.")
+        XCTAssertEqual(msg.textSegments[1], "Here are the files.")
+        XCTAssertEqual(msg.contentOrder, [.text(0), .toolCall(0), .text(1)])
+        // Note: the view layer (ChatBubble.groupContentBlocks) coalesces these text
+        // segments across tool call boundaries so the user can drag-select across them.
+        // Tool calls render as EmptyView and produce no visual gap between text runs.
+    }
+
+    func testStreamingCompletionPreservesFinalJoinedText() {
+        // Streaming deltas followed by message_complete should preserve the
+        // full joined text in the message's .text property.
+        // message_complete calls flushStreamingBuffer() internally.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Part one. ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Part two.")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.text, "Part one. Part two.")
+        XCTAssertEqual(msg.textSegments, ["Part one. Part two."])
+    }
+
     // MARK: - Retry Button Visibility (Send-Only Errors)
 
     func testIsRetryableErrorRequiresSendFailure() {
@@ -2643,5 +2696,91 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.sendDirectQueuedMessage(messageId: UUID())
 
         XCTAssertNil(viewModel.pendingSendDirectText)
+    }
+
+    // MARK: - Reconnect Streaming Race Regression
+
+    func testReconnectDuringStreamingTriggersHistoryCatchUp() {
+        // Simulate an in-progress streaming run: session exists, isSending is
+        // true, and currentAssistantMessageId is set (assistant was mid-stream).
+        viewModel.sessionId = "sess-reconnect"
+        viewModel.isSending = true
+        viewModel.currentAssistantMessageId = UUID()
+
+        // Set up the callback to capture the reconnect history request.
+        var reconnectSessionId: String?
+        let expectation = XCTestExpectation(description: "onReconnectHistoryNeeded called")
+        viewModel.onReconnectHistoryNeeded = { sessionId in
+            reconnectSessionId = sessionId
+            expectation.fulfill()
+        }
+
+        // Fire the reconnect notification — the observer clears streaming state
+        // immediately and schedules a 500ms-debounced history catch-up.
+        NotificationCenter.default.post(name: .daemonDidReconnect, object: nil)
+
+        // Wait for the debounced reconnect handler (500ms) plus margin.
+        wait(for: [expectation], timeout: 2.0)
+
+        // The observer should have cleared currentAssistantMessageId immediately
+        // and then triggered the catch-up callback after debounce.
+        XCTAssertNil(viewModel.currentAssistantMessageId,
+                     "Reconnect should clear currentAssistantMessageId")
+        XCTAssertEqual(reconnectSessionId, "sess-reconnect",
+                       "onReconnectHistoryNeeded should be called with the session ID")
+    }
+
+    func testPopulateFromHistoryResetsStreamingState() {
+        // Simulate mid-stream state: an assistant message is being built,
+        // the delta buffer has accumulated text, and a flush task is scheduled.
+        let staleId = UUID()
+        viewModel.currentAssistantMessageId = staleId
+        viewModel.streamingDeltaBuffer = "partial response text"
+        viewModel.streamingFlushTask = Task { @MainActor in
+            // Simulate a pending flush — should be cancelled by populateFromHistory.
+        }
+
+        // Call populateFromHistory with an empty history payload.
+        viewModel.populateFromHistory([], hasMore: false)
+
+        XCTAssertNil(viewModel.currentAssistantMessageId,
+                     "populateFromHistory should clear currentAssistantMessageId")
+        XCTAssertTrue(viewModel.streamingDeltaBuffer.isEmpty,
+                      "populateFromHistory should clear streamingDeltaBuffer")
+        XCTAssertNil(viewModel.streamingFlushTask,
+                     "populateFromHistory should cancel and nil out streamingFlushTask")
+    }
+
+    func testTextDeltaIgnoredDuringHistoryLoad() {
+        // Set isLoadingHistory to true to simulate an in-progress history load.
+        viewModel.isLoadingHistory = true
+        let initialMessageCount = viewModel.messages.count
+
+        // Send a text delta while history is loading — should be dropped.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "stale delta")))
+
+        XCTAssertTrue(viewModel.streamingDeltaBuffer.isEmpty,
+                      "Text deltas should not accumulate in the buffer during history load")
+        XCTAssertEqual(viewModel.messages.count, initialMessageCount,
+                       "No new messages should be created during history load")
+    }
+
+    func testFlushDiscardsStaleBuffer() {
+        // Set currentAssistantMessageId to a UUID that doesn't correspond to
+        // any message in the messages array (stale reference after a history
+        // replacement or reconnect).
+        let staleId = UUID()
+        viewModel.currentAssistantMessageId = staleId
+        viewModel.streamingDeltaBuffer = "orphaned buffer text"
+        let initialMessageCount = viewModel.messages.count
+
+        // Flush should detect the stale ID and discard the buffer instead of
+        // creating an orphan assistant message.
+        viewModel.flushStreamingBuffer()
+
+        XCTAssertEqual(viewModel.messages.count, initialMessageCount,
+                       "Stale flush should not create a new message")
+        XCTAssertNil(viewModel.currentAssistantMessageId,
+                     "Stale flush should reset currentAssistantMessageId to nil")
     }
 }

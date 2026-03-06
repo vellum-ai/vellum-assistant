@@ -43,7 +43,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => null,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -818,8 +817,8 @@ describe("twilio webhook routes", () => {
       expect(res.status).toBe(200);
       const session = getCallSessionByCallSid("CA_inbound_assist_1");
       expect(session).not.toBeNull();
-      // Daemon always uses internal scope — external assistant IDs are not leaked into session state.
-      expect(session!.assistantId).toBe("self");
+      // Session was created for the inbound call.
+      expect(session!.status).toBe("initiated");
     });
 
     test("outbound call flow remains non-regressed with callSessionId present", async () => {

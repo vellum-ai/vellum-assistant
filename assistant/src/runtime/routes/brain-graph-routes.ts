@@ -17,6 +17,7 @@ import {
   memoryItems,
 } from "../../memory/schema.js";
 import { resolveBundledDir } from "../../util/bundled-asset.js";
+import type { RouteDefinition } from "../http-router.js";
 
 function getLobeRegion(entityType: string): string {
   switch (entityType) {
@@ -235,4 +236,30 @@ export function handleServeBrainGraphUI(bearerToken?: string): Response {
       { status: 500 },
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function brainGraphRouteDefinitions(deps: {
+  mintUiPageToken: () => string;
+}): RouteDefinition[] {
+  return [
+    {
+      endpoint: "brain-graph",
+      method: "GET",
+      handler: () => handleGetBrainGraph(),
+    },
+    {
+      endpoint: "brain-graph-ui",
+      method: "GET",
+      handler: () => handleServeBrainGraphUI(deps.mintUiPageToken()),
+    },
+    {
+      endpoint: "home-base-ui",
+      method: "GET",
+      handler: () => handleServeHomeBaseUI(deps.mintUiPageToken()),
+    },
+  ];
 }

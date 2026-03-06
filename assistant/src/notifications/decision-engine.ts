@@ -696,12 +696,11 @@ export async function evaluateSignal(
   let resolvedPreferenceContext = preferenceContext;
   if (resolvedPreferenceContext === undefined) {
     try {
-      resolvedPreferenceContext =
-        getPreferenceSummary(signal.assistantId) ?? undefined;
+      resolvedPreferenceContext = getPreferenceSummary() ?? undefined;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       log.warn(
-        { err: errMsg, assistantId: signal.assistantId },
+        { err: errMsg },
         "Failed to load preference summary, proceeding without preferences",
       );
       resolvedPreferenceContext = undefined;
@@ -712,7 +711,7 @@ export async function evaluateSignal(
   // so candidate lookup failures do not block the decision path.
   let candidateSet: ThreadCandidateSet | undefined;
   try {
-    candidateSet = buildThreadCandidates(availableChannels, signal.assistantId);
+    candidateSet = buildThreadCandidates(availableChannels);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn(

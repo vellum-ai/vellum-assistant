@@ -343,9 +343,18 @@ export class SlackSocketModeClient {
     const messageChangedEvent = event as SlackMessageChangedEvent;
 
     const isAppMention = event.type === "app_mention";
-    const isMessageChanged =
+    const isMessageChangedRaw =
       event.type === "message" &&
       messageChangedEvent.subtype === "message_changed";
+    // Only accept message_changed in DMs or tracked bot threads — otherwise
+    // Slack unfurls (link previews) in random channels trigger the bot.
+    const isMessageChanged =
+      isMessageChangedRaw &&
+      (messageChangedEvent.channel_type === "im" ||
+        (!!messageChangedEvent.message?.thread_ts &&
+          this.store.hasThread(messageChangedEvent.message.thread_ts)) ||
+        (!!messageChangedEvent.message?.ts &&
+          this.store.hasThread(messageChangedEvent.message.ts)));
     const isDm =
       event.type === "message" &&
       !isMessageChanged &&
@@ -369,15 +378,50 @@ export class SlackSocketModeClient {
       this.store.hasThread(reactionEvent.item.ts);
 
     // Process app_mention events, DMs, message edits, scoped reactions, and replies in active bot threads
-    if (
-      !isAppMention &&
-      !isDm &&
-      !isMessageChanged &&
-      !isReactionAdded &&
-      !isActiveThreadReply
-    ) {
+    const matchedFilter = isAppMention
+      ? "app_mention"
+      : isDm
+        ? "dm"
+        : isMessageChanged
+          ? "message_changed"
+          : isReactionAdded
+            ? "reaction_added"
+            : isActiveThreadReply
+              ? "active_thread_reply"
+              : null;
+
+    if (!matchedFilter) {
+      log.debug(
+        {
+          eventId: eventPayload.event_id,
+          type: event.type,
+          subtype: (event as { subtype?: string }).subtype,
+          channel: (event as { channel?: string }).channel,
+          channelType: (event as { channel_type?: string }).channel_type,
+          user: (event as { user?: string }).user,
+          hasThreadTs: !!(event as { thread_ts?: string }).thread_ts,
+          threadTs: (event as { thread_ts?: string }).thread_ts,
+          isMessageChangedRaw,
+          text: (event as { text?: string }).text?.slice(0, 80),
+        },
+        "Slack event dropped by filter",
+      );
       return;
     }
+
+    log.info(
+      {
+        eventId: eventPayload.event_id,
+        filter: matchedFilter,
+        type: event.type,
+        channelType: (event as { channel_type?: string }).channel_type,
+        channel: (event as { channel?: string }).channel,
+        subtype: (event as { subtype?: string }).subtype,
+        user: (event as { user?: string }).user,
+        hasThreadTs: !!(event as { thread_ts?: string }).thread_ts,
+      },
+      "Slack event accepted by filter",
+    );
 
     // Deduplicate on event_id
     const eventId = eventPayload.event_id;
@@ -410,7 +454,7 @@ export class SlackSocketModeClient {
     isActiveThreadReply: boolean,
     isReactionAdded: boolean,
     isMessageChanged: boolean,
-    _isDm: boolean,
+    isDm: boolean,
   ): void {
     let normalized: NormalizedSlackEvent | null;
     if (isReactionAdded) {
@@ -440,13 +484,23 @@ export class SlackSocketModeClient {
         this.config.gatewayConfig,
         this.config.botUserId,
       );
-    } else {
+    } else if (isDm) {
       normalized = normalizeSlackDirectMessage(
         event as SlackDirectMessageEvent,
         eventId,
         this.config.gatewayConfig,
         this.config.botUserId,
       );
+    } else {
+      log.warn(
+        {
+          eventId,
+          type: event.type,
+          channel: (event as { channel?: string }).channel,
+        },
+        "Slack event passed filter but no normalizer matched — dropping",
+      );
+      return;
     }
 
     if (!normalized) {

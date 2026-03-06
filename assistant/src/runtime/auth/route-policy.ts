@@ -166,9 +166,10 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "home-base-ui", scopes: ["settings.read"] },
   { endpoint: "contacts", scopes: ["settings.read"] },
   { endpoint: "contacts:POST", scopes: ["settings.write"] },
+  { endpoint: "contacts:DELETE", scopes: ["settings.write"] },
   { endpoint: "contacts/merge", scopes: ["settings.write"] },
   { endpoint: "contacts:GET", scopes: ["settings.read"] },
-  { endpoint: "contacts/channels", scopes: ["settings.write"] },
+  { endpoint: "contact-channels", scopes: ["settings.write"] },
   { endpoint: "contacts/invites", scopes: ["settings.read"] },
   { endpoint: "contacts/invites:POST", scopes: ["settings.write"] },
   { endpoint: "contacts/invites/redeem", scopes: ["settings.write"] },
@@ -262,6 +263,11 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "apps/shared:GET", scopes: ["settings.read"] },
   { endpoint: "apps/shared:DELETE", scopes: ["settings.write"] },
   { endpoint: "apps/shared/metadata", scopes: ["settings.read"] },
+
+  // Usage / cost telemetry
+  { endpoint: "usage/totals", scopes: ["settings.read"] },
+  { endpoint: "usage/daily", scopes: ["settings.read"] },
+  { endpoint: "usage/breakdown", scopes: ["settings.read"] },
 
   // Debug
   { endpoint: "debug", scopes: ["settings.read"] },

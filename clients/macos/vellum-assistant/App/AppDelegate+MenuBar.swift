@@ -110,71 +110,36 @@ extension AppDelegate {
         }
         viewMenu.removeAllItems()
 
-        // Conversation Text Zoom: Cmd +, Cmd -, Cmd 0
-        let convZoomInItem = NSMenuItem(
-            title: "Conversation Zoom In",
-            action: #selector(handleConversationZoomIn),
-            keyEquivalent: "+"
-        )
-        convZoomInItem.keyEquivalentModifierMask = .command
-        convZoomInItem.target = self
-        convZoomInItem.tag = managedZoomMenuTag
-        viewMenu.addItem(convZoomInItem)
-
-        let convZoomOutItem = NSMenuItem(
-            title: "Conversation Zoom Out",
-            action: #selector(handleConversationZoomOut),
-            keyEquivalent: "-"
-        )
-        convZoomOutItem.keyEquivalentModifierMask = .command
-        convZoomOutItem.target = self
-        convZoomOutItem.tag = managedZoomMenuTag
-        viewMenu.addItem(convZoomOutItem)
-
-        let convResetItem = NSMenuItem(
-            title: "Conversation Actual Size",
-            action: #selector(handleConversationZoomReset),
-            keyEquivalent: "0"
-        )
-        convResetItem.keyEquivalentModifierMask = .command
-        convResetItem.target = self
-        convResetItem.tag = managedZoomMenuTag
-        viewMenu.addItem(convResetItem)
-
-        let zoomGroupSeparator = NSMenuItem.separator()
-        zoomGroupSeparator.tag = managedZoomMenuTag
-        viewMenu.addItem(zoomGroupSeparator)
-
-        // Window Zoom: Option+Cmd +, Option+Cmd -, Option+Cmd 0
-        let winZoomInItem = NSMenuItem(
-            title: "Window Zoom In",
+        // Window Zoom: Cmd +, Cmd -, Cmd 0
+        let zoomInItem = NSMenuItem(
+            title: "Zoom In",
             action: #selector(handleWindowZoomIn),
             keyEquivalent: "+"
         )
-        winZoomInItem.keyEquivalentModifierMask = [.command, .option]
-        winZoomInItem.target = self
-        winZoomInItem.tag = managedZoomMenuTag
-        viewMenu.addItem(winZoomInItem)
+        zoomInItem.keyEquivalentModifierMask = .command
+        zoomInItem.target = self
+        zoomInItem.tag = managedZoomMenuTag
+        viewMenu.addItem(zoomInItem)
 
-        let winZoomOutItem = NSMenuItem(
-            title: "Window Zoom Out",
+        let zoomOutItem = NSMenuItem(
+            title: "Zoom Out",
             action: #selector(handleWindowZoomOut),
             keyEquivalent: "-"
         )
-        winZoomOutItem.keyEquivalentModifierMask = [.command, .option]
-        winZoomOutItem.target = self
-        winZoomOutItem.tag = managedZoomMenuTag
-        viewMenu.addItem(winZoomOutItem)
+        zoomOutItem.keyEquivalentModifierMask = .command
+        zoomOutItem.target = self
+        zoomOutItem.tag = managedZoomMenuTag
+        viewMenu.addItem(zoomOutItem)
 
-        let winResetItem = NSMenuItem(
-            title: "Window Actual Size",
+        let zoomResetItem = NSMenuItem(
+            title: "Actual Size",
             action: #selector(handleWindowZoomReset),
             keyEquivalent: "0"
         )
-        winResetItem.keyEquivalentModifierMask = [.command, .option]
-        winResetItem.target = self
-        winResetItem.tag = managedZoomMenuTag
-        viewMenu.addItem(winResetItem)
+        zoomResetItem.keyEquivalentModifierMask = .command
+        zoomResetItem.target = self
+        zoomResetItem.tag = managedZoomMenuTag
+        viewMenu.addItem(zoomResetItem)
 
         if !preservedItems.isEmpty {
             let preservedSeparator = NSMenuItem.separator()
@@ -196,36 +161,17 @@ extension AppDelegate {
             zoomManager.zoomOut()
         case .windowZoomReset:
             zoomManager.resetZoom()
-        case .conversationZoomIn:
-            conversationZoomManager.zoomIn()
-        case .conversationZoomOut:
-            conversationZoomManager.zoomOut()
-        case .conversationZoomReset:
-            conversationZoomManager.resetZoom()
         }
     }
 
-    @objc public func handleConversationZoomIn() { routeZoomIntent(.conversationZoomIn) }
-    @objc public func handleConversationZoomOut() { routeZoomIntent(.conversationZoomOut) }
-    @objc public func handleConversationZoomReset() { routeZoomIntent(.conversationZoomReset) }
     @objc public func handleWindowZoomIn() { routeZoomIntent(.windowZoomIn) }
     @objc public func handleWindowZoomOut() { routeZoomIntent(.windowZoomOut) }
     @objc public func handleWindowZoomReset() { routeZoomIntent(.windowZoomReset) }
 
     // MARK: - Menu Item Validation
 
-    /// Disables conversation zoom shortcuts when no conversation is visible,
-    /// preventing accidental side effects in non-chat panels.
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
-        let conversationZoomSelectors: Set<Selector> = [
-            #selector(handleConversationZoomIn),
-            #selector(handleConversationZoomOut),
-            #selector(handleConversationZoomReset),
-        ]
-        if conversationZoomSelectors.contains(action) {
-            return mainWindow?.windowState.isConversationVisible ?? false
-        }
         if action == #selector(markAllThreadsSeen) {
             return (mainWindow?.threadManager.unseenVisibleConversationCount ?? 0) > 0
         }
@@ -655,7 +601,7 @@ extension AppDelegate {
                     let daemonItems = response.apps.map {
                         AppListManager.AppItem_Daemon(
                             id: $0.id, name: $0.name, description: $0.description,
-                            icon: $0.icon, appType: $0.appType, createdAt: $0.createdAt
+                            icon: $0.icon, appType: nil, createdAt: $0.createdAt
                         )
                     }
                     self.mainWindow?.appListManager.syncFromDaemon(daemonItems)

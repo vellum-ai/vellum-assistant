@@ -26,7 +26,7 @@ mock.module("../config/loader.js", () => ({
 
     provider: "mock-provider",
     timeouts: { permissionTimeoutSec: 5 },
-    permissions: { mode: "legacy" },
+    permissions: { mode: "workspace" },
     skills: { load: { extraDirs: [] } },
   }),
 }));

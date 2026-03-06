@@ -21,20 +21,18 @@ let secureKeys: Record<string, string | undefined> = {
 };
 
 let configState: {
+  twilio?: { accountSid?: string };
   sms?: {
     phoneNumber?: string;
     assistantPhoneNumbers?: Record<string, string>;
   };
 } = {
+  twilio: { accountSid: "AC1234567890" },
   sms: {},
 };
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => secureKeys[key],
-}));
-
-mock.module("../util/platform.js", () => ({
-  readHttpToken: () => "runtime-token",
 }));
 
 mock.module("../runtime/auth/token-service.js", () => ({
@@ -75,7 +73,7 @@ describe("smsMessagingProvider", () => {
       "credential:twilio:account_sid": "AC1234567890",
       "credential:twilio:auth_token": "auth-token",
     };
-    configState = { sms: {} };
+    configState = { twilio: { accountSid: "AC1234567890" }, sms: {} };
     delete process.env.TWILIO_PHONE_NUMBER;
     delete process.env.GATEWAY_INTERNAL_BASE_URL;
     delete process.env.GATEWAY_PORT;

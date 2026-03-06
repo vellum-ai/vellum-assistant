@@ -101,10 +101,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: "usage_request",
     sessionId: "sess-001",
   },
-  sandbox_set: {
-    type: "sandbox_set",
-    enabled: true,
-  },
   cu_session_create: {
     type: "cu_session_create",
     sessionId: "cu-sess-001",
@@ -319,7 +315,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   open_bundle: {
     type: "open_bundle",
-    filePath: "/tmp/My_App.vellumapp",
+    filePath: "/tmp/My_App.vellum",
   },
   sign_bundle_payload_response: {
     type: "sign_bundle_payload_response",
@@ -1045,6 +1041,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: "sess-routed-001",
     interactionType: "computer_use",
   },
+  ride_shotgun_error: {
+    type: "ride_shotgun_error",
+    watchId: "watch-shotgun-001",
+    sessionId: "sess-shotgun-001",
+    message: "Failed to start browser — Chrome CDP could not be launched.",
+  },
   ride_shotgun_progress: {
     type: "ride_shotgun_progress",
     watchId: "watch-shotgun-001",
@@ -1270,7 +1272,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   bundle_app_response: {
     type: "bundle_app_response",
-    bundlePath: "/tmp/My_App-abc12345.vellumapp",
+    bundlePath: "/tmp/My_App-abc12345.vellum",
     manifest: {
       format_version: 1,
       name: "My App",

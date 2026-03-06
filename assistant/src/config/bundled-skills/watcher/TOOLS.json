@@ -32,6 +32,10 @@
           "config": {
             "type": "object",
             "description": "Provider-specific configuration (e.g. filter criteria)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["name", "provider", "action_prompt"]
@@ -54,6 +58,10 @@
           "enabled_only": {
             "type": "boolean",
             "description": "When true, only show enabled watchers. Defaults to false."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -92,6 +100,10 @@
           "config": {
             "type": "object",
             "description": "New provider-specific configuration"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["watcher_id"]
@@ -110,6 +122,10 @@
           "watcher_id": {
             "type": "string",
             "description": "The ID of the watcher to delete"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["watcher_id"]
@@ -136,6 +152,10 @@
           "limit": {
             "type": "number",
             "description": "Maximum number of events to return. Defaults to 50."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []

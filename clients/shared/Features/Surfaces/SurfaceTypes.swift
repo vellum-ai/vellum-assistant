@@ -296,6 +296,7 @@ public struct DynamicPagePreview: Sendable, Equatable {
               lhs.subtitle == rhs.subtitle,
               lhs.description == rhs.description,
               lhs.icon == rhs.icon,
+              lhs.previewImage == rhs.previewImage,
               lhs.context == rhs.context else { return false }
         switch (lhs.metrics, rhs.metrics) {
         case (.none, .none):
@@ -314,7 +315,7 @@ public struct DynamicPageSurfaceData: Sendable, Equatable {
     public let height: Int?
     public let appId: String?
     public let appType: String?
-    public let preview: DynamicPagePreview?
+    public var preview: DynamicPagePreview?
     public let reloadGeneration: Int?
     public let status: String?
 
@@ -420,6 +421,8 @@ public enum SurfaceData: Sendable, Equatable {
     /// Placeholder for data that was cleared during memory compaction.
     /// The surface can be re-fetched from the daemon if the user scrolls back.
     case stripped
+    /// Re-fetch was attempted but failed after exhausting retries.
+    case strippedFailed
 }
 
 public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
@@ -546,7 +549,19 @@ public extension Surface {
 
     // MARK: - Private Helpers
 
-    private static func parseSurfaceData(type: SurfaceType, dict: [String: Any?]) -> SurfaceData? {
+    /// Parse a `SurfaceData` from a JSON HTTP response containing `surfaceType` and `data` keys.
+    /// Shared by `DaemonClient` and `HTTPTransport` to avoid duplicating the extraction logic.
+    static func parseSurfaceDataFromResponse(_ responseData: Data) -> SurfaceData? {
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let surfaceTypeRaw = json["surfaceType"] as? String,
+              let surfaceType = SurfaceType(rawValue: surfaceTypeRaw),
+              let dataDict = json["data"] as? [String: Any?] else {
+            return nil
+        }
+        return parseSurfaceData(type: surfaceType, dict: dataDict)
+    }
+
+    static func parseSurfaceData(type: SurfaceType, dict: [String: Any?]) -> SurfaceData? {
         switch type {
         case .card:
             return parseCardData(dict).map { .card($0) }
@@ -592,6 +607,8 @@ public extension Surface {
             return .documentPreview(dp)
         case .stripped:
             return .stripped
+        case .strippedFailed:
+            return .strippedFailed
         }
     }
 

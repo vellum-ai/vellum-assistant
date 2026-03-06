@@ -30,22 +30,25 @@ interface WhatsAppInteractiveMessage {
   };
 }
 
+interface WhatsAppMediaPayload {
+  caption?: string;
+  mime_type?: string;
+  id?: string;
+  file_size?: number;
+  filename?: string;
+}
+
 interface WhatsAppMediaMessage {
   id: string;
   from: string;
   timestamp: string;
   type: "audio" | "video" | "image" | "document" | "sticker";
   // image, video, and document messages can carry a caption
-  image?: { caption?: string; mime_type?: string; id?: string };
-  video?: { caption?: string; mime_type?: string; id?: string };
-  document?: {
-    caption?: string;
-    mime_type?: string;
-    id?: string;
-    filename?: string;
-  };
-  audio?: { mime_type?: string; id?: string };
-  sticker?: { mime_type?: string; id?: string };
+  image?: WhatsAppMediaPayload;
+  video?: WhatsAppMediaPayload;
+  document?: WhatsAppMediaPayload;
+  audio?: WhatsAppMediaPayload;
+  sticker?: WhatsAppMediaPayload;
 }
 
 type WhatsAppMessage =
@@ -120,6 +123,15 @@ export function normalizeWhatsAppWebhook(
       let body: string;
       let callbackData: string | undefined;
       let mediaType: string | undefined;
+      let attachments:
+        | Array<{
+            type: "image" | "video" | "audio" | "document" | "sticker";
+            fileId: string;
+            fileName?: string;
+            mimeType?: string;
+            fileSize?: number;
+          }>
+        | undefined;
 
       if (msg.type === "text") {
         const textMsg = msg as WhatsAppTextMessage;
@@ -140,6 +152,7 @@ export function normalizeWhatsAppWebhook(
         msg.type === "sticker"
       ) {
         const mediaMsg = msg as WhatsAppMediaMessage;
+        const mediaPayload = mediaMsg[msg.type];
         // image, video, and document can carry a caption; audio and sticker cannot
         const caption =
           mediaMsg.image?.caption ??
@@ -147,6 +160,24 @@ export function normalizeWhatsAppWebhook(
           mediaMsg.document?.caption;
         body = caption?.trim() ?? "";
         mediaType = msg.type;
+
+        if (mediaPayload?.id) {
+          attachments = [
+            {
+              type: msg.type,
+              fileId: mediaPayload.id,
+              ...(mediaPayload.filename
+                ? { fileName: mediaPayload.filename }
+                : {}),
+              ...(mediaPayload.mime_type
+                ? { mimeType: mediaPayload.mime_type }
+                : {}),
+              ...(mediaPayload.file_size != null
+                ? { fileSize: mediaPayload.file_size }
+                : {}),
+            },
+          ];
+        }
       } else {
         continue;
       }
@@ -172,6 +203,7 @@ export function normalizeWhatsAppWebhook(
             conversationExternalId: from,
             externalMessageId: msg.id,
             ...(callbackData ? { callbackData } : {}),
+            ...(attachments && attachments.length > 0 ? { attachments } : {}),
           },
           actor: {
             actorExternalId: from,

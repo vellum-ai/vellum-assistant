@@ -14,7 +14,6 @@ enum ViewSelection: Equatable {
 @MainActor
 public final class MainWindowState: ObservableObject {
     @AppStorage("lastActivePanel") private var lastActivePanelString: String?
-    @AppStorage("chatDockOpen") private var chatDockOpen = false
     @AppStorage("isAppChatOpen") private var isAppChatOpen = false
 
     /// The single source of truth for what the main content area displays.
@@ -80,8 +79,13 @@ public final class MainWindowState: ObservableObject {
         }
     }
 
-    /// Whether the main content area is showing a plain chat conversation
+    /// Whether the main content area is showing a plain, full-window chat
     /// (either an explicit `.thread` selection or `nil` which defaults to chat).
+    ///
+    /// This is **narrower** than ``isConversationVisible``: it excludes panels
+    /// (including the document editor) and app-editing mode, even when those
+    /// layouts contain a chat pane. Use ``isConversationVisible`` when you need
+    /// to know whether *any* conversation UI is on screen.
     var isShowingChat: Bool {
         switch selection {
         case .thread, .none: return true
@@ -93,8 +97,6 @@ public final class MainWindowState: ObservableObject {
     /// app-editing mode (which shows a chat dock alongside the app),
     /// and panel mode when the chat bubble is enabled (split-view with
     /// a live conversation alongside the panel).
-    /// Used by zoom intent routing to decide whether Cmd+/- should
-    /// target conversation text zoom or fall through to window zoom.
     public var isConversationVisible: Bool {
         switch selection {
         case .thread, .none, .appEditing: return true
@@ -134,16 +136,9 @@ public final class MainWindowState: ObservableObject {
             return false
         }
         set {
-            if newValue {
-                // No-op: callers should use setAppEditing(appId:threadId:) directly
-                // since transitioning to .appEditing requires a thread ID.
-            } else {
-                // Closing chat dock: transition from .appEditing to .app
-                if case .appEditing(let appId, _) = selection {
-                    selection = .app(appId)
-                }
+            if !newValue, case .appEditing(let appId, _) = selection {
+                selection = .app(appId)
             }
-            chatDockOpen = newValue
         }
     }
 
@@ -223,24 +218,9 @@ public final class MainWindowState: ObservableObject {
         activeDynamicParsedSurface = nil
     }
 
-    func toggleChatDock() {
-        if case .appEditing(let appId, _) = selection {
-            // Currently editing -> close chat dock
-            selection = .app(appId)
-            chatDockOpen = false
-        } else if case .app(let appId) = selection {
-            // Currently app only -> open chat dock (needs thread)
-            // The view layer will wire the thread ID via setAppEditing
-            // For now, mark intent by keeping .app and letting the view handle transition
-            _ = appId
-            chatDockOpen = true
-        }
-    }
-
     /// Transition to appEditing with a specific thread
     func setAppEditing(appId: String, threadId: UUID) {
         selection = .appEditing(appId: appId, threadId: threadId)
-        chatDockOpen = true
     }
 
     func resetLayout() {

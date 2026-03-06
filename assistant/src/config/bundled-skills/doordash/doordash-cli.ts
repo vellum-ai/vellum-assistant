@@ -10,6 +10,11 @@ import * as net from "node:net";
 import { Command } from "commander";
 
 import {
+  ensureChromeWithCdp,
+  minimizeChromeWindow,
+  restoreChromeWindow,
+} from "../../../tools/browser/chrome-cdp.js";
+import {
   addToCart,
   getDropoffOptions,
   getItemDetails,
@@ -215,11 +220,13 @@ export function registerDoordashCommand(program: Command): void {
         const duration = parseInt(opts.duration, 10);
 
         try {
-          await ensureChromeWithCDP();
+          const cdp = await ensureChromeWithCdp({
+            startUrl: "https://www.doordash.com",
+          });
 
           const startTime = Date.now() / 1000;
           const recorder = new NetworkRecorder("doordash.com");
-          await recorder.startDirect("http://localhost:9222");
+          await recorder.startDirect(cdp.baseUrl);
 
           process.stderr.write("Recording DoorDash network traffic...\n");
           if (opts.stopOn) {
@@ -738,11 +745,13 @@ export function registerDoordashCommand(program: Command): void {
       const duration = parseInt(opts.duration, 10);
 
       try {
-        await ensureChromeWithCDP();
+        const cdp = await ensureChromeWithCdp({
+          startUrl: "https://www.doordash.com",
+        });
 
         const startTime = Date.now() / 1000;
         const recorder = new NetworkRecorder("doordash.com");
-        await recorder.startDirect("http://localhost:9222");
+        await recorder.startDirect(cdp.baseUrl);
 
         process.stderr.write(
           "Recording... Navigate to an item, customize it, and add it to cart.\n",
@@ -933,169 +942,6 @@ export function registerDoordashCommand(program: Command): void {
 }
 
 // ---------------------------------------------------------------------------
-// Chrome CDP restart helper
-// ---------------------------------------------------------------------------
-
-import { spawn as spawnChild } from "node:child_process";
-import { homedir } from "node:os";
-import { join as pathJoin } from "node:path";
-
-const CDP_BASE = "http://localhost:9222";
-const CHROME_DATA_DIR = pathJoin(
-  homedir(),
-  "Library/Application Support/Google/Chrome-CDP",
-);
-
-async function isCdpReady(): Promise<boolean> {
-  try {
-    const res = await fetch(`${CDP_BASE}/json/version`);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureChromeWithCDP(): Promise<void> {
-  // Already running with CDP?
-  if (await isCdpReady()) return;
-
-  // Launch a separate Chrome instance with CDP flags alongside any existing Chrome.
-  // Using a dedicated --user-data-dir allows coexistence without killing the user's browser.
-  const chromeApp =
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  spawnChild(
-    chromeApp,
-    [
-      `--remote-debugging-port=9222`,
-      `--force-renderer-accessibility`,
-      `--user-data-dir=${CHROME_DATA_DIR}`,
-      `https://www.doordash.com/consumer/login/`,
-    ],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  ).unref();
-
-  // Wait for CDP to be ready
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    if (await isCdpReady()) return;
-  }
-  throw new Error("Chrome started but CDP endpoint not responding after 15s");
-}
-
-async function minimizeChromeWindow(): Promise<void> {
-  const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{
-    type: string;
-    webSocketDebuggerUrl: string;
-  }>;
-  const pageTarget = targets.find((t) => t.type === "page");
-  if (!pageTarget) return;
-
-  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("CDP minimize timed out"));
-    }, 5000);
-
-    ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(String(event.data)) as {
-        id: number;
-        result?: { windowId: number };
-      };
-      if (msg.id === 1 && msg.result) {
-        ws.send(
-          JSON.stringify({
-            id: 2,
-            method: "Browser.setWindowBounds",
-            params: {
-              windowId: msg.result.windowId,
-              bounds: { windowState: "minimized" },
-            },
-          }),
-        );
-      } else if (msg.id === 1) {
-        clearTimeout(timeout);
-        ws.close();
-        reject(new Error("Browser.getWindowForTarget failed"));
-      } else if (msg.id === 2) {
-        clearTimeout(timeout);
-        ws.close();
-        resolve();
-      }
-    });
-
-    ws.addEventListener("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
-
-async function restoreChromeWindow(): Promise<void> {
-  const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{
-    type: string;
-    webSocketDebuggerUrl: string;
-  }>;
-  const pageTarget = targets.find((t) => t.type === "page");
-  if (!pageTarget) return;
-
-  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("CDP restore timed out"));
-    }, 5000);
-
-    ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(String(event.data)) as {
-        id: number;
-        result?: { windowId: number };
-      };
-      if (msg.id === 1 && msg.result) {
-        ws.send(
-          JSON.stringify({
-            id: 2,
-            method: "Browser.setWindowBounds",
-            params: {
-              windowId: msg.result.windowId,
-              bounds: { windowState: "normal" },
-            },
-          }),
-        );
-      } else if (msg.id === 1) {
-        clearTimeout(timeout);
-        ws.close();
-        reject(new Error("Browser.getWindowForTarget failed"));
-      } else if (msg.id === 2) {
-        clearTimeout(timeout);
-        ws.close();
-        resolve();
-      }
-    });
-
-    ws.addEventListener("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Ride Shotgun learn session helper
 // ---------------------------------------------------------------------------
 
@@ -1108,7 +954,9 @@ async function startLearnSession(
   durationSeconds: number,
 ): Promise<LearnResult> {
   // Step 1: Ensure Chrome is running with CDP
-  await ensureChromeWithCDP();
+  await ensureChromeWithCdp({
+    startUrl: "https://www.doordash.com/consumer/login/",
+  });
 
   // Step 2: Connect to daemon and start recording
   return new Promise((resolve, reject) => {
@@ -1171,6 +1019,13 @@ async function startLearnSession(
 
         // Skip duplicate auth_result after already authenticated
         if (m.type === "auth_result") {
+          continue;
+        }
+
+        if (m.type === "ride_shotgun_error") {
+          clearTimeout(timeoutHandle);
+          socket.destroy();
+          reject(new Error((m as { message: string }).message));
           continue;
         }
 

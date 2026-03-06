@@ -155,6 +155,10 @@ export class ToolExecutor {
         );
         // Buffer so the shell's own timeout fires first and handles cleanup
         toolTimeoutMs = (shellTimeoutSec + 5) * 1000;
+      } else if (name === "claude_code") {
+        // Claude Code spawns a subprocess that manages its own turn limits
+        // (maxTurns). Give it a generous timeout so it isn't killed mid-task.
+        toolTimeoutMs = 10 * 60 * 1000; // 10 minutes
       } else {
         const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
         toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);

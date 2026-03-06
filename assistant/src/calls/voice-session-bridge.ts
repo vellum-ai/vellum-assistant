@@ -24,14 +24,7 @@ import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { IngressBlockedError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-
-/**
- * Matches the exact `[CALL_OPENING]` marker that call-controller sends for
- * the initial greeting turn. We replace it with a benign content string before
- * persisting so the marker never appears in session history where it could
- * retrigger opener behavior after a barge-in interruption.
- */
-const CALL_OPENING_MARKER = "[CALL_OPENING]";
+import { CALL_OPENING_MARKER } from "./voice-control-protocol.js";
 
 const log = getLogger("voice-session-bridge");
 
@@ -399,7 +392,6 @@ export async function startVoiceTurn(
               toolName: msg.toolName,
               inputDigest,
               consumingRequestId: msg.requestId,
-              assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
               executionChannel: "voice",
               conversationId: opts.conversationId,
               callSessionId: opts.callSessionId,

@@ -1,9 +1,9 @@
 /**
- * Types and serialization for .vellumapp manifest files.
+ * Types and serialization for .vellum manifest files.
  */
 
 export interface AppManifest {
-  format_version: number; // always 1
+  format_version: number; // 1 = legacy single-HTML; 2 = multi-file TSX (future PR)
   name: string;
   description?: string;
   icon?: string; // single emoji

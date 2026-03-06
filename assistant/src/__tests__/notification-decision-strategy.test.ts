@@ -36,7 +36,6 @@ function makeSignal(
 ): NotificationSignal {
   return {
     signalId: "sig-test-001",
-    assistantId: "self",
     createdAt: Date.now(),
     sourceChannel: "scheduler",
     sourceSessionId: "sess-001",

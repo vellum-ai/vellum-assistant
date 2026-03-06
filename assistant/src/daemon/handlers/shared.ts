@@ -70,6 +70,14 @@ export interface HistoryToolCall {
   isError?: boolean;
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). */
   imageData?: string;
+  /** Unix ms when the tool started executing. */
+  startedAt?: number;
+  /** Unix ms when the tool completed. */
+  completedAt?: number;
+  /** Confirmation decision for this tool call: "approved" | "denied" | "timed_out". */
+  confirmationDecision?: string;
+  /** Friendly label for the confirmation (e.g. "Edit File", "Run Command"). */
+  confirmationLabel?: string;
 }
 
 export interface HistorySurface {
@@ -468,6 +476,15 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
+      // Extract persisted timing/confirmation metadata
+      if (typeof block._startedAt === "number")
+        entry.startedAt = block._startedAt;
+      if (typeof block._completedAt === "number")
+        entry.completedAt = block._completedAt;
+      if (typeof block._confirmationDecision === "string")
+        entry.confirmationDecision = block._confirmationDecision;
+      if (typeof block._confirmationLabel === "string")
+        entry.confirmationLabel = block._confirmationLabel;
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);

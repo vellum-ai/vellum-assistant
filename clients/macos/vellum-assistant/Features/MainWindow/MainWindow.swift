@@ -18,8 +18,9 @@ import SwiftUI
 class TitleBarZoomableWindow: NSWindow {
     private var preZoomFrame: NSRect?
 
-    /// Weak reference to the composer text view so we can redirect typing to it.
-    weak var composerTextView: NSTextView?
+    /// Callback to redirect typing to the SwiftUI composer when no text view
+    /// is focused. The handler receives the character string to insert.
+    var composerRedirectHandler: ((String) -> Void)?
 
     /// Weak reference to the outermost NSView that contains the entire composer
     /// UI (text field + action buttons). Used for hit-testing blur dismissal so
@@ -28,11 +29,50 @@ class TitleBarZoomableWindow: NSWindow {
 
     /// When true, `keyDown` will not auto-redirect keystrokes to the composer.
     /// Set when the user clicks outside the composer to dismiss focus; cleared
-    /// when the composer regains focus (e.g. user clicks back into it).
+    /// when the composer regains focus (e.g. user clicks back into it) or when
+    /// the app is reactivated (cmd+tab / Dock click).
     private(set) var composerDismissed = false
+
+    /// Set on `didResignActiveNotification` so `becomeKey` can distinguish
+    /// app reactivation (cmd+tab / Dock click) from an in-app window change
+    /// (e.g. command palette or sheet dismiss).
+    private var appWasDeactivated = false
+    private var activationObservers: [Any] = []
 
     func clearComposerDismissed() {
         composerDismissed = false
+    }
+
+    override func becomeKey() {
+        super.becomeKey()
+        // Re-enable keystroke redirect only on app reactivation, not when
+        // a secondary window closes within the already-active app.
+        if appWasDeactivated {
+            appWasDeactivated = false
+            composerDismissed = false
+        }
+    }
+
+    /// Subscribe to app activation lifecycle. Idempotent — safe to call
+    /// more than once.
+    func observeAppActivation() {
+        guard activationObservers.isEmpty else { return }
+        activationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.appWasDeactivated = true
+                }
+            }
+        )
+    }
+
+    deinit {
+        for observer in activationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     override func sendEvent(_ event: NSEvent) {
@@ -40,14 +80,12 @@ class TitleBarZoomableWindow: NSWindow {
 
         // After dispatching a left-click, check whether the composer should
         // lose focus. If the click landed outside the composer container
-        // and the composer is still first responder (i.e. nothing else claimed
-        // focus), explicitly resign so the user can "click away" to blur.
+        // and a text view (field editor) is still first responder inside
+        // the container, explicitly resign so the user can "click away" to blur.
         if event.type == .leftMouseDown,
-           let composer = composerTextView,
-           firstResponder === composer {
-            let container = composerContainerView
-                ?? composer.enclosingScrollView
-                ?? composer
+           let responder = firstResponder as? NSView,
+           let container = composerContainerView,
+           responder.isDescendant(of: container) {
             let point = container.convert(event.locationInWindow, from: nil)
             if !container.bounds.contains(point) {
                 composerDismissed = true
@@ -91,10 +129,9 @@ class TitleBarZoomableWindow: NSWindow {
             return
         }
 
-        // Redirect to the composer text view.
-        if let composer = composerTextView {
-            makeFirstResponder(composer)
-            composer.keyDown(with: event)
+        // Redirect to the SwiftUI composer via callback.
+        if let handler = composerRedirectHandler {
+            handler(chars)
             return
         }
 
@@ -181,6 +218,7 @@ public final class MainWindow {
     let threadManager: ThreadManager
     let appListManager = AppListManager()
     let traceStore = TraceStore()
+    let usageDashboardStore: UsageDashboardStore
     public let windowState = MainWindowState()
     let documentManager = DocumentManager()
     var onMicrophoneToggle: (() -> Void)?
@@ -226,6 +264,7 @@ public final class MainWindow {
             activityNotificationService: services.activityNotificationService,
             isFirstLaunch: isFirstLaunch
         )
+        self.usageDashboardStore = UsageDashboardStore(client: services.daemonClient)
         self.threadManager.ambientAgent = services.ambientAgent
         documentManager.daemonClient = daemonClient
         services.daemonClient.onTraceEvent = { [weak self] msg in
@@ -334,7 +373,7 @@ public final class MainWindow {
             }
         } : nil
 
-        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
+        let rootView = MainWindowView(threadManager: threadManager, appListManager: appListManager, zoomManager: zoomManager, conversationZoomManager: services.conversationZoomManager, traceStore: traceStore, usageDashboardStore: usageDashboardStore, daemonClient: daemonClient, surfaceManager: surfaceManager, ambientAgent: ambientAgent, settingsStore: services.settingsStore, authManager: services.authManager, windowState: windowState, documentManager: documentManager, onMicrophoneToggle: onMicrophoneToggle ?? {}, voiceModeManager: voiceModeManager, onSendWakeUp: wakeUpCallback)
         let hostingController = NonDraggableHostingController(rootView: rootView)
 
         let screenFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -365,6 +404,7 @@ public final class MainWindow {
         window.setFrameAutosaveName("MainWindow")
 
         configureTrafficLightPadding(window)
+        window.observeAppActivation()
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -381,9 +421,8 @@ public final class MainWindow {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            guard let strongSelf = self else { return }
-            Task { @MainActor in
-                strongSelf.repositionTrafficLights(window)
+            MainActor.assumeIsolated {
+                self?.repositionTrafficLights(window)
             }
         }
     }

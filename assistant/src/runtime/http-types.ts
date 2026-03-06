@@ -2,6 +2,7 @@
  * Shared types for the runtime HTTP server and its route handlers.
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
+import type { SurfaceData, SurfaceType } from "../daemon/ipc-contract/surfaces.js";
 import type { Session } from "../daemon/session.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type {
@@ -133,20 +134,6 @@ export type MessageProcessor = (
 ) => Promise<{ messageId: string }>;
 
 /**
- * Non-blocking message processor that persists the user message and
- * starts the agent loop in the background, returning the messageId
- * immediately.
- */
-export type NonBlockingMessageProcessor = (
-  conversationId: string,
-  content: string,
-  attachmentIds?: string[],
-  options?: RuntimeMessageSessionOptions,
-  sourceChannel?: ChannelId,
-  sourceInterface?: InterfaceId,
-) => Promise<{ messageId: string }>;
-
-/**
  * Dependencies for the POST /v1/messages handler.
  *
  * The handler needs direct access to the session so it can check busy state,
@@ -171,8 +158,6 @@ export interface RuntimeHttpServerOptions {
   /** Legacy shared secret for pairing routes (not used for delivery or auth). */
   bearerToken?: string;
   processMessage?: MessageProcessor;
-  /** Non-blocking processor for POST /messages (persists + fires agent loop). */
-  persistAndProcessMessage?: NonBlockingMessageProcessor;
   /** Root directory for interface files on disk. */
   interfacesDir?: string;
   /** Daemon-injected generator for approval copy (provider-backed). */
@@ -185,7 +170,7 @@ export interface RuntimeHttpServerOptions {
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
-  /** Lookup an active session by ID (for surface actions). Returns undefined if not found. */
+  /** Lookup an active session by ID (for surface actions and content fetches). */
   findSession?: (sessionId: string) =>
     | {
         handleSurfaceAction(
@@ -193,6 +178,17 @@ export interface RuntimeHttpServerOptions {
           actionId: string,
           data?: Record<string, unknown>,
         ): void;
+        surfaceState: Map<
+          string,
+          { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+        >;
+        currentTurnSurfaces?: Array<{
+          surfaceId: string;
+          surfaceType: SurfaceType;
+          title?: string;
+          data: SurfaceData;
+          actions?: Array<{ id: string; label: string; style?: string }>;
+        }>;
       }
     | undefined;
 }

@@ -341,6 +341,8 @@ export function createSlackDeliverHandler(
       ephemeral?: boolean;
       user?: string;
       chatAction?: "typing";
+      /** Add or remove an emoji reaction on a message. */
+      reaction?: { action: "add" | "remove"; name: string; messageTs: string };
       /** Message timestamp to update instead of posting a new message. */
       updateTs?: string;
       /** When provided, use chat.update to edit an existing message instead of posting a new one. */
@@ -412,7 +414,12 @@ export function createSlackDeliverHandler(
 
     const { text } = body;
 
-    if (!text && !chatAction && (!attachments || attachments.length === 0)) {
+    if (
+      !text &&
+      !chatAction &&
+      !body.reaction &&
+      (!attachments || attachments.length === 0)
+    ) {
       return Response.json(
         { error: "text or attachments required" },
         { status: 400 },
@@ -497,7 +504,73 @@ export function createSlackDeliverHandler(
             ? textToBlocks(text)
             : [];
 
+    tlog.info(
+      {
+        chatId,
+        hasBodyBlocks: Array.isArray(body.blocks) && body.blocks.length > 0,
+        bodyBlockCount: Array.isArray(body.blocks) ? body.blocks.length : 0,
+        hasApproval: !!body.approval,
+        useBlocks: !!body.useBlocks,
+        resolvedBlockCount: blocks.length,
+        blockSource:
+          Array.isArray(body.blocks) && body.blocks.length > 0
+            ? "provided"
+            : body.approval
+              ? "approval"
+              : body.useBlocks && text
+                ? "textToBlocks"
+                : "none",
+      },
+      "Block Kit resolution",
+    );
+
     try {
+      // Emoji reaction: add or remove a reaction on an existing message.
+      // Fire-and-forget — reaction failures are logged but don't fail the request.
+      if (body.reaction) {
+        const { action, name, messageTs: reactionTs } = body.reaction;
+        const method = action === "add" ? "reactions.add" : "reactions.remove";
+        const reactionBody = {
+          channel: chatId,
+          name,
+          timestamp: reactionTs,
+        };
+
+        try {
+          const res = await fetchImpl(`https://slack.com/api/${method}`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${config.slackChannelBotToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(reactionBody),
+          });
+          const data = (await res.json()) as {
+            ok?: boolean;
+            error?: string;
+          };
+          if (!data.ok) {
+            // "already_reacted" and "no_reaction" are expected race conditions
+            if (
+              data.error !== "already_reacted" &&
+              data.error !== "no_reaction"
+            ) {
+              tlog.warn(
+                { chatId, method, slackError: data.error },
+                "Slack reaction API returned error",
+              );
+            }
+          }
+        } catch (err) {
+          tlog.warn(
+            { err, chatId, method },
+            "Failed to deliver Slack reaction",
+          );
+        }
+
+        return Response.json({ ok: true });
+      }
+
       // Typing indicator: post a placeholder message that the runtime can
       // later update via `updateTs` when the real response is ready.
       // Slack bots have no native typing indicator API, so this serves as

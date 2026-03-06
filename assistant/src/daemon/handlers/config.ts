@@ -1,18 +1,7 @@
 /**
- * Config handler barrel — re-exports all config domain handlers and assembles
- * the combined `configHandlers` dispatch map.
- *
- * Individual handlers live in domain-specific files:
- *   config-model.ts       — Model selection (LLM + image gen)
- *   config-trust.ts       — Trust rules (permissions allowlist)
- *   config-scheduling.ts  — Schedules & reminders
- *   config-slack.ts       — Slack webhook sharing
- *   config-ingress.ts     — Public ingress URL & gateway reconciliation
- *   config-platform.ts    — Platform base URL configuration
- *   config-integrations.ts — Vercel API & Twitter integration
- *   config-telegram.ts    — Telegram bot configuration
- *   config-channels.ts    — Channel guardian verification
- *   config-tools.ts       — Env vars, tool permission simulation, tool names
+ * Config handler barrel — re-exports direct handler entry points for tests and
+ * feature code. The aggregate dispatch map now lives in config-dispatch.ts so
+ * direct imports do not participate in the runtime handler graph.
  */
 
 // Re-export individual handlers for direct import by tests and other modules
@@ -76,32 +65,3 @@ export {
   handleVoiceConfigUpdate,
   normalizeActivationKey,
 } from "./config-voice.js";
-
-// Assemble the combined dispatch map from domain-specific handler groups
-import { channelHandlers } from "./config-channels.js";
-import { heartbeatHandlers } from "./config-heartbeat.js";
-import { ingressHandlers } from "./config-ingress.js";
-import { integrationHandlers } from "./config-integrations.js";
-import { modelHandlers } from "./config-model.js";
-import { platformHandlers } from "./config-platform.js";
-import { schedulingHandlers } from "./config-scheduling.js";
-import { slackHandlers } from "./config-slack.js";
-import { telegramHandlers } from "./config-telegram.js";
-import { toolHandlers } from "./config-tools.js";
-import { trustHandlers } from "./config-trust.js";
-import { voiceHandlers } from "./config-voice.js";
-
-export const configHandlers = {
-  ...modelHandlers,
-  ...trustHandlers,
-  ...schedulingHandlers,
-  ...slackHandlers,
-  ...ingressHandlers,
-  ...platformHandlers,
-  ...integrationHandlers,
-  ...telegramHandlers,
-  ...channelHandlers,
-  ...toolHandlers,
-  ...heartbeatHandlers,
-  ...voiceHandlers,
-};

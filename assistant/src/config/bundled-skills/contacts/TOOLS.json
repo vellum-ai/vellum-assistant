@@ -17,21 +17,9 @@
             "type": "string",
             "description": "Display name for the contact"
           },
-          "relationship": {
+          "notes": {
             "type": "string",
-            "description": "Relationship type (e.g. colleague, friend, manager, client, family)"
-          },
-          "importance": {
-            "type": "number",
-            "description": "Importance score 0-1 (default 0.5). Higher = more important."
-          },
-          "response_expectation": {
-            "type": "string",
-            "description": "Expected response speed (e.g. immediate, within_hours, within_day, casual)"
-          },
-          "preferred_tone": {
-            "type": "string",
-            "description": "Preferred communication tone (e.g. formal, casual, friendly, professional)"
+            "description": "Free-text notes about this contact (e.g. relationship, communication preferences, response expectations)"
           },
           "channels": {
             "type": "array",
@@ -41,7 +29,15 @@
               "properties": {
                 "type": {
                   "type": "string",
-                  "enum": ["email", "slack", "whatsapp", "phone", "telegram", "discord", "other"],
+                  "enum": [
+                    "email",
+                    "slack",
+                    "whatsapp",
+                    "phone",
+                    "telegram",
+                    "discord",
+                    "other"
+                  ],
                   "description": "Channel type"
                 },
                 "address": {
@@ -55,6 +51,10 @@
               },
               "required": ["type", "address"]
             }
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["display_name"]
@@ -64,7 +64,7 @@
     },
     {
       "name": "contact_search",
-      "description": "Search for contacts by name, channel address, relationship type, or other criteria. Returns matching contacts with their channel information.",
+      "description": "Search for contacts by name, channel address, or other criteria. Returns matching contacts with their channel information.",
       "category": "contacts",
       "risk": "low",
       "input_schema": {
@@ -76,19 +76,19 @@
           },
           "channel_address": {
             "type": "string",
-            "description": "Search by channel address (email, phone, handle — partial match)"
+            "description": "Search by channel address (email, phone, handle \u2014 partial match)"
           },
           "channel_type": {
             "type": "string",
             "description": "Filter by channel type when searching by address (email, slack, whatsapp, phone, etc.)"
           },
-          "relationship": {
-            "type": "string",
-            "description": "Filter by relationship type (exact match)"
-          },
           "limit": {
             "type": "number",
             "description": "Maximum results to return (default 20, max 100)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": []
@@ -98,7 +98,7 @@
     },
     {
       "name": "contact_merge",
-      "description": "Merge two contacts when you discover they are the same person (e.g. same person on email and Slack). Combines channels, keeps the higher importance, and deletes the donor contact.",
+      "description": "Merge two contacts when you discover they are the same person (e.g. same person on email and Slack). Combines channels, merges notes, and deletes the donor contact.",
       "category": "contacts",
       "risk": "medium",
       "input_schema": {
@@ -111,6 +111,10 @@
           "merge_id": {
             "type": "string",
             "description": "ID of the contact to merge into the kept contact (will be deleted)"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
         "required": ["keep_id", "merge_id"]

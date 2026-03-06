@@ -18,8 +18,8 @@ const log = getLogger("network-recorder");
 /** Max response body size to capture (64 KB). */
 const MAX_BODY_SIZE = 64 * 1024;
 
-/** CDP endpoint to discover targets. */
-const CDP_BASE = "http://localhost:9222";
+/** Default CDP endpoint — used when no base URL is injected. */
+const DEFAULT_CDP_BASE = "http://localhost:9222";
 
 /**
  * Minimal CDP client over WebSocket — talks the Chrome DevTools Protocol directly
@@ -115,7 +115,7 @@ export class NetworkRecorder {
   private entries = new Map<string, NetworkRecordedEntry>();
   private targetDomain?: string;
   private running = false;
-  private cdpBaseUrl = CDP_BASE;
+  private cdpBaseUrl = DEFAULT_CDP_BASE;
   private attachedTargetIds = new Set<string>();
   private targetPollTimer?: ReturnType<typeof setInterval>;
 
@@ -130,20 +130,21 @@ export class NetworkRecorder {
     return this.entries.size;
   }
 
-  constructor(targetDomain?: string) {
+  constructor(targetDomain?: string, cdpBaseUrl?: string) {
     this.targetDomain = targetDomain;
+    if (cdpBaseUrl) this.cdpBaseUrl = cdpBaseUrl;
   }
 
   /**
    * Connect directly to Chrome's CDP endpoint and start recording network events.
    * Attaches to the browser-level target so events from all tabs are captured.
    */
-  async startDirect(cdpBaseUrl: string = CDP_BASE): Promise<void> {
+  async startDirect(cdpBaseUrl?: string): Promise<void> {
     if (this.running) return;
-    this.cdpBaseUrl = cdpBaseUrl;
+    if (cdpBaseUrl) this.cdpBaseUrl = cdpBaseUrl;
 
     // Discover the browser's WebSocket debugger URL
-    const versionRes = await fetch(`${cdpBaseUrl}/json/version`);
+    const versionRes = await fetch(`${this.cdpBaseUrl}/json/version`);
     const version = (await versionRes.json()) as {
       webSocketDebuggerUrl: string;
     };

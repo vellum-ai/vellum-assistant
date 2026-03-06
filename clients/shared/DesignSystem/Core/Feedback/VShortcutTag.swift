@@ -7,48 +7,58 @@ import AppKit
 public struct VShortcutTag: View {
     public let text: String
     public var icon: String? = nil
-    public let action: () -> Void
+    public var action: (() -> Void)? = nil
 
     @State private var isHovered = false
 
     private let tagColor = Color(hex: 0xA1A096)
     private let borderColor = Color(hex: 0xE8E6DA)
 
-    public init(_ text: String, icon: String? = nil, action: @escaping () -> Void = {}) {
+    public init(_ text: String, icon: String? = nil, action: (() -> Void)? = nil) {
         self.text = text
         self.icon = icon
         self.action = action
     }
 
-    public var body: some View {
-        Button(action: action) {
-            HStack(spacing: VSpacing.xs) {
-                if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 11, weight: .medium))
-                }
-                Text(text)
-                    .font(VFont.caption)
+    private var tagContent: some View {
+        HStack(spacing: VSpacing.xs) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .medium))
             }
-            .foregroundColor(tagColor)
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(
-                Capsule()
-                    .strokeBorder(isHovered ? tagColor.opacity(0.5) : borderColor, lineWidth: 1)
-            )
+            Text(text)
+                .font(VFont.caption)
         }
-        .buttonStyle(.plain)
-        #if os(macOS)
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
+        .foregroundColor(tagColor)
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(
+            Capsule()
+                .strokeBorder(isHovered ? tagColor.opacity(0.5) : borderColor, lineWidth: 1)
+        )
+    }
+
+    public var body: some View {
+        if let action {
+            Button(action: action) {
+                tagContent
+            }
+            .buttonStyle(.plain)
+            #if os(macOS)
+            .onHover { hovering in
+                isHovered = hovering
+                if hovering { NSCursor.pointingHand.set() }
+                else { NSCursor.arrow.set() }
+            }
+            #else
+            .onHover { isHovered = $0 }
+            #endif
+            .accessibilityLabel(text)
+        } else {
+            tagContent
+                .allowsHitTesting(false)
+                .accessibilityLabel(text)
         }
-        #else
-        .onHover { isHovered = $0 }
-        #endif
-        .accessibilityLabel(text)
     }
 }
 

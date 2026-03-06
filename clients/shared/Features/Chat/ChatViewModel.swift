@@ -45,7 +45,7 @@ public final class ChatViewModel: ObservableObject {
     static let subManagerCoalesceInterval: TimeInterval = 0.1 // 100ms
 
     /// Coalescing task: fires objectWillChange once per burst window, same
-    /// pattern as SubagentDetailStore.schedulePublish().
+    /// pattern as SubagentDetailStore.scheduleFlush().
     private var subManagerPublishTask: Task<Void, Never>?
 
     /// Schedule a single coalesced `objectWillChange` notification.
@@ -60,6 +60,16 @@ public final class ChatViewModel: ObservableObject {
             self?.objectWillChange.send()
             self?.subManagerPublishTask = nil
         }
+    }
+
+    /// Flush any pending coalesced publish immediately.
+    /// Used after clearing `inputText` in `sendMessage()` so the TextField
+    /// binding updates without the 100ms delay — preventing the field editor
+    /// from writing stale text back through the binding.
+    private func flushCoalescedPublish() {
+        subManagerPublishTask?.cancel()
+        subManagerPublishTask = nil
+        objectWillChange.send()
     }
 
     // MARK: - Debug publish-rate counters
@@ -284,6 +294,7 @@ public final class ChatViewModel: ObservableObject {
         }
     }
     private var reconnectObserver: NSObjectProtocol?
+    private var appPreviewCapturedObserver: NSObjectProtocol?
     /// Debounces rapid-fire daemon reconnect notifications so only one history
     /// reload is triggered per reconnect burst (500ms settle window).
     private var reconnectDebounceTask: Task<Void, Never>?
@@ -464,7 +475,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// True while `populateFromHistory` is actively inserting messages.
     /// Observers can check this to avoid treating the history hydration as new activity.
-    public private(set) var isLoadingHistory: Bool = false
+    public internal(set) var isLoadingHistory: Bool = false
 
     // MARK: - Message Pagination
 
@@ -593,6 +604,19 @@ public final class ChatViewModel: ObservableObject {
             try daemonClient.send(IPCMessageContentRequest(type: "message_content_request", sessionId: sessionId, messageId: daemonMessageId))
         } catch {
             log.error("Failed to send message_content_request: \(error)")
+        }
+    }
+
+    /// Persist a captured preview image into the ChatMessage model so it survives thread switches.
+    public func updateSurfacePreviewImage(appId: String, base64: String) {
+        for msgIdx in messages.indices {
+            for surfIdx in messages[msgIdx].inlineSurfaces.indices {
+                if case .dynamicPage(var dpData) = messages[msgIdx].inlineSurfaces[surfIdx].data,
+                   dpData.appId == appId {
+                    dpData.preview?.previewImage = base64
+                    messages[msgIdx].inlineSurfaces[surfIdx].data = .dynamicPage(dpData)
+                }
+            }
         }
     }
 
@@ -820,7 +844,7 @@ public final class ChatViewModel: ObservableObject {
                 // so the UI catches up on anything that happened during the gap.
                 // Debounce: cancel any pending reconnect task and wait 500ms
                 // to coalesce rapid-fire reconnect notifications into one load.
-                if self?.isThinking == true || self?.isSending == true {
+                if self?.isThinking == true || self?.isSending == true || self?.currentAssistantMessageId != nil {
                     self?.isThinking = false
                     self?.isSending = false
                     self?.currentAssistantMessageId = nil
@@ -869,6 +893,20 @@ public final class ChatViewModel: ObservableObject {
                 } else {
                     self?.needsOfflineFlush = true
                 }
+            }
+        }
+
+        // Listen for captured app preview images and persist them into the
+        // ChatMessage model so they survive thread switches and history reloads.
+        appPreviewCapturedObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("MainWindow.appPreviewImageCaptured"),
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            guard let appId = notification.userInfo?["appId"] as? String,
+                  let base64 = notification.userInfo?["previewImage"] as? String else { return }
+            Task { @MainActor [weak self] in
+                self?.updateSurfacePreviewImage(appId: appId, base64: base64)
             }
         }
 
@@ -991,9 +1029,13 @@ public final class ChatViewModel: ObservableObject {
                 secretBlockedActiveSurfaceId = nil
                 secretBlockedCurrentPage = nil
                 currentTurnUserText = rawText
+                flushCoalescedPublish()
                 return
             }
             pendingSkillInvocation = nil
+            inputText = ""
+            pendingAttachments = []
+            flushCoalescedPublish()
             return
         }
 
@@ -1039,6 +1081,7 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedAttachments = nil
         secretBlockedActiveSurfaceId = nil
         secretBlockedCurrentPage = nil
+        flushCoalescedPublish()
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
@@ -1380,6 +1423,48 @@ public final class ChatViewModel: ObservableObject {
         } catch {
             log.error("Failed to send UiSurfaceAction: \(error)")
         }
+    }
+
+    // MARK: - Surface Refetch
+
+    /// Lazily created manager that serializes surface content fetches.
+    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, sessionId in
+        guard let self else { return nil }
+        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
+    }
+
+    /// In-flight refetch tasks, keyed by surface ID for cancellation.
+    private var refetchTasks: [String: Task<Void, Never>] = [:]
+
+    /// Re-fetch the full payload for a stripped surface and replace it in the message list.
+    public func refetchStrippedSurface(surfaceId: String, sessionId: String) {
+        guard refetchTasks[surfaceId] == nil else { return }
+        refetchTasks[surfaceId] = Task { @MainActor [weak self] in
+            defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
+            guard let self else { return }
+            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId)
+            for msgIndex in self.messages.indices {
+                if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
+                    if let data = result.data {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = data
+                    } else if result.retriesExhausted {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = .strippedFailed
+                    }
+                    // When data is nil but retries are not exhausted, leave the
+                    // surface in .stripped state so a future onAppear re-triggers
+                    // the fetch attempt.
+                    return
+                }
+            }
+        }
+    }
+
+    /// Cancel all in-flight surface refetch tasks and reset the manager's
+    /// failure counts so surfaces can be retried in the new session.
+    private func cancelRefetchTasks() {
+        for task in refetchTasks.values { task.cancel() }
+        refetchTasks.removeAll()
+        Task { await surfaceRefetchManager.resetFailureCounts() }
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
@@ -2085,6 +2170,22 @@ public final class ChatViewModel: ObservableObject {
                     toolCall.cachedImage = decodedImage
                     toolCall.reasonDescription = (tc.input["reason"]?.value as? String)
                         ?? (tc.input["reasoning"]?.value as? String)
+                    // Restore persisted timing and confirmation data
+                    if let startMs = tc.startedAt {
+                        toolCall.startedAt = Date(timeIntervalSince1970: Double(startMs) / 1000.0)
+                    }
+                    if let endMs = tc.completedAt {
+                        toolCall.completedAt = Date(timeIntervalSince1970: Double(endMs) / 1000.0)
+                    }
+                    if let decision = tc.confirmationDecision {
+                        switch decision {
+                        case "approved": toolCall.confirmationDecision = .approved
+                        case "denied": toolCall.confirmationDecision = .denied
+                        case "timed_out": toolCall.confirmationDecision = .timedOut
+                        default: break
+                        }
+                    }
+                    toolCall.confirmationLabel = tc.confirmationLabel
                     // Cap tool input size to prevent unbounded memory from large history
                     // restores. Check size synchronously to avoid a race where a deferred
                     // Task might run before self.messages is populated with these new items.
@@ -2304,6 +2405,17 @@ public final class ChatViewModel: ObservableObject {
         }
 
         self.isLoadingHistory = true
+
+        // Discard any in-flight streaming text that references the pre-replacement
+        // message array. Without this, a scheduled flushStreamingBuffer() can fire
+        // after the messages array is replaced, creating an orphan assistant message
+        // or appending text to a stale currentAssistantMessageId.
+        discardStreamingBuffer()
+        cancelRefetchTasks()
+        currentAssistantMessageId = nil
+        currentAssistantHasText = false
+        lastContentWasToolCall = false
+
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was
             // in progress, so the client may have missed the assistant's
@@ -2374,6 +2486,8 @@ public final class ChatViewModel: ObservableObject {
         streamingFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
+        for task in refetchTasks.values { task.cancel() }
+        refetchTasks.removeAll()
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
@@ -2382,6 +2496,9 @@ public final class ChatViewModel: ObservableObject {
         reconnectDebounceTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = appPreviewCapturedObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }

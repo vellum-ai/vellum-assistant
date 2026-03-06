@@ -5,7 +5,7 @@ user-invocable: true
 metadata: { "vellum": { "emoji": "\ud83d\udd10" } }
 ---
 
-You are helping your user set up guardian verification for a messaging channel (voice, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `vellum integrations guardian status` for status reads.
+You are helping your user set up guardian verification for a messaging channel (voice, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `assistant integrations guardian status` for status reads.
 
 ## Prerequisites
 
@@ -124,7 +124,7 @@ For **voice** verification only: after telling the user their code and instructi
 2. Check the binding status via Vellum CLI:
 
 ```bash
-vellum integrations guardian status --channel voice --json
+assistant integrations guardian status --channel voice --json
 ```
 
 3. If the response shows `bound: true`: immediately send a proactive success message in the current chat — "Voice verification complete! Your phone number is now the trusted guardian." Stop polling.
@@ -155,7 +155,7 @@ For **Slack** verification: after telling the user their code and instructing th
 2. Check the binding status via Vellum CLI:
 
 ```bash
-vellum integrations guardian status --channel slack --json
+assistant integrations guardian status --channel slack --json
 ```
 
 3. If the response shows `bound: true`: immediately send a proactive success message in the current chat — "Slack verification complete! Your Slack account is now the trusted guardian. The DM channel has been captured for future message delivery." Stop polling.
@@ -181,7 +181,7 @@ After the user reports entering the code, verify the binding was created:
 
 ```bash
 CHANNEL="<channel>"
-vellum integrations guardian status --channel "$CHANNEL" --json
+assistant integrations guardian status --channel "$CHANNEL" --json
 ```
 
 If the response shows the guardian is bound, confirm success: "Guardian verified! Your [channel] identity is now the trusted guardian."

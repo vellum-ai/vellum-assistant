@@ -33,19 +33,6 @@ export function skillFlagKey(skillId: string): string {
   );
 }
 
-/**
- * @deprecated Use `isAssistantFeatureFlagEnabled` from `./assistant-feature-flags.js` instead.
- *
- * Thin backward-compatible wrapper that delegates to the canonical resolver.
- * Kept to avoid breaking existing call sites during migration.
- */
-export function isSkillFeatureEnabled(
-  skillId: string,
-  config: AssistantConfig,
-): boolean {
-  return isAssistantFeatureFlagEnabled(skillFlagKey(skillId), config);
-}
-
 export function resolveSkillStates(
   catalog: SkillSummary[],
   config: AssistantConfig,

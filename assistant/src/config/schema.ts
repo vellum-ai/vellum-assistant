@@ -48,7 +48,9 @@ export type {
   SmsConfig,
   ThinkingConfig,
   TimeoutConfig,
+  TwilioConfig,
   UiConfig,
+  WhatsAppConfig,
 } from "./core-schema.js";
 export {
   AuditLogConfigSchema,
@@ -68,7 +70,9 @@ export {
   SmsConfigSchema,
   ThinkingConfigSchema,
   TimeoutConfigSchema,
+  TwilioConfigSchema,
   UiConfigSchema,
+  WhatsAppConfigSchema,
 } from "./core-schema.js";
 export type { ElevenLabsConfig } from "./elevenlabs-schema.js";
 export {
@@ -160,7 +164,9 @@ import {
   SmsConfigSchema,
   ThinkingConfigSchema,
   TimeoutConfigSchema,
+  TwilioConfigSchema,
   UiConfigSchema,
+  WhatsAppConfigSchema,
 } from "./core-schema.js";
 import { ElevenLabsConfigSchema } from "./elevenlabs-schema.js";
 import { McpConfigSchema } from "./mcp-schema.js";
@@ -201,7 +207,7 @@ export const AssistantConfigSchema = z
         z.string(),
         z.string({ error: "Each apiKeys value must be a string" }),
       )
-      .default({} as any),
+      .default({} as Record<string, string>),
     webSearchProvider: z
       .enum(VALID_WEB_SEARCH_PROVIDERS, {
         error: `webSearchProvider must be one of: ${VALID_WEB_SEARCH_PROVIDERS.join(
@@ -256,11 +262,13 @@ export const AssistantConfigSchema = z
     workspaceGit: WorkspaceGitConfigSchema.default(
       WorkspaceGitConfigSchema.parse({}),
     ),
+    twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
     calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
     elevenlabs: ElevenLabsConfigSchema.default(
       ElevenLabsConfigSchema.parse({}),
     ),
     sms: SmsConfigSchema.default(SmsConfigSchema.parse({})),
+    whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
     ingress: IngressConfigSchema,
     platform: PlatformConfigSchema.default(PlatformConfigSchema.parse({})),
     daemon: DaemonConfigSchema.default(DaemonConfigSchema.parse({})),
@@ -273,7 +281,7 @@ export const AssistantConfigSchema = z
         z.string(),
         z.boolean({ error: "featureFlags values must be booleans" }),
       )
-      .default({} as any),
+      .default({} as Record<string, boolean>),
     assistantFeatureFlagValues: z
       .record(
         z.string(),

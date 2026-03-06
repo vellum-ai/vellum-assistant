@@ -372,6 +372,40 @@ final class AssistantCli {
         isRestarting = false
     }
 
+    /// Wake a specific assistant's daemon via the CLI.
+    func wake(name: String) async throws {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping wake (dev mode)")
+            return
+        }
+
+        log.info("Running wake via CLI for '\(name, privacy: .private)'")
+        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["wake", name])
+
+        if status != 0 {
+            log.error("CLI wake failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            throw CLIError.executionFailed(stderr)
+        }
+        log.info("CLI wake completed successfully for '\(name, privacy: .private)'")
+    }
+
+    /// Sleep a specific assistant's daemon via the CLI.
+    func sleep(name: String) async throws {
+        guard let binaryURL = cliBinaryURL else {
+            log.info("No bundled CLI binary found — skipping sleep (dev mode)")
+            return
+        }
+
+        log.info("Running sleep via CLI for '\(name, privacy: .private)'")
+        let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["sleep", name])
+
+        if status != 0 {
+            log.error("CLI sleep failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            throw CLIError.executionFailed(stderr)
+        }
+        log.info("CLI sleep completed successfully for '\(name, privacy: .private)'")
+    }
+
     // MARK: - Remote Hatch (pass-through to CLI)
 
     struct RemoteHatchConfig {
@@ -795,6 +829,26 @@ final class AssistantCli {
             // HTTP server — required for iOS pairing via the gateway.
             if let port = fullEnv["RUNTIME_HTTP_PORT"] ?? getenv("RUNTIME_HTTP_PORT").flatMap({ String(cString: $0) }) {
                 env["RUNTIME_HTTP_PORT"] = port
+            }
+            // Tell the daemon where the keychain broker socket is.
+            // Only set in release builds where the broker is running.
+            #if !DEBUG
+            let brokerBaseDir: String
+            if let baseDir = fullEnv["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
+                brokerBaseDir = (baseDir as NSString).appendingPathComponent(".vellum")
+            } else {
+                brokerBaseDir = (NSHomeDirectory() as NSString).appendingPathComponent(".vellum")
+            }
+            env["VELLUM_KEYCHAIN_BROKER_SOCKET"] = (brokerBaseDir as NSString)
+                .appendingPathComponent("keychain-broker.sock")
+            #endif
+            // Fall back to UserDefaults for the Anthropic API key when
+            // it's not in the process environment (e.g. app launched from
+            // Finder, not a terminal with ANTHROPIC_API_KEY set).
+            if env["ANTHROPIC_API_KEY"] == nil,
+               let storedKey = UserDefaults.standard.string(forKey: "vellum_provider_anthropic"),
+               !storedKey.isEmpty {
+                env["ANTHROPIC_API_KEY"] = storedKey
             }
             proc.environment = env
 

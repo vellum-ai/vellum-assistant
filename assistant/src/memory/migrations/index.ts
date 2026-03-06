@@ -41,6 +41,7 @@ export { migrateNormalizePhoneIdentities } from "./036-normalize-phone-identitie
 export { migrateVoiceInviteColumns } from "./037-voice-invite-columns.js";
 export { createActorTokenRecordsTable } from "./038-actor-token-records.js";
 export { createActorRefreshTokenRecordsTable } from "./039-actor-refresh-token-records.js";
+export { migrateInviteCodeHashColumn } from "./040-invite-code-hash-column.js";
 export { createCoreTables } from "./100-core-tables.js";
 export { createWatchersAndLogsTables } from "./101-watchers-and-logs.js";
 export { addCoreColumns } from "./102-alter-table-columns.js";
@@ -74,6 +75,12 @@ export { migrateContactChannelsAccessFields } from "./129-contact-channels-acces
 export { migrateContactChannelsTypeChatIdIndex } from "./130-contact-channels-type-ext-chat-id-index.js";
 export { migrateDropLegacyMemberGuardianTables } from "./131-drop-legacy-member-guardian-tables.js";
 export { migrateContactsAssistantId } from "./132-contacts-assistant-id.js";
+export { migrateAssistantContactMetadata } from "./133-assistant-contact-metadata.js";
+export { migrateContactsNotesColumn } from "./134-contacts-notes-column.js";
+export { migrateBackfillContactInteractionStats } from "./135-backfill-contact-interaction-stats.js";
+export { migrateDropAssistantIdColumns } from "./136-drop-assistant-id-columns.js";
+export { migrateUsageDashboardIndexes } from "./137-usage-dashboard-indexes.js";
+export { migrateDropUsageCompositeIndexes } from "./139-drop-usage-composite-indexes.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

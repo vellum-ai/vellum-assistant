@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { extractRetryAfterMs } from "../../util/retry.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -400,9 +401,13 @@ export class AnthropicProvider implements Provider {
   constructor(
     apiKey: string,
     model: string,
-    options: { useNativeWebSearch?: boolean; streamTimeoutMs?: number } = {},
+    options: {
+      useNativeWebSearch?: boolean;
+      streamTimeoutMs?: number;
+      baseURL?: string;
+    } = {},
   ) {
-    this.client = new Anthropic({ apiKey });
+    this.client = new Anthropic({ apiKey, baseURL: options.baseURL });
     // Models ending in "-fast" use the beta fast-mode API
     this.fastMode = model.endsWith("-fast");
     this.model = this.fastMode ? model.slice(0, -"-fast".length) : model;
@@ -751,10 +756,12 @@ export class AnthropicProvider implements Provider {
             "Anthropic 400: tool_use/tool_result pairing error — dumping message structure",
           );
         }
+        const retryAfterMs = extractRetryAfterMs(error.headers);
         throw new ProviderError(
           `Anthropic API error (${error.status}): ${error.message}`,
           "anthropic",
           error.status,
+          retryAfterMs !== undefined ? { retryAfterMs } : undefined,
         );
       }
       throw new ProviderError(

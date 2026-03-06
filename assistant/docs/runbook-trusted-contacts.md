@@ -50,7 +50,7 @@ curl -s "$BASE/v1/contacts" \
 ### Via CLI
 
 ```bash
-vellum contacts list --role contact
+assistant contacts list --role contact
 ```
 
 Response shape:
@@ -62,10 +62,7 @@ Response shape:
     {
       "id": "uuid",
       "displayName": "Alice",
-      "relationship": "friend",
-      "importance": 0.5,
-      "responseExpectation": null,
-      "preferredTone": null,
+      "notes": null,
       "lastInteraction": 1700000000000,
       "interactionCount": 12,
       "createdAt": 1699000000000,
@@ -145,7 +142,7 @@ CHANNEL_ID=$(curl -s "$BASE/v1/contacts?channelType=telegram" \
   -H "Authorization: Bearer $TOKEN" | jq -r '.contacts[] | select(.channels[] | select(.externalUserId == "TARGET_USER_ID")) | .channels[] | select(.externalUserId == "TARGET_USER_ID") | .id')
 
 # Revoke with reason
-curl -s -X PATCH "$BASE/v1/contacts/channels/$CHANNEL_ID" \
+curl -s -X PATCH "$BASE/v1/contact-channels/$CHANNEL_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status": "revoked", "reason": "Revoked by operator"}' | jq
@@ -156,7 +153,7 @@ curl -s -X PATCH "$BASE/v1/contacts/channels/$CHANNEL_ID" \
 Blocking prevents the contact from re-entering the flow without explicit unblocking.
 
 ```bash
-curl -s -X PATCH "$BASE/v1/contacts/channels/$CHANNEL_ID" \
+curl -s -X PATCH "$BASE/v1/contact-channels/$CHANNEL_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status": "blocked", "reason": "Blocked by operator"}' | jq

@@ -109,14 +109,20 @@ export async function run(
       content += `\n\n${result.text}`;
     }
 
-    const contentBlocks: ImageContent[] = result.images.map((img) => ({
-      type: "image" as const,
-      source: {
-        type: "base64" as const,
-        media_type: img.mimeType,
-        data: img.dataBase64,
-      },
-    }));
+    const contentBlocks: ImageContent[] = result.images.map((img) => {
+      const block: ImageContent = {
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: img.mimeType,
+          data: img.dataBase64,
+        },
+      };
+      if (img.title) {
+        (block as unknown as Record<string, unknown>)._title = img.title;
+      }
+      return block;
+    });
 
     return {
       content,

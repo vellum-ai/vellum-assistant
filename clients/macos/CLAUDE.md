@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Also read [`clients/AGENTS.md`](../AGENTS.md)** — it contains cross-cutting client guidance (Apple research protocol, SwiftUI practices, performance rules) that applies to all client code including this macOS app.
+
 ## What This Is
 
 A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use. It lives as a sparkles icon in the menu bar — users type a task (or hold Fn for voice), and the agent executes it step-by-step.
@@ -204,8 +206,12 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 - Design system types: `V` prefix (VButton, VColor, VTab, etc.)
 - Feature views: Place in `Features/<Module>/`. New feature modules get their own directory.
+- **Extension files**: Use `TypeName+Purpose.swift` naming (e.g., `MainWindowView+Sidebar.swift`). This is the standard Swift convention for splitting a type across files. Place extension files in the same directory as the primary file.
+- **Standalone child views**: Extract into their own file when the view has its own identity and state (e.g., `SidebarThreadItem.swift`). Group related views in a subdirectory (e.g., `Sidebar/`).
+- **Helper/state types**: Extract into a separate file named after the type (e.g., `MainWindowGroupedState.swift` for `SharingState`, `SidebarInteractionState`, etc.).
 - New `.swift` files are auto-picked up by SPM — no project file edits needed.
 - Panel views: Place in `Features/MainWindow/Panels/` and add a case to `SidePanelType`.
+- **File size target**: ~500-600 lines max. If a file exceeds this, split using extensions or standalone views.
 
 ## Key Constraints
 
@@ -229,7 +235,7 @@ The macOS app pairs with iOS devices via QR code with Mac-side approval. The Con
 - **Approval flow:** When iOS sends a pairing request, macOS shows a floating approval prompt with Deny, Approve Once, and Always Allow options. "Always Allow" persists the device in `~/.vellum/protected/approved-devices.json` for auto-approval on future pairings.
 - **LAN pairing:** Works automatically. The QR payload includes `localLanUrl` (the gateway's LAN address). iOS tries LAN first, falls back to cloud gateway. HTTP is permitted for local/private addresses via `LocalAddressValidator.isLocalAddress()`.
 - **Connect Tab Layout:** Pairing hero (QR + status) → Approved Devices list → Gateway (URL config, collapsed if set) → Advanced (bearer token, URL/token overrides) → Diagnostics (test connection) → Channels (Telegram, SMS, Voice).
-- **Bearer Token:** Auto-generated and stored at `~/.vellum/http-token`. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
+- **Bearer Token:** Managed via JWT authentication. The pairing hero shows a "Generate Token" button when missing and a "Regenerate Token" link when present.
 
 ## Data Storage
 

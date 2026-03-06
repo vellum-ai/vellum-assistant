@@ -11,6 +11,7 @@ final class ContactsViewModel: ObservableObject {
 
     @Published var contacts: [ContactPayload] = []
     @Published var isLoading = false
+    @Published var isCreatingContact = false
     @Published var searchQuery = ""
 
     // MARK: - Dependencies
@@ -54,6 +55,13 @@ final class ContactsViewModel: ObservableObject {
     /// All non-guardian contacts from the filtered set.
     var otherContacts: [ContactPayload] {
         filteredContacts.filter { $0.role != "guardian" }
+    }
+
+    /// Whether any non-guardian contacts exist in the unfiltered list.
+    /// Used for empty-state checks so search filtering doesn't
+    /// incorrectly trigger the "No contacts yet" message.
+    var hasNonGuardianContacts: Bool {
+        contacts.contains { $0.role != "guardian" }
     }
 
     // MARK: - Actions

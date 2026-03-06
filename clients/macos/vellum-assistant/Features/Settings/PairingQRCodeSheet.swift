@@ -5,7 +5,7 @@ import VellumAssistantShared
 /// Displays a QR code containing the v4 connection payload for iOS pairing.
 ///
 /// v4 payload:
-/// `{"type":"vellum-daemon","v":4,"id":"<mac-hash>","g":"<gateway-url>","pairingRequestId":"<uuid>","pairingSecret":"<32-byte-hex>","localLanUrl":"http://<lan-ip>:7830"}`
+/// `{"type":"vellum-daemon","v":4,"id":"<mac-hash>","g":"<gateway-url>","pairingRequestId":"<uuid>","pairingSecret":"<32-byte-hex>","localLanUrl":"http://<lan-ip>:<gateway-port>"}`
 ///
 /// Key differences from v3:
 /// - No bearer token in QR code (secured by pairing secret + Mac approval)
@@ -180,13 +180,9 @@ struct PairingQRCodeSheet: View {
 
     // MARK: - Registration
 
-    /// Resolve the local gateway base URL. Prefers `GATEWAY_PORT` env var,
-    /// falls back to the default gateway port 7830.
+    /// Resolve the local gateway base URL: env var > lockfile > default 7830.
     private var resolvedGatewayBaseUrl: String {
-        let envPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            ?? getenv("GATEWAY_PORT").flatMap({ String(cString: $0) })
-        let port = envPort.flatMap(Int.init) ?? 7830
-        return "http://127.0.0.1:\(port)"
+        "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
     }
 
     private func registerWithDaemon() {
@@ -240,12 +236,10 @@ struct PairingQRCodeSheet: View {
     }
 
     /// Shared HTTP request logic for pairing registration.
+    /// Awaits token availability to handle the bootstrap window where the JWT
+    /// is being re-issued after a credential clear.
     private func performRegistrationRequest(gatewayBaseUrl: String, requestId: String, secret: String) async -> Result<Void, RegistrationRequestError> {
-        let tokenPath = resolveHttpTokenPath()
-        let bearerToken: String? = {
-            guard let path = tokenPath else { return nil }
-            return try? String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-        }()
+        let bearerToken = await ActorTokenManager.waitForToken(timeout: 10)
 
         let url = URL(string: "\(gatewayBaseUrl)/pairing/register")!
 
@@ -283,17 +277,9 @@ struct PairingQRCodeSheet: View {
         }
     }
 
-    private func resolveHttpTokenPath() -> String? {
-        if let envPath = ProcessInfo.processInfo.environment["VELLUM_HTTP_TOKEN_PATH"], !envPath.isEmpty {
-            return envPath
-        }
-        let base = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? NSHomeDirectory()
-        return "\(base)/.vellum/http-token"
-    }
-
     private func computeLocalLanUrl() -> String? {
         guard let lanIP = LANIPHelper.currentLANAddress() else { return nil }
-        return "http://\(lanIP):7830"
+        return "http://\(lanIP):\(LockfilePaths.resolveGatewayPort())"
     }
 
     // MARK: - QR Generation

@@ -353,9 +353,8 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
     public let createdAt: Int
     public let version: String?
     public let contentId: String?
-    public let appType: String?
 
-    public init(id: String, name: String, description: String? = nil, icon: String? = nil, preview: String? = nil, createdAt: Int, version: String? = nil, contentId: String? = nil, appType: String? = nil) {
+    public init(id: String, name: String, description: String? = nil, icon: String? = nil, preview: String? = nil, createdAt: Int, version: String? = nil, contentId: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -364,7 +363,6 @@ public struct IPCAppsListResponseApp: Codable, Sendable {
         self.createdAt = createdAt
         self.version = version
         self.contentId = contentId
-        self.appType = appType
     }
 }
 
@@ -586,11 +584,14 @@ public struct IPCBundleAppRequest: Codable, Sendable {
 public struct IPCBundleAppResponse: Codable, Sendable {
     public let type: String
     public let bundlePath: String
+    /// Base64-encoded PNG of the generated app icon, if available.
+    public let iconImageBase64: String?
     public let manifest: IPCBundleAppResponseManifest
 
-    public init(type: String, bundlePath: String, manifest: IPCBundleAppResponseManifest) {
+    public init(type: String, bundlePath: String, iconImageBase64: String? = nil, manifest: IPCBundleAppResponseManifest) {
         self.type = type
         self.bundlePath = bundlePath
+        self.iconImageBase64 = iconImageBase64
         self.manifest = manifest
     }
 }
@@ -804,8 +805,10 @@ public struct IPCConfirmationStateChanged: Codable, Sendable {
     public let causedByRequestId: String?
     /// Normalized user text for analytics/debug (e.g. "approve", "deny").
     public let decisionText: String?
+    /// The tool_use block ID this confirmation applies to, for disambiguating parallel tool calls.
+    public let toolUseId: String?
 
-    public init(type: String, sessionId: String, requestId: String, state: String, source: String, causedByRequestId: String? = nil, decisionText: String? = nil) {
+    public init(type: String, sessionId: String, requestId: String, state: String, source: String, causedByRequestId: String? = nil, decisionText: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.requestId = requestId
@@ -813,6 +816,7 @@ public struct IPCConfirmationStateChanged: Codable, Sendable {
         self.source = source
         self.causedByRequestId = causedByRequestId
         self.decisionText = decisionText
+        self.toolUseId = toolUseId
     }
 }
 
@@ -868,18 +872,18 @@ public struct IPCContactPayload: Codable, Sendable {
     public let id: String
     public let displayName: String
     public let role: String
-    public let relationship: String?
-    public let importance: Double
+    public let notes: String?
+    public let contactType: String?
     public let lastInteraction: Double?
     public let interactionCount: Int
     public let channels: [IPCContactChannelPayload]
 
-    public init(id: String, displayName: String, role: String, relationship: String? = nil, importance: Double, lastInteraction: Double? = nil, interactionCount: Int, channels: [IPCContactChannelPayload]) {
+    public init(id: String, displayName: String, role: String, notes: String? = nil, contactType: String? = nil, lastInteraction: Double? = nil, interactionCount: Int, channels: [IPCContactChannelPayload]) {
         self.id = id
         self.displayName = displayName
         self.role = role
-        self.relationship = relationship
-        self.importance = importance
+        self.notes = notes
+        self.contactType = contactType
         self.lastInteraction = lastInteraction
         self.interactionCount = interactionCount
         self.channels = channels
@@ -918,10 +922,12 @@ public struct IPCContactsInviteRequest: Codable, Sendable {
     public let status: String?
     /// Invitee's first name (voice invite create only).
     public let friendName: String?
+    /// Contact display name for personalizing invite instructions (create only).
+    public let contactName: String?
     /// Guardian's first name (voice invite create only).
     public let guardianName: String?
 
-    public init(type: String, action: String, sourceChannel: String? = nil, note: String? = nil, maxUses: Double? = nil, expiresInMs: Double? = nil, inviteId: String? = nil, token: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, status: String? = nil, friendName: String? = nil, guardianName: String? = nil) {
+    public init(type: String, action: String, sourceChannel: String? = nil, note: String? = nil, maxUses: Double? = nil, expiresInMs: Double? = nil, inviteId: String? = nil, token: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, status: String? = nil, friendName: String? = nil, contactName: String? = nil, guardianName: String? = nil) {
         self.type = type
         self.action = action
         self.sourceChannel = sourceChannel
@@ -934,6 +940,7 @@ public struct IPCContactsInviteRequest: Codable, Sendable {
         self.externalChatId = externalChatId
         self.status = status
         self.friendName = friendName
+        self.contactName = contactName
         self.guardianName = guardianName
     }
 }
@@ -985,7 +992,7 @@ public struct IPCContactsInviteResponseInvite: Codable, Sendable {
 public struct IPCContactsRequest: Codable, Sendable {
     public let type: String
     public let action: String
-    /// Contact ID (get only).
+    /// Contact ID (get and delete).
     public let contactId: String?
     /// Channel ID (update_channel only).
     public let channelId: String?
@@ -1544,17 +1551,15 @@ public struct IPCDynamicPageSurfaceData: Codable, Sendable {
     public let width: Int?
     public let height: Int?
     public let appId: String?
-    public let appType: String?
     public let reloadGeneration: Double?
     public let status: String?
     public let preview: IPCDynamicPagePreview?
 
-    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, appType: String? = nil, reloadGeneration: Double? = nil, status: String? = nil, preview: IPCDynamicPagePreview? = nil) {
+    public init(html: String, width: Int? = nil, height: Int? = nil, appId: String? = nil, reloadGeneration: Double? = nil, status: String? = nil, preview: IPCDynamicPagePreview? = nil) {
         self.html = html
         self.width = width
         self.height = height
         self.appId = appId
-        self.appType = appType
         self.reloadGeneration = reloadGeneration
         self.status = status
         self.preview = preview
@@ -1714,8 +1719,12 @@ public struct IPCGalleryApp: Codable, Sendable {
     public let featured: Bool?
     public let schemaJson: String
     public let htmlDefinition: String
+    /// 2 = multi-file TSX format with sourceFiles
+    public let formatVersion: Int?
+    /// Maps relative path to file content, e.g. { "src/main.tsx": "...", "src/index.html": "..." }
+    public let sourceFiles: [String: String]?
 
-    public init(id: String, name: String, description: String, icon: String, category: String, version: String, featured: Bool? = nil, schemaJson: String, htmlDefinition: String) {
+    public init(id: String, name: String, description: String, icon: String, category: String, version: String, featured: Bool? = nil, schemaJson: String, htmlDefinition: String, formatVersion: Int? = nil, sourceFiles: [String: String]? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -1725,6 +1734,8 @@ public struct IPCGalleryApp: Codable, Sendable {
         self.featured = featured
         self.schemaJson = schemaJson
         self.htmlDefinition = htmlDefinition
+        self.formatVersion = formatVersion
+        self.sourceFiles = sourceFiles
     }
 }
 
@@ -2349,13 +2360,25 @@ public struct IPCHistoryResponseToolCall: Codable, Sendable {
     public let isError: Bool?
     /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
     public let imageData: String?
+    /// Unix ms when the tool started executing.
+    public let startedAt: Int?
+    /// Unix ms when the tool completed.
+    public let completedAt: Int?
+    /// Confirmation decision for this tool call: "approved" | "denied" | "timed_out".
+    public let confirmationDecision: String?
+    /// Friendly label for the confirmation (e.g. "Edit File", "Run Command").
+    public let confirmationLabel: String?
 
-    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageData: String? = nil) {
+    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageData: String? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil) {
         self.name = name
         self.input = input
         self.result = result
         self.isError = isError
         self.imageData = imageData
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.confirmationDecision = confirmationDecision
+        self.confirmationLabel = confirmationLabel
     }
 }
 
@@ -3390,6 +3413,21 @@ public struct IPCReorderThreadsRequestUpdate: Codable, Sendable {
     }
 }
 
+/// Server → Client: bootstrap failure during learn-mode recording setup.
+public struct IPCRideShotgunError: Codable, Sendable {
+    public let type: String
+    public let watchId: String
+    public let sessionId: String
+    public let message: String
+
+    public init(type: String, watchId: String, sessionId: String, message: String) {
+        self.type = type
+        self.watchId = watchId
+        self.sessionId = sessionId
+        self.message = message
+    }
+}
+
 public struct IPCRideShotgunProgress: Codable, Sendable {
     public let type: String
     public let watchId: String
@@ -3456,16 +3494,6 @@ public struct IPCRideShotgunStop: Codable, Sendable {
     public init(type: String, watchId: String) {
         self.type = type
         self.watchId = watchId
-    }
-}
-
-public struct IPCSandboxSetRequest: Codable, Sendable {
-    public let type: String
-    public let enabled: Bool
-
-    public init(type: String, enabled: Bool) {
-        self.type = type
-        self.enabled = enabled
     }
 }
 
@@ -4904,12 +4932,15 @@ public struct IPCToolUseStart: Codable, Sendable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let sessionId: String?
+    /// The tool_use block ID for client-side correlation.
+    public let toolUseId: String?
 
-    public init(type: String, toolName: String, input: [String: AnyCodable], sessionId: String? = nil) {
+    public init(type: String, toolName: String, input: [String: AnyCodable], sessionId: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.input = input
         self.sessionId = sessionId
+        self.toolUseId = toolUseId
     }
 }
 

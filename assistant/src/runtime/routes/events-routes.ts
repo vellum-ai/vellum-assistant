@@ -20,6 +20,7 @@ import {
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 
 /** Keep-alive comment sent to idle clients every 30 s by default. */
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
@@ -193,4 +194,19 @@ export function handleSubscribeAssistantEvents(
       Connection: "keep-alive",
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function eventsRouteDefinitions(): RouteDefinition[] {
+  return [
+    {
+      endpoint: "events",
+      method: "GET",
+      handler: ({ req, url, authContext }) =>
+        handleSubscribeAssistantEvents(req, url, { authContext }),
+    },
+  ];
 }

@@ -79,7 +79,13 @@ declare -a SAFE_LINE_PATTERNS=(
     # IMPORTANT: must come BEFORE the dotted-ref pattern below, so it strips
     # the full `key: obj.prop,` expression before the dotted-ref strips only
     # the RHS (which would leave `key: obj` still looking suspicious).
-    "[Cc]lient[_-]?[Ss]ecret[[:space:]]*[:=][[:space:]]*[a-zA-Z_][a-zA-Z0-9_.?]*[[:space:]]*((\?\?|\|\|)[[:space:]]*(undefined))?[[:space:]]*([;,)]|$)"
+    "[Cc]lient[_-]?[Ss]ecret[[:space:]]*[:=][[:space:]]*[a-zA-Z_][a-zA-Z0-9_.?]*[[:space:]]*((\?\?|\|\|)[[:space:]]*(undefined|null))?[[:space:]]*([;,)]|$)"
+    # TS/JS: variable declaration containing clientSecret where value continues on next line.
+    # E.g. `const clientSecret =` or `const requiresClientSecret =` at end of line.
+    "(const|let|var)[[:space:]]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret[[:space:]]*=[[:space:]]*$"
+    # TS/JS: clientSecret assigned from a dotted/optional property with `as` type assertion.
+    # E.g. `const clientSecret = meta?.oauth2ClientSecret as string | undefined;`
+    "[Cc]lient[_-]?[Ss]ecret[[:space:]]*[:=][[:space:]]*[a-zA-Z_][a-zA-Z0-9_.?]*[[:space:]]+as[[:space:]]+(string|String|number|unknown|any)[[:space:]]*([|][[:space:]]*(undefined|null))?[[:space:]]*[;,]"
     # TS/JS: camelCase property names containing clientSecret used as identifiers
     # (typeof checks, null/undefined comparisons, variable/property references).
     # Avoids false positives like `oauth2ClientSecret: typeof record.oauth2ClientSecret`.
@@ -102,9 +108,17 @@ declare -a SAFE_LINE_PATTERNS=(
     # TS: optional property type annotation (e.g. `clientSecret?: string;`)
     # Must end with type + optional semicolon/comma — no `=` assignment.
     "[Cc]lient[_-]?[Ss]ecret[?]?:[[:space:]]*(string|String)[?]?[[:space:]]*[;,][[:space:]]*$"
+    # Swift var/let declarations with type annotation and empty string default
+    # (e.g. `@State private var twitterClientSecret: String = ""`)
+    "[Cc]lient[Ss]ecret:[[:space:]]*(String|string)[?]?[[:space:]]*=[[:space:]]*['\"]['\"][[:space:]]*$"
+    # Swift/JS: assignment of clientSecret variable to empty string
+    # (e.g. `twitterClientSecret = ""` or `clientSecret = ''`)
+    "[Cc]lient[Ss]ecret[[:space:]]*=[[:space:]]*['\"]['\"][[:space:]]*$"
     # Swift: named argument passing a variable (e.g. `clientSecret: trimmedSecret`)
     # where the line ends with the identifier or has a trailing closing paren.
-    "[Cc]lient[Ss]ecret:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*$"
+    # Also covers ternary expressions with no string literals
+    # (e.g. `clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret`).
+    "[Cc]lient[Ss]ecret:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*([[:space:]]*$|[[:space:]]+[?][[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*$)"
     # Swift: named argument passing a variable for privateKey (e.g. `sshPrivateKey: state.sshPrivateKey,`)
     "[Pp]rivate[Kk]ey:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*[,)][[:space:]]*$"
     # Swift/Kotlin: constant declaration whose value is a camelCase identifier
@@ -240,12 +254,26 @@ if [ "${1:-}" = "--self-test" ]; then
     # Variable-to-variable assignment (false positive to whitelist)
     SAFE_VAR_ASSIGN_SECRET='body.client_secret = clientSecret;'
     SAFE_VAR_NULLISH_SECRET='oauth2ClientSecret: clientSecret ?? undefined,'
+    # Variable-to-variable assignment with null fallback (false positive to whitelist)
+    SAFE_VAR_NULLISH_NULL_SECRET='    oauth2ClientSecret: clientSecret ?? null,'
+    # Multiline variable declaration — value continues on next line (false positive to whitelist)
+    SAFE_MULTILINE_DECL_SECRET='        const clientSecret ='
+    # Multiline requires* variable declaration (false positive to whitelist)
+    SAFE_MULTILINE_REQUIRES_SECRET='        const requiresClientSecret ='
     # Dotted property access as value (false positive to whitelist)
     SAFE_DOTTED_PROP_SECRET='    clientSecret: options.clientSecret,'
-    # Swift named argument passing a variable (false positive to whitelist)
+    # Swift var declaration with empty string default (false positive to whitelist)
+    SAFE_SWIFT_EMPTY_SECRET='    @State private var twitterClientSecret: String = ""'
+    # Assignment of clientSecret to empty string (false positive to whitelist)
+    SAFE_SWIFT_ASSIGN_EMPTY_SECRET='                                    twitterClientSecret = ""'
+    # clientSecret in ternary expression (false positive to whitelist)
+    SAFE_SWIFT_TERNARY_SECRET='                                    clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret'
+    # Swift named argument passing a variable — also covers ternary (false positive)
     SAFE_SWIFT_NAMED_ARG='                clientSecret: trimmedSecret'
     # Swift named argument passing a variable for privateKey (false positive to whitelist)
     SAFE_SWIFT_PRIVATE_KEY_ARG='            sshPrivateKey: state.sshPrivateKey,'
+    # TS type assertion of clientSecret from dotted property (false positive to whitelist)
+    SAFE_TS_TYPE_ASSERTION_SECRET='  const clientSecret = meta?.oauth2ClientSecret as string | undefined;'
     # AWS well-known example key (false positive to whitelist)
     SAFE_AWS_EXAMPLE_KEY='const EXAMPLE_KEY = "AKIAIOSFODNN7EXAMPLE";'
     # Swift storage key constant (safe — UserDefaults key, not a secret)
@@ -473,8 +501,32 @@ if [ "${1:-}" = "--self-test" ]; then
         echo -e "${RED}Self-test failed:${NC} clientSecret nullish coalescing undefined assignment false positive"
         exit 1
     fi
+    if matches_secret_pattern "$SAFE_VAR_NULLISH_NULL_SECRET" && ! matches_safe_line_pattern "$SAFE_VAR_NULLISH_NULL_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} clientSecret nullish coalescing null assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_MULTILINE_DECL_SECRET" && ! matches_safe_line_pattern "$SAFE_MULTILINE_DECL_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} multiline clientSecret declaration false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_MULTILINE_REQUIRES_SECRET" && ! matches_safe_line_pattern "$SAFE_MULTILINE_REQUIRES_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} multiline requiresClientSecret declaration false positive"
+        exit 1
+    fi
     if matches_secret_pattern "$SAFE_DOTTED_PROP_SECRET" && ! matches_safe_line_pattern "$SAFE_DOTTED_PROP_SECRET"; then
         echo -e "${RED}Self-test failed:${NC} dotted property clientSecret assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_EMPTY_SECRET" && ! matches_safe_line_pattern "$SAFE_SWIFT_EMPTY_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Swift empty-string clientSecret declaration false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_ASSIGN_EMPTY_SECRET" && ! matches_safe_line_pattern "$SAFE_SWIFT_ASSIGN_EMPTY_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Swift clientSecret empty-string assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_TERNARY_SECRET" && ! matches_safe_line_pattern "$SAFE_SWIFT_TERNARY_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} Swift clientSecret ternary expression false positive"
         exit 1
     fi
     if matches_secret_pattern "$SAFE_SWIFT_NAMED_ARG" && ! matches_safe_line_pattern "$SAFE_SWIFT_NAMED_ARG"; then
@@ -487,6 +539,10 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_AWS_EXAMPLE_KEY" && ! matches_safe_line_pattern "$SAFE_AWS_EXAMPLE_KEY"; then
         echo -e "${RED}Self-test failed:${NC} AWS well-known example key false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_TS_TYPE_ASSERTION_SECRET" && ! matches_safe_line_pattern "$SAFE_TS_TYPE_ASSERTION_SECRET"; then
+        echo -e "${RED}Self-test failed:${NC} TS type-assertion clientSecret false positive"
         exit 1
     fi
     if matches_safe_line_pattern "$SAFE_SWIFT_STORAGE_KEY"; then

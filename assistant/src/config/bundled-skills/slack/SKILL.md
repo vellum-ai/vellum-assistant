@@ -60,6 +60,17 @@ When responding to messages from Slack channels, replies are automatically threa
 - Continuing a conversation stays in the same thread
 - Thread context expires after 24 hours of inactivity, starting a fresh thread
 
+## Proactive Delivery
+
+When you need to **send** content to Slack proactively (e.g. a scheduled digest, a scan summary, or a report):
+
+- Use `messaging_send` with `platform: "slack"` and the target `conversation_id` (Slack channel or DM ID). This posts directly via `chat.postMessage` and preserves the full message content.
+- Do **NOT** use `send_notification` for rich content like digests — the notification router's decision engine rewrites content into short alerts, stripping the actual digest.
+- `send_notification` is appropriate for short alerts and status updates where you want the router to pick the best channel. `messaging_send` is appropriate when you have specific content to deliver to a specific Slack destination.
+- For scheduled tasks (cron/RRULE), always end with a `messaging_send` call so the results actually reach the user. Without it, the output only lives in the conversation log.
+
+For setting up recurring digests, load the `slack-digest-setup` skill which covers the full configuration, scheduling, and delivery protocol.
+
 ## Watcher Integration
 
 For real-time monitoring (not just on-demand scanning), the user can set up a Slack watcher using the watcher skill with the same channel IDs. Mention this if the user wants ongoing monitoring.

@@ -26,7 +26,8 @@ mock.module("node:fs", () => ({
 }));
 
 // Import after mocks are in place
-const { resolveUserReference } = await import("../config/user-reference.js");
+const { resolveUserReference, resolveGuardianName, DEFAULT_USER_REFERENCE } =
+  await import("../config/user-reference.js");
 
 describe("resolveUserReference", () => {
   beforeEach(() => {
@@ -67,5 +68,50 @@ describe("resolveUserReference", () => {
     mockFileExists = true;
     mockFileContent = "- Preferred name/reference:   Alice   \n";
     expect(resolveUserReference()).toBe("Alice");
+  });
+});
+
+describe("resolveGuardianName", () => {
+  beforeEach(() => {
+    mockFileExists = false;
+    mockFileContent = "";
+  });
+
+  test("returns USER.md name when present, ignoring guardianDisplayName", () => {
+    mockFileExists = true;
+    mockFileContent = [
+      "## Onboarding Snapshot",
+      "",
+      "- Preferred name/reference: John",
+    ].join("\n");
+    expect(resolveGuardianName("Jane")).toBe("John");
+  });
+
+  test('returns "my human" when USER.md explicitly sets name to default value', () => {
+    mockFileExists = true;
+    mockFileContent = [
+      "## Onboarding Snapshot",
+      "",
+      "- Preferred name/reference: my human",
+    ].join("\n");
+    // The user's explicit choice must be respected even though it matches the default sentinel
+    expect(resolveGuardianName("Jane")).toBe("my human");
+  });
+
+  test("falls back to guardianDisplayName when USER.md is empty", () => {
+    mockFileExists = false;
+    expect(resolveGuardianName("Jane")).toBe("Jane");
+  });
+
+  test("falls back to DEFAULT_USER_REFERENCE when both are empty", () => {
+    mockFileExists = false;
+    expect(resolveGuardianName()).toBe(DEFAULT_USER_REFERENCE);
+    expect(resolveGuardianName(null)).toBe(DEFAULT_USER_REFERENCE);
+    expect(resolveGuardianName("")).toBe(DEFAULT_USER_REFERENCE);
+  });
+
+  test("trims whitespace on guardianDisplayName fallback", () => {
+    mockFileExists = false;
+    expect(resolveGuardianName("  Jane  ")).toBe("Jane");
   });
 });

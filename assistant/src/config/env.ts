@@ -57,11 +57,14 @@ export function getGatewayPort(): number {
 
 /**
  * Resolve the gateway base URL for internal service-to-service calls.
- * Prefers GATEWAY_INTERNAL_BASE_URL if set, otherwise derives from port.
+ * Prefers GATEWAY_INTERNAL_BASE_URL if set, then INTERNAL_GATEWAY_BASE_URL
+ * (used by skill subprocesses), otherwise derives from port.
  */
 export function getGatewayInternalBaseUrl(): string {
   const explicit = str("GATEWAY_INTERNAL_BASE_URL");
   if (explicit) return explicit.replace(/\/+$/, "");
+  const skillInjected = str("INTERNAL_GATEWAY_BASE_URL");
+  if (skillInjected) return skillInjected.replace(/\/+$/, "");
   return `http://127.0.0.1:${getGatewayPort()}`;
 }
 
@@ -89,10 +92,6 @@ export function getRuntimeHttpPort(): number {
 
 export function getRuntimeHttpHost(): string {
   return str("RUNTIME_HTTP_HOST") || "127.0.0.1";
-}
-
-export function getRuntimeProxyBearerToken(): string | undefined {
-  return str("RUNTIME_PROXY_BEARER_TOKEN");
 }
 
 export function getRuntimeGatewayOriginSecret(): string | undefined {
@@ -128,10 +127,6 @@ export function getTwilioUserPhoneNumber(): string | undefined {
   return str("TWILIO_USER_PHONE_NUMBER");
 }
 
-export function getTwilioWssBaseUrl(): string | undefined {
-  return str("TWILIO_WSS_BASE_URL");
-}
-
 export function isTwilioWebhookValidationDisabled(): boolean {
   // Intentionally strict: only exact "true" disables validation (not "1").
   // This is a security-sensitive bypass — we don't want environments that
@@ -161,6 +156,10 @@ export function getSentryDsn(): string | undefined {
 
 export function getQdrantUrlEnv(): string | undefined {
   return str("QDRANT_URL");
+}
+
+export function getQdrantHttpPortEnv(): number | undefined {
+  return int("QDRANT_HTTP_PORT");
 }
 
 // ── Ollama ───────────────────────────────────────────────────────────────────
@@ -207,12 +206,6 @@ export function validateEnv(): void {
   const httpPort = getRuntimeHttpPort();
   if (httpPort < 1 || httpPort > 65535) {
     throw new Error(`Invalid RUNTIME_HTTP_PORT: ${httpPort} (must be 1-65535)`);
-  }
-
-  if (getTwilioWssBaseUrl()) {
-    log.warn(
-      "TWILIO_WSS_BASE_URL env var is deprecated. Relay URL is now derived from ingress.publicBaseUrl.",
-    );
   }
 
   for (const warning of checkUnrecognizedEnvVars()) {

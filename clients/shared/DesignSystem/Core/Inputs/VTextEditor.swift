@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// Multi-line text input with native placeholder support.
+/// Uses `TextField(axis: .vertical)` so the placeholder, typed text,
+/// and caret all share the same text container and align correctly.
 public struct VTextEditor: View {
     public let placeholder: String
     @Binding public var text: String
@@ -16,31 +19,21 @@ public struct VTextEditor: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .topLeading) {
-            if text.isEmpty {
-                Text(placeholder)
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.md)
-                    .accessibilityHidden(true)
-            }
-
-            TextEditor(text: $text)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .scrollContentBackground(.hidden)
-                .focused($isFocused)
-                .frame(minHeight: minHeight, maxHeight: maxHeight)
-                .accessibilityLabel(text.isEmpty ? placeholder : text)
-        }
-        .padding(VSpacing.xs)
-        .background(VColor.inputBackground)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
-                .stroke(isFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
-        )
+        TextField(placeholder, text: $text, axis: .vertical)
+            .lineLimit(1...100)
+            .textFieldStyle(.plain)
+            .font(VFont.body)
+            .foregroundColor(VColor.textPrimary)
+            .focused($isFocused)
+            .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(VColor.inputBackground)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .stroke(isFocused ? VColor.surfaceBorder : VColor.surfaceBorder.opacity(0.5), lineWidth: 1)
+            )
     }
 }
 

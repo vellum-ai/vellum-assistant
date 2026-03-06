@@ -18,7 +18,6 @@ import type {
 export interface NotificationDeliveryRow {
   id: string;
   notificationDecisionId: string;
-  assistantId: string;
   channel: string;
   destination: string;
   status: string;
@@ -47,7 +46,6 @@ function rowToDelivery(
   return {
     id: row.id,
     notificationDecisionId: row.notificationDecisionId,
-    assistantId: row.assistantId,
     channel: row.channel,
     destination: row.destination,
     status: row.status,
@@ -74,7 +72,6 @@ function rowToDelivery(
 export interface CreateDeliveryParams {
   id: string;
   notificationDecisionId: string;
-  assistantId: string;
   channel: NotificationChannel;
   destination: string;
   status: NotificationDeliveryStatus;
@@ -102,7 +99,6 @@ export function createDelivery(
   const row = {
     id: params.id,
     notificationDecisionId: params.notificationDecisionId,
-    assistantId: params.assistantId,
     channel: params.channel,
     destination: params.destination,
     status: params.status,
@@ -200,17 +196,6 @@ export function updateDeliveryClientOutcome(
     .run();
 
   return rawChanges() > 0;
-}
-
-/** List all delivery records for a given notification decision. */
-export function listDeliveries(decisionId: string): NotificationDeliveryRow[] {
-  const db = getDb();
-  const rows = db
-    .select()
-    .from(notificationDeliveries)
-    .where(eq(notificationDeliveries.notificationDecisionId, decisionId))
-    .all();
-  return rows.map(rowToDelivery);
 }
 
 /** Check whether a delivery already exists for a given decision+channel pair. */

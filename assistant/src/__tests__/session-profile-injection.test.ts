@@ -87,7 +87,6 @@ mock.module("../config/loader.js", () => ({
       conflicts: {
         enabled: false,
         gateMode: "soft",
-        reaskCooldownTurns: 3,
         resolverLlmTimeoutMs: 250,
         relevanceThreshold: 0.2,
       },
@@ -228,7 +227,6 @@ mock.module("../context/window-manager.js", () => ({
 
 mock.module("../memory/conflict-store.js", () => ({
   listPendingConflictDetails: () => [],
-  markConflictAsked: () => true,
   applyConflictResolution: () => true,
 }));
 

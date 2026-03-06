@@ -7,7 +7,6 @@ import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { createRowMapper } from "../util/row-mapper.js";
 import { deleteOrphanAttachments } from "./attachments-store.js";
@@ -394,7 +393,6 @@ export async function addMessage(
     try {
       projectAssistantMessage({
         conversationId,
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         messageId: message.id,
         messageAt: message.createdAt,
       });

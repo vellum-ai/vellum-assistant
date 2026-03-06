@@ -6,6 +6,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
+    private static let platformURLOverrideEnvironmentKey = "VELLUM_ASSISTANT_PLATFORM_URL"
+    private static let authServiceBaseURLDefaultsName = "authServiceBaseURL"
 
     private static let defaultBaseURL: String = {
         #if DEBUG && os(macOS)
@@ -17,23 +19,44 @@ public final class AuthService {
 
     /// Platform base URL from daemon config. Set by SettingsStore when the
     /// `platform_config_response` arrives. When non-empty, takes precedence
-    /// over the hardcoded default and DEBUG UserDefaults override.
+    /// over persisted defaults, but an explicit per-launch env override still wins.
     public var configuredBaseURL: String = ""
 
     public var baseURL: String {
-        if !configuredBaseURL.isEmpty {
-            return configuredBaseURL
-        }
-        #if DEBUG
-        // Allow overriding the auth service URL via UserDefaults for development/testing.
-        if let override = UserDefaults.standard.string(forKey: "authServiceBaseURL"), !override.isEmpty {
-            return override
-        }
-        #endif
-        return Self.defaultBaseURL
+        Self.resolveBaseURL(
+            configuredBaseURL: configuredBaseURL,
+            environment: ProcessInfo.processInfo.environment,
+            userDefaults: .standard
+        )
     }
 
     private init() {}
+
+    static func resolveBaseURL(
+        configuredBaseURL: String,
+        environment: [String: String],
+        userDefaults: UserDefaults
+    ) -> String {
+        if let override = normalizedBaseURL(environment[platformURLOverrideEnvironmentKey]) {
+            return override
+        }
+        if let configured = normalizedBaseURL(configuredBaseURL) {
+            return configured
+        }
+        #if DEBUG
+        // Keep the UserDefaults override as a fallback for direct debug sessions.
+        if let override = normalizedBaseURL(userDefaults.string(forKey: authServiceBaseURLDefaultsName)) {
+            return override
+        }
+        #endif
+        return defaultBaseURL
+    }
+
+    private static func normalizedBaseURL(_ raw: String?) -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalized = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        return normalized.isEmpty ? nil : normalized
+    }
 
     public func getConfig() async throws -> AllauthResponse<ConfigData> {
         try await request(path: "config")
@@ -113,11 +136,60 @@ public final class AuthService {
         return response
     }
 
+    // MARK: - Platform Organizations API
+
+    /// Fetch the current user's organizations. Does not require Vellum-Organization-Id header.
+    public func getOrganizations() async throws -> [PlatformOrganization] {
+        let urlString = "\(baseURL)/v1/organizations/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request GET organizations/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            let paginated = try JSONDecoder().decode(PaginatedOrganizationsResponse.self, from: data)
+            return paginated.results
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
     // MARK: - Platform Assistant API
 
     /// Fetch the current user's managed assistant.
     /// Returns `.found` with the assistant on 200, `.notFound` on 404.
-    public func getCurrentAssistant() async throws -> PlatformAssistantResult {
+    public func getCurrentAssistant(organizationId: String) async throws -> PlatformAssistantResult {
         let urlString = "\(baseURL)/v1/assistants/current/"
         guard let url = URL(string: urlString) else {
             throw PlatformAPIError.invalidURL
@@ -126,6 +198,7 @@ public final class AuthService {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "GET"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
         if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
@@ -169,6 +242,7 @@ public final class AuthService {
 
     /// Create a new managed assistant via the platform hatch endpoint.
     public func hatchAssistant(
+        organizationId: String,
         name: String? = nil,
         description: String? = nil,
         anthropicApiKey: String? = nil
@@ -182,6 +256,7 @@ public final class AuthService {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
         if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
