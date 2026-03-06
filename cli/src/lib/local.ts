@@ -342,6 +342,7 @@ async function startDaemonWatchFromSource(
   const env: Record<string, string | undefined> = {
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
+    VELLUM_DEV: "1",
   };
 
   const daemonLogFd = openLogFile("hatch.log");
@@ -840,6 +841,7 @@ export async function startGateway(
     // `vellum sleep` to SIGKILL the gateway when the CLI timeout is shorter
     // than the drain window.  Respect an explicit env override.
     GATEWAY_SHUTDOWN_DRAIN_MS: process.env.GATEWAY_SHUTDOWN_DRAIN_MS || "0",
+    ...(watch ? { VELLUM_DEV: "1" } : {}),
   };
 
   if (process.env.GATEWAY_UNMAPPED_POLICY) {

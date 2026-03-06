@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -26,6 +27,38 @@ function getSkillsDir(): string {
 
 function getSkillsIndexPath(): string {
   return join(getSkillsDir(), "SKILLS.md");
+}
+
+/**
+ * Resolve the repo-level skills/ directory when running in dev mode.
+ * Returns the path if VELLUM_DEV is set and the directory exists, or undefined.
+ */
+function getRepoSkillsDir(): string | undefined {
+  if (!process.env.VELLUM_DEV) return undefined;
+
+  // cli/src/commands/skills.ts -> ../../../skills/
+  const candidate = join(import.meta.dir, "..", "..", "..", "skills");
+  if (existsSync(join(candidate, "catalog.json"))) {
+    return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Read skills from the repo-local catalog.json.
+ */
+function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
+  try {
+    const raw = readFileSync(
+      join(repoSkillsDir, "catalog.json"),
+      "utf-8",
+    );
+    const manifest = JSON.parse(raw) as CatalogManifest;
+    if (!Array.isArray(manifest.skills)) return [];
+    return manifest.skills;
+  } catch {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -265,8 +298,17 @@ async function installSkillLocally(
 
   mkdirSync(skillDir, { recursive: true });
 
-  // Extract all files from the archive into the skill directory
-  await fetchAndExtractSkill(skillId, skillDir);
+  // In dev mode, install from the local repo skills directory if available
+  const repoSkillsDir = getRepoSkillsDir();
+  const repoSkillSource = repoSkillsDir
+    ? join(repoSkillsDir, skillId)
+    : undefined;
+
+  if (repoSkillSource && existsSync(join(repoSkillSource, "SKILL.md"))) {
+    cpSync(repoSkillSource, skillDir, { recursive: true });
+  } else {
+    await fetchAndExtractSkill(skillId, skillDir);
+  }
 
   // Write version metadata
   if (catalogEntry.version) {
@@ -343,6 +385,18 @@ export async function skills(): Promise<void> {
       try {
         const catalog = await fetchCatalog();
 
+        // In dev mode, merge in skills from the repo-local skills/ directory
+        const repoSkillsDir = getRepoSkillsDir();
+        if (repoSkillsDir) {
+          const localSkills = readLocalCatalog(repoSkillsDir);
+          const remoteIds = new Set(catalog.map((s) => s.id));
+          for (const local of localSkills) {
+            if (!remoteIds.has(local.id)) {
+              catalog.push(local);
+            }
+          }
+        }
+
         if (json) {
           console.log(JSON.stringify({ ok: true, skills: catalog }));
           return;
@@ -384,9 +438,20 @@ export async function skills(): Promise<void> {
       const overwrite = hasFlag(args, "--overwrite");
 
       try {
-        // Verify skill exists in catalog
-        const catalog = await fetchCatalog();
-        const entry = catalog.find((s) => s.id === skillId);
+        // In dev mode, also check the repo-local skills/ directory
+        const repoSkillsDir = getRepoSkillsDir();
+        let localSkills: CatalogSkill[] = [];
+        if (repoSkillsDir) {
+          localSkills = readLocalCatalog(repoSkillsDir);
+        }
+
+        // Check local catalog first, then fall back to remote
+        let entry = localSkills.find((s) => s.id === skillId);
+        if (!entry) {
+          const catalog = await fetchCatalog();
+          entry = catalog.find((s) => s.id === skillId);
+        }
+
         if (!entry) {
           throw new Error(`Skill "${skillId}" not found in the Vellum catalog`);
         }
