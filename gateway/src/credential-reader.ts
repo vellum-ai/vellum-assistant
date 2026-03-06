@@ -195,16 +195,29 @@ async function readBrokerCredential(
       const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
-          socket.destroy();
+          try {
+            socket?.destroy();
+          } catch {
+            /* already destroyed or never created */
+          }
           log.debug({ account }, "Broker read timed out");
           resolve(undefined);
         }
       }, BROKER_TIMEOUT_MS);
 
-      const socket = createConnection({ path: socketPath });
+      let socket: ReturnType<typeof createConnection> | undefined;
+      try {
+        socket = createConnection({ path: socketPath });
+      } catch (err) {
+        clearTimeout(timer);
+        settled = true;
+        log.debug({ err, account }, "Failed to connect to keychain broker");
+        resolve(undefined);
+        return;
+      }
 
       socket.on("connect", () => {
-        socket.write(request + "\n");
+        socket!.write(request + "\n");
       });
 
       socket.on("data", (chunk) => {
@@ -228,7 +241,7 @@ async function readBrokerCredential(
           } catch {
             resolve(undefined);
           }
-          socket.destroy();
+          socket!.destroy();
         }
       });
 
