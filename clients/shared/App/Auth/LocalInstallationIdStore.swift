@@ -5,9 +5,13 @@ import Foundation
 /// Do NOT use PairingQRCodeSheet.computeHostId() — that derives from hardware.
 public enum LocalInstallationIdStore {
     private static let key = "vellum_local_installation_id"
+    private static let lock = NSLock()
 
     /// Returns the persisted installation ID, generating one on first access.
+    /// Uses NSLock to prevent concurrent first-launch calls from generating different UUIDs.
     public static func getOrCreate() -> String {
+        lock.lock()
+        defer { lock.unlock() }
         if let existing = UserDefaults.standard.string(forKey: key) {
             return existing
         }

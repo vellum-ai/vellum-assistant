@@ -133,10 +133,6 @@ declare -a SAFE_LINE_PATTERNS=(
     # Only whitelist specific known key-name constants — a broad `*Key` pattern
     # would let real credentials like `let apiKey = "sk_live_..."` slip through.
     "(private[[:space:]]+)?(let|var)[[:space:]]+(archivedSessionsKey)[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z][a-zA-Z0-9_]*['\"]"
-    # Swift CodingKeys enum case mapping camelCase to snake_case JSON fields.
-    # E.g. `case assistantApiKey = "assistant_api_key"` — these are JSON field
-    # name mappings, not secrets.
-    "case[[:space:]]+[a-zA-Z][a-zA-Z0-9]*[[:space:]]*=[[:space:]]*['\"][a-z][a-z0-9]*(_[a-z][a-z0-9]*)*['\"][[:space:]]*$"
 )
 
 matches_safe_line_pattern() {
@@ -280,8 +276,6 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_TS_TYPE_ASSERTION_SECRET='  const clientSecret = meta?.oauth2ClientSecret as string | undefined;'
     # AWS well-known example key (false positive to whitelist)
     SAFE_AWS_EXAMPLE_KEY='const EXAMPLE_KEY = "AKIAIOSFODNN7EXAMPLE";'
-    # Swift CodingKeys enum case (false positive to whitelist)
-    SAFE_SWIFT_CODING_KEY='        case assistantApiKey = "assistant_api_key"'
     # Swift storage key constant (safe — UserDefaults key, not a secret)
     SAFE_SWIFT_STORAGE_KEY='let archivedSessionsKey = "archivedSessionIds"'
     # Swift apiKey constant with alphabetic value (dangerous — must NOT be whitelisted)
@@ -551,10 +545,6 @@ if [ "${1:-}" = "--self-test" ]; then
         echo -e "${RED}Self-test failed:${NC} TS type-assertion clientSecret false positive"
         exit 1
     fi
-    if matches_secret_pattern "$SAFE_SWIFT_CODING_KEY" && ! matches_safe_line_pattern "$SAFE_SWIFT_CODING_KEY"; then
-        echo -e "${RED}Self-test failed:${NC} Swift CodingKeys enum case false positive"
-        exit 1
-    fi
     if matches_safe_line_pattern "$SAFE_SWIFT_STORAGE_KEY"; then
         : # expected — safe storage key constant is whitelisted
     else
@@ -637,6 +627,10 @@ while IFS= read -r -d '' FILE; do
                 continue
             fi
             CONTENT="${line#*:}"
+            # Lines with an inline "nosec" comment are explicitly suppressed.
+            if [[ "$CONTENT" =~ (//|#|--|/\*)[[:space:]]*nosec ]]; then
+                continue
+            fi
             if matches_safe_line_pattern "$CONTENT"; then
                 # Strip safe-line portions and re-check: a real secret
                 # on the same line (e.g. minified JSON) must not be masked.
