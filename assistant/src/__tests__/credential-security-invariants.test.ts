@@ -232,8 +232,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "schedule/integration-status.ts", // integration status checks for scheduled reports
       "daemon/handlers/oauth-connect.ts", // OAuth connect handler for integration setup
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
+      "media/managed-avatar-client.ts", // managed avatar API key lookup for platform authentication
       "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
+      "runtime/routes/slack-share-routes.ts", // Slack share routes credential lookup
       "mcp/client.ts", // MCP client cached-token lookup
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)

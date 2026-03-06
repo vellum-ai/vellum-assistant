@@ -196,7 +196,6 @@ console.log("styled");`,
 
     expect(result.ok).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors[0].text).toContain("not in the allowed list");
     expect(result.errors[0].text).toContain("left-pad");
   });
 

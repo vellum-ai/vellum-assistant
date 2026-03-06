@@ -220,6 +220,28 @@ Examples:
   $ assistant integrations guardian status --channel sms`,
   );
 
+  const twilio = integrations
+    .command("twilio")
+    .description("Twilio SMS/voice integration status");
+
+  twilio
+    .command("config")
+    .description("Get Twilio integration configuration status")
+    .action(async (_opts: unknown, cmd: Command) => {
+      await runRead(cmd, async () =>
+        gatewayGet("/v1/integrations/twilio/config"),
+      );
+    });
+
+  twilio
+    .command("numbers")
+    .description("Get Twilio phone numbers")
+    .action(async (_opts: unknown, cmd: Command) => {
+      await runRead(cmd, async () =>
+        gatewayGet("/v1/integrations/twilio/numbers"),
+      );
+    });
+
   const telegram = integrations
     .command("telegram")
     .description("Telegram integration status");

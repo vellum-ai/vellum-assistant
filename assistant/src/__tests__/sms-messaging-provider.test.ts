@@ -81,6 +81,7 @@ describe("smsMessagingProvider", () => {
 
   test("isConnected is true when assistant-scoped numbers exist", () => {
     configState = {
+      twilio: { accountSid: "AC1234567890" },
       sms: {
         assistantPhoneNumbers: { "ast-alpha": "+15550001111" },
       },

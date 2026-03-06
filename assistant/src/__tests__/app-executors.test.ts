@@ -1,4 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+mock.module("../bundler/app-compiler.js", () => ({
+  compileApp: async () => ({
+    ok: true,
+    errors: [],
+    warnings: [],
+    durationMs: 0,
+  }),
+}));
 
 import type { AppDefinition } from "../memory/app-store.js";
 import type { AppStore } from "../tools/apps/executors.js";
