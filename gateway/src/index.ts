@@ -378,10 +378,7 @@ function main() {
       method: "POST",
       auth: "edge",
       handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(
-          req,
-          params[0],
-        ),
+        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
     },
 
     // ── Contacts/invites control plane ──
@@ -409,6 +406,13 @@ function main() {
       auth: "edge",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
+    },
+    {
+      path: /^\/v1\/contacts\/([^/]+)$/,
+      method: "DELETE",
+      auth: "edge",
+      handler: (req, params) =>
+        contactsControlPlaneProxy.handleDeleteContact(req, params[0]),
     },
     {
       path: /^\/v1\/contacts\/([^/]+)$/,

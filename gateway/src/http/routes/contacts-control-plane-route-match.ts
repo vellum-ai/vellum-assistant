@@ -2,6 +2,7 @@ export type ContactsControlPlaneRoute =
   | { kind: "listContacts" }
   | { kind: "upsertContact" }
   | { kind: "getContact"; contactId: string }
+  | { kind: "deleteContact"; contactId: string }
   | { kind: "mergeContacts" }
   | { kind: "updateContactChannel"; contactChannelId: string }
   | { kind: "listInvites" }
@@ -63,8 +64,11 @@ export function matchContactsControlPlaneRoute(
 
   // Contact by ID — must come after /invites and /merge to avoid false matches
   const contactIdMatch = pathname.match(/^\/v1\/contacts\/([^/]+)$/);
-  if (contactIdMatch && method === "GET") {
-    return { kind: "getContact", contactId: contactIdMatch[1] };
+  if (contactIdMatch) {
+    if (method === "GET")
+      return { kind: "getContact", contactId: contactIdMatch[1] };
+    if (method === "DELETE")
+      return { kind: "deleteContact", contactId: contactIdMatch[1] };
   }
 
   return null;
