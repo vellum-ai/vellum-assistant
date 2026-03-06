@@ -2,12 +2,18 @@ import type { Command } from "commander";
 
 import {
   getAssistantContactMetadata,
+  getChannelById,
   getContact,
   listContacts,
   mergeContacts,
   searchContacts,
+  updateChannelStatus,
 } from "../contacts/contact-store.js";
-import type { ContactRole } from "../contacts/types.js";
+import type {
+  ChannelPolicy,
+  ChannelStatus,
+  ContactRole,
+} from "../contacts/types.js";
 import { initializeDb } from "../memory/db.js";
 import {
   createIngressInvite,
@@ -158,6 +164,116 @@ Examples:
           initializeDb();
           const contact = mergeContacts(keepId, mergeId);
           writeOutput(cmd, { ok: true, contact });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  const channels = contacts
+    .command("channels")
+    .description("Manage contact channels");
+
+  channels.addHelpText(
+    "after",
+    `
+Channels represent external communication endpoints linked to contacts —
+phone numbers, Telegram IDs, email addresses, etc. Each channel has a
+status (active, pending, revoked, blocked, unverified) and a policy
+(allow, deny, escalate) that controls how the assistant handles messages
+from that channel.
+
+Examples:
+  $ assistant contacts channels update-status <channelId> --status revoked --reason "No longer needed"
+  $ assistant contacts channels update-status <channelId> --policy deny`,
+  );
+
+  channels
+    .command("update-status <channelId>")
+    .description("Update a channel's status or policy")
+    .option(
+      "--status <status>",
+      "New channel status: active, revoked, or blocked",
+    )
+    .option("--policy <policy>", "New channel policy: allow, deny, or escalate")
+    .option("--reason <reason>", "Reason for the status change")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  channelId   UUID of the contact channel to update
+
+Updates the access-control fields on an existing channel. At least one of
+--status or --policy must be provided.
+
+When --status is "revoked", --reason is mapped to revokedReason on the
+channel record. When --status is "blocked", --reason is mapped to
+blockedReason. The --reason flag is ignored for other status values.
+
+Valid --status values: active, revoked, blocked
+Valid --policy values: allow, deny, escalate
+
+Examples:
+  $ assistant contacts channels update-status abc-123 --status revoked --reason "No longer needed" --json
+  $ assistant contacts channels update-status abc-123 --status blocked --reason "Spam" --json
+  $ assistant contacts channels update-status abc-123 --policy deny --json
+  $ assistant contacts channels update-status abc-123 --status active --policy allow --json`,
+    )
+    .action(
+      async (
+        channelId: string,
+        opts: {
+          status?: string;
+          policy?: string;
+          reason?: string;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          if (!opts.status && !opts.policy) {
+            writeOutput(cmd, {
+              ok: false,
+              error: "At least one of --status or --policy must be provided",
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          initializeDb();
+
+          const existing = getChannelById(channelId);
+          if (!existing) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Channel not found: ${channelId}`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          const status = opts.status as ChannelStatus | undefined;
+          const policy = opts.policy as ChannelPolicy | undefined;
+
+          let revokedReason: string | null | undefined;
+          let blockedReason: string | null | undefined;
+          if (opts.reason) {
+            if (status === "revoked") {
+              revokedReason = opts.reason;
+            } else if (status === "blocked") {
+              blockedReason = opts.reason;
+            }
+          }
+
+          const result = updateChannelStatus(channelId, {
+            status,
+            policy,
+            revokedReason,
+            blockedReason,
+          });
+
+          writeOutput(cmd, { ok: true, channel: result });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeOutput(cmd, { ok: false, error: message });
