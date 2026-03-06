@@ -157,6 +157,13 @@ struct AppSharePanelView: View {
     }
 
     private var formattedFileSize: String {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory) else {
+            return ""
+        }
+        if isDirectory.boolValue {
+            return "App Bundle"
+        }
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
               let size = attrs[.size] as? UInt64 else {
             return ""
