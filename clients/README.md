@@ -4,7 +4,12 @@ This directory contains native client applications for the Vellum Assistant, org
 
 For client architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
+---
+
 ## Structure
+
+<details>
+<summary><strong>Directory layout</strong></summary>
 
 ```
 clients/
@@ -29,6 +34,10 @@ clients/
 │   └── Resources/             # Assets, Info.plist, background.png
 └── chrome-extension/          # Chrome browser extension
 ```
+
+</details>
+
+---
 
 ## Targets
 
@@ -71,6 +80,8 @@ clients/
 **Contains**: Just `@main` app delegate setup
 **Dependencies**: VellumAssistantLib
 
+---
+
 ## Building
 
 ### macOS App
@@ -108,8 +119,8 @@ cd clients/ios
 See [clients/ios/README.md](ios/README.md) for full build, packaging, and configuration instructions.
 
 **Current features:**
-- ✅ Standalone mode — direct Anthropic API connection (no Mac required)
-- ✅ Connected to Mac mode — HTTP+SSE through the gateway with bearer token authentication
+- ✅ Cloud login — sign in with Vellum to connect to a platform-hosted assistant (no Mac required)
+- ✅ Connect to assistant — pair via QR code (HTTP+SSE through the gateway with bearer token authentication)
 - ✅ Chat interface with streaming, markdown, code blocks
 - ✅ Multiple threads with JSON persistence
 - ✅ Onboarding with adaptive steps per connection mode
@@ -125,6 +136,8 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 
 Depends only on `VellumAssistantShared` (no macOS frameworks).
 
+---
+
 ## Code Reuse Strategy
 
 **~45-50% code reuse** between macOS and iOS achieved through:
@@ -138,6 +151,8 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 - **Computer-use**: AXUIElement + CGEvent (macOS only, sandboxing prevents on iOS)
 - **Screen recording**: ScreenCaptureKit (macOS) vs ReplayKit (iOS)
 - **App lifecycle**: NSStatusItem (macOS) vs UIScene (iOS)
+
+---
 
 ## Development
 
@@ -158,6 +173,8 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 3. DO NOT import `VellumAssistantLib` (macOS-only)
 4. Use `#if os(iOS)` guards if sharing files with macOS
 
+---
+
 ## Known Limitations
 
 ### iOS Signing Operations
@@ -173,16 +190,20 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 - AXUIElement + CGEvent APIs are macOS-only (sandbox prevents on iOS)
 - Computer-use sessions initiated from iOS proxy through the Mac assistant
 
+---
+
 ## Documentation
 
 - **macOS development**: See `clients/macos/CLAUDE.md`
 - **iOS development**: See `clients/ios/README.md`
 
+---
+
 ## Testing
 
 ```bash
 cd clients/macos
-./build.sh test     # All SPM tests (shared + macOS-specific)
+./build.sh test     # macOS-specific SPM tests (runs swift test --filter vellum_assistantTests)
 ```
 
 ### iOS Integration Tests

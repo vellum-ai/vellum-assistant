@@ -36,13 +36,16 @@ mock.module("../util/logger.js", () => ({
 
 // Mock global fetch
 let lastFetchArgs: [string, RequestInit] | null = null;
-let fetchResponse: { ok: boolean; status: number; json: () => Promise<unknown> } = {
+let fetchResponse: {
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+} = {
   ok: true,
   status: 200,
   json: async () => ({}),
 };
 
-const originalFetch = globalThis.fetch;
 globalThis.fetch = (async (url: string, init: RequestInit) => {
   lastFetchArgs = [url, init];
   return fetchResponse;
@@ -50,15 +53,14 @@ globalThis.fetch = (async (url: string, init: RequestInit) => {
 
 // Import after mocking
 import {
-  isManagedAvailable,
-  generateManagedAvatar,
-  getAssistantApiKey,
-} from "../media/managed-avatar-client.js";
-import {
-  ManagedAvatarError,
-  AVATAR_PROMPT_MAX_LENGTH,
   AVATAR_MAX_DECODED_BYTES,
+  AVATAR_PROMPT_MAX_LENGTH,
+  ManagedAvatarError,
 } from "../media/avatar-types.js";
+import {
+  generateManagedAvatar,
+  isManagedAvailable,
+} from "../media/managed-avatar-client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -195,7 +197,10 @@ describe("generateManagedAvatar", () => {
       status: 200,
       json: async () => ({
         ...successResponse(),
-        image: { ...successResponse().image, bytes: AVATAR_MAX_DECODED_BYTES + 1 },
+        image: {
+          ...successResponse().image,
+          bytes: AVATAR_MAX_DECODED_BYTES + 1,
+        },
       }),
     };
 
@@ -213,13 +218,19 @@ describe("generateManagedAvatar", () => {
   test("response with oversized base64 estimated decoded size throws validation error", async () => {
     // Create a base64 string whose estimated decoded size exceeds the limit,
     // even though the server-reported bytes field is under the limit
-    const oversizedBase64 = "A".repeat(Math.ceil((AVATAR_MAX_DECODED_BYTES + 100) * 4 / 3));
+    const oversizedBase64 = "A".repeat(
+      Math.ceil(((AVATAR_MAX_DECODED_BYTES + 100) * 4) / 3),
+    );
     fetchResponse = {
       ok: true,
       status: 200,
       json: async () => ({
         ...successResponse(),
-        image: { ...successResponse().image, data_base64: oversizedBase64, bytes: 1024 },
+        image: {
+          ...successResponse().image,
+          data_base64: oversizedBase64,
+          bytes: 1024,
+        },
       }),
     };
 

@@ -2,9 +2,11 @@
 
 A native macOS menu bar app that controls your Mac via accessibility APIs and CGEvent input injection, powered by Claude via the Anthropic Messages API with tool use.
 
+---
+
 ## iOS Target
 
-This repository also includes an iOS app target (`vellum-assistant-ios`) that shares ~45-50% of code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to the assistant through the HTTP gateway with bearer token authentication.
+This repository also includes an iOS app target (`vellum-assistant-ios`) that shares ~45-50% of code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to the assistant through cloud login or QR-paired HTTP gateway.
 
 **Status:** Fully functional. Build via Xcode (recommended) or `xcodebuild` from the command line — `swift build` on macOS cannot compile the iOS target due to UIKit dependencies. See [clients/ios/README.md](../ios/README.md) for build instructions.
 
@@ -54,6 +56,8 @@ Requires Apple Developer account + App Store Connect setup.
 
 **Connection Note:** The iOS app connects to the assistant through the HTTP gateway. Pair via QR code (Settings → Connect → Show QR Code on Mac, Scan QR Code on iPhone). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings.
 
+---
+
 ## Managed Mode
 
 The app supports a **managed sign-in** flow that connects to a platform-hosted assistant instead of a local daemon.
@@ -90,6 +94,8 @@ The `HTTPTransport` supports two route modes:
 
 For the full managed sign-in architecture, see `clients/ARCHITECTURE.md`.
 
+---
+
 ## Download
 
 To install the pre-built macOS app, download the signed and notarized DMG:
@@ -106,6 +112,8 @@ The app includes **Sparkle auto-update** — after the initial install, updates 
 
 All releases are available at [github.com/vellum-ai/velly/releases](https://github.com/vellum-ai/velly/releases).
 
+---
+
 ## Requirements
 
 ### Local Mode
@@ -119,6 +127,8 @@ All releases are available at [github.com/vellum-ai/velly/releases](https://gith
 - Xcode 15+ (for building from source)
 - Internet connection (assistant runs on the Vellum platform)
 - No API key or local daemon required
+
+---
 
 ## Quick Run
 
@@ -136,6 +146,8 @@ VELLUM_ASSISTANT_PLATFORM_URL=https://platform.vellum.ai ./build.sh run
 
 This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 
+---
+
 ## Build
 
 ```bash
@@ -148,7 +160,7 @@ This builds a debug `.app` bundle, codesigns it, and launches it immediately.
 # Build release
 ./build.sh release
 
-# Run all tests
+# Run macOS-specific tests
 ./build.sh test
 
 # Clean build artifacts
@@ -193,6 +205,8 @@ The build script will detect and use your new certificate. Permissions will now 
 SIGN_IDENTITY="-" ./build.sh
 ```
 
+---
+
 ## Auto-Rebuild on Save (Watch Mode)
 
 `./build.sh run` includes built-in watch mode that automatically rebuilds and relaunches when you save Swift files or resources:
@@ -209,7 +223,12 @@ SIGN_IDENTITY="-" ./build.sh
 5. Watch polls every 2 seconds for changes (no external dependencies required)
 6. Press Ctrl+C to stop watching
 
+---
+
 ## SwiftPM Commands
+
+<details>
+<summary><strong>Raw SwiftPM commands</strong></summary>
 
 The raw SwiftPM commands also work if you prefer:
 
@@ -227,6 +246,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build -c release
 ```
 
+</details>
+
+---
+
 ## Test DMG Installer
 
 To preview the DMG installer layout locally (requires `brew install create-dmg`):
@@ -237,9 +260,11 @@ To preview the DMG installer layout locally (requires `brew install create-dmg`)
 
 This builds the app (if needed), generates the background image, creates a styled DMG, and opens it in Finder.
 
+---
+
 ## Local Assistant (Daemon)
 
-The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to it via a Unix domain socket at `~/.vellum/vellum.sock`.
+The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to it via a Unix domain socket at `~/.vellum/vellum.sock` by default (the path is resolved dynamically via `resolveSocketPath()`, which honors `BASE_DATA_DIR` and the lockfile for multi-instance setups).
 
 **Local mode: You must start the assistant before using the app.** Without it, the app will connect but get no responses. (In managed mode, the assistant runs on the Vellum platform — no local process needed.)
 
@@ -262,6 +287,10 @@ cd assistant && bun run src/index.ts daemon start
 
 The app will auto-reconnect if the assistant process restarts.
 
+> **Multi-instance note:** The default data directory is `~/.vellum/`. When `BASE_DATA_DIR` is set or multiple instances are configured via the lockfile, paths resolve to the instance-specific directory instead. See `DaemonClient.resolveSocketPath()` for resolution logic.
+
+---
+
 ## Permissions
 
 The app requires three macOS permissions:
@@ -270,6 +299,8 @@ The app requires three macOS permissions:
 - **Microphone** — For voice input via speech recognition
 
 Grant these in System Settings → Privacy & Security.
+
+---
 
 ## Usage
 
@@ -287,6 +318,9 @@ Grant these in System Settings → Privacy & Security.
 
 ### Keyboard Shortcuts
 
+<details>
+<summary><strong>Keyboard shortcuts reference</strong></summary>
+
 | Shortcut | Action |
 |----------|--------|
 | `Cmd +` | Conversation zoom in (text only) |
@@ -301,6 +335,8 @@ Grant these in System Settings → Privacy & Security.
 **Conversation zoom** scales chat text (messages, markdown, code blocks, composer) independently of the window. A brief "Text 125%" indicator appears on each change. The zoom level persists across app relaunches.
 
 **Window zoom** scales the entire UI uniformly. A percentage indicator appears at the top of the window on each change.
+
+</details>
 
 ### Opportunistic Message Queueing
 
@@ -317,6 +353,8 @@ Users can send multiple messages while the assistant is busy. Messages are queue
 
 In Settings > Trust, engineers can simulate whether a tool invocation would be allowed, denied, or prompted. The tester shows the same `ToolConfirmationBubble` UI used in chat. "Allow Once" and "Don't Allow" are simulation-only; "Always Allow" persists a real trust rule.
 
+---
+
 ## Xcode Previews
 
 The package is split into a library target (`VellumAssistantLib`) and a thin executable target (`vellum-assistant`). This lets you preview SwiftUI views live in Xcode without building and running the whole app.
@@ -326,7 +364,8 @@ The package is split into a library target (`VellumAssistantLib`) and a thin exe
 1. **Install Xcode** — Download from the [Mac App Store](https://apps.apple.com/us/app/xcode/id497799835) (free, requires macOS). It's a large download (~7 GB), so this may take a while.
 2. **Open Xcode once** after installing and accept the license agreement. It will install additional components automatically.
 
-### Step-by-step: Opening the project
+<details>
+<summary><strong>Step-by-step: Opening the project</strong></summary>
 
 1. Open Terminal and run:
    ```bash
@@ -340,18 +379,23 @@ The package is split into a library target (`VellumAssistantLib`) and a thin exe
 
 2. Xcode will open and start resolving dependencies (you'll see a spinner in the top status bar). Wait for it to finish — this only takes a few seconds.
 
-### Step-by-step: Viewing a preview
+</details>
+
+<details>
+<summary><strong>Step-by-step: Viewing a preview</strong></summary>
 
 1. **Select the library scheme.** At the very top center of the Xcode window, there's a dropdown button that shows the current scheme (it probably says `vellum-assistant > My Mac`). Click it and switch to **`VellumAssistantLib`**. Previews only work on the library target — the executable target will show an error about `ENABLE_DEBUG_DYLIB`.
 
 2. **Open a SwiftUI file.** In the left sidebar (file navigator), expand `vellum-assistant` and navigate to any SwiftUI view, for example:
    - `Features/Onboarding/OnboardingFlowView.swift`
-   - `Features/Session/SessionOverlayView.swift`
+   - `Features/Session/SessionOverlayWindow.swift`
    - `Features/Settings/SettingsAppearanceTab.swift`
 
 3. **Show the Canvas.** Go to the menu bar: **Editor → Canvas** (or press `⌥⌘↩` / Option+Command+Return). A preview panel appears on the right side of the editor.
 
 4. **Resume the preview.** If the canvas says "Preview paused", click the **Resume** button at the top of the canvas (or press `⌥⌘P` / Option+Command+P). Xcode will build the library and render the preview.
+
+</details>
 
 ### Important: Views need a `#Preview` block
 
@@ -389,7 +433,12 @@ For example, views with dependencies need them passed in:
 | "Preview paused" | Click **Resume** in the canvas or press `⌥⌘P` |
 | Build errors in the canvas | Try **Product → Clean Build Folder** (`⇧⌘K`) then resume |
 
+---
+
 ## Architecture
+
+<details>
+<summary><strong>Full directory layout</strong></summary>
 
 ```
 App/                  AppDelegate, menu bar setup, permissions, voice input
@@ -414,22 +463,29 @@ Ambient/              Background screen-watching agent
 Features/
   Ambient/            Background screen monitoring UI
   Avatar/             Avatar customization
-  BrowserPiP/         Browser picture-in-picture
   Chat/               Chat interface (ChatView, ChatViewModel, ChatMessage)
+  CommandPalette/     Command palette (search, actions)
+  Contacts/           Contact management
+  GuardianVerification/ Guardian verification flow
   MainWindow/         Main window shell, ThreadTabBar, PanelCoordinator, side panels
-  MenuBar/            NSStatusItem and popover lifecycle
   Onboarding/         First-launch setup flow (permissions, naming, Fn key)
+  QuickInput/         Quick task input popover and screen selection
   Session/            Session overlay UI for computer-use task execution
   Settings/           Tabbed settings panels (Appearance, Advanced, Connect, Trust, etc.)
   Sharing/            Content sharing and export
   Surfaces/           Daemon surface rendering (HTML/JSON overlays)
-  TaskInput/          Quick task input popover
-  Tasks/              Task management UI
   Voice/              Voice input UI (VoiceTranscriptionWindow)
+Recording/            Screen recording (HUD, capture, thumbnails)
+Telemetry/            Crash reporting, MetricKit, perf signposts
+Security/             Keychain broker
 Logging/
   TraceStore          In-memory trace event store (per-session, dedup, retention cap)
   Session recording   JSON logs to ~/Library/App Support/
 ```
+
+</details>
+
+---
 
 ## Remote Assistant
 
@@ -438,6 +494,8 @@ The app supports connecting to a remote assistant process via SSH socket forward
 ### Zero-Copy Blob Transport
 
 On local macOS connections, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/workspace/data/ipc-blobs/` instead of inline base64/text. On every macOS socket connect, the client runs a blob probe: writes a random nonce to the blob directory and sends its SHA-256 to the daemon. If the daemon reads the file and the hashes match, `isBlobTransportAvailable` is set to `true` and subsequent observations use blob references. Over SSH-forwarded sockets, the probe fails automatically (no shared filesystem) and the client falls back to inline payloads. On iOS, the probe is compiled out via `#if os(macOS)`.
+
+---
 
 ## Safety
 

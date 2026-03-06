@@ -7,6 +7,8 @@ struct AppsGridView: View {
     let daemonClient: DaemonClient
     let gatewayBaseURL: String
     let onOpenApp: (String) -> Void
+    /// Called when the user opens a shared app (needs surface-based navigation).
+    var onOpenSharedApp: ((UiSurfaceShowMessage) -> Void)?
 
     @State private var searchText = ""
     @State private var hoveredAppId: String?
@@ -17,6 +19,11 @@ struct AppsGridView: View {
     @State private var shareAppIcon: NSImage?
     @State private var showShareSheet = false
     @State private var isBundling = false
+
+    // Shared apps fetched from daemon
+    @State private var sharedApps: [SharedAppItem] = []
+    @State private var isLoadingShared = false
+    @State private var hasFetchedShared = false
 
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
@@ -31,7 +38,7 @@ struct AppsGridView: View {
 
     var body: some View {
         Group {
-            if appListManager.apps.isEmpty {
+            if appListManager.apps.isEmpty && sharedApps.isEmpty && hasFetchedShared {
                 noAppsEmptyState
             } else {
                 VStack(alignment: .leading, spacing: 0) {
@@ -46,40 +53,15 @@ struct AppsGridView: View {
 
                     Divider().background(VColor.surfaceBorder)
 
-                    ScrollView {
-                        VStack(spacing: VSpacing.xxl) {
-                            searchBar
-
-                            let pinned = filteredPinnedApps
-                            let recents = filteredRecentApps
-
-                            if !pinned.isEmpty {
-                                appSection(title: "Pinned", apps: pinned)
-                            }
-
-                            if !recents.isEmpty {
-                                appSection(title: "Recents", apps: recents)
-                            }
-
-                            if pinned.isEmpty && recents.isEmpty && !searchText.isEmpty {
-                                VEmptyState(
-                                    title: "No apps matched",
-                                    subtitle: "No apps matched \"\(searchText)\"",
-                                    icon: VIcon.search.rawValue
-                                )
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, VSpacing.xxxl)
-                            }
-                        }
-                        .frame(maxWidth: maxContentWidth)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, VSpacing.lg)
-                    }
+                    mainContent
                 }
                 .padding(VSpacing.xl)
             }
         }
         .background(VColor.backgroundSubtle)
+        .onAppear {
+            if !hasFetchedShared { fetchSharedApps() }
+        }
         .onDisappear {
             for task in previewTasks.values { task.cancel() }
             previewTasks.removeAll()
@@ -92,6 +74,50 @@ struct AppsGridView: View {
                     appListManager.updateAppIcon(id: app.id, sfSymbol: symbol)
                 }
             )
+        }
+    }
+
+    // MARK: - Main Content
+
+    private var mainContent: some View {
+        ScrollView {
+            VStack(spacing: VSpacing.xxl) {
+                searchBar
+
+                let pinned = filteredPinnedApps
+                let recents = filteredRecentApps
+                let shared = filteredSharedApps
+
+                if !pinned.isEmpty {
+                    appSection(title: "Pinned", apps: pinned)
+                }
+
+                if !recents.isEmpty {
+                    appSection(title: "Recents", apps: recents)
+                }
+
+                if !shared.isEmpty {
+                    sharedSection(title: "Shared", apps: shared)
+                } else if isLoadingShared {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, VSpacing.lg)
+                }
+
+                if pinned.isEmpty && recents.isEmpty && shared.isEmpty && !searchText.isEmpty {
+                    VEmptyState(
+                        title: "No apps matched",
+                        subtitle: "No apps matched \"\(searchText)\"",
+                        icon: VIcon.search.rawValue
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, VSpacing.xxxl)
+                }
+            }
+            .frame(maxWidth: maxContentWidth)
+            .frame(maxWidth: .infinity)
+            .padding(.top, VSpacing.lg)
         }
     }
 
@@ -288,6 +314,104 @@ struct AppsGridView: View {
         .accessibilityLabel(app.name)
     }
 
+    // MARK: - Shared App Card
+
+    private func sharedAppCard(_ app: SharedAppItem) -> some View {
+        let preview = app.preview
+        let resolvedPreview = preview?.isEmpty == true ? nil : preview
+
+        return Button {
+            openSharedApp(app)
+        } label: {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                Group {
+                    if let nsImage = AppPreviewImageStore.image(appId: "shared-\(app.uuid)", base64: resolvedPreview) {
+                        Color.clear
+                            .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                            .overlay(
+                                Image(nsImage: nsImage)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                            )
+                            .clipped()
+                    } else {
+                        ZStack {
+                            Moss._100
+
+                            Text(app.icon ?? "\u{1F4F1}")
+                                .font(.system(size: 32))
+                        }
+                        .aspectRatio(16.0 / 10.0, contentMode: .fit)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .stroke(VColor.surfaceBorder, lineWidth: 1)
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: VSpacing.xs) {
+                        Text(app.name)
+                            .font(VFont.bodyBold)
+                            .foregroundColor(VColor.textPrimary)
+                            .lineLimit(1)
+
+                        if let signer = app.signerDisplayName {
+                            Text("by \(signer)")
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    Text(Self.formatISO(app.installedAt))
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, VSpacing.xs)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            hoveredAppId = hovering ? "shared-\(app.uuid)" : nil
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+    }
+
+    private func openSharedApp(_ app: SharedAppItem) {
+        let safeName = app.name
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
+        let sanitizedUUID = app.uuid
+            .replacingOccurrences(of: "\\", with: "")
+            .replacingOccurrences(of: "'", with: "")
+        let entryURL = "\(VellumAppSchemeHandler.scheme)://\(sanitizedUUID)/index.html"
+        let html = """
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="utf-8"><title>\(safeName)</title></head>
+        <body><script>window.location.href = '\(entryURL)';</script></body>
+        </html>
+        """
+        let surfaceMsg = UiSurfaceShowMessage(
+            sessionId: "shared-app",
+            surfaceId: "shared-app-\(app.uuid)",
+            surfaceType: "dynamic_page",
+            title: app.name,
+            data: AnyCodable(["html": html]),
+            actions: nil,
+            display: "panel",
+            messageId: nil
+        )
+        onOpenSharedApp?(surfaceMsg)
+    }
+
     // MARK: - Sharing
 
     private func bundleAndShareLocal(appId: String) {
@@ -355,6 +479,26 @@ struct AppsGridView: View {
         previewTasks[appId] = task
     }
 
+    // MARK: - Daemon Data Fetching
+
+    private func fetchSharedApps() {
+        isLoadingShared = true
+        let previousHandler = daemonClient.onSharedAppsListResponse
+        daemonClient.onSharedAppsListResponse = { response in
+            daemonClient.onSharedAppsListResponse = previousHandler
+            self.sharedApps = response.apps
+            self.isLoadingShared = false
+            self.hasFetchedShared = true
+        }
+        do {
+            try daemonClient.sendSharedAppsList()
+        } catch {
+            isLoadingShared = false
+            hasFetchedShared = true
+            daemonClient.onSharedAppsListResponse = previousHandler
+        }
+    }
+
     // MARK: - Sections
 
     private func appSection(title: String, apps: [AppListManager.AppItem]) -> some View {
@@ -367,6 +511,20 @@ struct AppsGridView: View {
                 ForEach(apps) { app in
                     appCard(app)
                         .onAppear { fetchPreviewIfNeeded(app) }
+                }
+            }
+        }
+    }
+
+    private func sharedSection(title: String, apps: [SharedAppItem]) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text(title)
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+
+            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
+                ForEach(apps) { app in
+                    sharedAppCard(app)
                 }
             }
         }
@@ -395,6 +553,15 @@ struct AppsGridView: View {
         return unpinned.filter { matchesSearch($0) }
     }
 
+    /// Shared apps filtered by search text.
+    private var filteredSharedApps: [SharedAppItem] {
+        guard !searchText.isEmpty else { return sharedApps }
+        return sharedApps.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText) ||
+            ($0.description?.localizedCaseInsensitiveContains(searchText) ?? false)
+        }
+    }
+
     private func matchesSearch(_ app: AppListManager.AppItem) -> Bool {
         app.name.localizedCaseInsensitiveContains(searchText) ||
         (app.description?.localizedCaseInsensitiveContains(searchText) ?? false)
@@ -410,6 +577,16 @@ struct AppsGridView: View {
 
     private static func formatDate(_ date: Date) -> String {
         dateFormatter.string(from: date)
+    }
+
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        return f
+    }()
+
+    private static func formatISO(_ isoString: String) -> String {
+        guard let date = isoFormatter.date(from: isoString) else { return isoString }
+        return dateFormatter.string(from: date)
     }
 }
 

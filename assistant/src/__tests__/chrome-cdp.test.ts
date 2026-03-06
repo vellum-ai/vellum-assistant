@@ -4,16 +4,19 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks
 // ---------------------------------------------------------------------------
 
-// We need to mock child_process.spawn and the global fetch / WebSocket so
-// tests don't need a real Chrome process.
+// We need to mock child_process.spawn and execSync, and the global fetch /
+// WebSocket so tests don't need a real Chrome process.
 
 const spawnMock = mock(() => {
   const proc = { unref: mock(() => {}) };
   return proc;
 });
 
+const execSyncMock = mock(() => "");
+
 mock.module("node:child_process", () => ({
   spawn: spawnMock,
+  execSync: execSyncMock,
 }));
 
 const {
@@ -28,6 +31,17 @@ let fetchImpl: (url: string | URL | Request) => Promise<Response>;
 
 const originalFetch = globalThis.fetch;
 
+/** Helper: a fetchImpl that simulates a CDP endpoint with page targets. */
+function cdpReadyFetch(url: string | URL | Request): Promise<Response> {
+  const urlStr = String(url);
+  if (urlStr.includes("/json/list")) {
+    return Promise.resolve(
+      new Response(JSON.stringify([{ type: "page" }]), { status: 200 }),
+    );
+  }
+  return Promise.resolve(new Response("{}", { status: 200 }));
+}
+
 beforeEach(() => {
   // Default: CDP not ready
   fetchImpl = async () => {
@@ -40,6 +54,7 @@ beforeEach(() => {
     return fetchImpl(input);
   }) as typeof globalThis.fetch;
   spawnMock.mockClear();
+  execSyncMock.mockClear();
 });
 
 afterEach(() => {
@@ -51,8 +66,8 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("isCdpReady", () => {
-  test("returns true when the endpoint responds with 200", async () => {
-    fetchImpl = async () => new Response("{}", { status: 200 });
+  test("returns true when the endpoint responds with 200 and has page targets", async () => {
+    fetchImpl = cdpReadyFetch;
     expect(await isCdpReady()).toBe(true);
   });
 
@@ -68,14 +83,33 @@ describe("isCdpReady", () => {
     expect(await isCdpReady()).toBe(false);
   });
 
-  test("uses the provided base URL", async () => {
-    let calledUrl = "";
+  test("returns false when CDP is up but has no page targets", async () => {
     fetchImpl = async (url) => {
-      calledUrl = String(url);
+      const urlStr = String(url);
+      if (urlStr.includes("/json/list")) {
+        return new Response("[]", { status: 200 });
+      }
+      return new Response("{}", { status: 200 });
+    };
+    expect(await isCdpReady()).toBe(false);
+  });
+
+  test("uses the provided base URL", async () => {
+    const calledUrls: string[] = [];
+    fetchImpl = async (url) => {
+      const urlStr = String(url);
+      calledUrls.push(urlStr);
+      if (urlStr.includes("/json/list")) {
+        return new Response(JSON.stringify([{ type: "page" }]), {
+          status: 200,
+        });
+      }
       return new Response("{}", { status: 200 });
     };
     await isCdpReady("http://localhost:9333");
-    expect(calledUrl).toBe("http://localhost:9333/json/version");
+    expect(calledUrls.some((u) => u.startsWith("http://localhost:9333/"))).toBe(
+      true,
+    );
   });
 });
 
@@ -85,7 +119,7 @@ describe("isCdpReady", () => {
 
 describe("ensureChromeWithCdp", () => {
   test("returns immediately if CDP is already ready (launchedByUs=false)", async () => {
-    fetchImpl = async () => new Response("{}", { status: 200 });
+    fetchImpl = cdpReadyFetch;
     const session = await ensureChromeWithCdp();
     expect(session.launchedByUs).toBe(false);
     expect(session.baseUrl).toBe("http://localhost:9222");
@@ -94,10 +128,20 @@ describe("ensureChromeWithCdp", () => {
 
   test("spawns Chrome and retries when CDP is not initially ready", async () => {
     let callCount = 0;
-    fetchImpl = async () => {
+    fetchImpl = async (url) => {
       callCount++;
-      // Succeed on the 3rd call (1st check + 2 retries)
-      if (callCount >= 3) return new Response("{}", { status: 200 });
+      // First isCdpReady check fails (2 fetch calls: /json/version + /json/list).
+      // Stale-check /json/version also fails.
+      // After spawn, successive isCdpReady calls succeed on the 5th overall call.
+      if (callCount >= 5) {
+        const urlStr = String(url);
+        if (urlStr.includes("/json/list")) {
+          return new Response(JSON.stringify([{ type: "page" }]), {
+            status: 200,
+          });
+        }
+        return new Response("{}", { status: 200 });
+      }
       throw new Error("Connection refused");
     };
 
@@ -119,13 +163,13 @@ describe("ensureChromeWithCdp", () => {
   });
 
   test("uses custom port when specified", async () => {
-    fetchImpl = async () => new Response("{}", { status: 200 });
+    fetchImpl = cdpReadyFetch;
     const session = await ensureChromeWithCdp({ port: 9333 });
     expect(session.baseUrl).toBe("http://localhost:9333");
   });
 
   test("uses custom userDataDir when specified", async () => {
-    fetchImpl = async () => new Response("{}", { status: 200 });
+    fetchImpl = cdpReadyFetch;
     const session = await ensureChromeWithCdp({
       userDataDir: "/tmp/test-chrome",
     });
@@ -138,10 +182,6 @@ describe("ensureChromeWithCdp", () => {
       throw new Error("Connection refused");
     };
 
-    // Override the retry delay so the test doesn't take 15 seconds.
-    // We can't easily do that without changing the implementation, so we
-    // test a shorter scenario: just verify it throws eventually.
-    // For CI speed, we rely on the error message check.
     const promise = ensureChromeWithCdp();
     await expect(promise).rejects.toThrow("CDP endpoint not responding");
   }, 20_000);

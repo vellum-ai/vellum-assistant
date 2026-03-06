@@ -83,6 +83,17 @@ extension MainWindowView {
                 onOpenApp: { appId in
                     try? daemonClient.sendAppOpen(appId: appId)
                     windowState.selection = .app(appId)
+                },
+                onOpenSharedApp: { surfaceMsg in
+                    windowState.activeDynamicSurface = surfaceMsg
+                    windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                    if let surface = windowState.activeDynamicParsedSurface,
+                       case .dynamicPage(let dpData) = surface.data,
+                       let appId = dpData.appId {
+                        windowState.selection = .app(appId)
+                    } else {
+                        windowState.selection = .app(surfaceMsg.surfaceId)
+                    }
                 }
             )
         case .intelligence:
@@ -349,6 +360,17 @@ extension MainWindowView {
                     onOpenApp: { appId in
                         try? daemonClient.sendAppOpen(appId: appId)
                         windowState.selection = .app(appId)
+                    },
+                    onOpenSharedApp: { surfaceMsg in
+                        windowState.activeDynamicSurface = surfaceMsg
+                        windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                        if let surface = windowState.activeDynamicParsedSurface,
+                           case .dynamicPage(let dpData) = surface.data,
+                           let appId = dpData.appId {
+                            windowState.selection = .app(appId)
+                        } else {
+                            windowState.selection = .app(surfaceMsg.surfaceId)
+                        }
                     }
                 )
                 .overlay(alignment: .topTrailing) { panelDismissButton }
@@ -499,6 +521,17 @@ extension MainWindowView {
                 onOpenApp: { appId in
                     try? daemonClient.sendAppOpen(appId: appId)
                     windowState.selection = .app(appId)
+                },
+                onOpenSharedApp: { surfaceMsg in
+                    windowState.activeDynamicSurface = surfaceMsg
+                    windowState.activeDynamicParsedSurface = Surface.from(surfaceMsg)
+                    if let surface = windowState.activeDynamicParsedSurface,
+                       case .dynamicPage(let dpData) = surface.data,
+                       let appId = dpData.appId {
+                        windowState.selection = .app(appId)
+                    } else {
+                        windowState.selection = .app(surfaceMsg.surfaceId)
+                    }
                 }
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }

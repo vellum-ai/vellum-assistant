@@ -77,7 +77,7 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("do not delete this file");
       // Assistant name is hard-required
       expect(lower).toContain("you have a name");
-      expect(lower).toContain("hard requirement");
+      expect(lower).toContain("hard-required");
       expect(lower).toContain("vibe");
       // User detail fields must be resolved (provided, inferred, or declined)
       expect(lower).toContain("resolved");
