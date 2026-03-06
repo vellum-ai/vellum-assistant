@@ -30,6 +30,7 @@ struct AssistantProgressView: View {
     let decidedConfirmations: [ToolConfirmationData]
     var onRehydrate: (() -> Void)?
 
+    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
     @State private var processingStartDate: Date?
@@ -198,6 +199,22 @@ struct AssistantProgressView: View {
                 startDate = Date()
             }
         }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded, onRehydrate != nil {
+                // Trigger rehydrate when expanding if any complete tool call
+                // has been stripped (all detail fields cleared by stripHeavyContent).
+                let hasStrippedToolCall = toolCalls.contains { tc in
+                    tc.isComplete
+                        && tc.inputFull.isEmpty
+                        && tc.result == nil
+                        && tc.inputRawDict == nil
+                        && tc.cachedImage == nil
+                }
+                if hasStrippedToolCall {
+                    onRehydrate?()
+                }
+            }
+        }
         .onAppear {
             if phase == .processing && processingStartDate == nil {
                 processingStartDate = Date()
@@ -215,6 +232,7 @@ struct AssistantProgressView: View {
     private var headerRow: some View {
         Button(action: {
             guard hasChevron else { return }
+            suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
             }
@@ -455,6 +473,7 @@ private struct StepDetailRow: View {
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
     /// Lazily resolved full input text.
     private var resolvedInputFull: String {
@@ -483,6 +502,7 @@ private struct StepDetailRow: View {
             // Row header
             Button {
                 guard hasDetails else { return }
+                suppressAutoScroll?()
                 withAnimation(VAnimation.fast) { isDetailExpanded.toggle() }
             } label: {
                 HStack(spacing: VSpacing.sm) {
@@ -596,10 +616,10 @@ private struct StepDetailRow: View {
         .animation(VAnimation.fast, value: isDetailExpanded)
         .onChange(of: isDetailExpanded) { _, newValue in
             if newValue, cachedInputFull == nil {
-                if let dict = toolCall.inputRawDict {
-                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
-                } else if !toolCall.inputFull.isEmpty {
+                if !toolCall.inputFull.isEmpty {
                     cachedInputFull = toolCall.inputFull
+                } else if let dict = toolCall.inputRawDict {
+                    cachedInputFull = ToolCallData.formatAllToolInput(dict)
                 }
             }
         }
@@ -707,15 +727,10 @@ private struct StepDetailRow: View {
 
                     ZStack(alignment: .topTrailing) {
                         ScrollView {
-                            VStack(alignment: .leading, spacing: 0) {
-                                ForEach(Array(result.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
-                                    Text(line)
-                                        .font(VFont.monoSmall)
-                                        .foregroundColor(diffLineColor(line, result: result, isError: toolCall.isError))
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                            }
-                            .textSelection(.enabled)
+                            Text(coloredOutput(result, isError: toolCall.isError))
+                                .font(VFont.monoSmall)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
                         }
                         .frame(maxHeight: 200)
                         .padding(VSpacing.sm)
@@ -776,14 +791,33 @@ private struct StepDetailRow: View {
         )
     }
 
-    private func diffLineColor(_ line: String, result: String, isError: Bool) -> Color {
-        if isError { return VColor.error }
+    private func coloredOutput(_ result: String, isError: Bool) -> AttributedString {
+        let lines = result.components(separatedBy: "\n")
         let isDiff = result.contains("@@") && result.contains("---") && result.contains("+++")
-        guard isDiff else { return VColor.textSecondary }
-        if line.hasPrefix("+") { return Emerald._400 }
-        if line.hasPrefix("-") { return Danger._400 }
-        if line.hasPrefix("@@") { return VColor.textMuted }
-        return VColor.textSecondary
+        var attributed = AttributedString()
+        for (index, line) in lines.enumerated() {
+            var part = AttributedString(line)
+            let color: Color
+            if isError {
+                color = VColor.error
+            } else if !isDiff {
+                color = VColor.textSecondary
+            } else if line.hasPrefix("+") {
+                color = Emerald._400
+            } else if line.hasPrefix("-") {
+                color = Danger._400
+            } else if line.hasPrefix("@@") {
+                color = VColor.textMuted
+            } else {
+                color = VColor.textSecondary
+            }
+            part.foregroundColor = color
+            attributed.append(part)
+            if index < lines.count - 1 {
+                attributed.append(AttributedString("\n"))
+            }
+        }
+        return attributed
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
