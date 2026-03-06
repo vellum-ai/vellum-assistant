@@ -164,12 +164,10 @@ public struct VIconButtonStyle: ButtonStyle {
             return VColor.buttonNeutral
 
         case .secondary:
-            guard isEnabled else {
-                return adaptiveColor(light: Color(hex: 0xD4DFD4), dark: Color(hex: 0x3A3A37)).opacity(0.5)
-            }
-            if isPressed { return adaptiveColor(light: Color(hex: 0xC3D2C3), dark: Color(hex: 0x4A4A46)) }
-            if isHovered { return adaptiveColor(light: Color(hex: 0xCBD8CB), dark: Color(hex: 0x424240)) }
-            return adaptiveColor(light: Color(hex: 0xD4DFD4), dark: Color(hex: 0x3A3A37))
+            guard isEnabled else { return VColor.buttonSecondaryBg.opacity(0.5) }
+            if isPressed { return VColor.buttonSecondaryBgPressed }
+            if isHovered { return VColor.buttonSecondaryBgHover }
+            return VColor.buttonSecondaryBg
 
         case .outlined:
             if isPressed { return VColor.ghostPressed }
