@@ -299,6 +299,45 @@ struct MarkdownTableView: View {
 
     @Environment(\.conversationZoomScale) private var zoomScale
 
+    // MARK: - Table Cell AttributedString Cache
+
+    /// Simple LRU cache for table cell inline markdown AttributedString results.
+    /// Keyed by "\(cellText)\t\(zoomScale)" to account for zoom changes.
+    private static let cellCacheLimit = 200
+
+    /// Ordered dictionary acting as an LRU cache: most-recently-used entries are at the end.
+    @MainActor private static var cellCache: [(key: String, value: AttributedString)] = []
+
+    @MainActor static func clearCellAttributedStringCache() {
+        cellCache.removeAll()
+    }
+
+    @MainActor private static func cachedAttributedString(for text: String, zoomScale: CGFloat) -> AttributedString {
+        let key = "\(text)\t\(zoomScale)"
+
+        // Check if already cached — if so, move to end (most-recently-used)
+        if let idx = cellCache.firstIndex(where: { $0.key == key }) {
+            let entry = cellCache.remove(at: idx)
+            cellCache.append(entry)
+            return entry.value
+        }
+
+        // Parse and cache
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        let attributed = (try? AttributedString(markdown: text, options: options))
+            ?? AttributedString(text)
+
+        // Evict oldest entries if over limit
+        if cellCache.count >= cellCacheLimit {
+            cellCache.removeFirst()
+        }
+        cellCache.append((key: key, value: attributed))
+
+        return attributed
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header row
@@ -341,11 +380,7 @@ struct MarkdownTableView: View {
     }
 
     private func inlineMarkdownCell(_ text: String) -> some View {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        let attributed = (try? AttributedString(markdown: text, options: options))
-            ?? AttributedString(text)
+        let attributed = Self.cachedAttributedString(for: text, zoomScale: zoomScale)
         return Text(attributed)
             .font(.custom("Inter", size: 13 * zoomScale))
             .foregroundColor(VColor.textPrimary)

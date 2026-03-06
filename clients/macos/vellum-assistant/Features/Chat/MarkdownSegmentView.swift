@@ -217,6 +217,7 @@ struct MarkdownSegmentView: View {
     static func clearAttributedStringCache() {
         attributedStringCache.removeAll()
         estimatedCacheBytes = 0
+        MarkdownTableView.clearCellAttributedStringCache()
     }
 
     /// Rough character count of the text content within a segment array.
