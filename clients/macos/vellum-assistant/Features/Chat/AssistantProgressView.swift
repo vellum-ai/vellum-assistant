@@ -456,17 +456,17 @@ struct AssistantProgressView: View {
         let isDenied = confirmation.state == .denied
         let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
 
-        return HStack(spacing: VSpacing.xs) {
+        return HStack(spacing: VSpacing.xxs) {
             Group {
                 switch confirmation.state {
                 case .approved:
-                    VIconView(.circleCheck, size: 12)
+                    VIconView(.circleCheck, size: 10)
                         .foregroundColor(chipColor)
                 case .denied:
-                    VIconView(.circleAlert, size: 12)
+                    VIconView(.circleAlert, size: 10)
                         .foregroundColor(chipColor)
                 case .timedOut:
-                    VIconView(.clock, size: 12)
+                    VIconView(.clock, size: 10)
                         .foregroundColor(chipColor)
                 default:
                     EmptyView()
@@ -475,11 +475,11 @@ struct AssistantProgressView: View {
 
             Text(isApproved ? "\(confirmation.toolCategory) Allowed" :
                  isDenied ? "\(confirmation.toolCategory) Denied" : "Timed Out")
-                .font(VFont.captionMedium)
+                .font(VFont.small)
                 .foregroundColor(chipColor)
         }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.horizontal, VSpacing.xs)
+        .padding(.vertical, VSpacing.xxs)
         .background(
             Capsule().fill(Color.clear)
         )
