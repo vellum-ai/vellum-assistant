@@ -105,7 +105,9 @@ extension MainWindowView {
                 collapsedSidebarContent
             }
         }
-        .padding(VSpacing.xs)
+        .padding(.horizontal, VSpacing.xs)
+        .padding(.top, VSpacing.md)
+        .padding(.bottom, sidebarExpanded ? VSpacing.md : VSpacing.sm)
         .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth, alignment: .leading)
         .background(adaptiveColor(light: Moss._50, dark: Moss._950))
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
@@ -165,22 +167,19 @@ extension MainWindowView {
 
     @ViewBuilder
     var expandedSidebarContent: some View {
-        VStack(spacing: VSpacing.sm) {
+        VStack(spacing: SidebarLayoutMetrics.listRowGap) {
             Spacer().frame(height: 0)
 
             // MARK: Pinned Apps (above nav items)
             if !appListManager.pinnedApps.isEmpty {
-                VStack(spacing: VSpacing.sm) {
+                VStack(spacing: SidebarLayoutMetrics.listRowGap) {
                     ForEach(appListManager.pinnedApps) { app in
                         sidebarPinnedAppRow(app)
                     }
                 }
                 .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
-                VColor.divider
-                    .frame(height: 1)
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.sm)
+                sidebarSectionDivider(isExpanded: true)
             }
 
             // MARK: Nav Items (fixed)
@@ -192,10 +191,7 @@ extension MainWindowView {
             }
 
             // Divider between nav items and threads
-            VColor.divider
-                .frame(height: 1)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
+            sidebarSectionDivider(isExpanded: true)
 
             // MARK: Threads (scrollable)
             SidebarThreadsHeader(
@@ -240,7 +236,7 @@ extension MainWindowView {
                             sidebar: sidebar,
                             selectThread: { selectThread(thread) }
                         )
-                            .padding(.bottom, VSpacing.xxs)
+                            .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                 if sidebar.dropTargetThreadId == thread.id {
                                     Rectangle()
@@ -295,10 +291,10 @@ extension MainWindowView {
                                 .foregroundColor(VColor.textMuted)
                             Spacer()
                         }
-                        .padding(.leading, 20)
+                        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
                         .padding(.trailing, VSpacing.md)
-                        .padding(.top, VSpacing.md)
-                        .padding(.bottom, VSpacing.xs)
+                        .padding(.top, SidebarLayoutMetrics.scheduledHeaderTopGap)
+                        .padding(.bottom, SidebarLayoutMetrics.scheduledHeaderBottomGap)
 
                         ForEach(displayedScheduleGroups, id: \.key) { group in
                             if group.threads.count == 1, let thread = group.threads.first {
@@ -310,7 +306,7 @@ extension MainWindowView {
                                     sidebar: sidebar,
                                     selectThread: { selectThread(thread) }
                                 )
-                                    .padding(.bottom, VSpacing.xxs)
+                                    .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                         if sidebar.dropTargetThreadId == thread.id {
                                             Rectangle()
@@ -325,66 +321,42 @@ extension MainWindowView {
                                         threadManager: threadManager
                                     ))
                             } else {
-                                // Multi-thread group: DisclosureGroup with fully-tappable label
-                                DisclosureGroup(
-                                    isExpanded: Binding(
-                                        get: { sidebar.expandedScheduleGroups.contains(group.key) },
-                                        set: { isExpanded in
-                                            withAnimation(VAnimation.standard) {
-                                                if isExpanded {
-                                                    sidebar.expandedScheduleGroups.insert(group.key)
-                                                } else {
-                                                    sidebar.expandedScheduleGroups.remove(group.key)
-                                                }
-                                            }
-                                        }
-                                    )
-                                ) {
-                                    VStack(spacing: 0) {
-                                        ForEach(group.threads) { thread in
-                                            SidebarThreadItem(
-                                                thread: thread,
-                                                threadManager: threadManager,
-                                                windowState: windowState,
-                                                sidebar: sidebar,
-                                                selectThread: { selectThread(thread) }
-                                            )
-                                                .padding(.bottom, VSpacing.xxs)
-                                                .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                                                    if sidebar.dropTargetThreadId == thread.id {
-                                                        Rectangle()
-                                                            .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
-                                                            .frame(height: 2)
-                                                            .transition(.opacity)
-                                                    }
-                                                }
-                                                .onDrop(of: [.plainText], delegate: ScheduleReorderDropDelegate(
-                                                    targetThread: thread,
-                                                    sidebar: sidebar,
-                                                    threadManager: threadManager
-                                                ))
+                                // Multi-thread group: custom disclosure styled like a nav row
+                                let isGroupExpanded = sidebar.expandedScheduleGroups.contains(group.key)
+                                let hasUnread = !isGroupExpanded &&
+                                    group.threads.contains(where: { $0.hasUnseenLatestAssistantMessage })
+
+                                // Header row — chevron in icon slot, label + count badge
+                                Button {
+                                    withAnimation(VAnimation.standard) {
+                                        if isGroupExpanded {
+                                            sidebar.expandedScheduleGroups.remove(group.key)
+                                        } else {
+                                            sidebar.expandedScheduleGroups.insert(group.key)
                                         }
                                     }
                                 } label: {
-                                    HStack(spacing: VSpacing.sm) {
-                                        // Unread indicator: always reserve space so text
-                                        // doesn't shift when the dot appears/disappears.
+                                    HStack(spacing: VSpacing.xs) {
                                         ZStack {
-                                            if !sidebar.expandedScheduleGroups.contains(group.key),
-                                               group.threads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 10, weight: .semibold))
+                                                .foregroundColor(VColor.textMuted)
+                                                .rotationEffect(.degrees(isGroupExpanded ? 90 : 0))
+                                                .animation(VAnimation.fast, value: isGroupExpanded)
+                                            if hasUnread {
                                                 Circle()
                                                     .fill(Color(hex: 0xE86B40))
                                                     .frame(width: 6, height: 6)
+                                                    .offset(x: 7, y: -5)
                                                     .transition(.opacity)
                                             }
                                         }
-                                        .frame(width: 6)
+                                        .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
                                         Text(group.label)
                                             .font(.system(size: 13))
                                             .foregroundColor(VColor.textPrimary)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
-                                            .padding(.leading, 2)
                                         Text("\(group.threads.count)")
                                             .font(.system(size: 10, weight: .medium))
                                             .foregroundColor(VColor.textMuted)
@@ -394,29 +366,56 @@ extension MainWindowView {
                                                 Capsule()
                                                     .fill(VColor.textMuted.opacity(0.12))
                                             )
+                                        Spacer()
                                     }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, VSpacing.xs)
+                                    .padding(.trailing, VSpacing.sm)
+                                    .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+                                    .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
                                     .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        withAnimation(VAnimation.standard) {
-                                            if sidebar.expandedScheduleGroups.contains(group.key) {
-                                                sidebar.expandedScheduleGroups.remove(group.key)
-                                            } else {
-                                                sidebar.expandedScheduleGroups.insert(group.key)
-                                            }
-                                        }
-                                    }
-                                    .pointerCursor()
                                 }
+                                .buttonStyle(.plain)
                                 .padding(.horizontal, VSpacing.sm)
-                                .padding(.bottom, VSpacing.xxs)
+                                .pointerCursor()
+
+                                // Expanded child rows
+                                if isGroupExpanded {
+                                    ForEach(group.threads) { thread in
+                                        SidebarThreadItem(
+                                            thread: thread,
+                                            threadManager: threadManager,
+                                            windowState: windowState,
+                                            sidebar: sidebar,
+                                            selectThread: { selectThread(thread) }
+                                        )
+                                            .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+                                            .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
+                                                if sidebar.dropTargetThreadId == thread.id {
+                                                    Rectangle()
+                                                        .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                                        .frame(height: 2)
+                                                        .transition(.opacity)
+                                                }
+                                            }
+                                            .onDrop(of: [.plainText], delegate: ScheduleReorderDropDelegate(
+                                                targetThread: thread,
+                                                sidebar: sidebar,
+                                                threadManager: threadManager
+                                            ))
+                                    }
+                                }
+
                                 // Drop target on the group header so collapsed groups accept drops
                                 // (only from threads within the same schedule group).
-                                .onDrop(of: [.plainText], delegate: ScheduleGroupHeaderDropDelegate(
-                                    group: group,
-                                    sidebar: sidebar,
-                                    threadManager: threadManager
-                                ))
+                                if !isGroupExpanded {
+                                    Color.clear
+                                        .frame(height: 0)
+                                        .onDrop(of: [.plainText], delegate: ScheduleGroupHeaderDropDelegate(
+                                            group: group,
+                                            sidebar: sidebar,
+                                            threadManager: threadManager
+                                        ))
+                                }
                             }
                         }
 
@@ -442,8 +441,12 @@ extension MainWindowView {
 
             Spacer(minLength: VSpacing.sm)
 
+            sidebarSectionDivider(isExpanded: true)
+
             // Preferences row (fixed)
             PreferencesRow(
+                isActive: sidebar.showPreferencesDrawer,
+                isExpanded: true,
                 onToggle: {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                         sidebar.showPreferencesDrawer.toggle()
@@ -455,21 +458,19 @@ extension MainWindowView {
 
     @ViewBuilder
     var collapsedSidebarContent: some View {
-        VStack(spacing: VSpacing.sm) {
+        VStack(spacing: SidebarLayoutMetrics.listRowGap) {
             Spacer().frame(height: 0)
 
             // MARK: Pinned Apps (collapsed)
             if !appListManager.pinnedApps.isEmpty {
-                VStack(spacing: VSpacing.sm) {
+                VStack(spacing: SidebarLayoutMetrics.listRowGap) {
                     ForEach(appListManager.pinnedApps) { app in
                         sidebarPinnedAppRow(app, isExpanded: false)
                     }
                 }
                 .drawingGroup() // Isolate into Metal layer to prevent re-renders from sibling hover
 
-                VColor.divider
-                    .frame(height: 1)
-                    .padding(.horizontal, VSpacing.xs)
+                sidebarSectionDivider(isExpanded: false)
             }
 
             SidebarNavRow(icon: "brain.head.profile", label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
@@ -479,9 +480,7 @@ extension MainWindowView {
                 windowState.showAppsPanel()
             }
 
-            VColor.divider
-                .frame(height: 1)
-                .padding(.horizontal, VSpacing.xs)
+            sidebarSectionDivider(isExpanded: false)
 
             SidebarNavRow(icon: "square.and.pencil", label: "New Chat", isActive: false, isExpanded: false) {
                 windowState.selection = nil
@@ -489,22 +488,29 @@ extension MainWindowView {
             }
 
             // MARK: Thread Section (collapsed)
-            if let activeThread = threadManager.activeThread {
+            let switcher = CollapsedThreadSwitcherPresentation(
+                regularThreads: regularThreads,
+                activeThreadId: threadManager.activeThreadId
+            )
+            if switcher.showsSwitcher {
                 Button {
-                    guard regularThreads.count > 1 else { return }
-                    threadSwitcherHoverTask?.cancel()
-                    threadSwitcherHoverTask = nil
                     showThreadSwitcher.toggle()
                 } label: {
                     ZStack(alignment: .bottomTrailing) {
-                        // Active thread icon — SF Symbol chat bubble matching SidebarNavRow style
-                        Image(systemName: "ellipsis.message")
-                            .font(.system(size: 13, weight: .medium))
+                        Text(switcher.badgeText)
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
-                            .frame(width: 28, height: 28)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+                            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.md)
+                                    .fill(windowState.isShowingChat && threadManager.activeThread != nil
+                                        ? VColor.navActive
+                                        : VColor.navHover)
+                            )
 
-                        // Unseen dot overlay (bottom-right) — shows when any thread has unseen messages
-                        if regularThreads.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+                        if switcher.switchTargets.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
                             Circle()
                                 .fill(Color(hex: 0xE86B40))
                                 .frame(width: 8, height: 8)
@@ -513,150 +519,53 @@ extension MainWindowView {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Switch threads: \(activeThread.title)")
-                .accessibilityValue(regularThreads.count > 1 ? "\(regularThreads.count) threads" : "")
+                .padding(.horizontal, VSpacing.xs)
+                .accessibilityLabel(switcher.accessibilityLabel)
+                .accessibilityValue(switcher.accessibilityValue)
                 .onDisappear {
-                    threadSwitcherHoverTask?.cancel()
-                    threadSwitcherHoverTask = nil
-                    threadSwitcherDismissTask?.cancel()
-                    threadSwitcherDismissTask = nil
                     showThreadSwitcher = false
                 }
-                .if(regularThreads.count > 1) { view in
-                    view.pointerCursor()
-                }
-                .onHover { hovering in
-                    guard regularThreads.count > 1 else { return }
-                    if hovering {
-                        // Cancel any pending dismiss
-                        threadSwitcherDismissTask?.cancel()
-                        threadSwitcherDismissTask = nil
-                        // Start open timer
-                        threadSwitcherHoverTask?.cancel()
-                        threadSwitcherHoverTask = Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(300))
-                            guard !Task.isCancelled else { return }
-                            showThreadSwitcher = true
-                        }
-                    } else {
-                        threadSwitcherHoverTask?.cancel()
-                        threadSwitcherHoverTask = nil
-                        // Schedule dismiss — gives time to move mouse into the popover
-                        if showThreadSwitcher {
-                            threadSwitcherDismissTask = Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(300))
-                                guard !Task.isCancelled else { return }
-                                showThreadSwitcher = false
-                            }
-                        }
+                .pointerCursor()
+                .background(GeometryReader { proxy in
+                    Color.clear.onAppear {
+                        threadSwitcherTriggerFrame = proxy.frame(in: .named("coreLayout"))
                     }
-                }
-                .popover(isPresented: $showThreadSwitcher, arrowEdge: .trailing) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        // Header
-                        Text("\(regularThreads.count) threads")
-                            .font(VFont.body)
-                            .foregroundColor(VColor.textMuted)
-                            .padding(.leading, VSpacing.md)
-                            .padding(.trailing, VSpacing.sm)
-                            .padding(.top, VSpacing.md)
-                            .padding(.bottom, VSpacing.sm)
-
-                        VColor.divider
-                            .frame(height: 1)
-                            .padding(.horizontal, VSpacing.xs)
-                            .padding(.bottom, VSpacing.sm)
-
-                        // Thread list
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                ForEach(regularThreads) { thread in
-                                    SidebarThreadItem(
-                                        thread: thread,
-                                        threadManager: threadManager,
-                                        windowState: windowState,
-                                        sidebar: sidebar,
-                                        selectThread: { selectThread(thread) },
-                                        onSelect: { showThreadSwitcher = false }
-                                    )
-                                        .padding(.bottom, VSpacing.xxs)
-                                        .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
-                                            if sidebar.dropTargetThreadId == thread.id {
-                                                Rectangle()
-                                                    .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
-                                                    .frame(height: 2)
-                                                    .transition(.opacity)
-                                            }
-                                        }
-                                        .dropDestination(for: String.self) { items, _ in
-                                            sidebar.dropTargetThreadId = nil
-                                            sidebar.draggingThreadId = nil
-                                            guard let droppedId = items.first,
-                                                  let sourceUUID = UUID(uuidString: droppedId),
-                                                  sourceUUID != thread.id else { return false }
-                                            return threadManager.moveThread(sourceId: sourceUUID, targetId: thread.id)
-                                        } isTargeted: { isTargeted in
-                                            if isTargeted && thread.id != sidebar.draggingThreadId {
-                                                sidebar.dropTargetThreadId = thread.id
-                                                if let dragId = sidebar.draggingThreadId {
-                                                    let visible = threadManager.visibleThreads
-                                                    let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-                                                    let tIdx = visible.firstIndex(where: { $0.id == thread.id }) ?? 0
-                                                    sidebar.dropIndicatorAtBottom = sIdx < tIdx
-                                                }
-                                            } else if !isTargeted && sidebar.dropTargetThreadId == thread.id {
-                                                sidebar.dropTargetThreadId = nil
-                                            }
-                                        }
-                                }
-                            }
-                        }
-                        .frame(maxHeight: 300)
+                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
+                        threadSwitcherTriggerFrame = newFrame
                     }
-                    .frame(width: 220)
-                    .padding(.bottom, VSpacing.sm)
-                    .background(VColor.backgroundSubtle)
-                    .onChange(of: threadManager.activeThreadId) { _, _ in
-                        showThreadSwitcher = false
-                    }
-                    .onDisappear {
-                        // Clean up hover state when popover dismisses —
-                        // onHover(false) may not fire if the view is removed.
-                        // Cursor cleanup is handled by PointerCursorModifier.
-                        if sidebar.isHoveredThread != nil {
-                            sidebar.isHoveredThread = nil
-                        }
-                        sidebar.threadPendingDeletion = nil
-                    }
-                    // Hover→pending-deletion invariant is now owned by
-                    // SidebarInteractionState.setThreadHover(threadId:hovering:)
-                    .onHover { hovering in
-                        if hovering {
-                            // Mouse entered popover — cancel pending dismiss
-                            threadSwitcherDismissTask?.cancel()
-                            threadSwitcherDismissTask = nil
-                        } else {
-                            // Mouse left popover — dismiss after short delay
-                            threadSwitcherDismissTask = Task { @MainActor in
-                                try? await Task.sleep(for: .milliseconds(300))
-                                guard !Task.isCancelled else { return }
-                                showThreadSwitcher = false
-                            }
-                        }
-                    }
-                }
+                })
             }
 
             Spacer()
 
-            SidebarNavRow(icon: "slider.horizontal.3", label: "Preferences", isActive: false, isExpanded: false) {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                    sidebar.showPreferencesDrawer.toggle()
+            sidebarSectionDivider(isExpanded: false)
+
+            PreferencesRow(
+                isActive: sidebar.showPreferencesDrawer,
+                isExpanded: false,
+                onToggle: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                        sidebar.showPreferencesDrawer.toggle()
+                    }
                 }
-            }
+            )
 
             Spacer().frame(height: 0)
         }
+    }
+
+    // MARK: - Section Divider
+
+    /// Uniform section divider using canonical metrics.
+    /// Horizontal inset adapts to expanded/collapsed; vertical rhythm is always compact.
+    @ViewBuilder
+    func sidebarSectionDivider(isExpanded: Bool) -> some View {
+        VColor.divider
+            .frame(height: 1)
+            .padding(.horizontal, isExpanded
+                ? SidebarLayoutMetrics.dividerHorizontalPaddingExpanded
+                : SidebarLayoutMetrics.dividerHorizontalPaddingCollapsed)
+            .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
     }
 
     // MARK: - App View Helpers

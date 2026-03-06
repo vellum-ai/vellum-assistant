@@ -91,7 +91,7 @@ import { getResolver } from "../approvals/guardian-request-resolvers.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import {
   createGuardianBinding,
-  upsertMember,
+  upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import { createApprovalRequest } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
@@ -174,7 +174,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -253,7 +253,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -328,7 +328,7 @@ describe("trusted contact lifecycle notification signals", () => {
       guardianPrincipalId: "guardian-user-789",
       verifiedVia: "test",
     });
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "guardian-user-789",
       externalChatId: "guardian-chat-789",
@@ -448,7 +448,7 @@ describe("trusted contact activated notification signal", () => {
       verifiedVia: "test",
     });
 
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "requester-user-456",
       externalChatId: "chat-123",
@@ -509,7 +509,7 @@ describe("trusted contact activated notification signal", () => {
   test("voice access_request resolver has registered handler for access_request kind", () => {
     // The access_request resolver is registered during module load. When the
     // source channel is 'voice', it should directly activate the member via
-    // upsertMember (no verification session). This test validates the resolver
+    // upsertContactChannel (no verification session). This test validates the resolver
     // is registered and accessible.
     const resolver = getResolver("access_request");
     expect(resolver).toBeDefined();
@@ -549,7 +549,7 @@ describe("trusted contact activated notification signal", () => {
     );
     expect(activatedSignals.length).toBe(1);
 
-    // Verify the member was already persisted (the signal fires after upsertMember)
+    // Verify the member was already persisted (the signal fires after upsertContactChannel)
     const result = findContactChannel({
       channelType: "telegram",
       externalUserId: "requester-user-456",

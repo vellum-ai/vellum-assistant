@@ -10,6 +10,7 @@ import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
+  getQdrantHttpPortEnv,
   getQdrantUrlEnv,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
@@ -47,7 +48,6 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import { migrateKeychainToEncrypted } from "../security/keychain-to-encrypted-migration.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
@@ -142,10 +142,6 @@ export async function runDaemon(): Promise<void> {
     migrateToDataLayout();
     migrateToWorkspaceLayout();
     ensureDataDir();
-
-    // Copy any existing macOS keychain secrets into the encrypted file store
-    // before config loads, so the new encrypted-store-first read path sees them.
-    migrateKeychainToEncrypted();
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
@@ -255,7 +251,13 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: DaemonServer started");
 
     // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
-    const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
+    // Prefer QDRANT_HTTP_PORT (locally-spawned Qdrant on a specific port) over
+    // QDRANT_URL (external Qdrant instance) so the CLI can set the port without
+    // triggering QdrantManager's external mode which skips local process spawn.
+    const qdrantHttpPort = getQdrantHttpPortEnv();
+    const qdrantUrl = qdrantHttpPort
+      ? `http://127.0.0.1:${qdrantHttpPort}`
+      : getQdrantUrlEnv() || config.memory.qdrant.url;
     log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
     const qdrantManager = new QdrantManager({ url: qdrantUrl });
     try {

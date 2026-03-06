@@ -23,13 +23,13 @@ struct SidebarThreadsHeader: View {
                 )
                 .disabled(isLoading)
             }
-            VIconButton(label: "New thread", icon: "plus", iconOnly: true, action: onNewThread)
+            VIconButton(label: "New thread", icon: "square.and.pencil", iconOnly: true, action: onNewThread)
                 .disabled(isLoading)
                 .opacity(isLoading ? 0.4 : 1)
         }
-        .padding(.leading, 20)
+        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
         .padding(.trailing, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.top, SidebarLayoutMetrics.sectionTitleTopGap)
         .contextMenu {
             Button {
                 onMarkAllSeen()

@@ -14,11 +14,12 @@ public struct VButton: View {
     public var size: Size = .small
     public var isFullWidth: Bool = false
     public var isDisabled: Bool = false
+    public var accessibilityID: String? = nil
     public let action: () -> Void
 
     @State private var isHovered = false
 
-    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, style: Style = .primary, size: Size = .small, isFullWidth: Bool = false, isDisabled: Bool = false, action: @escaping () -> Void) {
+    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, style: Style = .primary, size: Size = .small, isFullWidth: Bool = false, isDisabled: Bool = false, accessibilityID: String? = nil, action: @escaping () -> Void) {
         self.label = label
         self.leftIcon = leftIcon ?? icon
         self.rightIcon = rightIcon
@@ -26,6 +27,7 @@ public struct VButton: View {
         self.size = size
         self.isFullWidth = isFullWidth
         self.isDisabled = isDisabled
+        self.accessibilityID = accessibilityID
         self.action = action
     }
 
@@ -63,6 +65,7 @@ public struct VButton: View {
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1.0)
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
+        .optionalAccessibilityIdentifier(accessibilityID)
     }
 
     private var iconSize: CGFloat {
@@ -158,9 +161,9 @@ private struct VButtonStyle: ButtonStyle {
             if isHovered { return VColor.buttonPrimaryHover }
             return VColor.buttonPrimary
         case .secondary:
-            if isPressed { return adaptiveColor(light: Color(hex: 0xC3D2C3), dark: Color(hex: 0x4A4A46)) }
-            if isHovered { return adaptiveColor(light: Color(hex: 0xCBD8CB), dark: Color(hex: 0x424240)) }
-            return adaptiveColor(light: Color(hex: 0xD4DFD4), dark: Color(hex: 0x3A3A37))
+            if isPressed { return VColor.buttonSecondaryBgPressed }
+            if isHovered { return VColor.buttonSecondaryBgHover }
+            return VColor.buttonSecondaryBg
         case .danger:
             if isPressed { return Color(hex: 0xE0745A) }
             if isHovered { return Color(hex: 0xD4582F) }
@@ -206,6 +209,17 @@ private struct VButtonStyle: ButtonStyle {
             return .clear
         default:
             return .clear
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func optionalAccessibilityIdentifier(_ identifier: String?) -> some View {
+        if let identifier {
+            self.accessibilityIdentifier(identifier)
+        } else {
+            self
         }
     }
 }

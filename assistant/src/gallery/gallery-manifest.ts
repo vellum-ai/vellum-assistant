@@ -20,5 +20,9 @@ export interface GalleryApp {
   version: string; // e.g. "1.0.0"
   featured?: boolean;
   schemaJson: string; // JSON schema for app records
-  htmlDefinition: string; // Complete HTML app
+  htmlDefinition: string; // Complete HTML app (also serves as compiled fallback)
+  /** 2 = multi-file TSX format with sourceFiles */
+  formatVersion?: number;
+  /** Maps relative path to file content, e.g. { "src/main.tsx": "...", "src/index.html": "..." } */
+  sourceFiles?: Record<string, string>;
 }

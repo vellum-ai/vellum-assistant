@@ -13,12 +13,16 @@
 
 import { answerCall } from "../calls/call-domain.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
-import { upsertMember } from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import {
+  isNotificationSourceChannel,
+  type NotificationSourceChannel,
+} from "../notifications/signal.js";
 import { addRule } from "../permissions/trust-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
@@ -345,7 +349,11 @@ const accessRequestResolver: GuardianRequestResolver = {
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, channelDeliveryContext } = ctx;
-    const channel = request.sourceChannel ?? "unknown";
+    const channel: NotificationSourceChannel = isNotificationSourceChannel(
+      request.sourceChannel,
+    )
+      ? request.sourceChannel
+      : "vellum";
     const requesterExternalUserId = request.requesterExternalUserId ?? "";
     const requesterChatId =
       request.requesterChatId ?? request.requesterExternalUserId ?? "";
@@ -451,7 +459,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "voice") {
       try {
-        upsertMember({
+        upsertContactChannel({
           sourceChannel: "voice",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,

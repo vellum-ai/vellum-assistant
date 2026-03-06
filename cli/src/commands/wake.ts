@@ -1,17 +1,24 @@
 import { existsSync, readFileSync } from "fs";
-import { homedir } from "os";
 import { join } from "path";
 
-import { loadAllAssistants } from "../lib/assistant-config";
+import {
+  defaultLocalResources,
+  resolveTargetAssistant,
+} from "../lib/assistant-config.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import { startLocalDaemon, startGateway } from "../lib/local";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: vellum wake [options]");
+    console.log("Usage: vellum wake [<name>] [options]");
     console.log("");
     console.log("Start the assistant and gateway processes.");
+    console.log("");
+    console.log("Arguments:");
+    console.log(
+      "  <name>    Name of the assistant to start (default: active or only local)",
+    );
     console.log("");
     console.log("Options:");
     console.log(
@@ -21,19 +28,20 @@ export async function wake(): Promise<void> {
   }
 
   const watch = args.includes("--watch");
+  const nameArg = args.find((a) => !a.startsWith("-"));
+  const entry = resolveTargetAssistant(nameArg);
 
-  const assistants = loadAllAssistants();
-  const hasLocal = assistants.some((a) => a.cloud === "local");
-  if (!hasLocal) {
+  if (entry.cloud && entry.cloud !== "local") {
     console.error(
-      "Error: No local assistant found in lock file. Run 'vellum hatch local' first.",
+      `Error: 'vellum wake' only works with local assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
     );
     process.exit(1);
   }
 
-  const vellumDir = join(homedir(), ".vellum");
-  const pidFile = join(vellumDir, "vellum.pid");
-  const socketFile = join(vellumDir, "vellum.sock");
+  const resources = entry.resources ?? defaultLocalResources();
+
+  const pidFile = resources.pidFile;
+  const socketFile = resources.socketPath;
 
   // Check if daemon is already running
   let daemonRunning = false;
@@ -61,11 +69,12 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
-    await startLocalDaemon(watch);
+    await startLocalDaemon(watch, resources);
   }
 
-  // Start gateway (non-desktop only)
-  if (!process.env.VELLUM_DESKTOP_APP) {
+  // Start gateway
+  {
+    const vellumDir = join(resources.instanceDir, ".vellum");
     const gatewayPidFile = join(vellumDir, "gateway.pid");
     const { alive, pid } = isProcessAlive(gatewayPidFile);
     if (alive) {
@@ -75,14 +84,14 @@ export async function wake(): Promise<void> {
           `Gateway running (pid ${pid}) — restarting in watch mode...`,
         );
         await stopProcessByPidFile(gatewayPidFile, "gateway");
-        await startGateway(undefined, watch);
+        await startGateway(undefined, watch, resources);
       } else {
         console.log(`Gateway already running (pid ${pid}).`);
       }
     } else {
-      await startGateway(undefined, watch);
+      await startGateway(undefined, watch, resources);
     }
   }
 
-  console.log("✅ Wake complete.");
+  console.log("Wake complete.");
 }

@@ -51,6 +51,22 @@ export interface ChannelDestination {
   channel: NotificationChannel;
   endpoint?: string;
   metadata?: Record<string, unknown>;
+  /** Stable binding data for channel-scoped conversation continuation. */
+  bindingContext?: DestinationBindingContext;
+}
+
+/**
+ * Binding data that identifies a specific external chat for a channel.
+ * Used by conversation pairing to look up or create channel-scoped
+ * conversations keyed by (sourceChannel, externalChatId).
+ */
+export interface DestinationBindingContext {
+  /** The channel this binding belongs to (e.g. "telegram", "sms", "slack"). */
+  sourceChannel: NotificationChannel;
+  /** The channel-specific chat/thread identifier (e.g. Telegram chat ID, phone number). */
+  externalChatId: string;
+  /** Optional external user identifier within the chat. */
+  externalUserId?: string;
 }
 
 /**

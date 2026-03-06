@@ -12,7 +12,6 @@ import { getDb } from "../memory/db.js";
 import { rawChanges } from "../memory/raw-query.js";
 import { actorRefreshTokenRecords } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
 const log = getLogger("actor-refresh-token-store");
 
@@ -22,7 +21,6 @@ export interface RefreshTokenRecord {
   id: string;
   tokenHash: string;
   familyId: string;
-  assistantId: string;
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
@@ -54,7 +52,6 @@ export function createRefreshTokenRecord(params: {
     id,
     tokenHash: params.tokenHash,
     familyId: params.familyId,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
@@ -145,7 +142,6 @@ function rowToRecord(
     id: row.id,
     tokenHash: row.tokenHash,
     familyId: row.familyId,
-    assistantId: row.assistantId,
     guardianPrincipalId: row.guardianPrincipalId,
     hashedDeviceId: row.hashedDeviceId,
     platform: row.platform,

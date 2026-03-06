@@ -1,10 +1,49 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+
+import {
+  DEFAULT_DAEMON_PORT,
+  DEFAULT_GATEWAY_PORT,
+  DEFAULT_QDRANT_PORT,
+} from "./constants.js";
+import { probePort } from "./port-probe.js";
+
+/**
+ * Per-instance resource paths and ports. Each local assistant instance gets
+ * its own directory tree, ports, and socket so multiple instances can run
+ * side-by-side without conflicts.
+ */
+export interface LocalInstanceResources {
+  /**
+   * Instance-specific data root. The first local assistant uses `~` (workspace
+   * at `~/.vellum`); subsequent assistants use
+   * `~/.local/share/vellum/assistants/<name>/` (workspace at
+   * `~/.local/share/vellum/assistants/<name>/.vellum`).
+   * The daemon's `.vellum/` directory lives inside it. Equivalent to
+   * `AssistantEntry.baseDataDir` minus the trailing `/.vellum` suffix —
+   * `baseDataDir` is kept on the flat entry for legacy lockfile compat.
+   */
+  instanceDir: string;
+  /** HTTP port for the daemon runtime server */
+  daemonPort: number;
+  /** HTTP port for the gateway */
+  gatewayPort: number;
+  /** HTTP port for the Qdrant vector store */
+  qdrantPort: number;
+  /** Absolute path to the Unix domain socket for IPC */
+  socketPath: string;
+  /** Absolute path to the daemon PID file */
+  pidFile: string;
+}
 
 export interface AssistantEntry {
   assistantId: string;
   runtimeUrl: string;
+  /** Loopback URL for same-machine health checks (e.g. `http://127.0.0.1:7831`).
+   *  Avoids mDNS resolution issues when the machine checks its own gateway. */
+  localUrl?: string;
+  /** @deprecated Use `resources.instanceDir` for multi-instance entries. Legacy equivalent of `join(instanceDir, ".vellum")`. */
   baseDataDir?: string;
   bearerToken?: string;
   cloud: string;
@@ -16,10 +55,13 @@ export interface AssistantEntry {
   sshUser?: string;
   zone?: string;
   hatchedAt?: string;
+  /** Per-instance resource config. Present for local entries in multi-instance setups. */
+  resources?: LocalInstanceResources;
 }
 
 interface LockfileData {
   assistants?: AssistantEntry[];
+  activeAssistant?: string;
   platformBaseUrl?: string;
   [key: string]: unknown;
 }
@@ -91,12 +133,68 @@ export function findAssistantByName(name: string): AssistantEntry | null {
 }
 
 export function removeAssistantEntry(assistantId: string): void {
-  const entries = readAssistants();
-  writeAssistants(entries.filter((e) => e.assistantId !== assistantId));
+  const data = readLockfile();
+  const entries = (data.assistants ?? []).filter(
+    (e: AssistantEntry) => e.assistantId !== assistantId,
+  );
+  data.assistants = entries;
+  // Clear active assistant if it matches the removed entry
+  if (data.activeAssistant === assistantId) {
+    delete data.activeAssistant;
+  }
+  writeLockfile(data);
 }
 
 export function loadAllAssistants(): AssistantEntry[] {
   return readAssistants();
+}
+
+export function getActiveAssistant(): string | null {
+  const data = readLockfile();
+  return data.activeAssistant ?? null;
+}
+
+export function setActiveAssistant(assistantId: string): void {
+  const data = readLockfile();
+  data.activeAssistant = assistantId;
+  writeLockfile(data);
+}
+
+/**
+ * Resolve which assistant to target for a command. Priority:
+ * 1. Explicit name argument
+ * 2. Active assistant set via `vellum use`
+ * 3. Sole local assistant (when exactly one exists)
+ */
+export function resolveTargetAssistant(nameArg?: string): AssistantEntry {
+  if (nameArg) {
+    const entry = findAssistantByName(nameArg);
+    if (!entry) {
+      console.error(`No assistant found with name '${nameArg}'.`);
+      process.exit(1);
+    }
+    return entry;
+  }
+
+  const active = getActiveAssistant();
+  if (active) {
+    const entry = findAssistantByName(active);
+    if (entry) return entry;
+    // Active assistant no longer exists in lockfile — fall through
+  }
+
+  const all = readAssistants();
+  const locals = all.filter((e) => e.cloud === "local");
+  if (locals.length === 1) return locals[0];
+
+  if (locals.length === 0) {
+    console.error("No local assistant found. Run 'vellum hatch local' first.");
+  } else {
+    console.error(
+      `Multiple assistants found. Set an active assistant with 'vellum use <name>'.`,
+    );
+  }
+  process.exit(1);
 }
 
 export function saveAssistantEntry(entry: AssistantEntry): void {
@@ -105,6 +203,131 @@ export function saveAssistantEntry(entry: AssistantEntry): void {
   );
   entries.unshift(entry);
   writeAssistants(entries);
+}
+
+/**
+ * Scan upward from `basePort` to find an available port. A port is considered
+ * available when `probePort()` returns false (nothing listening). Scans up to
+ * 100 ports above the base before giving up.
+ */
+async function findAvailablePort(
+  basePort: number,
+  excludedPorts: number[] = [],
+): Promise<number> {
+  const maxOffset = 100;
+  for (let offset = 0; offset < maxOffset; offset++) {
+    const port = basePort + offset;
+    if (excludedPorts.includes(port)) continue;
+    const inUse = await probePort(port);
+    if (!inUse) return port;
+  }
+  throw new Error(
+    `Could not find an available port scanning from ${basePort} to ${basePort + maxOffset - 1}`,
+  );
+}
+
+/**
+ * Allocate an isolated set of resources for a named local instance.
+ * The first local assistant gets `instanceDir = ~` with default ports (same as
+ * legacy single-instance layout). Subsequent assistants are placed under
+ * `~/.local/share/vellum/assistants/<name>/` with scanned ports.
+ */
+export async function allocateLocalResources(
+  instanceName: string,
+): Promise<LocalInstanceResources> {
+  // First local assistant gets the home directory — identical to legacy layout.
+  const existingLocals = loadAllAssistants().filter((e) => e.cloud === "local");
+  if (existingLocals.length === 0) {
+    return defaultLocalResources();
+  }
+
+  const instanceDir = join(
+    homedir(),
+    ".local",
+    "share",
+    "vellum",
+    "assistants",
+    instanceName,
+  );
+  mkdirSync(instanceDir, { recursive: true });
+
+  // Collect ports already assigned to other local instances in the lockfile.
+  // Even if those instances are stopped, we must avoid reusing their ports
+  // to prevent binding collisions when both are woken.
+  const reservedPorts: number[] = [];
+  for (const entry of loadAllAssistants()) {
+    if (entry.cloud !== "local") continue;
+    if (entry.resources) {
+      reservedPorts.push(
+        entry.resources.daemonPort,
+        entry.resources.gatewayPort,
+        entry.resources.qdrantPort,
+      );
+    } else {
+      // Legacy entries without resources use the default ports
+      reservedPorts.push(
+        DEFAULT_DAEMON_PORT,
+        DEFAULT_GATEWAY_PORT,
+        DEFAULT_QDRANT_PORT,
+      );
+    }
+  }
+
+  // Allocate ports sequentially to avoid overlapping ranges assigning the
+  // same port to multiple services (e.g. daemon 7821-7920 overlaps gateway 7830-7929).
+  const daemonPort = await findAvailablePort(
+    DEFAULT_DAEMON_PORT,
+    reservedPorts,
+  );
+  const gatewayPort = await findAvailablePort(DEFAULT_GATEWAY_PORT, [
+    ...reservedPorts,
+    daemonPort,
+  ]);
+  const qdrantPort = await findAvailablePort(DEFAULT_QDRANT_PORT, [
+    ...reservedPorts,
+    daemonPort,
+    gatewayPort,
+  ]);
+
+  return {
+    instanceDir,
+    daemonPort,
+    gatewayPort,
+    qdrantPort,
+    socketPath: join(instanceDir, ".vellum", "vellum.sock"),
+    pidFile: join(instanceDir, ".vellum", "vellum.pid"),
+  };
+}
+
+/**
+ * Return default resources representing the legacy single-instance layout.
+ * Used to normalize existing lockfile entries so callers can treat all local
+ * entries uniformly.
+ */
+export function defaultLocalResources(): LocalInstanceResources {
+  const vellumDir = join(homedir(), ".vellum");
+  return {
+    instanceDir: homedir(),
+    daemonPort: DEFAULT_DAEMON_PORT,
+    gatewayPort: DEFAULT_GATEWAY_PORT,
+    qdrantPort: DEFAULT_QDRANT_PORT,
+    socketPath: join(vellumDir, "vellum.sock"),
+    pidFile: join(vellumDir, "vellum.pid"),
+  };
+}
+
+/**
+ * Normalize existing lockfile entries so local entries include resource fields.
+ * Remote entries are left untouched. Returns a new array (does not mutate input).
+ */
+export function normalizeExistingEntryResources(
+  entries: AssistantEntry[],
+): AssistantEntry[] {
+  return entries.map((entry) => {
+    if (entry.cloud !== "local") return entry;
+    if (entry.resources) return entry;
+    return { ...entry, resources: defaultLocalResources() };
+  });
 }
 
 /**

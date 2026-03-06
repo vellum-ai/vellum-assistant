@@ -234,6 +234,15 @@ export const ModelPricingOverrideSchema = z.object({
     ),
 });
 
+export const TwilioConfigSchema = z.object({
+  accountSid: z
+    .string({ error: "twilio.accountSid must be a string" })
+    .default(""),
+  phoneNumber: z
+    .string({ error: "twilio.phoneNumber must be a string" })
+    .default(""),
+});
+
 export const SmsConfigSchema = z.object({
   enabled: z.boolean({ error: "sms.enabled must be a boolean" }).default(false),
   provider: z
@@ -250,6 +259,12 @@ export const SmsConfigSchema = z.object({
       z.string({ error: "sms.assistantPhoneNumbers values must be strings" }),
     )
     .optional(),
+});
+
+export const WhatsAppConfigSchema = z.object({
+  phoneNumber: z
+    .string({ error: "whatsapp.phoneNumber must be a string" })
+    .default(""),
 });
 
 export const IngressWebhookConfigSchema = z.object({
@@ -391,7 +406,9 @@ export type ContextOverflowRecoveryConfig = z.infer<
 >;
 export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
+export type TwilioConfig = z.infer<typeof TwilioConfigSchema>;
 export type SmsConfig = z.infer<typeof SmsConfigSchema>;
+export type WhatsAppConfig = z.infer<typeof WhatsAppConfigSchema>;
 export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
 export type IngressRateLimitConfig = z.infer<
   typeof IngressRateLimitConfigSchema

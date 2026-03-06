@@ -12,6 +12,7 @@ struct MainWindowView: View {
     /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
     /// itself uses `@ObservedObject` and is only instantiated when shown.
     let traceStore: TraceStore
+    let usageDashboardStore: UsageDashboardStore
     @ObservedObject var windowState: MainWindowState
     @State private var selectedThreadId: UUID?
     @State var sharing = SharingState()
@@ -19,6 +20,9 @@ struct MainWindowView: View {
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
     @State var showThreadActionsDrawer = false
+    /// Frame of the thread title button in the coordinate space of coreLayoutView,
+    /// used to position the actions drawer directly below it.
+    @State private var threadTitleFrame: CGRect = .zero
     /// Stores the thread ID the user was on before entering temporary chat,
     /// so we can restore it when they exit instead of jumping to visibleThreads.first
     /// (which may be a pinned thread unrelated to what they were doing).
@@ -46,21 +50,19 @@ struct MainWindowView: View {
     let onSendWakeUp: (() -> Void)?
 
     @State var showThreadSwitcher = false
-    /// Cancellable task for the delayed hover trigger on the collapsed thread section.
-    @State var threadSwitcherHoverTask: Task<Void, Never>?
-    /// Cancellable task that dismisses the thread switcher popover after leaving the hover area.
-    @State var threadSwitcherDismissTask: Task<Void, Never>?
+    @State var threadSwitcherTriggerFrame: CGRect = .zero
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.conversationZoomManager = conversationZoomManager
         self.traceStore = traceStore
+        self.usageDashboardStore = usageDashboardStore
         self.daemonClient = daemonClient
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
@@ -172,8 +174,10 @@ struct MainWindowView: View {
 
     /// Resolve display names for thread export.
     private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
-        // Assistant name: IdentityInfo → UserDefaults → fallback
-        let assistantName = IdentityInfo.load()?.name ?? "Assistant"
+        let assistantName = AssistantDisplayName.resolve(
+            IdentityInfo.load()?.name,
+            fallback: AssistantDisplayName.placeholder
+        )
 
         // User name: stored profile → system name → fallback
         let userName: String = {
@@ -206,6 +210,20 @@ struct MainWindowView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(markdown, forType: .string)
         windowState.showToast(message: "Thread copied to clipboard", style: .success)
+    }
+
+    private var threadHeaderPresentation: ThreadHeaderPresentation {
+        ThreadHeaderPresentation(
+            activeThread: threadManager.activeThread,
+            activeViewModel: threadManager.activeViewModel,
+            isConversationVisible: windowState.isShowingChat || isChatBubbleActive
+        )
+    }
+
+    func dismissThreadDrawer() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            showThreadActionsDrawer = false
+        }
     }
 
     func startRenameActiveThread() {
@@ -365,6 +383,38 @@ struct MainWindowView: View {
                 .help("Search (\u{2318}K)")
             }
             Spacer()
+            if windowState.isShowingChat || isChatBubbleActive {
+                ThreadTitleActionsControl(
+                    presentation: threadHeaderPresentation,
+                    onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                    onPin: {
+                        guard let id = threadManager.activeThreadId else { return }
+                        threadManager.pinThread(id: id)
+                        dismissThreadDrawer()
+                    },
+                    onUnpin: {
+                        guard let id = threadManager.activeThreadId else { return }
+                        threadManager.unpinThread(id: id)
+                        dismissThreadDrawer()
+                    },
+                    onArchive: {
+                        guard let id = threadManager.activeThreadId else { return }
+                        threadManager.archiveThread(id: id)
+                        dismissThreadDrawer()
+                    },
+                    onRename: { startRenameActiveThread(); dismissThreadDrawer() },
+                    showDrawer: $showThreadActionsDrawer
+                )
+                .background(GeometryReader { proxy in
+                    Color.clear.onAppear {
+                        threadTitleFrame = proxy.frame(in: .named("coreLayout"))
+                    }
+                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
+                        threadTitleFrame = newFrame
+                    }
+                })
+            }
+            Spacer()
             PTTKeyIndicator {
                 settingsStore.pendingSettingsTab = .voice
                 windowState.selection = .panel(.settings)
@@ -426,6 +476,7 @@ struct MainWindowView: View {
                     }
                     .padding(16)
                 }
+                .coordinateSpace(name: "coreLayout")
                 .overlay {
                     // Click-outside-to-dismiss background for preferences drawer
                     if sidebar.showPreferencesDrawer {
@@ -438,17 +489,55 @@ struct MainWindowView: View {
                             }
                     }
                 }
+                .overlay {
+                    // Click-outside-to-dismiss background for thread actions drawer
+                    if showThreadActionsDrawer {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { dismissThreadDrawer() }
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if showThreadActionsDrawer {
+                        let presentation = threadHeaderPresentation
+                        ThreadActionsDrawer(
+                            presentation: presentation,
+                            onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                            onPin: {
+                                guard let id = threadManager.activeThreadId else { return }
+                                threadManager.pinThread(id: id)
+                                dismissThreadDrawer()
+                            },
+                            onUnpin: {
+                                guard let id = threadManager.activeThreadId else { return }
+                                threadManager.unpinThread(id: id)
+                                dismissThreadDrawer()
+                            },
+                            onArchive: {
+                                guard let id = threadManager.activeThreadId else { return }
+                                threadManager.archiveThread(id: id)
+                                dismissThreadDrawer()
+                            },
+                            onRename: { startRenameActiveThread(); dismissThreadDrawer() }
+                        )
+                        .offset(x: threadTitleFrame.minX, y: threadTitleFrame.maxY)
+                        .zIndex(10)
+                    }
+                }
                 .overlay(alignment: .bottomLeading) {
                     // Preferences drawer rendered at top level so it floats above all content
                     if sidebar.showPreferencesDrawer {
                         let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
-                        let drawerX = sidebarExpanded
-                            ? 16 + VSpacing.sm
-                            : 16 + sidebarCollapsedWidth - VSpacing.xs
+                        let sidebarWidth = sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth
+                        let drawerX = 16 + sidebarWidth - VSpacing.xs
                         DrawerMenuView(
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.settings)
+                            },
+                            onUsage: {
+                                sidebar.showPreferencesDrawer = false
+                                windowState.selection = .panel(.usageDashboard)
                             },
                             onDebug: {
                                 sidebar.showPreferencesDrawer = false
@@ -463,6 +552,41 @@ struct MainWindowView: View {
                         .offset(x: drawerX, y: -28)
                         .zIndex(10)
                         .transition(.opacity)
+                    }
+                }
+                .overlay {
+                    if showThreadSwitcher {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                showThreadSwitcher = false
+                            }
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if showThreadSwitcher {
+                        ThreadSwitcherDrawer(
+                            regularThreads: regularThreads,
+                            activeThreadId: threadManager.activeThreadId,
+                            threadManager: threadManager,
+                            windowState: windowState,
+                            sidebar: sidebar,
+                            selectThread: { selectThread($0) },
+                            onDismiss: { showThreadSwitcher = false }
+                        )
+                        .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
+                        .offset(
+                            x: 16 + sidebarCollapsedWidth - VSpacing.xs,
+                            y: threadSwitcherTriggerFrame.minY
+                        )
+                        .zIndex(10)
+                        .transition(.opacity)
+                        .onChange(of: threadManager.activeThreadId) { _, _ in
+                            showThreadSwitcher = false
+                        }
+                        .onChange(of: sidebarExpanded) { _, expanded in
+                            if expanded { showThreadSwitcher = false }
+                        }
                     }
                 }
             }
@@ -606,14 +730,9 @@ struct MainWindowView: View {
                 try? daemonClient.sendAppOpen(appId: reopenId)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .pinAppToHomebase)) { notification in
-            guard let appId = notification.userInfo?["appId"] as? String,
-                  let name = notification.userInfo?["name"] as? String else { return }
-            let icon = notification.userInfo?["icon"] as? String
-            let appType = notification.userInfo?["appType"] as? String
-            let description = notification.userInfo?["description"] as? String
-            appListManager.recordAppOpen(id: appId, name: name, icon: icon, appType: appType, description: description)
-            appListManager.pinApp(id: appId)
+        .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            bundleAndShare(appId: appId)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
             guard let surfaceId = notification.userInfo?["documentSurfaceId"] as? String else { return }

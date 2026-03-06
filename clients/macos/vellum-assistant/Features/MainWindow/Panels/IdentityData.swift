@@ -94,6 +94,30 @@ enum AssistantHome {
     }
 }
 
+enum AssistantDisplayName {
+    static let placeholder = "Assistant"
+    private static let hiddenBootstrapPrefix = "_("
+
+    /// Freshly hatched assistants can briefly persist an internal bootstrap
+    /// instruction as the name. Mask that sentinel in all user-facing UI.
+    static func firstUserFacing(from candidates: [String?]) -> String? {
+        for candidate in candidates {
+            guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else { continue }
+            if trimmed.hasPrefix(hiddenBootstrapPrefix) {
+                return placeholder
+            }
+            return trimmed
+        }
+
+        return nil
+    }
+
+    static func resolve(_ candidates: String?..., fallback: String = placeholder) -> String {
+        firstUserFacing(from: candidates) ?? fallback
+    }
+}
+
 // MARK: - Identity Info (parsed from IDENTITY.md)
 
 struct IdentityInfo {
@@ -217,6 +241,9 @@ struct LockfileAssistant {
     let zone: String?
     let instanceId: String?
     let hatchedAt: String?
+    let gatewayPort: Int?
+    let socketPath: String?
+    let instanceDir: String?
 
     /// Whether this assistant is running remotely (not on the local machine).
     var isRemote: Bool {
@@ -253,7 +280,8 @@ struct LockfileAssistant {
         case "vellum":
             return .vellum(runtimeUrl: runtimeUrl ?? "")
         default:
-            return .local(workspacePath: NSHomeDirectory() + "/.vellum/workspace")
+            let base = instanceDir ?? NSHomeDirectory()
+            return .local(workspacePath: base + "/.vellum/workspace")
         }
     }
 
@@ -285,6 +313,7 @@ struct LockfileAssistant {
 
         return sorted.compactMap { entry -> LockfileAssistant? in
             guard let assistantId = entry["assistantId"] as? String else { return nil }
+            let resources = entry["resources"] as? [String: Any]
             return LockfileAssistant(
                 assistantId: assistantId,
                 runtimeUrl: entry["runtimeUrl"] as? String,
@@ -294,7 +323,10 @@ struct LockfileAssistant {
                 region: entry["region"] as? String,
                 zone: entry["zone"] as? String,
                 instanceId: entry["instanceId"] as? String,
-                hatchedAt: entry["hatchedAt"] as? String
+                hatchedAt: entry["hatchedAt"] as? String,
+                gatewayPort: resources?["gatewayPort"] as? Int,
+                socketPath: resources?["socketPath"] as? String,
+                instanceDir: resources?["instanceDir"] as? String
             )
         }
     }

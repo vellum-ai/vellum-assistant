@@ -28,6 +28,7 @@ export {
   migrateRemoveAssistantIdColumns,
   migrateSchemaIndexesAndColumns,
   migrateToolInvocationsFk,
+  migrateUsageDashboardIndexes,
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
   type MigrationValidationResult,

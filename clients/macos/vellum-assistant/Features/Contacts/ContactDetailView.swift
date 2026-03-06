@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -5,12 +6,22 @@ import VellumAssistantShared
 /// channels with verification status, and action buttons.
 @MainActor
 struct ContactDetailView: View {
-    private static let allChannelTypes = ["telegram", "sms", "email", "voice", "slack"]
+    private static let allChannelTypes = ["telegram", "sms", "email", "whatsapp", "voice", "slack"]
+
+    private static let guardianSupportedChannels: Set<String> = ["telegram", "sms", "voice", "slack"]
+
+    /// Channels that support 6-digit code invites from this view. Voice invites
+    /// require additional fields not available here, so they are excluded.
+    private static let codeInviteChannels: Set<String> = ["telegram", "sms", "email", "whatsapp", "slack"]
 
     let contact: ContactPayload
     var daemonClient: DaemonClient?
+    var store: SettingsStore?
+    var onDelete: (() -> Void)?
 
     @State var currentContact: ContactPayload?
+    @State private var showDeleteConfirmation = false
+    @State private var isDeleting = false
     @State private var actionInProgress: String?
     @State var errorMessage: String?
     @State private var isEditing = false
@@ -34,12 +45,24 @@ struct ContactDetailView: View {
     @State private var inviteError: String?
     @State private var inviteCopiedType: String?
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
+    @State private var readinessFetchFailed = false
+    @State private var guardianDestinationTexts: [String: String] = [:]
+    @State private var guardianCountdownNow: Date = Date()
+    @State private var guardianCountdownTimer: Timer?
+    /// Incremented whenever SettingsStore publishes a change, forcing SwiftUI to
+    /// re-evaluate guardian verification state derived from the store.
+    @State private var guardianStoreRevision: Int = 0
 
     var displayContact: ContactPayload {
         currentContact ?? contact
     }
 
     var body: some View {
+        // Read guardianStoreRevision so SwiftUI tracks it; the .onReceive
+        // below increments it whenever SettingsStore publishes, forcing
+        // re-evaluation of guardian verification state.
+        let _ = guardianStoreRevision
+
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 headerSection
@@ -48,8 +71,35 @@ struct ContactDetailView: View {
             .padding(VSpacing.xl)
         }
         .background(VColor.background)
+        .confirmationDialog(
+            "Delete \(displayContact.displayName)?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                deleteContact()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will permanently delete this contact and all their channels. This action cannot be undone.")
+        }
         .onAppear {
             currentContact = contact
+            if contact.role == "guardian" {
+                startGuardianCountdownTimer()
+                // Refresh guardian verification state for all supported channels
+                // so the view shows current status even if the user hasn't visited
+                // the Channels settings tab yet.
+                for channel in Self.guardianSupportedChannels {
+                    store?.refreshChannelGuardianStatus(channel: channel)
+                }
+            }
+        }
+        .onDisappear {
+            stopGuardianCountdownTimer()
+        }
+        .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
+            guardianStoreRevision += 1
         }
     }
 
@@ -101,6 +151,24 @@ struct ContactDetailView: View {
                     .opacity(isHoveringHeader ? 1 : 0)
                     .animation(VAnimation.fast, value: isHoveringHeader)
                     .accessibilityLabel("Edit contact")
+
+                    if displayContact.role != "guardian" {
+                        Button(action: { showDeleteConfirmation = true }) {
+                            if isDeleting {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "trash")
+                                    .foregroundColor(VColor.error)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isDeleting || actionInProgress != nil || verificationInProgress != nil)
+                        .help("Delete contact")
+                        .opacity(isHoveringHeader ? 1 : 0)
+                        .animation(VAnimation.fast, value: isHoveringHeader)
+                        .accessibilityLabel("Delete contact")
+                    }
                 }
             }
 
@@ -205,10 +273,19 @@ struct ContactDetailView: View {
                 by: { $0.type }
             )
             let extraChannels = displayContact.channels.filter { !Self.allChannelTypes.contains($0.type) }
-            let totalRows = Self.allChannelTypes.count + extraChannels.count
 
-            ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { index, type in
+            // Compute which standard types are visible (have channels, readiness info,
+            // or should appear as unavailable after a readiness fetch failure)
+            let visibleTypes = Self.allChannelTypes.filter { type in
+                channelsByType[type] != nil || channelReadiness[type] != nil
+                    || (readinessFetchFailed && Self.codeInviteChannels.contains(type))
+            }
+            let lastVisibleType = visibleTypes.last
+            let hasExtraChannels = !extraChannels.isEmpty
+
+            ForEach(Array(Self.allChannelTypes.enumerated()), id: \.element) { _, type in
                 if let channels = channelsByType[type] {
+                    // Configured channel — always show
                     ForEach(Array(channels.enumerated()), id: \.element.id) { channelIndex, channel in
                         channelRow(channel)
 
@@ -216,19 +293,37 @@ struct ContactDetailView: View {
                             Divider().background(VColor.divider)
                         }
                     }
-                } else {
-                    unconfiguredChannelRow(type: type)
-                }
 
-                if index < totalRows - 1 {
-                    Divider().background(VColor.divider)
+                    if type != lastVisibleType || hasExtraChannels {
+                        Divider().background(VColor.divider)
+                    }
+                } else if let readiness = channelReadiness[type] {
+                    if readiness.ready {
+                        // Unconfigured but assistant has this channel set up — show
+                        unconfiguredChannelRow(type: type)
+                    } else {
+                        // Channel exists but is not ready — show with reason
+                        unavailableChannelRow(type: type, reason: readiness.reasonSummary)
+                    }
+
+                    if type != lastVisibleType || hasExtraChannels {
+                        Divider().background(VColor.divider)
+                    }
+                } else if readinessFetchFailed && Self.codeInviteChannels.contains(type) {
+                    // Readiness fetch failed — show as unavailable so channels
+                    // aren't silently hidden by a transient error.
+                    unavailableChannelRow(type: type, reason: "Unable to check readiness")
+
+                    if type != lastVisibleType || hasExtraChannels {
+                        Divider().background(VColor.divider)
+                    }
                 }
             }
 
             ForEach(Array(extraChannels.enumerated()), id: \.element.id) { index, channel in
                 channelRow(channel)
 
-                if Self.allChannelTypes.count + index < totalRows - 1 {
+                if index < extraChannels.count - 1 {
                     Divider().background(VColor.divider)
                 }
             }
@@ -251,10 +346,9 @@ struct ContactDetailView: View {
         .task {
             do {
                 channelReadiness = try await daemonClient?.fetchChannelReadiness() ?? [:]
+                readinessFetchFailed = false
             } catch {
-                // Silently fail — empty dict means probed channels (SMS, Telegram,
-                // Voice) hide their Invite buttons until a successful fetch, while
-                // non-probed channels (email, Slack) default to showing Invite.
+                readinessFetchFailed = true
             }
         }
     }
@@ -306,8 +400,10 @@ struct ContactDetailView: View {
                 Spacer()
             }
 
-            // Action buttons for non-guardian channels
-            if displayContact.role != "guardian" {
+            // Guardian contacts get the full verification flow; others get standard actions
+            if displayContact.role == "guardian" {
+                guardianVerificationActions(for: channel)
+            } else {
                 channelActions(for: channel)
             }
         }
@@ -338,36 +434,85 @@ struct ContactDetailView: View {
                 Text("Not set up")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
+            }
 
-                // Voice invites require additional fields (phone number, friend/guardian
-                // names) that aren't available in this context, so hide the button.
-                // Channels that require infrastructure probing (SMS, Telegram) only
-                // show Invite when the server has explicitly confirmed readiness.
-                // Non-probed channels (email, Slack) default to ready unless
-                // explicitly marked false.
-                let probedChannels: Set<String> = ["sms", "telegram", "voice"]
-                let channelIsReady = probedChannels.contains(type)
-                    ? channelReadiness[type]?.ready == true
-                    : channelReadiness[type]?.ready != false
-                if displayContact.role != "guardian" && type != "voice" && channelIsReady {
-                    if inviteInProgress == type {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        VButton(
-                            label: "Invite",
-                            style: .secondary,
-                            size: .medium,
-                            isDisabled: inviteInProgress != nil
-                        ) {
-                            createInviteForChannel(type: type)
-                        }
+            // Guardian contacts get the full verification flow; others get invite button
+            if displayContact.role == "guardian" {
+                if Self.guardianSupportedChannels.contains(type), let store {
+                    let state = store.guardianChannelState(for: type)
+                    let destinationBinding = Binding<String>(
+                        get: { guardianDestinationTexts[type] ?? "" },
+                        set: { guardianDestinationTexts[type] = $0 }
+                    )
+                    GuardianVerificationFlowView(
+                        state: state,
+                        countdownNow: $guardianCountdownNow,
+                        destinationText: destinationBinding,
+                        onStartOutbound: { dest in store.startOutboundGuardianVerification(channel: type, destination: dest) },
+                        onResend: { store.resendOutboundGuardian(channel: type) },
+                        onCancelOutbound: { store.cancelOutboundGuardian(channel: type) },
+                        onRevoke: { store.revokeChannelGuardian(channel: type) },
+                        onStartChallenge: { rebind in store.startChannelGuardianVerification(channel: type, rebind: rebind) },
+                        onCancelChallenge: { store.cancelGuardianChallenge(channel: type) },
+                        botUsername: store.telegramBotUsername,
+                        phoneNumber: store.twilioPhoneNumber,
+                        showLabel: false
+                    )
+                }
+            } else if Self.codeInviteChannels.contains(type) {
+                // Channels that support 6-digit code invites can be invited directly
+                // from this view. Voice invites require additional fields (phone number,
+                // friend/guardian names) that aren't available in this context.
+                // Row visibility is already gated on channelReadiness[type]?.ready == true,
+                // so no additional readiness check is needed here.
+                if inviteInProgress == type {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    VButton(
+                        label: "Invite",
+                        style: .secondary,
+                        size: .medium,
+                        isDisabled: inviteInProgress != nil
+                    ) {
+                        createInviteForChannel(type: type)
                     }
                 }
             }
 
             if inviteResult?.type == type {
                 inviteResultDisplay(for: type)
+            }
+        }
+    }
+
+    /// Row for a channel that the assistant knows about but is not ready.
+    /// Shows the channel name with an explanation of why it is unavailable.
+    @ViewBuilder
+    private func unavailableChannelRow(type: String, reason: String?) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: channelIcon(for: type))
+                    .foregroundColor(VColor.textMuted)
+                    .font(.system(size: 14))
+                    .frame(width: 20, alignment: .center)
+
+                Text(channelLabel(for: type))
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+
+                Spacer()
+
+                Text("Unavailable")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            if let reason {
+                Text(reason)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -385,13 +530,7 @@ struct ContactDetailView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if let channelHandle = result.channelHandle {
-                    Text(channelHandle)
-                        .font(VFont.monoSmall)
-                        .foregroundColor(VColor.textMuted)
-                }
-
-                // When a share URL is available, show it prominently above the code
+                // When a share URL is available, show it as a copyable row below the instruction
                 if let shareUrl = result.shareUrl {
                     HStack(spacing: VSpacing.sm) {
                         let truncated = shareUrl.count > 30
@@ -419,12 +558,32 @@ struct ContactDetailView: View {
                             }
                         }
                     }
+                } else if let channelHandle = result.channelHandle {
+                    // For channels without a share URL (email, WhatsApp, SMS),
+                    // show the assistant's channel handle so it can be copied.
+                    HStack(spacing: VSpacing.sm) {
+                        Text(channelHandle)
+                            .font(VFont.monoSmall)
+                            .foregroundColor(VColor.textSecondary)
 
-                    Divider().background(VColor.divider)
-
-                    Text("Or use this code:")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
+                        VButton(
+                            label: inviteCopiedType == "\(type)-handle" ? "Copied!" : "Copy Address",
+                            icon: "doc.on.doc",
+                            style: .secondary,
+                            size: .medium
+                        ) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(channelHandle, forType: .string)
+                            inviteCopiedType = "\(type)-handle"
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                guard !Task.isCancelled else { return }
+                                if inviteCopiedType == "\(type)-handle" {
+                                    inviteCopiedType = nil
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Large monospaced invite code for readability
@@ -437,7 +596,7 @@ struct ContactDetailView: View {
                 VButton(
                     label: inviteCopiedType == type ? "Copied!" : "Copy Code",
                     icon: "doc.on.doc",
-                    style: result.shareUrl != nil ? .tertiary : .secondary,
+                    style: (result.shareUrl != nil || result.channelHandle != nil) ? .tertiary : .secondary,
                     size: .medium
                 ) {
                     NSPasteboard.general.clearContents()
@@ -488,7 +647,7 @@ struct ContactDetailView: View {
     private func channelActions(for channel: ContactChannelPayload) -> some View {
         // Disable ALL action buttons while any channel action is in-flight to
         // serialize updates and prevent response correlation mix-ups.
-        let anyActionInFlight = actionInProgress != nil || verificationInProgress != nil
+        let anyActionInFlight = actionInProgress != nil || verificationInProgress != nil || isDeleting
         let isThisChannel = actionInProgress == channel.id
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -608,6 +767,52 @@ struct ContactDetailView: View {
         }
     }
 
+    // MARK: - Guardian Verification Actions
+
+    @ViewBuilder
+    private func guardianVerificationActions(for channel: ContactChannelPayload) -> some View {
+        if Self.guardianSupportedChannels.contains(channel.type), let store {
+            let state = store.guardianChannelState(for: channel.type)
+            let destinationBinding = Binding<String>(
+                get: { guardianDestinationTexts[channel.type] ?? "" },
+                set: { guardianDestinationTexts[channel.type] = $0 }
+            )
+
+            GuardianVerificationFlowView(
+                state: state,
+                countdownNow: $guardianCountdownNow,
+                destinationText: destinationBinding,
+                onStartOutbound: { dest in store.startOutboundGuardianVerification(channel: channel.type, destination: dest) },
+                onResend: { store.resendOutboundGuardian(channel: channel.type) },
+                onCancelOutbound: { store.cancelOutboundGuardian(channel: channel.type) },
+                onRevoke: { store.revokeChannelGuardian(channel: channel.type) },
+                onStartChallenge: { rebind in store.startChannelGuardianVerification(channel: channel.type, rebind: rebind) },
+                onCancelChallenge: { store.cancelGuardianChallenge(channel: channel.type) },
+                botUsername: store.telegramBotUsername,
+                phoneNumber: store.twilioPhoneNumber,
+                showLabel: false
+            )
+        }
+        // Email and other unsupported channel types: show nothing (display-only)
+    }
+
+    // MARK: - Guardian Countdown Timer
+
+    private func startGuardianCountdownTimer() {
+        guard guardianCountdownTimer == nil else { return }
+        guardianCountdownNow = Date()
+        guardianCountdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor in
+                guardianCountdownNow = Date()
+            }
+        }
+    }
+
+    private func stopGuardianCountdownTimer() {
+        guardianCountdownTimer?.invalidate()
+        guardianCountdownTimer = nil
+    }
+
     // MARK: - Status Badge
 
     @ViewBuilder
@@ -676,6 +881,7 @@ struct ContactDetailView: View {
         case "telegram": return "Telegram"
         case "sms": return "SMS"
         case "email": return "Email"
+        case "whatsapp": return "WhatsApp"
         case "voice": return "Voice"
         case "slack": return "Slack"
         default: return type.capitalized
@@ -741,8 +947,7 @@ struct ContactDetailView: View {
         Task {
             do {
                 let result = try await daemonClient.verifyContactChannel(
-                    contactId: displayContact.id,
-                    channelId: channel.id
+                    contactChannelId: channel.id
                 )
                 if result?.ok == true {
                     // Telegram bootstrap: ok is true but no code was sent yet —
@@ -846,6 +1051,39 @@ struct ContactDetailView: View {
             actionInProgress = nil
         }
     }
+
+    private func deleteContact() {
+        guard let daemonClient else { return }
+        guard actionInProgress == nil, verificationInProgress == nil else { return }
+        isDeleting = true
+        errorMessage = nil
+
+        Task {
+            let stream = daemonClient.subscribe()
+
+            do {
+                try daemonClient.sendDeleteContact(contactId: displayContact.id)
+            } catch {
+                errorMessage = "Failed to delete contact: \(error.localizedDescription)"
+                isDeleting = false
+                return
+            }
+
+            for await message in stream {
+                if case .contactsResponse(let response) = message {
+                    if response.success {
+                        onDelete?()
+                    } else {
+                        errorMessage = response.error ?? "Failed to delete contact"
+                    }
+                    isDeleting = false
+                    return
+                }
+            }
+
+            isDeleting = false
+        }
+    }
 }
 
 // MARK: - Preview
@@ -907,6 +1145,61 @@ struct ContactDetailView: View {
                         status: "unverified",
                         policy: "allow"
                     )
+                ]
+            )
+        )
+        .frame(width: 500, height: 700)
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Guardian Contact") {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        ContactDetailView(
+            contact: ContactPayload(
+                id: "contact-guardian",
+                displayName: "Guardian",
+                role: "guardian",
+                notes: "Primary guardian contact for verification flows.",
+                contactType: "human",
+                lastInteraction: Date().timeIntervalSince1970 * 1000 - 1_800_000,
+                interactionCount: 8,
+                channels: [
+                    ContactChannelPayload(
+                        id: "ch-g1",
+                        type: "telegram",
+                        address: "@guardian_bot",
+                        isPrimary: true,
+                        status: "active",
+                        policy: "allow",
+                        verifiedAt: Int(Date().timeIntervalSince1970 * 1000) - 86_400_000,
+                        verifiedVia: "telegram"
+                    ),
+                    ContactChannelPayload(
+                        id: "ch-g2",
+                        type: "sms",
+                        address: "+15551234567",
+                        isPrimary: false,
+                        status: "active",
+                        policy: "allow"
+                    ),
+                    ContactChannelPayload(
+                        id: "ch-g3",
+                        type: "voice",
+                        address: "+15551234567",
+                        isPrimary: false,
+                        status: "pending",
+                        policy: "allow"
+                    ),
+                    ContactChannelPayload(
+                        id: "ch-g4",
+                        type: "slack",
+                        address: "#guardian-alerts",
+                        isPrimary: false,
+                        status: "unverified",
+                        policy: "restrict"
+                    ),
                 ]
             )
         )

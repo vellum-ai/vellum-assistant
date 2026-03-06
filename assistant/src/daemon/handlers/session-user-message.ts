@@ -539,6 +539,11 @@ async function handlePendingConfirmationReply(
           causedByRequestId: requestId,
           decisionText: messageText.trim(),
         });
+        // Notify agent loop so the outcome is persisted on the tool_use block
+        session.onConfirmationOutcome?.(
+          routerResult.requestId,
+          "resolved_stale",
+        );
       }
 
       const consumedChannelMeta = {
@@ -646,6 +651,8 @@ function autoDenyPendingConfirmations(
         source: "auto_deny",
         causedByRequestId: requestId,
       });
+      // Notify agent loop so the outcome is persisted on the tool_use block
+      session.onConfirmationOutcome?.(interaction.requestId, "denied");
     }
   }
   session.denyAllPendingConfirmations();

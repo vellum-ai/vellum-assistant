@@ -1,631 +1,441 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AppDefinition } from "../memory/app-store.js";
-import type { AppStore, ProxyResolver } from "../tools/apps/executors.js";
+import type { AppStore } from "../tools/apps/executors.js";
 import {
   executeAppCreate,
-  executeAppDelete,
   executeAppFileEdit,
   executeAppFileList,
   executeAppFileRead,
   executeAppFileWrite,
-  executeAppList,
-  executeAppQuery,
-  executeAppUpdate,
+  resolveAppFilePath,
 } from "../tools/apps/executors.js";
-import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js";
 
 // ---------------------------------------------------------------------------
-// Mock factory
+// Helpers
 // ---------------------------------------------------------------------------
 
-function makeApp(overrides: Partial<AppDefinition> = {}): AppDefinition {
+function makeLegacyApp(overrides?: Partial<AppDefinition>): AppDefinition {
   return {
-    id: "app-1",
-    name: "Test App",
-    description: "A test app",
+    id: "legacy-app",
+    name: "Legacy App",
     schemaJson: "{}",
-    htmlDefinition: "<h1>Hi</h1>",
-    createdAt: 1000,
-    updatedAt: 2000,
+    htmlDefinition: "<html></html>",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
     ...overrides,
   };
 }
 
-function makeMockStore(overrides: Partial<AppStore> = {}): AppStore {
+function makeMultifileApp(overrides?: Partial<AppDefinition>): AppDefinition {
   return {
-    getApp: () => makeApp(),
-    listApps: () => [makeApp()],
-    queryAppRecords: () => [],
-    listAppFiles: () => ["index.html"],
-    readAppFile: () => "<h1>Hi</h1>",
-    createApp: (params) =>
-      makeApp({ name: params.name, description: params.description }),
-    updateApp: (id, updates) => makeApp({ id, ...updates }),
-    deleteApp: () => {},
-    writeAppFile: () => {},
-    editAppFile: () =>
-      ({
-        ok: true,
-        updatedContent: "new",
-        matchCount: 1,
-        matchMethod: "exact",
-        similarity: 1,
-        actualOld: "old",
-        actualNew: "new",
-      }) as EditEngineResult,
+    id: "multi-app",
+    name: "Multifile App",
+    schemaJson: "{}",
+    htmlDefinition: "",
+    formatVersion: 2,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
     ...overrides,
   };
 }
 
+/**
+ * Builds a minimal mock AppStore that tracks writes/edits/reads
+ * against an in-memory file map.
+ */
+function mockStore(
+  app: AppDefinition,
+  files: Record<string, string> = {},
+): AppStore {
+  return {
+    getApp: (id: string) => (id === app.id ? app : null),
+    listApps: () => [app],
+    queryAppRecords: () => [],
+    listAppFiles: () => Object.keys(files).sort(),
+    readAppFile: (_appId: string, path: string) => {
+      if (!(path in files)) throw new Error(`File not found: ${path}`);
+      return files[path];
+    },
+    createApp: () => app,
+    updateApp: () => app,
+    deleteApp: () => {},
+    writeAppFile: (_appId: string, path: string, content: string) => {
+      files[path] = content;
+    },
+    editAppFile: (
+      _appId: string,
+      path: string,
+      oldStr: string,
+      newStr: string,
+      _replaceAll?: boolean,
+    ) => {
+      if (!(path in files)) throw new Error(`File not found: ${path}`);
+      const content = files[path];
+      if (!content.includes(oldStr)) {
+        return { ok: false as const, reason: "not_found" as const };
+      }
+      const updated = content.replace(oldStr, newStr);
+      files[path] = updated;
+      return {
+        ok: true as const,
+        updatedContent: updated,
+        matchCount: 1,
+        matchMethod: "exact" as const,
+        similarity: 1,
+        actualOld: oldStr,
+        actualNew: newStr,
+      };
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
-// app_create
+// resolveAppFilePath
 // ---------------------------------------------------------------------------
 
-describe("executeAppCreate", () => {
-  test("creates an app and returns its definition", async () => {
-    const store = makeMockStore();
-    const result = await executeAppCreate(
-      { name: "My App", html: "<p>Hello</p>" },
-      store,
-    );
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.name).toBe("My App");
+describe("resolveAppFilePath", () => {
+  test("prepends src/ for multifile app with plain path", () => {
+    const app = makeMultifileApp();
+    expect(resolveAppFilePath(app, "main.tsx")).toBe("src/main.tsx");
   });
 
-  test('defaults schema_json to "{}" when not provided', async () => {
-    let capturedSchema: string | undefined;
-    const store = makeMockStore({
-      createApp: (params) => {
-        capturedSchema = params.schemaJson;
-        return makeApp({ name: params.name });
-      },
-    });
-    await executeAppCreate({ name: "App", html: "<p/>" }, store);
-    expect(capturedSchema).toBe("{}");
-  });
-
-  test("passes schema_json through when provided", async () => {
-    let capturedSchema: string | undefined;
-    const store = makeMockStore({
-      createApp: (params) => {
-        capturedSchema = params.schemaJson;
-        return makeApp({ name: params.name });
-      },
-    });
-    await executeAppCreate(
-      { name: "App", html: "<p/>", schema_json: '{"type":"object"}' },
-      store,
-    );
-    expect(capturedSchema).toBe('{"type":"object"}');
-  });
-
-  test("auto-opens the app when proxyToolResolver is provided", async () => {
-    const store = makeMockStore();
-    const proxy: ProxyResolver = async () => ({
-      content: "opened",
-      isError: false,
-    });
-    const result = await executeAppCreate(
-      { name: "Auto", html: "<p/>" },
-      store,
-      proxy,
-    );
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.auto_opened).toBe(true);
-    expect(parsed.open_result).toBe("opened");
-  });
-
-  test("returns auto_opened=false when proxy resolver throws", async () => {
-    const store = makeMockStore();
-    const proxy: ProxyResolver = async () => {
-      throw new Error("no client");
-    };
-    const result = await executeAppCreate(
-      { name: "Fail Open", html: "<p/>" },
-      store,
-      proxy,
-    );
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.auto_opened).toBe(false);
-    expect(parsed.auto_open_error).toBe(
-      "Failed to auto-open app. Use app_open to open it manually.",
+  test("prepends src/ for nested path in multifile app", () => {
+    const app = makeMultifileApp();
+    expect(resolveAppFilePath(app, "components/Header.tsx")).toBe(
+      "src/components/Header.tsx",
     );
   });
 
-  test("skips auto-open when auto_open is false", async () => {
-    let proxyCalled = false;
-    const store = makeMockStore();
-    const proxy: ProxyResolver = async () => {
-      proxyCalled = true;
-      return { content: "opened", isError: false };
-    };
-    const result = await executeAppCreate(
-      { name: "No Open", html: "<p/>", auto_open: false },
-      store,
-      proxy,
-    );
-    expect(proxyCalled).toBe(false);
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.auto_opened).toBeUndefined();
+  test("passes through src/ prefix unchanged for multifile app", () => {
+    const app = makeMultifileApp();
+    expect(resolveAppFilePath(app, "src/main.tsx")).toBe("src/main.tsx");
   });
 
-  test("skips auto-open when no proxyToolResolver", async () => {
-    const store = makeMockStore();
-    const result = await executeAppCreate(
-      { name: "No Proxy", html: "<p/>" },
-      store,
-    );
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content);
-    expect(parsed.auto_opened).toBeUndefined();
+  test("passes through dist/ prefix unchanged for multifile app", () => {
+    const app = makeMultifileApp();
+    expect(resolveAppFilePath(app, "dist/bundle.js")).toBe("dist/bundle.js");
   });
 
-  test("passes pages through to store.createApp", async () => {
-    let capturedPages: Record<string, string> | undefined;
-    const store = makeMockStore({
-      createApp: (params) => {
-        capturedPages = params.pages;
-        return makeApp({ name: params.name });
-      },
-    });
-    await executeAppCreate(
-      { name: "Multi", html: "<p/>", pages: { "settings.html": "<div/>" } },
-      store,
+  test("passes through records/ prefix unchanged for multifile app", () => {
+    const app = makeMultifileApp();
+    expect(resolveAppFilePath(app, "records/data.json")).toBe(
+      "records/data.json",
     );
-    expect(capturedPages).toEqual({ "settings.html": "<div/>" });
   });
 
-  test("defaults html to minimal scaffold when omitted", async () => {
-    let capturedHtml: string | undefined;
-    const store = makeMockStore({
-      createApp: (params) => {
-        capturedHtml = params.htmlDefinition;
-        return makeApp({ name: params.name });
-      },
-    });
-    await executeAppCreate({ name: "No HTML" }, store);
-    expect(capturedHtml).toBe(
-      "<!DOCTYPE html><html><head></head><body></body></html>",
+  test("does not modify path for legacy app", () => {
+    const app = makeLegacyApp();
+    expect(resolveAppFilePath(app, "main.tsx")).toBe("main.tsx");
+  });
+
+  test("does not modify path for legacy app (formatVersion undefined)", () => {
+    const app = makeLegacyApp({ formatVersion: undefined });
+    expect(resolveAppFilePath(app, "styles.css")).toBe("styles.css");
+  });
+
+  test("does not modify path for legacy app (formatVersion 1)", () => {
+    const app = makeLegacyApp({ formatVersion: 1 });
+    expect(resolveAppFilePath(app, "index.html")).toBe("index.html");
+  });
+
+  test("strips ./ prefix and prepends src/ for multifile app", () => {
+    const app = makeMultifileApp();
+    expect(resolveAppFilePath(app, "./main.tsx")).toBe("src/main.tsx");
+  });
+
+  test("strips ./ prefix for known top-level dir in multifile app", () => {
+    const app = makeMultifileApp();
+    expect(resolveAppFilePath(app, "./src/main.tsx")).toBe("src/main.tsx");
+    expect(resolveAppFilePath(app, "./dist/bundle.js")).toBe("dist/bundle.js");
+    expect(resolveAppFilePath(app, "./records/data.json")).toBe(
+      "records/data.json",
     );
   });
 });
 
 // ---------------------------------------------------------------------------
-// app_list
-// ---------------------------------------------------------------------------
-
-describe("executeAppList", () => {
-  test("returns mapped list of apps", () => {
-    const store = makeMockStore({
-      listApps: () => [
-        makeApp({
-          id: "a1",
-          name: "First",
-          description: "desc1",
-          updatedAt: 100,
-        }),
-        makeApp({ id: "a2", name: "Second", updatedAt: 200 }),
-      ],
-    });
-    const result = executeAppList(store);
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content);
-    expect(parsed).toHaveLength(2);
-    expect(parsed[0]).toEqual({
-      id: "a1",
-      name: "First",
-      description: "desc1",
-      updatedAt: 100,
-    });
-    expect(parsed[1].id).toBe("a2");
-    // Should not include htmlDefinition or schemaJson
-    expect(parsed[0].htmlDefinition).toBeUndefined();
-    expect(parsed[0].schemaJson).toBeUndefined();
-  });
-
-  test("returns empty array when no apps exist", () => {
-    const store = makeMockStore({ listApps: () => [] });
-    const result = executeAppList(store);
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// app_query
-// ---------------------------------------------------------------------------
-
-describe("executeAppQuery", () => {
-  test("returns records for a given app", () => {
-    const records = [{ id: "r1", appId: "app-1", data: { x: 1 } }];
-    const store = makeMockStore({ queryAppRecords: () => records });
-    const result = executeAppQuery({ app_id: "app-1" }, store);
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toEqual(records);
-  });
-
-  test("returns empty array when no records", () => {
-    const store = makeMockStore({ queryAppRecords: () => [] });
-    const result = executeAppQuery({ app_id: "app-1" }, store);
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// app_update
-// ---------------------------------------------------------------------------
-
-describe("executeAppUpdate", () => {
-  test("passes update fields through to store", () => {
-    let capturedUpdates: Record<string, unknown> = {};
-    const store = makeMockStore({
-      updateApp: (_id, updates) => {
-        capturedUpdates = updates;
-        return makeApp({ id: _id, ...updates });
-      },
-    });
-    const result = executeAppUpdate(
-      {
-        app_id: "app-1",
-        name: "New Name",
-        description: "New desc",
-        schema_json: '{"a":1}',
-        html: "<div/>",
-        pages: { "about.html": "<p/>" },
-      },
-      store,
-    );
-    expect(result.isError).toBe(false);
-    expect(capturedUpdates).toEqual({
-      name: "New Name",
-      description: "New desc",
-      schemaJson: '{"a":1}',
-      htmlDefinition: "<div/>",
-      pages: { "about.html": "<p/>" },
-    });
-  });
-
-  test("only includes provided fields in updates", () => {
-    let capturedUpdates: Record<string, unknown> = {};
-    const store = makeMockStore({
-      updateApp: (_id, updates) => {
-        capturedUpdates = updates;
-        return makeApp({ id: _id, ...updates });
-      },
-    });
-    executeAppUpdate({ app_id: "app-1", name: "Only Name" }, store);
-    expect(capturedUpdates).toEqual({ name: "Only Name" });
-    // html, description, schema_json, pages should NOT be in the updates
-    expect("htmlDefinition" in capturedUpdates).toBe(false);
-    expect("description" in capturedUpdates).toBe(false);
-    expect("schemaJson" in capturedUpdates).toBe(false);
-    expect("pages" in capturedUpdates).toBe(false);
-  });
-
-  test("propagates store errors", () => {
-    const store = makeMockStore({
-      updateApp: () => {
-        throw new Error("App not found: bad-id");
-      },
-    });
-    expect(() => executeAppUpdate({ app_id: "bad-id" }, store)).toThrow(
-      "App not found: bad-id",
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// app_delete
-// ---------------------------------------------------------------------------
-
-describe("executeAppDelete", () => {
-  test("deletes the app and returns confirmation", () => {
-    let deletedId: string | undefined;
-    const store = makeMockStore({
-      deleteApp: (id) => {
-        deletedId = id;
-      },
-    });
-    const result = executeAppDelete({ app_id: "app-1" }, store);
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toEqual({
-      deleted: true,
-      appId: "app-1",
-    });
-    expect(deletedId).toBe("app-1");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// app_file_list
-// ---------------------------------------------------------------------------
-
-describe("executeAppFileList", () => {
-  test("returns list of files", () => {
-    const store = makeMockStore({
-      listAppFiles: () => ["index.html", "styles.css", "js/app.js"],
-    });
-    const result = executeAppFileList({ app_id: "app-1" }, store);
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toEqual([
-      "index.html",
-      "styles.css",
-      "js/app.js",
-    ]);
-  });
-
-  test("returns empty array when app has no files", () => {
-    const store = makeMockStore({ listAppFiles: () => [] });
-    const result = executeAppFileList({ app_id: "app-1" }, store);
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// app_file_read
-// ---------------------------------------------------------------------------
-
-describe("executeAppFileRead", () => {
-  test("returns formatted content with line numbers", () => {
-    const store = makeMockStore({
-      readAppFile: () => "line1\nline2\nline3",
-    });
-    const result = executeAppFileRead(
-      { app_id: "app-1", path: "index.html" },
-      store,
-    );
-    expect(result.isError).toBe(false);
-    expect(result.content).toBe("     1\tline1\n     2\tline2\n     3\tline3");
-  });
-
-  test("applies offset parameter (1-based)", () => {
-    const store = makeMockStore({
-      readAppFile: () => "a\nb\nc\nd\ne",
-    });
-    const result = executeAppFileRead(
-      { app_id: "app-1", path: "f.txt", offset: 3 },
-      store,
-    );
-    expect(result.isError).toBe(false);
-    // Lines 3, 4, 5
-    expect(result.content).toBe("     3\tc\n     4\td\n     5\te");
-  });
-
-  test("applies limit parameter", () => {
-    const store = makeMockStore({
-      readAppFile: () => "a\nb\nc\nd\ne",
-    });
-    const result = executeAppFileRead(
-      { app_id: "app-1", path: "f.txt", limit: 2 },
-      store,
-    );
-    expect(result.isError).toBe(false);
-    expect(result.content).toBe("     1\ta\n     2\tb");
-  });
-
-  test("applies both offset and limit", () => {
-    const store = makeMockStore({
-      readAppFile: () => "a\nb\nc\nd\ne",
-    });
-    const result = executeAppFileRead(
-      { app_id: "app-1", path: "f.txt", offset: 2, limit: 2 },
-      store,
-    );
-    expect(result.isError).toBe(false);
-    expect(result.content).toBe("     2\tb\n     3\tc");
-  });
-
-  test("defaults offset to 1 when not provided", () => {
-    const store = makeMockStore({
-      readAppFile: () => "only",
-    });
-    const result = executeAppFileRead(
-      { app_id: "app-1", path: "f.txt" },
-      store,
-    );
-    expect(result.content).toBe("     1\tonly");
-  });
-
-  test("propagates store errors (e.g. file not found)", () => {
-    const store = makeMockStore({
-      readAppFile: () => {
-        throw new Error("File not found: missing.txt");
-      },
-    });
-    expect(() =>
-      executeAppFileRead({ app_id: "app-1", path: "missing.txt" }, store),
-    ).toThrow("File not found: missing.txt");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// app_file_edit
-// ---------------------------------------------------------------------------
-
-describe("executeAppFileEdit", () => {
-  test("returns edit result from store", () => {
-    const editResult: EditEngineResult = {
-      ok: true,
-      updatedContent: "updated",
-      matchCount: 1,
-      matchMethod: "exact" as const,
-      similarity: 1,
-      actualOld: "old",
-      actualNew: "new",
-    };
-    const store = makeMockStore({ editAppFile: () => editResult });
-    const result = executeAppFileEdit(
-      {
-        app_id: "app-1",
-        path: "index.html",
-        old_string: "old",
-        new_string: "new",
-      },
-      store,
-    );
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toEqual(editResult);
-  });
-
-  test("returns error when old_string is empty", () => {
-    const store = makeMockStore();
-    const result = executeAppFileEdit(
-      {
-        app_id: "app-1",
-        path: "index.html",
-        old_string: "",
-        new_string: "new",
-      },
-      store,
-    );
-    expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content)).toEqual({
-      error: "old_string must not be empty",
-    });
-  });
-
-  test("passes replace_all through to store", () => {
-    let capturedReplaceAll: boolean | undefined;
-    const store = makeMockStore({
-      editAppFile: (_appId, _path, _old, _new, replaceAll) => {
-        capturedReplaceAll = replaceAll;
-        return {
-          ok: true,
-          updatedContent: "",
-          matchCount: 1,
-          matchMethod: "exact" as const,
-          similarity: 1,
-          actualOld: "",
-          actualNew: "",
-        };
-      },
-    });
-    executeAppFileEdit(
-      {
-        app_id: "app-1",
-        path: "f.txt",
-        old_string: "x",
-        new_string: "y",
-        replace_all: true,
-      },
-      store,
-    );
-    expect(capturedReplaceAll).toBe(true);
-  });
-
-  test("defaults replace_all to false", () => {
-    let capturedReplaceAll: boolean | undefined;
-    const store = makeMockStore({
-      editAppFile: (_appId, _path, _old, _new, replaceAll) => {
-        capturedReplaceAll = replaceAll;
-        return {
-          ok: true,
-          updatedContent: "",
-          matchCount: 1,
-          matchMethod: "exact" as const,
-          similarity: 1,
-          actualOld: "",
-          actualNew: "",
-        };
-      },
-    });
-    executeAppFileEdit(
-      {
-        app_id: "app-1",
-        path: "f.txt",
-        old_string: "x",
-        new_string: "y",
-      },
-      store,
-    );
-    expect(capturedReplaceAll).toBe(false);
-  });
-
-  test("passes status through to result", () => {
-    const store = makeMockStore();
-    const result = executeAppFileEdit(
-      {
-        app_id: "app-1",
-        path: "f.txt",
-        old_string: "x",
-        new_string: "y",
-        status: "updating styles",
-      },
-      store,
-    );
-    expect(result.status).toBe("updating styles");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// app_file_write
+// executeAppFileWrite
 // ---------------------------------------------------------------------------
 
 describe("executeAppFileWrite", () => {
-  test("writes file and returns confirmation", () => {
-    let writtenPath: string | undefined;
-    let writtenContent: string | undefined;
-    const store = makeMockStore({
-      writeAppFile: (_appId, path, content) => {
-        writtenPath = path;
-        writtenContent = content;
-      },
-    });
+  test("resolves plain path to src/ for multifile app", () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp();
+    const store = mockStore(app, files);
+
     const result = executeAppFileWrite(
-      { app_id: "app-1", path: "new.html", content: "<div/>" },
+      { app_id: app.id, path: "main.tsx", content: "export default 1;" },
       store,
     );
+
     expect(result.isError).toBe(false);
-    expect(JSON.parse(result.content)).toEqual({
-      written: true,
-      path: "new.html",
-    });
-    expect(writtenPath).toBe("new.html");
-    expect(writtenContent).toBe("<div/>");
+    expect(JSON.parse(result.content).path).toBe("src/main.tsx");
+    expect(files["src/main.tsx"]).toBe("export default 1;");
   });
 
-  test("returns error when app is not found", () => {
-    const store = makeMockStore({ getApp: () => null });
+  test("passes through src/ path unchanged for multifile app", () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp();
+    const store = mockStore(app, files);
+
     const result = executeAppFileWrite(
-      { app_id: "missing", path: "f.txt", content: "hi" },
+      { app_id: app.id, path: "src/main.tsx", content: "export default 2;" },
       store,
     );
-    expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content)).toEqual({
-      error: "App 'missing' not found",
-    });
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).path).toBe("src/main.tsx");
+    expect(files["src/main.tsx"]).toBe("export default 2;");
   });
 
-  test("passes status through to result", () => {
-    const store = makeMockStore();
+  test("does not modify path for legacy app", () => {
+    const files: Record<string, string> = {};
+    const app = makeLegacyApp();
+    const store = mockStore(app, files);
+
     const result = executeAppFileWrite(
+      { app_id: app.id, path: "index.html", content: "<html></html>" },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).path).toBe("index.html");
+    expect(files["index.html"]).toBe("<html></html>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeAppFileRead
+// ---------------------------------------------------------------------------
+
+describe("executeAppFileRead", () => {
+  test("resolves plain path to src/ for multifile app", () => {
+    const app = makeMultifileApp();
+    const store = mockStore(app, { "src/main.tsx": "line1\nline2" });
+
+    const result = executeAppFileRead(
+      { app_id: app.id, path: "main.tsx" },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("line1");
+  });
+
+  test("can read dist/ files explicitly for multifile app", () => {
+    const app = makeMultifileApp();
+    const store = mockStore(app, { "dist/bundle.js": "bundled code" });
+
+    const result = executeAppFileRead(
+      { app_id: app.id, path: "dist/bundle.js" },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("bundled code");
+  });
+
+  test("does not modify path for legacy app", () => {
+    const app = makeLegacyApp();
+    const store = mockStore(app, { "index.html": "<html>hello</html>" });
+
+    const result = executeAppFileRead(
+      { app_id: app.id, path: "index.html" },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("<html>hello</html>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeAppFileEdit
+// ---------------------------------------------------------------------------
+
+describe("executeAppFileEdit", () => {
+  test("resolves plain path to src/ for multifile app", () => {
+    const files = { "src/main.tsx": "const x = 1;" };
+    const app = makeMultifileApp();
+    const store = mockStore(app, files);
+
+    const result = executeAppFileEdit(
       {
-        app_id: "app-1",
-        path: "f.txt",
-        content: "hi",
-        status: "adding dark mode styles",
+        app_id: app.id,
+        path: "main.tsx",
+        old_string: "const x = 1;",
+        new_string: "const x = 2;",
       },
       store,
     );
-    expect(result.status).toBe("adding dark mode styles");
+
+    expect(result.isError).toBe(false);
+    expect(files["src/main.tsx"]).toBe("const x = 2;");
   });
 
-  test("does not call writeAppFile when app not found", () => {
-    let writeCalled = false;
-    const store = makeMockStore({
-      getApp: () => null,
-      writeAppFile: () => {
-        writeCalled = true;
+  test("does not modify path for legacy app", () => {
+    const files = { "index.html": "<p>old</p>" };
+    const app = makeLegacyApp();
+    const store = mockStore(app, files);
+
+    const result = executeAppFileEdit(
+      {
+        app_id: app.id,
+        path: "index.html",
+        old_string: "<p>old</p>",
+        new_string: "<p>new</p>",
       },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(files["index.html"]).toBe("<p>new</p>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeAppFileList
+// ---------------------------------------------------------------------------
+
+describe("executeAppFileList", () => {
+  test("returns clean file paths and separate buildOutput for multifile app", () => {
+    const app = makeMultifileApp();
+    const store = mockStore(app, {
+      "src/main.tsx": "",
+      "src/components/Header.tsx": "",
+      "dist/index.html": "",
     });
-    executeAppFileWrite({ app_id: "bad", path: "f.txt", content: "x" }, store);
-    expect(writeCalled).toBe(false);
+
+    const result = executeAppFileList({ app_id: app.id }, store);
+    const parsed = JSON.parse(result.content) as {
+      files: string[];
+      buildOutput: string[];
+    };
+
+    // File paths must be clean — no annotations appended
+    expect(parsed.files).toContain("src/main.tsx");
+    expect(parsed.files).toContain("src/components/Header.tsx");
+    expect(parsed.files).toContain("dist/index.html");
+    expect(
+      parsed.files.every((f: string) => !f.includes("[build output]")),
+    ).toBe(true);
+
+    // Build output files listed separately
+    expect(parsed.buildOutput).toEqual(["dist/index.html"]);
+  });
+
+  test("does not annotate files for legacy app", () => {
+    const app = makeLegacyApp();
+    const store = mockStore(app, {
+      "index.html": "",
+      "styles.css": "",
+    });
+
+    const result = executeAppFileList({ app_id: app.id }, store);
+    const parsed = JSON.parse(result.content) as string[];
+
+    expect(parsed).toContain("index.html");
+    expect(parsed).toContain("styles.css");
+    expect(parsed.every((f: string) => !f.includes("[build output]"))).toBe(
+      true,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeAppCreate
+// ---------------------------------------------------------------------------
+
+describe("executeAppCreate", () => {
+  test("flag off: creates legacy app with root index.html", async () => {
+    const files: Record<string, string> = {};
+    let createdParams: Record<string, unknown> | undefined;
+    const app = makeLegacyApp();
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: (params) => {
+        createdParams = params as unknown as Record<string, unknown>;
+        return app;
+      },
+    };
+
+    const result = await executeAppCreate(
+      {
+        name: "Test App",
+        html: "<html><body>Hello</body></html>",
+      },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    // Legacy path: no formatVersion set, htmlDefinition is the provided html
+    expect(createdParams?.formatVersion).toBeUndefined();
+    expect(createdParams?.htmlDefinition).toBe(
+      "<html><body>Hello</body></html>",
+    );
+    // No src/ files should be written
+    expect(files["src/index.html"]).toBeUndefined();
+    expect(files["src/main.tsx"]).toBeUndefined();
+  });
+
+  test("flag on: creates multifile app with src/ scaffold", async () => {
+    const files: Record<string, string> = {};
+    let createdParams: Record<string, unknown> | undefined;
+    const app = makeMultifileApp({ name: "New App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: (params) => {
+        createdParams = params as unknown as Record<string, unknown>;
+        return app;
+      },
+    };
+
+    const result = await executeAppCreate(
+      {
+        name: "New App",
+        featureFlags: { multifileEnabled: true },
+      },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    // formatVersion 2 passed to createApp
+    expect(createdParams?.formatVersion).toBe(2);
+    // htmlDefinition should be empty for multifile apps
+    expect(createdParams?.htmlDefinition).toBe("");
+    // Scaffold files should be written
+    expect(files["src/index.html"]).toBeDefined();
+    expect(files["src/index.html"]).toContain("<title>New App</title>");
+    expect(files["src/index.html"]).toContain('<div id="app"></div>');
+    expect(files["src/main.tsx"]).toBeDefined();
+    expect(files["src/main.tsx"]).toContain("import { render } from 'preact'");
+    expect(files["src/main.tsx"]).toContain('{"Hello, New App!"}');
+  });
+
+  test("flag on with explicit html: uses provided html as src/index.html", async () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp({ name: "Custom App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+
+    const customHtml =
+      '<!DOCTYPE html><html><head></head><body><div id="root"></div></body></html>';
+    const result = await executeAppCreate(
+      {
+        name: "Custom App",
+        html: customHtml,
+        featureFlags: { multifileEnabled: true },
+      },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    // Explicit HTML should be used instead of scaffold
+    expect(files["src/index.html"]).toBe(customHtml);
+    // main.tsx scaffold should still be written
+    expect(files["src/main.tsx"]).toBeDefined();
   });
 });

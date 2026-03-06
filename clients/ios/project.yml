@@ -40,6 +40,7 @@ targets:
     platform: iOS
     sources: [Tests]
     dependencies:
+      - target: vellum-assistant-ios
       - package: VellumAssistant
         product: VellumAssistantShared
     settings:

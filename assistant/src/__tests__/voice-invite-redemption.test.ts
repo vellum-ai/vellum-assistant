@@ -24,7 +24,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { upsertMember } from "../contacts/contacts-write.js";
+import { findContactChannel } from "../contacts/contact-store.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { redeemVoiceInviteCode } from "../runtime/invite-redemption-service.js";
@@ -177,6 +178,29 @@ describe("redeemVoiceInviteCode", () => {
     });
   });
 
+  test("marks channel as verified via invite on voice redemption", () => {
+    const phone = "+15551234567";
+    const { code } = createVoiceInvite({ callerPhone: phone });
+
+    const result = redeemVoiceInviteCode({
+      callerExternalUserId: phone,
+      sourceChannel: "voice",
+      code,
+    });
+
+    expect(result.ok).toBe(true);
+
+    const channelResult = findContactChannel({
+      channelType: "voice",
+      externalUserId: phone,
+    });
+
+    expect(channelResult).not.toBeNull();
+    expect(channelResult!.channel.verifiedAt).toBeGreaterThan(0);
+    expect(channelResult!.channel.verifiedVia).toBe("invite");
+    expect(channelResult!.channel.status).toBe("active");
+  });
+
   test("wrong caller identity fails with generic error", () => {
     const { code } = createVoiceInvite({ callerPhone: "+15551234567" });
 
@@ -281,7 +305,7 @@ describe("redeemVoiceInviteCode", () => {
     const { code } = createVoiceInvite({ callerPhone: phone });
 
     // Pre-create an active member for this phone on voice channel
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "voice",
       externalUserId: phone,
       status: "active",
@@ -306,7 +330,7 @@ describe("redeemVoiceInviteCode", () => {
     const phone = "+15551234567";
     const { code } = createVoiceInvite({ callerPhone: phone });
 
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "voice",
       externalUserId: phone,
       status: "blocked",

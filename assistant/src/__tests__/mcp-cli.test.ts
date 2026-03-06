@@ -131,7 +131,7 @@ async function runMcpRemove(name: string) {
 
 // ── Tests ─────────────────────────────────────────────────────────────
 
-describe("vellum mcp list", () => {
+describe("assistant mcp list", () => {
   beforeAll(() => {
     testDataDir = join(
       tmpdir(),
@@ -258,7 +258,7 @@ describe("vellum mcp list", () => {
   });
 });
 
-describe("vellum mcp add", () => {
+describe("assistant mcp add", () => {
   beforeAll(() => {
     testDataDir = join(
       tmpdir(),
@@ -396,7 +396,7 @@ describe("vellum mcp add", () => {
   });
 });
 
-describe("vellum mcp remove", () => {
+describe("assistant mcp remove", () => {
   beforeAll(() => {
     testDataDir = join(
       tmpdir(),

@@ -80,18 +80,25 @@ tell application "System Events"
       error "Could not find the app window"
     end if
 
-    -- Find the text field (chat input) in the main window.
-    -- Use entire contents to find it regardless of nesting.
+    -- Find the chat input text field.
+    -- Primary: direct path (text field 1 of the main group)
     set chatField to missing value
-    set allElems to entire contents of appWindow
-    repeat with elem in allElems
-      try
-        if class of elem is text field then
-          -- The chat input is in the main group, not in a scroll area popup
-          set chatField to elem
-        end if
-      end try
-    end repeat
+    try
+      set chatField to text field 1 of group 1 of appWindow
+    end try
+
+    -- Fallback: scan entire contents for first text field
+    if chatField is missing value then
+      set allElems to entire contents of appWindow
+      repeat with elem in allElems
+        try
+          if class of elem is text field then
+            set chatField to elem
+            exit repeat
+          end if
+        end try
+      end repeat
+    end if
 
     if chatField is missing value then
       error "Could not find the chat text field"

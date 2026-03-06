@@ -1,7 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-let appVersion = "0.4.33"
+let appVersion = "0.4.37"
 
 let package = Package(
     name: "vellum-assistant",
@@ -52,7 +52,7 @@ let package = Package(
                 .product(name: "Sentry", package: "sentry-cocoa"),
             ],
             path: "macos/vellum-assistant",
-            exclude: ["Resources/Info.plist", "Resources/bg.png"],
+            exclude: ["Resources/Info.plist", "Resources/bg.png", "Resources/VellumDocument.icns"],
             resources: [
                 .process("Resources/Assets.xcassets"),
                 .process("Resources/meadow.svg"),
@@ -97,6 +97,11 @@ let package = Package(
             name: "VellumAssistantSharedTests",
             dependencies: ["VellumAssistantShared"],
             path: "shared/Tests"
+        ),
+        .testTarget(
+            name: "VellumAssistantIOSTests",
+            dependencies: ["VellumAssistantShared"],
+            path: "ios/Tests"
         )
     ]
 )

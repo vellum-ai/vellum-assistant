@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -118,8 +119,14 @@ extension MainWindowView {
         sharing.isBundling = true
 
         Task { @MainActor in
+            let previousHandler = daemonClient.onBundleAppResponse
             daemonClient.onBundleAppResponse = { response in
-                sharing.shareFileURL = URL(fileURLWithPath: response.bundlePath)
+                daemonClient.onBundleAppResponse = previousHandler
+                let url = Self.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
+                Self.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+                sharing.shareFileURL = url
+                sharing.shareAppName = response.manifest.name
+                sharing.shareAppIcon = Self.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
                 sharing.isBundling = false
                 sharing.showSharePicker = true
             }
@@ -128,7 +135,120 @@ extension MainWindowView {
                 try daemonClient.sendBundleApp(appId: appId)
             } catch {
                 sharing.isBundling = false
+                daemonClient.onBundleAppResponse = previousHandler
             }
+        }
+    }
+
+    /// Creates a hardlink with a clean display name for the share sheet.
+    /// Falls back to the original path if linking fails.
+    static func cleanBundleURL(bundlePath: String, appName: String) -> URL {
+        let originalURL = URL(fileURLWithPath: bundlePath)
+        let cleanName = appName
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: ":", with: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { return originalURL }
+
+        let cleanURL = originalURL.deletingLastPathComponent().appendingPathComponent("\(cleanName).vellum")
+        try? FileManager.default.removeItem(at: cleanURL)
+        do {
+            try FileManager.default.linkItem(at: originalURL, to: cleanURL)
+            // Hide .vellum extension in Finder so it displays as just the app name
+            var resourceURL = cleanURL
+            try? resourceURL.setResourceValues({
+                var v = URLResourceValues()
+                v.hasHiddenExtension = true
+                return v
+            }())
+            return cleanURL
+        } catch {
+            return originalURL
+        }
+    }
+
+    /// Builds an NSImage for the app icon from base64 PNG, emoji, or app initial fallback.
+    /// Returns the image without applying it to a file — useful for the custom share panel header.
+    static func buildAppIcon(iconBase64: String?, emojiIcon: String?, appName: String) -> NSImage? {
+        if let base64 = iconBase64,
+           let data = Data(base64Encoded: base64),
+           let image = NSImage(data: data) {
+            return roundedIcon(from: image)
+        }
+
+        let glyph = (emojiIcon.flatMap { $0.isEmpty ? nil : $0 })
+            ?? String(appName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
+        if !glyph.isEmpty {
+            return renderEmojiIcon(emoji: glyph, size: 512)
+        }
+        return nil
+    }
+
+    /// Sets a custom icon on the file so the share sheet shows it instead of a blank document.
+    /// Prefers the AI-generated icon (base64 PNG), falls back to rendering the emoji or app initial.
+    /// All icons are clipped to a rounded rect so Finder shows transparent corners.
+    static func applyFileIcon(to url: URL, iconBase64: String?, emojiIcon: String?, appName: String) {
+        if let base64 = iconBase64,
+           let data = Data(base64Encoded: base64),
+           let image = NSImage(data: data) {
+            NSWorkspace.shared.setIcon(roundedIcon(from: image), forFile: url.path, options: [])
+            return
+        }
+
+        // Fallback: render the emoji or first letter as an icon
+        let glyph = (emojiIcon.flatMap { $0.isEmpty ? nil : $0 })
+            ?? String(appName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
+        if !glyph.isEmpty {
+            let image = renderEmojiIcon(emoji: glyph, size: 512)
+            NSWorkspace.shared.setIcon(image, forFile: url.path, options: [])
+        }
+    }
+
+    /// Clips an image to a rounded rect with transparent corners, matching macOS icon shape.
+    private static func roundedIcon(from source: NSImage, size: CGFloat = 512) -> NSImage {
+        let cornerRadius = size * 0.22
+        return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+            path.addClip()
+            source.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+            return true
+        }
+    }
+
+    /// Renders a glyph (emoji or letter) as a square icon image with a gradient background.
+    /// Uses NSImage(size:flipped:drawingHandler:) to avoid deprecated lockFocus on macOS 14+.
+    private static func renderEmojiIcon(emoji: String, size: CGFloat) -> NSImage {
+        return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+            let cornerRadius = size * 0.22
+            let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+
+            // Gradient background — use a stable hash for consistent colors per glyph
+            var hasher = Hasher()
+            hasher.combine(emoji)
+            let hash = hasher.finalize() & Int.max
+            let hue = CGFloat(hash % 360) / 360.0
+            let topColor = NSColor(hue: hue, saturation: 0.6, brightness: 0.85, alpha: 1.0)
+            let bottomColor = NSColor(
+                hue: (hue + 0.08).truncatingRemainder(dividingBy: 1.0),
+                saturation: 0.7, brightness: 0.65, alpha: 1.0
+            )
+            if let gradient = NSGradient(starting: topColor, ending: bottomColor) {
+                gradient.draw(in: path, angle: -90)
+            }
+
+            // Draw the glyph centered
+            let fontSize = size * 0.55
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: fontSize),
+            ]
+            let emojiString = NSAttributedString(string: emoji, attributes: attributes)
+            let emojiSize = emojiString.size()
+            let origin = NSPoint(
+                x: (size - emojiSize.width) / 2,
+                y: (size - emojiSize.height) / 2
+            )
+            emojiString.draw(at: origin)
+            return true
         }
     }
 }

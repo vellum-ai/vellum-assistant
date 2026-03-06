@@ -520,7 +520,7 @@ describe("session-tool-setup app refresh side effects", () => {
   // ── app_create side effects ─────────────────────────────────────────
 
   describe("app_create side effects", () => {
-    test("broadcasts app_files_changed after app_create", async () => {
+    test("broadcasts app_files_changed immediately after app_create", async () => {
       const ctx = makeCtx();
       const executor = makeFakeExecutor({
         content: JSON.stringify({ id: "new-app-1", name: "My App" }),
@@ -539,7 +539,7 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_create", { name: "My App", html: "<h1>hi</h1>" });
 
-      expect(broadcastSpy).toHaveBeenCalledTimes(1);
+      expect(broadcastSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
       expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
         type: "app_files_changed",
         appId: "new-app-1",

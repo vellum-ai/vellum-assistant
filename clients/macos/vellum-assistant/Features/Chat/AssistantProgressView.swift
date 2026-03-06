@@ -28,7 +28,7 @@ struct AssistantProgressView: View {
     let processingStatusText: String?
     let streamingCodePreview: String?
     let streamingCodeToolName: String?
-    let decidedConfirmation: ToolConfirmationData?
+    let decidedConfirmations: [ToolConfirmationData]
     var onRehydrate: (() -> Void)?
 
     @State private var isExpanded: Bool = false
@@ -38,9 +38,11 @@ struct AssistantProgressView: View {
     // MARK: - Derived State
 
     /// Whether the permission was denied or timed out, meaning incomplete tools were blocked.
-    /// Mirrors `ChatBubbleToolStatusView.permissionWasDenied`.
+    /// Checks both live confirmation (during streaming) and persisted per-tool-call data
+    /// (after history restore).
     private var permissionWasDenied: Bool {
-        decidedConfirmation?.state == .denied || decidedConfirmation?.state == .timedOut
+        decidedConfirmations.contains { $0.state == .denied || $0.state == .timedOut }
+            || toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
     }
 
     private var phase: ProgressPhase {
@@ -180,21 +182,34 @@ struct AssistantProgressView: View {
             // Header row (always visible)
             headerRow
 
+            // Permission chips below header (when not expanded)
+            if !isExpanded {
+                permissionChips
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.bottom, VSpacing.sm)
+            }
+
             // Expanded content
             if isExpanded {
                 expandedContent
+
+                // Permission chips at bottom of expanded list
+                permissionChips
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.top, VSpacing.sm)
+                    .padding(.bottom, VSpacing.sm)
             }
 
             // Code preview (streaming code phase)
             if phase == .streamingCode, let code = streamingCodePreview {
                 CodePreviewView(code: code)
                     .padding(.horizontal, VSpacing.sm)
-                    .padding(.bottom, VSpacing.xs)
+                    .padding(.bottom, VSpacing.sm)
             }
         }
-        .padding(VSpacing.md)
+        .padding(.bottom, isExpanded ? VSpacing.sm : 0)
         .background(VColor.surface.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onChange(of: phase) { _, newPhase in
             if newPhase == .processing {
                 processingStartDate = Date()
@@ -204,6 +219,11 @@ struct AssistantProgressView: View {
         .onAppear {
             if phase == .processing && processingStartDate == nil {
                 processingStartDate = Date()
+            }
+            // Seed startDate from persisted timestamps so the header timer
+            // shows correct elapsed time after history restore.
+            if let earliest = toolCalls.compactMap(\.startedAt).min() {
+                startDate = earliest
             }
         }
     }
@@ -226,29 +246,25 @@ struct AssistantProgressView: View {
 
                 Spacer()
 
-                // Elapsed time (after 5 seconds, only when active)
+                // Elapsed time: live counter when active, final duration when complete
                 if isActive {
                     elapsedTimeLabel
-                }
-
-                // Permission chip (trailing, when decided)
-                if let confirmation = decidedConfirmation, confirmation.state != .pending {
-                    compactPermissionChip(confirmation)
+                } else if !toolCalls.isEmpty {
+                    completedDurationLabel
                 }
 
                 // Chevron (only if tools exist)
                 if hasChevron {
-                    Image(systemName: "chevron.right")
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(VColor.textMuted)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.vertical, VSpacing.sm)
     }
 
     // MARK: - Status Icon
@@ -257,22 +273,30 @@ struct AssistantProgressView: View {
     private var statusIcon: some View {
         switch phase {
         case .complete:
-            Image(systemName: hasAnyErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .font(.system(size: 12))
-                .foregroundColor(hasAnyErrors ? VColor.warning : VColor.success)
+            statusIconTile(
+                systemName: hasAnyErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
+                iconColor: hasAnyErrors ? VColor.warning : VColor.iconAccent,
+                tileColor: hasAnyErrors ? Amber._200 : Forest._200
+            )
         case .error:
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 12))
-                .foregroundColor(VColor.error)
+            statusIconTile(
+                systemName: "exclamationmark.circle.fill",
+                iconColor: VColor.error,
+                tileColor: Danger._200
+            )
         case .denied:
-            if decidedConfirmation?.state == .timedOut {
-                Image(systemName: "clock.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(VColor.textMuted)
+            if decidedConfirmations.contains(where: { $0.state == .timedOut }) {
+                statusIconTile(
+                    systemName: "clock.fill",
+                    iconColor: VColor.textMuted,
+                    tileColor: Moss._200
+                )
             } else {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(VColor.error)
+                statusIconTile(
+                    systemName: "exclamationmark.circle.fill",
+                    iconColor: VColor.error,
+                    tileColor: Danger._200
+                )
             }
         default:
             Circle()
@@ -280,6 +304,17 @@ struct AssistantProgressView: View {
                 .frame(width: 8, height: 8)
                 .modifier(AssistantProgressPulsingModifier())
         }
+    }
+
+    private func statusIconTile(systemName: String, iconColor: Color, tileColor: Color) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 14))
+            .foregroundColor(iconColor)
+            .padding(VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(tileColor)
+            )
     }
 
     // MARK: - Headline Label
@@ -290,8 +325,8 @@ struct AssistantProgressView: View {
                 processingLabel
             } else {
                 Text(headlineText)
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
                     .animation(.easeInOut(duration: 0.3), value: headlineText)
             }
         }
@@ -316,8 +351,8 @@ struct AssistantProgressView: View {
 
             HStack(spacing: VSpacing.xs) {
                 Text(labels[labelIndex])
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
                 ForEach(0..<3, id: \.self) { index in
@@ -343,58 +378,88 @@ struct AssistantProgressView: View {
         }
     }
 
+    // MARK: - Completed Duration
+
+    @ViewBuilder
+    private var completedDurationLabel: some View {
+        let earliest = toolCalls.compactMap(\.startedAt).min()
+        let latest = toolCalls.compactMap(\.completedAt).max()
+        if let start = earliest, let end = latest {
+            let seconds = end.timeIntervalSince(start)
+            Text(seconds < 60
+                ? String(format: "%.1fs", seconds)
+                : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+        }
+    }
+
     // MARK: - Expanded Content
 
     @ViewBuilder
     private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(toolCalls) { toolCall in
                 if !toolCall.isComplete && toolCall.toolName == "claude_code"
                     && !toolCall.claudeCodeSteps.isEmpty {
                     ClaudeCodeProgressView(steps: toolCall.claudeCodeSteps, isRunning: true)
-                        .padding(.horizontal, VSpacing.sm)
+                        .padding(.horizontal, VSpacing.lg)
                 } else {
                     StepDetailRow(toolCall: toolCall, phase: phase, onRehydrate: onRehydrate)
                 }
             }
         }
-        .padding(.bottom, VSpacing.xs)
     }
 
-    // MARK: - Permission Chip
+    // MARK: - Permission Chips
+
+    @ViewBuilder
+    private var permissionChips: some View {
+        let resolved = decidedConfirmations.filter { $0.state != .pending }
+        if !resolved.isEmpty {
+            HStack(spacing: VSpacing.xs) {
+                ForEach(Array(resolved.enumerated()), id: \.offset) { _, confirmation in
+                    compactPermissionChip(confirmation)
+                }
+            }
+        }
+    }
 
     private func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
         let isApproved = confirmation.state == .approved
+        let isDenied = confirmation.state == .denied
+        let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
+
         return HStack(spacing: VSpacing.xs) {
             Group {
                 switch confirmation.state {
                 case .approved:
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
+                        .foregroundColor(chipColor)
                 case .denied:
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(VColor.error)
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(chipColor)
                 case .timedOut:
                     Image(systemName: "clock.fill")
-                        .foregroundColor(VColor.textMuted)
+                        .foregroundColor(chipColor)
                 default:
                     EmptyView()
                 }
             }
             .font(.system(size: 12))
 
-            Text(isApproved ? "\(confirmation.toolCategory) allowed" :
-                 confirmation.state == .denied ? "\(confirmation.toolCategory) denied" : "Timed out")
-                .font(VFont.caption)
-                .foregroundColor(isApproved ? VColor.success : VColor.textSecondary)
+            Text(isApproved ? "\(confirmation.toolCategory) Allowed" :
+                 isDenied ? "\(confirmation.toolCategory) Denied" : "Timed Out")
+                .font(VFont.captionMedium)
+                .foregroundColor(chipColor)
         }
-        .padding(.horizontal, VSpacing.md)
+        .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .background(
-            Capsule().fill(isApproved ? VColor.success.opacity(0.1) : VColor.surface)
+            Capsule().fill(Color.clear)
         )
         .overlay(
-            Capsule().stroke(isApproved ? VColor.success.opacity(0.3) : VColor.surfaceBorder, lineWidth: 0.5)
+            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
         )
     }
 }
@@ -447,29 +512,29 @@ private struct StepDetailRow: View {
                 HStack(spacing: VSpacing.sm) {
                     // Status icon
                     if toolCall.isComplete {
-                        Image(systemName: toolCall.isError ? "xmark.circle.fill" : "checkmark.circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(toolCall.isError ? VColor.error : VColor.success)
-                            .frame(width: 14)
+                        Image(systemName: toolCall.isError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(toolCall.isError ? VColor.error : VColor.iconAccent)
+                            .frame(width: 16)
                     } else if phase == .denied {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
+                        Image(systemName: "exclamationmark.circle.fill")
+                            .font(.system(size: 14))
                             .foregroundColor(VColor.textMuted)
-                            .frame(width: 14)
+                            .frame(width: 16)
                     } else {
                         Circle()
                             .fill(VColor.accent)
                             .frame(width: 6, height: 6)
                             .modifier(AssistantProgressPulsingModifier())
-                            .frame(width: 14)
+                            .frame(width: 16)
                     }
 
                     // Title + reason
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         if toolCall.isComplete {
                             Text(toolCall.actionDescription)
-                                .font(VFont.captionMedium)
-                                .foregroundColor(toolCall.isError ? VColor.error : VColor.textSecondary)
+                                .font(VFont.bodyMedium)
+                                .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         } else if phase == .denied {
@@ -478,7 +543,7 @@ private struct StepDetailRow: View {
                                 inputSummary: toolCall.inputSummary,
                                 buildingStatus: toolCall.buildingStatus
                             ))
-                            .font(VFont.captionMedium)
+                            .font(VFont.bodyMedium)
                             .foregroundColor(VColor.textMuted)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -488,8 +553,8 @@ private struct StepDetailRow: View {
                                 inputSummary: toolCall.inputSummary,
                                 buildingStatus: toolCall.buildingStatus
                             ))
-                            .font(VFont.captionMedium)
-                            .foregroundColor(VColor.textSecondary)
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         }
@@ -497,7 +562,7 @@ private struct StepDetailRow: View {
                         // Reason subtitle — only for completed tools
                         if let reason = toolCall.reasonDescription, !reason.isEmpty, toolCall.isComplete {
                             Text(reason)
-                                .font(VFont.small)
+                                .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -526,9 +591,12 @@ private struct StepDetailRow: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xxs)
-            .background(isHovered && hasDetails ? VColor.surfaceBorder.opacity(0.3) : .clear)
-            .background(VColor.surface.opacity(0.5))
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(isHovered && hasDetails ? Moss._100 : .clear)
+            )
+            .padding(.horizontal, VSpacing.sm)
             .onHover { isHovered = $0 }
 
             // Expanded detail section (completed only)
@@ -569,7 +637,7 @@ private struct StepDetailRow: View {
     @ViewBuilder
     private var stepDetailContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Divider().padding(.horizontal, VSpacing.sm)
+            Divider().padding(.horizontal, VSpacing.lg)
 
             // Technical details
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -602,7 +670,7 @@ private struct StepDetailRow: View {
                     }
                 }
             }
-            .padding(.horizontal, VSpacing.md)
+            .padding(.horizontal, VSpacing.lg)
 
             // Claude Code sub-steps
             if !toolCall.claudeCodeSteps.isEmpty {
@@ -617,7 +685,7 @@ private struct StepDetailRow: View {
                         isRunning: false
                     )
                 }
-                .padding(.horizontal, VSpacing.md)
+                .padding(.horizontal, VSpacing.lg)
             }
 
             // Screenshot — Retina rendering + double-click → Preview.app
@@ -629,7 +697,7 @@ private struct StepDetailRow: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    .padding(.horizontal, VSpacing.md)
+                    .padding(.horizontal, VSpacing.lg)
                     .onTapGesture(count: 2) { openImageInPreview(img) }
                     .onHover { hovering in
                         if hovering { NSCursor.pointingHand.push() }
@@ -643,7 +711,7 @@ private struct StepDetailRow: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-                    .padding(.horizontal, VSpacing.md)
+                    .padding(.horizontal, VSpacing.lg)
                     .onTapGesture(count: 2) { openImageInPreview(img) }
                     .onHover { hovering in
                         if hovering { NSCursor.pointingHand.push() }
@@ -698,7 +766,7 @@ private struct StepDetailRow: View {
                         .accessibilityLabel("Copy output")
                     }
                 }
-                .padding(.horizontal, VSpacing.md)
+                .padding(.horizontal, VSpacing.lg)
             }
         }
         .padding(.bottom, VSpacing.sm)
@@ -780,7 +848,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: nil,
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -802,7 +870,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: nil,
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -823,7 +891,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: nil,
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -844,7 +912,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: "Processing results",
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -866,7 +934,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: nil,
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -887,7 +955,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             processingStatusText: nil,
             streamingCodePreview: nil,
             streamingCodeToolName: nil,
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()
@@ -920,7 +988,7 @@ private struct AssistantProgressPulsingModifier: ViewModifier {
             export default App;
             """,
             streamingCodeToolName: "app_create",
-            decidedConfirmation: nil
+            decidedConfirmations: []
         )
         .frame(width: 520)
         .padding()

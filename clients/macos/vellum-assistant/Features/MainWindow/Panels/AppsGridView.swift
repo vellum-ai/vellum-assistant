@@ -10,6 +10,12 @@ struct AppsGridView: View {
     @State private var searchText = ""
     @State private var hoveredAppId: String?
     @State private var editingApp: AppListManager.AppItem?
+    @State private var sharingAppId: String?
+    @State private var shareFileURL: URL?
+    @State private var shareAppName: String = ""
+    @State private var shareAppIcon: NSImage?
+    @State private var showShareSheet = false
+    @State private var isBundling = false
 
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
     /// Empty string is used as a sentinel for "fetched but no preview available".
@@ -161,8 +167,14 @@ struct AppsGridView: View {
                 )
                 .overlay(alignment: .topTrailing) {
                     ZStack {
-                        VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary), size: 24) {}
-                            .allowsHitTesting(false)
+                        if isBundling && sharingAppId == app.id {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 24, height: 24)
+                        } else {
+                            VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .primary, size: 24) {}
+                                .allowsHitTesting(false)
+                        }
                         Menu {
                             Button {
                                 if app.isPinned {
@@ -172,6 +184,11 @@ struct AppsGridView: View {
                                 }
                             } label: {
                                 Label(app.isPinned ? "Unpin" : "Pin", systemImage: app.isPinned ? "pin.slash" : "pin")
+                            }
+                            Button {
+                                bundleAndShareLocal(appId: app.id)
+                            } label: {
+                                Label("Share", systemImage: "square.and.arrow.up")
                             }
                             Button {
                                 editingApp = app
@@ -202,9 +219,24 @@ struct AppsGridView: View {
                     .padding(VSpacing.sm)
                     .contentShape(Rectangle())
                     .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
+                    .opacity(isHovered || (isBundling && sharingAppId == app.id) ? 1 : 0)
+                    .allowsHitTesting(isHovered || (isBundling && sharingAppId == app.id))
                     .animation(VAnimation.fast, value: isHovered)
+                    .overlay {
+                        AppSharePanel(
+                            items: shareFileURL != nil && sharingAppId == app.id ? [shareFileURL!] : [],
+                            isPresented: Binding(
+                                get: { showShareSheet && sharingAppId == app.id },
+                                set: { newValue in
+                                    showShareSheet = newValue
+                                    if !newValue { sharingAppId = nil }
+                                }
+                            ),
+                            appName: shareAppName,
+                            appIcon: shareAppIcon
+                        )
+                        .allowsHitTesting(false)
+                    }
                 }
 
 
@@ -244,11 +276,42 @@ struct AppsGridView: View {
                     appListManager.pinApp(id: app.id)
                 }
             }
+            Button("Share") {
+                bundleAndShareLocal(appId: app.id)
+            }
             Button("Change Icon") {
                 editingApp = app
             }
         }
         .accessibilityLabel(app.name)
+    }
+
+    // MARK: - Sharing
+
+    private func bundleAndShareLocal(appId: String) {
+        guard !isBundling else { return }
+        isBundling = true
+        sharingAppId = appId
+
+        let previousHandler = daemonClient.onBundleAppResponse
+        daemonClient.onBundleAppResponse = { response in
+            daemonClient.onBundleAppResponse = previousHandler
+            let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
+            MainWindowView.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+            shareFileURL = url
+            shareAppName = response.manifest.name
+            shareAppIcon = MainWindowView.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+            isBundling = false
+            showShareSheet = true
+        }
+
+        do {
+            try daemonClient.sendBundleApp(appId: appId)
+        } catch {
+            isBundling = false
+            sharingAppId = nil
+            daemonClient.onBundleAppResponse = previousHandler
+        }
     }
 
     // MARK: - Preview Fetching

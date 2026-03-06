@@ -62,6 +62,8 @@ struct ChatView: View {
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
     var subagentDetailStore: SubagentDetailStore
     /// Resolves the daemon HTTP port at call time so lazy-loaded video
     /// attachments always use the latest port after daemon restarts.
@@ -90,29 +92,10 @@ struct ChatView: View {
 
     @State private var isNearBottom = true
     @State private var isDropTargeted = false
-    @State private var editorContentHeight: CGFloat = 20
-    @State private var isComposerExpanded = false
     @State private var containerWidth: CGFloat = 0
 
     private var isEmptyState: Bool {
         messages.isEmpty && isHistoryLoaded
-    }
-
-    private let composerMinHeight: CGFloat = 34
-
-    /// Height reserved at the bottom of the scroll view so the last message isn't hidden behind the composer.
-    private var composerReservedHeight: CGFloat {
-        let editorClamped = min(max(editorContentHeight, 34), 200)
-        let contentHeight = max(editorClamped, 34)
-        let expanded = isComposerExpanded
-        let topPad: CGFloat = expanded ? VSpacing.md : VSpacing.sm
-        let bottomPad: CGFloat = expanded ? VSpacing.sm : VSpacing.sm
-        let buttonRow: CGFloat = expanded ? 34 + VSpacing.xs : 0
-        let base: CGFloat = VSpacing.sm + topPad + bottomPad + contentHeight + buttonRow
-        let attachments: CGFloat = pendingAttachments.isEmpty ? 0 : 48
-        let error: CGFloat = (sessionError == nil && errorText != nil) ? 36 : 0
-        let sessionErrorToast: CGFloat = sessionError != nil ? 52 : 0
-        return base + attachments + error + sessionErrorToast
     }
 
     var body: some View {
@@ -155,9 +138,7 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
-                            editorContentHeight: $editorContentHeight,
-                            isComposerExpanded: $isComposerExpanded
+                            onDismissError: onDismissError
                         )
                     } else {
                         ChatEmptyStateView(
@@ -178,13 +159,11 @@ struct ChatView: View {
                             onFileDrop: onDropFiles,
                             onDropImageData: onDropImageData,
                             onMicrophoneToggle: onMicrophoneToggle,
-                            onDismissError: onDismissError,
-                            editorContentHeight: $editorContentHeight,
-                            isComposerExpanded: $isComposerExpanded
+                            onDismissError: onDismissError
                         )
                     }
                 } else {
-                    ZStack(alignment: .bottom) {
+                    VStack(spacing: 0) {
                         MessageListView(
                             messages: messages,
                             isSending: isSending,
@@ -211,6 +190,7 @@ struct ChatView: View {
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onRehydrateMessage: onRehydrateMessage,
+                            onSurfaceRefetch: onSurfaceRefetch,
                             subagentDetailStore: subagentDetailStore,
                             displayedMessageCount: displayedMessageCount,
                             hasMoreMessages: hasMoreMessages,
@@ -221,10 +201,6 @@ struct ChatView: View {
                             isNearBottom: $isNearBottom,
                             containerWidth: containerWidth
                         )
-                        .safeAreaInset(edge: .bottom) {
-                            Color.clear.frame(height: composerReservedHeight)
-                                .animation(VAnimation.fast, value: editorContentHeight)
-                        }
 
                         let composerMessages: [ChatMessage] = {
                             let all = messages.filter { !$0.isSubagentNotification }
@@ -275,9 +251,7 @@ struct ChatView: View {
                             idleHint: idleHint,
                             voiceModeManager: voiceModeManager,
                             voiceService: voiceService,
-                            onEndVoiceMode: onEndVoiceMode,
-                            editorContentHeight: $editorContentHeight,
-                            isComposerExpanded: $isComposerExpanded
+                            onEndVoiceMode: onEndVoiceMode
                         )
                     }
                 }
@@ -318,12 +292,6 @@ struct ChatView: View {
         }
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
-        }
-        .onChange(of: inputText) {
-            // Reset composer height when input is cleared
-            if inputText.isEmpty {
-                editorContentHeight = composerMinHeight
-            }
         }
     }
 

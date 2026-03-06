@@ -35,7 +35,10 @@ let currentConfig: Record<string, unknown> = {
 const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
 const DECLARED_SKILL_ID = "hatch-new-assistant";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   getWorkspaceDir: () => TEST_DIR,
@@ -59,38 +62,60 @@ mock.module("../util/platform.js", () => ({
   isWindows: () => false,
   getPlatformName: () => "linux",
   getClipboardCommand: () => null,
+  readSessionToken: () => null,
   removeSocketFile: () => {},
   migratePath: () => {},
   migrateToWorkspaceLayout: () => {},
   migrateToDataLayout: () => {},
 }));
 
+const noopLogger = new Proxy({} as Record<string, unknown>, {
+  get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
+});
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  ...realLogger,
+  getLogger: () => noopLogger,
+  getCliLogger: () => noopLogger,
   isDebug: () => false,
   truncateForLog: (v: string) => v,
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
 }));
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => currentConfig,
+  loadConfig: () => currentConfig,
+  loadRawConfig: () => ({}),
+  saveConfig: () => {},
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  syncConfigToLockfile: () => {},
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realUserReference = require("../config/user-reference.js");
 mock.module("../config/user-reference.js", () => ({
+  ...realUserReference,
   resolveUserReference: () => "TestUser",
   resolveUserPronouns: () => null,
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realCredentialMetadataStore = require("../tools/credentials/metadata-store.js");
 mock.module("../tools/credentials/metadata-store.js", () => ({
+  ...realCredentialMetadataStore,
   listCredentialMetadata: () => [],
 }));
 
 const { buildSystemPrompt } = await import("../config/system-prompt.js");
 const { isAssistantFeatureFlagEnabled } =
   await import("../config/assistant-feature-flags.js");
-const { isSkillFeatureEnabled } = await import("../config/skill-state.js");
+const { skillFlagKey } = await import("../config/skill-state.js");
 
 // ---------------------------------------------------------------------------
 // Setup / Teardown
@@ -301,18 +326,22 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 });
 
-describe("legacy isSkillFeatureEnabled backward compat", () => {
-  test("delegates to the canonical resolver", () => {
+describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
+  test("resolves skill flag via canonical path", () => {
     const config = {
       assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     } as any;
 
-    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
+    expect(
+      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+    ).toBe(false);
   });
 
   test("disabled when no override set (registry default is false)", () => {
     const config = {} as any;
 
-    expect(isSkillFeatureEnabled(DECLARED_SKILL_ID, config)).toBe(false);
+    expect(
+      isAssistantFeatureFlagEnabled(skillFlagKey(DECLARED_SKILL_ID), config),
+    ).toBe(false);
   });
 });

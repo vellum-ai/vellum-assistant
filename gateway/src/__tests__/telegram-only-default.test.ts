@@ -35,7 +35,7 @@ const { createRuntimeProxyHandler } =
 const { createRuntimeHealthProxyHandler } =
   await import("../http/routes/runtime-health-proxy.js");
 
-const config = loadConfig();
+const config = await loadConfig();
 
 const { handler: handleTelegramWebhook } = createTelegramWebhookHandler(config);
 const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);

@@ -17,6 +17,7 @@ import {
   setOutboundPaused,
 } from "../cli/email-guardrails.js";
 import {
+  getNestedValue,
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
@@ -74,6 +75,8 @@ export class EmailService {
   /** Force re-creation of the provider (e.g. after `provider set`). */
   resetProvider(): void {
     this.providerInstance = null;
+    this.primaryAddressResolved = false;
+    this.cachedPrimaryAddress = undefined;
   }
 
   // =========================================================================
@@ -110,6 +113,54 @@ export class EmailService {
   }
 
   // =========================================================================
+  // Primary inbox address (cached)
+  // =========================================================================
+
+  private primaryAddressResolved = false;
+  private cachedPrimaryAddress: string | undefined;
+
+  /**
+   * Return the assistant's primary inbox email address, caching the result
+   * for the lifetime of this service instance. Returns `undefined` when no
+   * inboxes are configured or the provider is unavailable.
+   */
+  async getPrimaryInboxAddress(): Promise<string | undefined> {
+    if (this.primaryAddressResolved) {
+      return this.cachedPrimaryAddress;
+    }
+    try {
+      const p = await this.provider();
+      const health = await p.health();
+      this.cachedPrimaryAddress =
+        health.inboxes.length > 0 ? health.inboxes[0].address : undefined;
+    } catch {
+      this.cachedPrimaryAddress = undefined;
+    }
+
+    // Only cache positive results from the provider so a missing inbox is
+    // retried on next call (e.g. user sets up email after initial miss).
+    if (this.cachedPrimaryAddress !== undefined) {
+      this.primaryAddressResolved = true;
+      return this.cachedPrimaryAddress;
+    }
+
+    // Fall back to the statically configured email address in workspace config
+    // when the provider can't list inboxes (e.g. provider temporarily unavailable).
+    // Intentionally NOT setting primaryAddressResolved so the provider is retried
+    // on the next call — the fallback is a best-effort stopgap, not authoritative.
+    try {
+      const raw = loadRawConfig();
+      const configured = getNestedValue(raw, "email.address");
+      if (typeof configured === "string" && configured.length > 0) {
+        return configured;
+      }
+    } catch {
+      // Config unavailable — leave as undefined
+    }
+    return undefined;
+  }
+
+  // =========================================================================
   // Domain setup
   // =========================================================================
 
@@ -138,7 +189,10 @@ export class EmailService {
     displayName?: string,
   ): Promise<EmailInbox> {
     const p = await this.provider();
-    return p.createInbox({ username, domain, displayName });
+    const inbox = await p.createInbox({ username, domain, displayName });
+    this.primaryAddressResolved = false;
+    this.cachedPrimaryAddress = undefined;
+    return inbox;
   }
 
   async listInboxes(): Promise<EmailInbox[]> {
@@ -148,7 +202,10 @@ export class EmailService {
 
   async ensureInboxes(domain: string): Promise<EmailInbox[]> {
     const p = await this.provider();
-    return p.ensureInboxes({ domain });
+    const inboxes = await p.ensureInboxes({ domain });
+    this.primaryAddressResolved = false;
+    this.cachedPrimaryAddress = undefined;
+    return inboxes;
   }
 
   // =========================================================================
@@ -170,7 +227,7 @@ export class EmailService {
     const health = await p.health();
     if (health.inboxes.length === 0) {
       throw new ConfigError(
-        "No inboxes found. Run: vellum email setup inboxes --domain <domain>",
+        "No inboxes found. Run: assistant email setup inboxes --domain <domain>",
       );
     }
     const inbox = health.inboxes.find(

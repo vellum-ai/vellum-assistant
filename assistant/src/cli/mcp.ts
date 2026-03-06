@@ -57,10 +57,55 @@ export function registerMcpCommand(program: Command): void {
     .command("mcp")
     .description("Manage MCP (Model Context Protocol) servers");
 
+  mcp.addHelpText(
+    "after",
+    `
+MCP servers extend the assistant's capabilities with external tools. Servers
+are configured in the assistant's config.json under the mcp.servers key. Each
+server uses one of three transport types:
+
+  stdio             Local process communicating over stdin/stdout
+  sse               Remote server using Server-Sent Events
+  streamable-http   Remote server using Streamable HTTP transport
+
+Changes to MCP server configuration require an assistant restart to take effect
+(vellum sleep && vellum wake).
+
+Examples:
+  $ assistant mcp list
+  $ assistant mcp add my-server -t stdio -c npx -a my-mcp-server
+  $ assistant mcp auth my-server
+  $ assistant mcp remove my-server`,
+  );
+
   mcp
     .command("list")
     .description("List configured MCP servers and their status")
     .option("--json", "Output as JSON")
+    .addHelpText(
+      "after",
+      `
+Shows each configured MCP server with its current status and configuration:
+
+  Name         The server identifier used in config.json
+  Status       Health check result:
+                 ✓  Connected and responding
+                 ✗  Error or disabled
+                 !  Needs authentication (OAuth required)
+  Transport    stdio, sse, or streamable-http
+  URL/Command  The server URL (sse/streamable-http) or command (stdio)
+  Risk         Default risk level: low, medium, or high
+  Allowed      Tool allowlist filter (if configured)
+  Blocked      Tool blocklist filter (if configured)
+
+When output is a TTY, health checks run in parallel with live status updates.
+In non-TTY mode (piped), checks run sequentially. With --json, outputs raw
+server config without running health checks.
+
+Examples:
+  $ assistant mcp list
+  $ assistant mcp list --json`,
+    )
     .action(async (opts: { json?: boolean }) => {
       const raw = loadRawConfig();
       const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
@@ -217,6 +262,29 @@ export function registerMcpCommand(program: Command): void {
       "high",
     )
     .option("--disabled", "Add as disabled")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  name   Unique identifier for the server (used as the key in config.json)
+
+Transport-specific requirements:
+  stdio             Requires --command (and optional --args for arguments)
+  sse               Requires --url pointing to the SSE endpoint
+  streamable-http   Requires --url pointing to the HTTP endpoint
+
+The --risk flag sets the default risk level for all tools from this server
+(defaults to "high" if not specified). The server starts enabled unless
+--disabled is passed.
+
+If a server with the same name already exists, the command fails. Remove the
+existing server first with "assistant mcp remove <name>".
+
+Examples:
+  $ assistant mcp add my-server -t stdio -c npx -a my-mcp-server
+  $ assistant mcp add remote-api -t streamable-http -u https://api.example.com/mcp -r medium
+  $ assistant mcp add legacy-sse -t sse -u https://old.example.com/events --disabled`,
+    )
     .action(
       (
         name: string,
@@ -237,7 +305,7 @@ export function registerMcpCommand(program: Command): void {
 
         if (servers[name]) {
           log.error(
-            `MCP server "${name}" already exists. Remove it first with: vellum mcp remove ${name}`,
+            `MCP server "${name}" already exists. Remove it first with: assistant mcp remove ${name}`,
           );
           process.exitCode = 1;
           return;
@@ -293,7 +361,7 @@ export function registerMcpCommand(program: Command): void {
         saveRawConfig(raw);
         log.info(`Added MCP server "${name}" (${opts.transportType})`);
         log.info(
-          "Restart the daemon for changes to take effect: vellum sleep && vellum wake",
+          "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
         );
       },
     );
@@ -301,6 +369,28 @@ export function registerMcpCommand(program: Command): void {
   mcp
     .command("auth <name>")
     .description("Authenticate with an MCP server via OAuth")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  name   Name of a configured MCP server to authenticate with
+
+Only works with sse or streamable-http transports (stdio servers do not use
+OAuth). Opens a browser for OAuth authorization with the remote server and
+starts a local callback server to receive the authorization code.
+
+The command waits up to 2.5 minutes for the user to complete the browser-based
+OAuth flow. If the server already has valid cached tokens, the command succeeds
+immediately without opening a browser. Tokens are cached locally for future use
+by the assistant.
+
+After successful authentication, restart the assistant for changes to take effect
+(vellum sleep && vellum wake).
+
+Examples:
+  $ assistant mcp auth my-server
+  $ assistant mcp auth remote-api`,
+    )
     .action(async (name: string) => {
       const raw = loadRawConfig();
       const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
@@ -309,7 +399,7 @@ export function registerMcpCommand(program: Command): void {
 
       if (!serverConfig) {
         log.error(
-          `MCP server "${name}" not found. Add it first with: vellum mcp add`,
+          `MCP server "${name}" not found. Add it first with: assistant mcp add`,
         );
         process.exitCode = 1;
         return;
@@ -418,7 +508,7 @@ export function registerMcpCommand(program: Command): void {
           log.error(`Authorization cancelled for "${name}".`);
         } else if (message.includes("timed out")) {
           log.error(
-            `Authorization timed out for "${name}". Try again with: vellum mcp auth ${name}`,
+            `Authorization timed out for "${name}". Try again with: assistant mcp auth ${name}`,
           );
         } else {
           log.error(`Authorization failed for "${name}": ${message}`);
@@ -454,7 +544,7 @@ export function registerMcpCommand(program: Command): void {
 
       log.info(`Authentication successful for "${name}".`);
       log.info(
-        "Restart the daemon for changes to take effect: vellum sleep && vellum wake",
+        "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
       );
       process.exit(0);
     });
@@ -462,6 +552,24 @@ export function registerMcpCommand(program: Command): void {
   mcp
     .command("remove <name>")
     .description("Remove an MCP server configuration")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  name   Name of the MCP server to remove
+
+Removes the server entry from config.json and performs best-effort cleanup of
+any stored OAuth credentials (tokens, client info, discovery metadata) for
+sse/streamable-http servers. If no OAuth credentials exist, the cleanup is
+silently skipped.
+
+After removal, restart the assistant for changes to take effect
+(vellum sleep && vellum wake).
+
+Examples:
+  $ assistant mcp remove my-server
+  $ assistant mcp remove legacy-sse`,
+    )
     .action(async (name: string) => {
       const raw = loadRawConfig();
       const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
@@ -490,7 +598,7 @@ export function registerMcpCommand(program: Command): void {
       saveRawConfig(raw);
       log.info(`Removed MCP server "${name}".`);
       log.info(
-        "Restart the daemon for changes to take effect: vellum sleep && vellum wake",
+        "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
       );
     });
 }

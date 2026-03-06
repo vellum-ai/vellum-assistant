@@ -55,7 +55,7 @@ describe("guardian-verify-setup skill — voice auto-followup", () => {
         .split("## Voice Auto-Check Polling")[1]
         ?.split("## Step 6")[0] ?? "";
     expect(pollingSection).toContain(
-      "vellum integrations guardian status --channel voice --json",
+      "assistant integrations guardian status --channel voice --json",
     );
   });
 

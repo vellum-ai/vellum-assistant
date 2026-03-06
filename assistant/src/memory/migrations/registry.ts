@@ -134,6 +134,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Backfill contacts.last_interaction from the max lastSeenAt across each contact's channels",
   },
+  {
+    key: "migration_drop_assistant_id_columns_v1",
+    version: 19,
+    dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
+    description:
+      "Drop assistant_id columns from all 16 daemon tables after normalization to single-tenant identity",
+  },
 ];
 
 export interface MigrationValidationResult {

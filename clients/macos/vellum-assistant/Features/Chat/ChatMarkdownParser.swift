@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import VellumAssistantShared
 
@@ -70,6 +71,8 @@ func parseListLine(_ line: String) -> ListItem? {
 
 /// Parses message text into segments, extracting markdown tables, code blocks, headings, lists, and rules.
 func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
+    os_signpost(.begin, log: PerfSignposts.log, name: "markdownParse")
+    defer { os_signpost(.end, log: PerfSignposts.log, name: "markdownParse") }
     let lines = text.components(separatedBy: .newlines)
     var segments: [MarkdownSegment] = []
     var currentText: [String] = []

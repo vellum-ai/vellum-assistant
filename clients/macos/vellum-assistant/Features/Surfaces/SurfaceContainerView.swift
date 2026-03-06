@@ -98,7 +98,7 @@ struct SurfaceContainerView: View {
             case .table, .documentPreview:
                 // These surfaces are rendered inline in chat, not in floating panels.
                 EmptyView()
-            case .stripped:
+            case .stripped, .strippedFailed:
                 EmptyView()
             }
 
@@ -116,7 +116,7 @@ struct SurfaceContainerView: View {
         switch surface.data {
         case .form, .confirmation, .dynamicPage, .fileUpload:
             return true
-        case .card, .list, .table, .documentPreview, .stripped:
+        case .card, .list, .table, .documentPreview, .stripped, .strippedFailed:
             return false
         }
     }

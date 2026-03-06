@@ -36,7 +36,7 @@ struct ThreadTitleActionsControl: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.leading, VSpacing.lg)
+        .padding(.leading, VSpacing.sm)
         .padding(.vertical, VSpacing.sm)
     }
 }
@@ -53,24 +53,18 @@ struct ThreadActionsDrawer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if presentation.canCopy {
-                DrawerMenuItem(icon: "doc.on.doc", label: "Copy full thread", action: onCopy)
-
-                VColor.surfaceBorder.frame(height: 1)
-                    .padding(.vertical, VSpacing.xs)
+                SidebarPrimaryRow(icon: "doc.on.doc", label: "Copy full thread", action: onCopy)
             }
 
-            DrawerMenuItem(
+            SidebarPrimaryRow(
                 icon: presentation.isPinned ? "pin.slash" : "pin",
                 label: presentation.isPinned ? "Unpin" : "Pin",
                 action: presentation.isPinned ? onUnpin : onPin
             )
 
-            DrawerMenuItem(icon: "pencil", label: "Rename thread", action: onRename)
+            SidebarPrimaryRow(icon: "pencil", label: "Rename thread", action: onRename)
 
-            VColor.surfaceBorder.frame(height: 1)
-                .padding(.vertical, VSpacing.xs)
-
-            DrawerMenuItem(icon: "archivebox", label: "Archive thread", action: onArchive)
+            SidebarPrimaryRow(icon: "archivebox", label: "Archive thread", action: onArchive)
         }
         .padding(.vertical, VSpacing.sm)
         .background(VColor.surfaceSubtle)
@@ -81,6 +75,6 @@ struct ThreadActionsDrawer: View {
         )
         .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         .frame(width: 200)
-        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .topLeading)))
+        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
     }
 }

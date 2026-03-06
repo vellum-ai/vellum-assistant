@@ -9,12 +9,10 @@ import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import type { TokenEndpointAuthMethod } from "../../security/oauth2.js";
 import {
-  deleteSecureKey,
-  getBackendType,
+  deleteSecureKeyAsync,
   getSecureKey,
-  isDowngradedFromKeychain,
   listSecureKeys,
-  setSecureKey,
+  setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
@@ -383,7 +381,7 @@ class CredentialStoreTool implements Tool {
         }
 
         const key = `credential:${service}:${field}`;
-        const ok = setSecureKey(key, value);
+        const ok = await setSecureKeyAsync(key, value);
         if (!ok) {
           return {
             content: "Error: failed to store credential",
@@ -426,30 +424,21 @@ class CredentialStoreTool implements Tool {
         }
 
         const allMetadata = listCredentialMetadata();
-        // On the encrypted backend we can verify secrets still exist by reading
-        // all key names once (instead of per-entry getSecureKey calls that each
-        // re-read/re-derive the store). On keychain we trust metadata since the
-        // OS keychain has no batch list API.
-        // In downgraded mode (keychain failed, switched to encrypted), skip
-        // batch verification because listSecureKeys() only returns keys from
-        // the encrypted store — keychain-only credentials would be hidden.
-        const downgraded = isDowngradedFromKeychain();
-        const verifySecrets = getBackendType() === "encrypted" && !downgraded;
+        // Verify secrets still exist by reading all key names once (instead of
+        // per-entry getSecureKey calls that each re-read/re-derive the store).
         let secureKeySet: Set<string> | undefined;
-        if (verifySecrets) {
-          try {
-            secureKeySet = new Set(listSecureKeys());
-          } catch (err) {
-            log.error(
-              { err },
-              "Failed to read secure store while listing credentials",
-            );
-            return {
-              content:
-                "Error: failed to read secure storage; cannot list credentials",
-              isError: true,
-            };
-          }
+        try {
+          secureKeySet = new Set(listSecureKeys());
+        } catch (err) {
+          log.error(
+            { err },
+            "Failed to read secure store while listing credentials",
+          );
+          return {
+            content:
+              "Error: failed to read secure storage; cannot list credentials",
+            isError: true,
+          };
         }
         const entries = allMetadata
           .filter((m) => {
@@ -505,8 +494,14 @@ class CredentialStoreTool implements Tool {
         }
 
         const key = `credential:${service}:${field}`;
-        const ok = deleteSecureKey(key);
-        if (!ok) {
+        const result = await deleteSecureKeyAsync(key);
+        if (result === "error") {
+          return {
+            content: `Error: failed to delete credential ${service}/${field} from secure storage`,
+            isError: true,
+          };
+        }
+        if (result === "not-found") {
           return {
             content: `Error: credential ${service}/${field} not found`,
             isError: true,
@@ -569,7 +564,9 @@ class CredentialStoreTool implements Tool {
         const promptPolicy = toPolicyFromInput(promptPolicyInput);
 
         // Parse and validate injection templates (same logic as store action)
-        const promptRawTemplates = input.injection_templates as unknown[] | undefined;
+        const promptRawTemplates = input.injection_templates as
+          | unknown[]
+          | undefined;
         let promptInjectionTemplates: CredentialInjectionTemplate[] | undefined;
         if (promptRawTemplates !== undefined) {
           if (!Array.isArray(promptRawTemplates)) {
@@ -737,7 +734,7 @@ class CredentialStoreTool implements Tool {
 
         // Default: persist to keychain
         const key = `credential:${service}:${field}`;
-        const ok = setSecureKey(key, result.value);
+        const ok = await setSecureKeyAsync(key, result.value);
         if (!ok) {
           return {
             content: "Error: failed to store credential",
@@ -757,7 +754,7 @@ class CredentialStoreTool implements Tool {
             "metadata write failed after storing credential",
           );
         }
-      const promptMeta = getCredentialMetadata(service, field);
+        const promptMeta = getCredentialMetadata(service, field);
         const promptCredIdSuffix = promptMeta
           ? ` (credential_id: ${promptMeta.credentialId})`
           : "";

@@ -185,11 +185,12 @@ export class NotificationBroadcaster {
       }
 
       // Pair the delivery with a conversation before sending, passing the thread action
+      // and destination binding context for channel-scoped continuation
       const pairing = await pairDeliveryWithConversation(
         signal,
         channel,
         copy,
-        { threadAction },
+        { threadAction, bindingContext: destination.bindingContext },
       );
 
       // For the vellum channel, merge the conversationId into deep-link metadata

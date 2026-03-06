@@ -434,9 +434,38 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         // Use a per-app origin so localStorage/sessionStorage work natively,
         // isolated per app. Non-app surfaces get a shared fallback origin.
         if let appId = appId {
-            // App-backed surface — serve from disk via scheme handler
-            let schemeURL = URL(string: "vellumapp://\(appId)/index.html")!
-            webView.load(URLRequest(url: schemeURL))
+            // App-backed surface — serve from disk via scheme handler.
+            // Multifile apps have a compiled dist/ directory; prefer it over root index.html.
+            let appDir = VellumAppSchemeHandler.userAppsDirectory.appendingPathComponent(appId)
+            let distIndex = appDir.appendingPathComponent("dist/index.html")
+            let hasSrcDir = FileManager.default.fileExists(atPath: appDir.appendingPathComponent("src").path)
+
+            if hasSrcDir && !FileManager.default.fileExists(atPath: distIndex.path) {
+                // Multifile app whose dist/ hasn't been compiled yet — show a
+                // "building" placeholder that auto-retries by navigating to the
+                // scheme URL (not reload, which would just re-render this inline HTML).
+                let distSchemeURL = "vellumapp://\(appId)/dist/index.html"
+                let origin = "vellumapp://\(appId)/"
+                let buildingHTML = """
+                <!DOCTYPE html><html><head><meta charset="UTF-8">
+                <style>body{display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
+                font-family:system-ui;color:#666;background:#fafafa}
+                .c{text-align:center}.spin{animation:r 1s linear infinite;font-size:24px;display:inline-block}
+                @keyframes r{to{transform:rotate(360deg)}}
+                button{margin-top:12px;padding:8px 16px;border:1px solid #ccc;border-radius:6px;
+                background:#fff;cursor:pointer;font-size:13px}button:hover{background:#f0f0f0}</style>
+                </head><body><div class="c"><div class="spin">⚙️</div><p>Building app…</p>
+                <button onclick="window.location.href='\(distSchemeURL)'">Refresh</button></div>
+                <script>setTimeout(()=>{window.location.href='\(distSchemeURL)'},2000)</script></body></html>
+                """
+                webView.loadHTMLString(buildingHTML, baseURL: URL(string: origin))
+            } else {
+                let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
+                    ? "dist/index.html"
+                    : "index.html"
+                let schemeURL = URL(string: "vellumapp://\(appId)/\(entryPath)")!
+                webView.load(URLRequest(url: schemeURL))
+            }
         } else {
             // Ephemeral surface — inline HTML
             let origin = "https://surface.vellum.local/"

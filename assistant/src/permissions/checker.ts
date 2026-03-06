@@ -40,6 +40,7 @@ import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
 // risk logic is input-deterministic.
 const RISK_CACHE_MAX = 256;
 const riskCache = new Map<string, RiskLevel>();
+let riskCacheInvalidationHookRegistered = false;
 
 function riskCacheKey(
   toolName: string,
@@ -63,9 +64,13 @@ export function clearRiskCache(): void {
   riskCache.clear();
 }
 
-// Invalidate risk cache whenever trust rules change so that risk decisions
-// referencing config-dependent checks (e.g. skill source paths) stay fresh.
-onRulesChanged(clearRiskCache);
+function ensureRiskCacheInvalidationHook(): void {
+  if (riskCacheInvalidationHookRegistered) return;
+  // Register lazily to avoid an ESM initialization cycle between checker and
+  // trust-store when a higher-level module imports both during startup.
+  riskCacheInvalidationHookRegistered = true;
+  onRulesChanged(clearRiskCache);
+}
 
 // Low-risk shell programs that are read-only / informational
 const LOW_RISK_PROGRAMS = new Set([
@@ -462,6 +467,7 @@ export async function classifyRisk(
   signal?: AbortSignal,
 ): Promise<RiskLevel> {
   signal?.throwIfAborted();
+  ensureRiskCacheInvalidationHook();
 
   // Check cache first (skip when preParsed is provided since caller already
   // parsed and we'd just be duplicating the key computation cost).
@@ -802,6 +808,26 @@ export async function check(
       return {
         decision: "allow",
         reason: "Workspace mode: workspace-scoped operation auto-allowed",
+      };
+    }
+  }
+
+  // Any unrecognized mode (including raw "legacy" that somehow bypassed loader
+  // migration) is treated as workspace mode — fail-closed relative to the old
+  // risk-only fallthrough that would auto-allow low-risk operations everywhere.
+  if (
+    permissionsMode !== "strict" &&
+    permissionsMode !== "workspace" &&
+    !matchedRule &&
+    risk !== RiskLevel.High
+  ) {
+    if (toolName === "bash" && !getConfig().sandbox.enabled) {
+      // Fall through to risk-based policy below
+    } else if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
+      return {
+        decision: "allow",
+        reason:
+          "Workspace mode (normalized): workspace-scoped operation auto-allowed",
       };
     }
   }

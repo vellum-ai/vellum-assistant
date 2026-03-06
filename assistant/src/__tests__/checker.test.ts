@@ -2570,7 +2570,7 @@ describe("Permission Checker", () => {
         expect(result.reason).toContain("Strict mode");
       });
 
-      test("legacy mode: file_write to skill source still prompts as High risk", async () => {
+      test("workspace mode: file_write to skill source still prompts as High risk", async () => {
         testConfig.permissions.mode = "workspace";
         ensureSkillsDir();
         const skillPath = join(
@@ -2996,7 +2996,7 @@ describe("Permission Checker", () => {
       ensureSkillsDir();
       writeSkill("test-hash-skill", "Test Hash Skill");
 
-      // skill_load is Low risk, so with no trust rule in legacy mode it
+      // skill_load is Low risk, so with no trust rule in workspace mode it
       // auto-allows. We set strict mode and add specific rules to verify
       // the correct candidates are generated.
       testConfig.permissions.mode = "strict";
@@ -3332,7 +3332,7 @@ describe("Permission Checker", () => {
       expect(result.matchedRule!.pattern).toBe("skill_load:pr34-bare-id");
     });
 
-    test("skill_load auto-allows in legacy mode (backward compat)", async () => {
+    test("skill_load auto-allows in workspace mode", async () => {
       testConfig.permissions.mode = "workspace";
       const result = await check("skill_load", { skill: "any-skill" }, "/tmp");
       expect(result.decision).toBe("allow");
@@ -3855,7 +3855,7 @@ describe("Permission Checker", () => {
     //    high-risk allow) if they choose. ────────────────────────────
 
     describe("Invariant 6: user can set broad rules if they choose", () => {
-      test("wildcard allow rule matches any command in legacy mode", async () => {
+      test("wildcard allow rule matches any command in workspace mode", async () => {
         testConfig.permissions.mode = "workspace";
         addRule("bash", "*", "everywhere");
         const result = await check(
@@ -4208,7 +4208,7 @@ describe("Permission Checker", () => {
       });
     }
 
-    test("browser tools are auto-allowed in legacy mode", async () => {
+    test("browser tools are auto-allowed in workspace mode", async () => {
       testConfig.permissions = { mode: "workspace" };
       for (const toolName of browserToolNames) {
         const result = await check(toolName, {}, "/tmp");
@@ -4404,7 +4404,7 @@ describe("computer-use tool permission defaults", () => {
     for (const name of cuToolNames) {
       const risk = await classifyRisk(name, {});
       // CU tools are proxy tools with RiskLevel.Low, but classifyRisk looks them up
-      // in the registry. In legacy mode, Low risk tools are auto-allowed.
+      // in the registry. In workspace mode, Low risk tools are auto-allowed.
       expect(risk).toBe(RiskLevel.Low);
     }
   });

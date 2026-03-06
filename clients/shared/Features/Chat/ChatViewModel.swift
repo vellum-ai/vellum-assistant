@@ -62,6 +62,16 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    /// Flush any pending coalesced publish immediately.
+    /// Used after clearing `inputText` in `sendMessage()` so the TextField
+    /// binding updates without the 100ms delay — preventing the field editor
+    /// from writing stale text back through the binding.
+    private func flushCoalescedPublish() {
+        subManagerPublishTask?.cancel()
+        subManagerPublishTask = nil
+        objectWillChange.send()
+    }
+
     // MARK: - Debug publish-rate counters
 
     #if DEBUG
@@ -1004,9 +1014,13 @@ public final class ChatViewModel: ObservableObject {
                 secretBlockedActiveSurfaceId = nil
                 secretBlockedCurrentPage = nil
                 currentTurnUserText = rawText
+                flushCoalescedPublish()
                 return
             }
             pendingSkillInvocation = nil
+            inputText = ""
+            pendingAttachments = []
+            flushCoalescedPublish()
             return
         }
 
@@ -1052,6 +1066,7 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedAttachments = nil
         secretBlockedActiveSurfaceId = nil
         secretBlockedCurrentPage = nil
+        flushCoalescedPublish()
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
@@ -1393,6 +1408,48 @@ public final class ChatViewModel: ObservableObject {
         } catch {
             log.error("Failed to send UiSurfaceAction: \(error)")
         }
+    }
+
+    // MARK: - Surface Refetch
+
+    /// Lazily created manager that serializes surface content fetches.
+    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, sessionId in
+        guard let self else { return nil }
+        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
+    }
+
+    /// In-flight refetch tasks, keyed by surface ID for cancellation.
+    private var refetchTasks: [String: Task<Void, Never>] = [:]
+
+    /// Re-fetch the full payload for a stripped surface and replace it in the message list.
+    public func refetchStrippedSurface(surfaceId: String, sessionId: String) {
+        guard refetchTasks[surfaceId] == nil else { return }
+        refetchTasks[surfaceId] = Task { @MainActor [weak self] in
+            defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
+            guard let self else { return }
+            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId)
+            for msgIndex in self.messages.indices {
+                if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
+                    if let data = result.data {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = data
+                    } else if result.retriesExhausted {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = .strippedFailed
+                    }
+                    // When data is nil but retries are not exhausted, leave the
+                    // surface in .stripped state so a future onAppear re-triggers
+                    // the fetch attempt.
+                    return
+                }
+            }
+        }
+    }
+
+    /// Cancel all in-flight surface refetch tasks and reset the manager's
+    /// failure counts so surfaces can be retried in the new session.
+    private func cancelRefetchTasks() {
+        for task in refetchTasks.values { task.cancel() }
+        refetchTasks.removeAll()
+        Task { await surfaceRefetchManager.resetFailureCounts() }
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
@@ -2098,6 +2155,22 @@ public final class ChatViewModel: ObservableObject {
                     toolCall.cachedImage = decodedImage
                     toolCall.reasonDescription = (tc.input["reason"]?.value as? String)
                         ?? (tc.input["reasoning"]?.value as? String)
+                    // Restore persisted timing and confirmation data
+                    if let startMs = tc.startedAt {
+                        toolCall.startedAt = Date(timeIntervalSince1970: Double(startMs) / 1000.0)
+                    }
+                    if let endMs = tc.completedAt {
+                        toolCall.completedAt = Date(timeIntervalSince1970: Double(endMs) / 1000.0)
+                    }
+                    if let decision = tc.confirmationDecision {
+                        switch decision {
+                        case "approved": toolCall.confirmationDecision = .approved
+                        case "denied": toolCall.confirmationDecision = .denied
+                        case "timed_out": toolCall.confirmationDecision = .timedOut
+                        default: break
+                        }
+                    }
+                    toolCall.confirmationLabel = tc.confirmationLabel
                     // Cap tool input size to prevent unbounded memory from large history
                     // restores. Check size synchronously to avoid a race where a deferred
                     // Task might run before self.messages is populated with these new items.
@@ -2323,6 +2396,7 @@ public final class ChatViewModel: ObservableObject {
         // after the messages array is replaced, creating an orphan assistant message
         // or appending text to a stale currentAssistantMessageId.
         discardStreamingBuffer()
+        cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
         lastContentWasToolCall = false
@@ -2397,6 +2471,8 @@ public final class ChatViewModel: ObservableObject {
         streamingFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
+        for task in refetchTasks.values { task.cancel() }
+        refetchTasks.removeAll()
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],

@@ -40,41 +40,6 @@ jobs:
       - name: Test with coverage
         run: bun test --coverage
 
-      - name: Track consecutive failures
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # github.workflow returns the display name, not the filename.
-          # Extract the filename from github.workflow_ref instead.
-          WORKFLOW_REF="${{ github.workflow_ref }}"
-          WORKFLOW_NAME="${WORKFLOW_REF%%@*}"
-          WORKFLOW_NAME="${WORKFLOW_NAME##*/}"
-
-          # Get the last 100 completed runs of this workflow on main (excluding current)
-          RUNS=$(gh api "/repos/${{ github.repository }}/actions/workflows/${WORKFLOW_NAME}/runs?branch=main&status=completed&per_page=100" \
-            --jq '[.workflow_runs[] | select(.id != '${{ github.run_id }}') | .conclusion]')
-
-          # Count consecutive failures from most recent
-          CONSECUTIVE=0
-          for conclusion in $(echo "$RUNS" | jq -r '.[]'); do
-            if [ "$conclusion" = "failure" ]; then
-              CONSECUTIVE=$((CONSECUTIVE + 1))
-            else
-              break
-            fi
-          done
-
-          # Add current run result
-          if [ "${{ job.status }}" = "failure" ]; then
-            CONSECUTIVE=$((CONSECUTIVE + 1))
-          else
-            CONSECUTIVE=0
-          fi
-
-          echo "Consecutive failures on main: $CONSECUTIVE"
-
   notify:
     name: Slack Notification
     needs: [checks]

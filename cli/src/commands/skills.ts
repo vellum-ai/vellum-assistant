@@ -1,10 +1,12 @@
 import { execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -25,6 +27,38 @@ function getSkillsDir(): string {
 
 function getSkillsIndexPath(): string {
   return join(getSkillsDir(), "SKILLS.md");
+}
+
+/**
+ * Resolve the repo-level skills/ directory when running in dev mode.
+ * Returns the path if VELLUM_DEV is set and the directory exists, or undefined.
+ */
+function getRepoSkillsDir(): string | undefined {
+  if (!process.env.VELLUM_DEV) return undefined;
+
+  // cli/src/commands/skills.ts -> ../../../skills/
+  const candidate = join(import.meta.dir, "..", "..", "..", "skills");
+  if (existsSync(join(candidate, "catalog.json"))) {
+    return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Read skills from the repo-local catalog.json.
+ */
+function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
+  try {
+    const raw = readFileSync(
+      join(repoSkillsDir, "catalog.json"),
+      "utf-8",
+    );
+    const manifest = JSON.parse(raw) as CatalogManifest;
+    if (!Array.isArray(manifest.skills)) return [];
+    return manifest.skills;
+  } catch {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +255,33 @@ function upsertSkillsIndex(id: string): void {
   atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
 }
 
+function removeSkillsIndexEntry(id: string): void {
+  const indexPath = getSkillsIndexPath();
+  if (!existsSync(indexPath)) return;
+
+  const lines = readFileSync(indexPath, "utf-8").split("\n");
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^[-*]\\s+(?:\`)?${escaped}(?:\`)?\\s*$`);
+  const filtered = lines.filter((line) => !pattern.test(line));
+
+  // If nothing changed, skip the write
+  if (filtered.length === lines.length) return;
+
+  const content = filtered.join("\n");
+  atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
+}
+
+function uninstallSkillLocally(skillId: string): void {
+  const skillDir = join(getSkillsDir(), skillId);
+
+  if (!existsSync(skillDir)) {
+    throw new Error(`Skill "${skillId}" is not installed.`);
+  }
+
+  rmSync(skillDir, { recursive: true, force: true });
+  removeSkillsIndexEntry(skillId);
+}
+
 async function installSkillLocally(
   skillId: string,
   catalogEntry: CatalogSkill,
@@ -237,8 +298,17 @@ async function installSkillLocally(
 
   mkdirSync(skillDir, { recursive: true });
 
-  // Extract all files from the archive into the skill directory
-  await fetchAndExtractSkill(skillId, skillDir);
+  // In dev mode, install from the local repo skills directory if available
+  const repoSkillsDir = getRepoSkillsDir();
+  const repoSkillSource = repoSkillsDir
+    ? join(repoSkillsDir, skillId)
+    : undefined;
+
+  if (repoSkillSource && existsSync(join(repoSkillSource, "SKILL.md"))) {
+    cpSync(repoSkillSource, skillDir, { recursive: true });
+  } else {
+    await fetchAndExtractSkill(skillId, skillDir);
+  }
 
   // Write version metadata
   if (catalogEntry.version) {
@@ -288,6 +358,9 @@ function printUsage(): void {
   console.log(
     "  install <skill-id> [--overwrite]  Install a skill from the catalog",
   );
+  console.log(
+    "  uninstall <skill-id>              Uninstall a previously installed skill",
+  );
   console.log("");
   console.log("Options:");
   console.log("  --json    Machine-readable JSON output");
@@ -311,6 +384,18 @@ export async function skills(): Promise<void> {
     case "list": {
       try {
         const catalog = await fetchCatalog();
+
+        // In dev mode, merge in skills from the repo-local skills/ directory
+        const repoSkillsDir = getRepoSkillsDir();
+        if (repoSkillsDir) {
+          const localSkills = readLocalCatalog(repoSkillsDir);
+          const remoteIds = new Set(catalog.map((s) => s.id));
+          for (const local of localSkills) {
+            if (!remoteIds.has(local.id)) {
+              catalog.push(local);
+            }
+          }
+        }
 
         if (json) {
           console.log(JSON.stringify({ ok: true, skills: catalog }));
@@ -353,9 +438,20 @@ export async function skills(): Promise<void> {
       const overwrite = hasFlag(args, "--overwrite");
 
       try {
-        // Verify skill exists in catalog
-        const catalog = await fetchCatalog();
-        const entry = catalog.find((s) => s.id === skillId);
+        // In dev mode, also check the repo-local skills/ directory
+        const repoSkillsDir = getRepoSkillsDir();
+        let localSkills: CatalogSkill[] = [];
+        if (repoSkillsDir) {
+          localSkills = readLocalCatalog(repoSkillsDir);
+        }
+
+        // Check local catalog first, then fall back to remote
+        let entry = localSkills.find((s) => s.id === skillId);
+        if (!entry) {
+          const catalog = await fetchCatalog();
+          entry = catalog.find((s) => s.id === skillId);
+        }
+
         if (!entry) {
           throw new Error(`Skill "${skillId}" not found in the Vellum catalog`);
         }
@@ -367,6 +463,35 @@ export async function skills(): Promise<void> {
           console.log(JSON.stringify({ ok: true, skillId }));
         } else {
           console.log(`Installed skill "${skillId}".`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (json) {
+          console.log(JSON.stringify({ ok: false, error: msg }));
+        } else {
+          console.error(`Error: ${msg}`);
+        }
+        process.exitCode = 1;
+      }
+      break;
+    }
+
+    case "uninstall": {
+      const skillId = args.find(
+        (a) => !a.startsWith("--") && a !== "uninstall",
+      );
+      if (!skillId) {
+        console.error("Usage: vellum skills uninstall <skill-id>");
+        process.exit(1);
+      }
+
+      try {
+        uninstallSkillLocally(skillId);
+
+        if (json) {
+          console.log(JSON.stringify({ ok: true, skillId }));
+        } else {
+          console.log(`Uninstalled skill "${skillId}".`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

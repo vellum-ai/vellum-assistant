@@ -47,6 +47,22 @@
       "key": "feature_flags.messaging.enabled",
       "label": "Messaging",
       "description": "Enable messaging skill section in the system prompt",
+      "defaultEnabled": true
+    },
+    {
+      "id": "messaging-gmail",
+      "scope": "assistant",
+      "key": "feature_flags.messaging.gmail.enabled",
+      "label": "Messaging: Gmail",
+      "description": "Allow messaging tools to operate on the Gmail platform",
+      "defaultEnabled": false
+    },
+    {
+      "id": "messaging-telegram",
+      "scope": "assistant",
+      "key": "feature_flags.messaging.telegram.enabled",
+      "label": "Messaging: Telegram",
+      "description": "Allow messaging tools to operate on the Telegram platform",
       "defaultEnabled": false
     },
     {
@@ -95,6 +111,14 @@
       "key": "feature_flags.outbound-proxy-sidecar.enabled",
       "label": "Outbound Proxy Sidecar",
       "description": "Route proxy session management through the sidecar process instead of running in-process",
+      "defaultEnabled": false
+    },
+    {
+      "id": "app-builder-multifile",
+      "scope": "assistant",
+      "key": "feature_flags.app-builder-multifile.enabled",
+      "label": "App Builder Multi-file",
+      "description": "Enable multi-file TSX app creation with esbuild compilation instead of single-HTML apps",
       "defaultEnabled": false
     }
   ]

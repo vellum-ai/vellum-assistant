@@ -6,6 +6,9 @@ export function statusEmoji(status: string): string {
   if (s.startsWith("error") || s === "unreachable" || s.startsWith("exited")) {
     return "🔴";
   }
+  if (s === "sleeping") {
+    return "💤";
+  }
   return "🟡";
 }
 

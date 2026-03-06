@@ -5,15 +5,23 @@
     {
       "id": "google-oauth-setup",
       "name": "google-oauth-setup",
-      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using browser automation",
-      "emoji": "🔑",
-      "compatibility": "Requires browser automation and public ingress for OAuth callback"
+      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using CLI tools or guided manual steps",
+      "metadata": {
+        "emoji": "🔑",
+        "vellum": {
+          "user-invocable": "true",
+          "credential-setup-for": "gmail"
+        }
+      },
+      "compatibility": "Desktop: requires gcloud and gws CLI tools. Channels: requires public ingress for OAuth callback"
     },
     {
       "id": "weather",
       "name": "weather",
       "description": "Get current weather conditions and forecasts for any location",
-      "emoji": "🌤️"
+      "metadata": {
+        "emoji": "🌤️"
+      }
     }
   ]
 }

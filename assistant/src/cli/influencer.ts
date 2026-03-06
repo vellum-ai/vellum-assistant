@@ -1,5 +1,5 @@
 /**
- * CLI command group: `vellum influencer`
+ * CLI command group: `assistant influencer`
  *
  * Research influencers on Instagram, TikTok, and X/Twitter via the Chrome extension relay.
  * All commands output JSON to stdout. Use --json for machine-readable output.
@@ -61,6 +61,21 @@ export function registerInfluencerCommand(program: Command): void {
     )
     .option("--json", "Machine-readable JSON output");
 
+  inf.addHelpText(
+    "after",
+    `
+Researches influencers via the Chrome extension relay, which automates
+browsing on each platform. The user must be logged into each target
+platform (Instagram, TikTok, X/Twitter) in Chrome for the relay to work.
+
+Supported platforms: instagram, tiktok, twitter (X).
+
+Examples:
+  $ assistant influencer search "fitness coach" --platforms instagram,tiktok
+  $ assistant influencer profile natgeo --platform instagram
+  $ assistant influencer compare instagram:nike twitter:nike tiktok:nike`,
+  );
+
   // =========================================================================
   // search — search for influencers across platforms
   // =========================================================================
@@ -88,6 +103,27 @@ export function registerInfluencerCommand(program: Command): void {
     )
     .option("--limit <n>", "Max results per platform", "10")
     .option("--verified", "Only return verified accounts")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  query   Search query — niche, topic, or keywords (e.g. "fitness coach")
+
+--platforms filters which platforms to search. Defaults to all three:
+instagram, tiktok, twitter. Provide a comma-separated list to narrow.
+
+--min-followers and --max-followers accept human-friendly notation:
+  10k = 10,000    1.5m = 1,500,000    100k = 100,000
+Plain integers are also accepted (e.g. 50000).
+
+--limit caps the number of results returned per platform (default: 10).
+--verified restricts results to verified/blue-check accounts only.
+
+Examples:
+  $ assistant influencer search "vegan food" --min-followers 10k --max-followers 1m
+  $ assistant influencer search "tech reviewer" --platforms tiktok --limit 5 --verified
+  $ assistant influencer search "streetwear" --platforms instagram,twitter --min-followers 50k`,
+    )
     .action(
       async (
         query: string,
@@ -147,6 +183,23 @@ export function registerInfluencerCommand(program: Command): void {
       "Platform (instagram, tiktok, or twitter)",
       "instagram",
     )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  username   The influencer's handle without the @ prefix (e.g. "natgeo", not "@natgeo")
+
+--platform selects which platform to look up. Defaults to instagram.
+Valid values: instagram, tiktok, twitter.
+
+Returns detailed profile data including follower count, bio, engagement
+metrics, and recent post statistics.
+
+Examples:
+  $ assistant influencer profile natgeo --platform instagram
+  $ assistant influencer profile charlidamelio --platform tiktok
+  $ assistant influencer profile elonmusk --platform twitter`,
+    )
     .action(
       async (username: string, opts: { platform: string }, cmd: Command) => {
         await run(cmd, async () => {
@@ -186,6 +239,25 @@ export function registerInfluencerCommand(program: Command): void {
     .argument(
       "<influencers...>",
       "Space-separated list of platform:username pairs (e.g. instagram:nike twitter:nike tiktok:nike)",
+    )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  influencers   Space-separated platform:username pairs (e.g. instagram:nike twitter:nike)
+
+Each argument must be in platform:username format. Valid platforms:
+instagram, tiktok, twitter. If no platform prefix is provided, defaults
+to instagram.
+
+Returns side-by-side profile data for all specified influencers,
+useful for comparing follower counts, engagement rates, and content
+metrics across platforms or between competing accounts.
+
+Examples:
+  $ assistant influencer compare instagram:nike twitter:nike tiktok:nike
+  $ assistant influencer compare instagram:natgeo instagram:discoverearth
+  $ assistant influencer compare tiktok:charlidamelio tiktok:addisonre`,
     )
     .action(async (influencers: string[], _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {

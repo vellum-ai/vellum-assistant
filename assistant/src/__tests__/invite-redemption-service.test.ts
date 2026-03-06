@@ -24,7 +24,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { upsertMember } from "../contacts/contacts-write.js";
+import { findContactChannel } from "../contacts/contact-store.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   createInvite,
@@ -33,7 +34,9 @@ import {
 import {
   type InviteRedemptionOutcome,
   redeemInvite,
+  redeemInviteByCode,
 } from "../runtime/invite-redemption-service.js";
+import { hashVoiceCode } from "../util/voice-code.js";
 
 initializeDb();
 
@@ -74,6 +77,58 @@ describe("invite-redemption-service", () => {
       memberId: expect.any(String),
       inviteId: invite.id,
     });
+  });
+
+  test("marks channel as verified via invite on redemption", () => {
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      maxUses: 1,
+    });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "user-1",
+    });
+
+    expect(outcome.ok).toBe(true);
+
+    const result = findContactChannel({
+      channelType: "telegram",
+      externalUserId: "user-1",
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.channel.verifiedAt).toBeGreaterThan(0);
+    expect(result!.channel.verifiedVia).toBe("invite");
+    expect(result!.channel.status).toBe("active");
+  });
+
+  test("marks channel as verified via invite on 6-digit code redemption", () => {
+    const inviteCode = "123456";
+    createInvite({
+      sourceChannel: "telegram",
+      maxUses: 1,
+      inviteCodeHash: hashVoiceCode(inviteCode),
+    });
+
+    const outcome = redeemInviteByCode({
+      code: inviteCode,
+      sourceChannel: "telegram",
+      externalUserId: "code-user-1",
+    });
+
+    expect(outcome.ok).toBe(true);
+
+    const result = findContactChannel({
+      channelType: "telegram",
+      externalUserId: "code-user-1",
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.channel.verifiedAt).toBeGreaterThan(0);
+    expect(result!.channel.verifiedVia).toBe("invite");
+    expect(result!.channel.status).toBe("active");
   });
 
   test("returns invalid_token for a bogus token", () => {
@@ -179,7 +234,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "existing-user",
       status: "active",
@@ -209,7 +264,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create a blocked member — simulates a guardian-initiated block
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "blocked-user",
       status: "blocked",
@@ -231,7 +286,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create a revoked member
-    const member = upsertMember({
+    const member = upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "revoked-user",
       status: "revoked",
@@ -282,7 +337,7 @@ describe("invite-redemption-service", () => {
 
   test("returns invalid_token for an active member with a bogus token (no membership probing)", () => {
     // Pre-create an active member
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "probed-user",
       status: "active",
@@ -307,7 +362,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "expired-token-user",
       status: "active",
@@ -331,7 +386,7 @@ describe("invite-redemption-service", () => {
     });
 
     // Pre-create an active member on telegram
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "cross-channel-user",
       status: "active",

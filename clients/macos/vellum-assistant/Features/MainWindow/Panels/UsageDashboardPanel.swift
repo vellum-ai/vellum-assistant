@@ -1,0 +1,330 @@
+import SwiftUI
+import VellumAssistantShared
+
+struct UsageDashboardPanel: View {
+    let store: UsageDashboardStore
+    var onClose: () -> Void
+
+    @State private var refreshTask: Task<Void, Never>?
+    @State private var breakdownTask: Task<Void, Never>?
+
+    var body: some View {
+        VSidePanel(title: "Usage", onClose: onClose, pinnedContent: {
+            timeRangeStrip(store: store)
+            Divider().background(VColor.surfaceBorder)
+        }) {
+            contentView(store: store)
+        }
+        .onAppear {
+            refreshTask = Task {
+                if store.needsRefresh {
+                    await store.refresh()
+                }
+            }
+        }
+        .onDisappear {
+            refreshTask?.cancel()
+            refreshTask = nil
+            breakdownTask?.cancel()
+            breakdownTask = nil
+        }
+    }
+
+    // MARK: - Time Range Strip
+
+    @ViewBuilder
+    private func timeRangeStrip(store: UsageDashboardStore) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: VSpacing.sm) {
+                ForEach(UsageTimeRange.allCases, id: \.rawValue) { range in
+                    Button {
+                        refreshTask?.cancel()
+                        breakdownTask?.cancel()
+                        refreshTask = Task { await store.selectRange(range) }
+                    } label: {
+                        Text(range.rawValue)
+                            .font(VFont.captionMedium)
+                            .foregroundColor(store.selectedRange == range ? VColor.textPrimary : VColor.textMuted)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xs)
+                            .background(
+                                store.selectedRange == range
+                                    ? VColor.surfaceBorder.opacity(0.5)
+                                    : Color.clear
+                            )
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+        }
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    func contentView(store: UsageDashboardStore) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xl) {
+            totalsSection(store: store)
+            dailySection(store: store)
+            breakdownSection(store: store)
+        }
+    }
+
+    // MARK: - Totals Section
+
+    @ViewBuilder
+    private func totalsSection(store: UsageDashboardStore) -> some View {
+        sectionHeader("Totals", icon: "chart.bar.fill")
+
+        switch store.totalsState {
+        case .idle, .loading:
+            loadingRow()
+        case .loaded(let totals):
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.md) {
+                statCard(label: "Estimated Cost", value: formatCost(totals.totalEstimatedCostUsd))
+                statCard(label: "LLM Calls", value: formatCount(totals.eventCount))
+                statCard(label: "Input Tokens", value: formatTokenCount(totals.totalInputTokens))
+                statCard(label: "Output Tokens", value: formatTokenCount(totals.totalOutputTokens))
+                statCard(label: "Cache Created", value: formatTokenCount(totals.totalCacheCreationTokens))
+                statCard(label: "Cache Read", value: formatTokenCount(totals.totalCacheReadTokens))
+            }
+        case .failed(let message):
+            errorRow(message)
+        }
+    }
+
+    // MARK: - Daily Trend Section
+
+    @ViewBuilder
+    private func dailySection(store: UsageDashboardStore) -> some View {
+        sectionHeader("Daily Trend", icon: "chart.line.uptrend.xyaxis")
+
+        switch store.dailyState {
+        case .idle, .loading:
+            loadingRow()
+        case .loaded(let daily):
+            if daily.buckets.isEmpty {
+                VEmptyState(
+                    title: "No daily data",
+                    subtitle: "No usage recorded in this time range",
+                    icon: "calendar"
+                )
+            } else {
+                dailyTrendList(daily.buckets)
+            }
+        case .failed(let message):
+            errorRow(message)
+        }
+    }
+
+    @ViewBuilder
+    private func dailyTrendList(_ buckets: [UsageDayBucket]) -> some View {
+        let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
+
+        VStack(spacing: VSpacing.xs) {
+            ForEach(buckets, id: \.date) { bucket in
+                HStack(spacing: VSpacing.sm) {
+                    Text(bucket.date)
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textMuted)
+                        .frame(width: 80, alignment: .leading)
+
+                    GeometryReader { geo in
+                        let fraction = maxCost > 0 ? bucket.totalEstimatedCostUsd / maxCost : 0
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Emerald._400)
+                            .frame(width: max(2, geo.size.width * fraction))
+                    }
+                    .frame(height: 12)
+
+                    Text(formatCost(bucket.totalEstimatedCostUsd))
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 60, alignment: .trailing)
+                }
+            }
+        }
+    }
+
+    // MARK: - Breakdown Section
+
+    @ViewBuilder
+    private func breakdownSection(store: UsageDashboardStore) -> some View {
+        HStack {
+            sectionHeader("Breakdown", icon: "rectangle.3.group")
+            Spacer()
+            groupByPicker(store: store)
+        }
+
+        switch store.breakdownState {
+        case .idle, .loading:
+            loadingRow()
+        case .loaded(let breakdown):
+            if breakdown.breakdown.isEmpty {
+                VEmptyState(
+                    title: "No breakdown data",
+                    subtitle: "No usage recorded for this grouping",
+                    icon: "rectangle.3.group"
+                )
+            } else {
+                breakdownList(breakdown.breakdown)
+            }
+        case .failed(let message):
+            errorRow(message)
+        }
+    }
+
+    @ViewBuilder
+    private func groupByPicker(store: UsageDashboardStore) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            ForEach(UsageGroupByDimension.allCases, id: \.rawValue) { dimension in
+                Button {
+                    breakdownTask?.cancel()
+                    breakdownTask = Task { await store.selectGroupBy(dimension) }
+                } label: {
+                    Text(dimension.rawValue.capitalized)
+                        .font(VFont.small)
+                        .foregroundColor(store.selectedGroupBy == dimension ? VColor.textPrimary : VColor.textMuted)
+                        .padding(.horizontal, VSpacing.xs)
+                        .padding(.vertical, 2)
+                        .background(
+                            store.selectedGroupBy == dimension
+                                ? VColor.surfaceBorder.opacity(0.5)
+                                : Color.clear
+                        )
+                        .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func breakdownList(_ entries: [UsageGroupBreakdownEntry]) -> some View {
+        VStack(spacing: VSpacing.sm) {
+            // Header row
+            HStack {
+                Text("Group")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.textMuted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("Tokens")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.textMuted)
+                    .frame(width: 70, alignment: .trailing)
+                Text("Cost")
+                    .font(VFont.small)
+                    .foregroundColor(VColor.textMuted)
+                    .frame(width: 60, alignment: .trailing)
+            }
+            .padding(.bottom, VSpacing.xxs)
+
+            ForEach(entries, id: \.group) { entry in
+                HStack {
+                    Text(entry.group)
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .lineLimit(1)
+                    Text(formatTokenCount(entry.totalInputTokens + entry.totalOutputTokens))
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 70, alignment: .trailing)
+                    Text(formatCost(entry.totalEstimatedCostUsd))
+                        .font(VFont.small)
+                        .foregroundColor(VColor.textSecondary)
+                        .frame(width: 60, alignment: .trailing)
+                }
+            }
+        }
+    }
+
+    // MARK: - Shared Components
+
+    @ViewBuilder
+    private func sectionHeader(_ title: String, icon: String) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundColor(Emerald._400)
+            Text(title)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textPrimary)
+        }
+    }
+
+    @ViewBuilder
+    private func statCard(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xxs) {
+            Text(value)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textPrimary)
+            Text(label)
+                .font(VFont.small)
+                .foregroundColor(VColor.textMuted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(VSpacing.sm)
+        .background(VColor.surfaceBorder.opacity(0.15))
+        .cornerRadius(8)
+    }
+
+    @ViewBuilder
+    private func loadingRow() -> some View {
+        HStack {
+            ProgressView()
+                .controlSize(.small)
+            Text("Loading...")
+                .font(VFont.small)
+                .foregroundColor(VColor.textMuted)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, VSpacing.md)
+    }
+
+    @ViewBuilder
+    private func errorRow(_ message: String) -> some View {
+        HStack(spacing: VSpacing.xs) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(Amber._400)
+            Text(message)
+                .font(VFont.small)
+                .foregroundColor(VColor.textMuted)
+        }
+        .padding(.vertical, VSpacing.sm)
+    }
+
+    // MARK: - Formatters
+
+    private func formatCost(_ usd: Double) -> String {
+        if usd < 0.01 {
+            return UsageFormatting.formatCost(usd)
+        }
+        return UsageFormatting.formatCostShort(usd)
+    }
+
+    private func formatTokenCount(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000)
+        }
+        if count >= 1_000 {
+            return String(format: "%.1fk", Double(count) / 1_000)
+        }
+        return "\(count)"
+    }
+
+    private func formatCount(_ count: Int) -> String {
+        UsageFormatting.formatCount(count)
+    }
+}
+
+#Preview {
+    ZStack {
+        VColor.background.ignoresSafeArea()
+        UsageDashboardPanel(store: UsageDashboardStore(client: DaemonClient()), onClose: {})
+    }
+    .frame(width: 400, height: 600)
+}

@@ -6,6 +6,8 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
+    private static let platformURLOverrideEnvironmentKey = "VELLUM_ASSISTANT_PLATFORM_URL"
+    private static let authServiceBaseURLDefaultsName = "authServiceBaseURL"
 
     private static let defaultBaseURL: String = {
         #if DEBUG && os(macOS)
@@ -17,23 +19,44 @@ public final class AuthService {
 
     /// Platform base URL from daemon config. Set by SettingsStore when the
     /// `platform_config_response` arrives. When non-empty, takes precedence
-    /// over the hardcoded default and DEBUG UserDefaults override.
+    /// over persisted defaults, but an explicit per-launch env override still wins.
     public var configuredBaseURL: String = ""
 
     public var baseURL: String {
-        if !configuredBaseURL.isEmpty {
-            return configuredBaseURL
-        }
-        #if DEBUG
-        // Allow overriding the auth service URL via UserDefaults for development/testing.
-        if let override = UserDefaults.standard.string(forKey: "authServiceBaseURL"), !override.isEmpty {
-            return override
-        }
-        #endif
-        return Self.defaultBaseURL
+        Self.resolveBaseURL(
+            configuredBaseURL: configuredBaseURL,
+            environment: ProcessInfo.processInfo.environment,
+            userDefaults: .standard
+        )
     }
 
     private init() {}
+
+    static func resolveBaseURL(
+        configuredBaseURL: String,
+        environment: [String: String],
+        userDefaults: UserDefaults
+    ) -> String {
+        if let override = normalizedBaseURL(environment[platformURLOverrideEnvironmentKey]) {
+            return override
+        }
+        if let configured = normalizedBaseURL(configuredBaseURL) {
+            return configured
+        }
+        #if DEBUG
+        // Keep the UserDefaults override as a fallback for direct debug sessions.
+        if let override = normalizedBaseURL(userDefaults.string(forKey: authServiceBaseURLDefaultsName)) {
+            return override
+        }
+        #endif
+        return defaultBaseURL
+    }
+
+    private static func normalizedBaseURL(_ raw: String?) -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalized = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        return normalized.isEmpty ? nil : normalized
+    }
 
     public func getConfig() async throws -> AllauthResponse<ConfigData> {
         try await request(path: "config")

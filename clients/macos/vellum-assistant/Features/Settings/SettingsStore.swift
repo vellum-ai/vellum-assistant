@@ -229,8 +229,9 @@ public final class SettingsStore: ObservableObject {
 
     @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
-    /// Read-only gateway target derived from daemon config (GATEWAY_PORT env var, default 7830).
-    @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
+    /// Read-only gateway target derived from daemon config.
+    /// Initial value reads env var > lockfile > default 7830; updated by IPC.
+    @Published var localGatewayTarget: String = "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
 
     /// Set to `true` once the first ingress config IPC response arrives, so the
     /// view layer can defer diagnostics until the real config values are available.
@@ -255,6 +256,13 @@ public final class SettingsStore: ObservableObject {
     /// Sourced from `DaemonClient.isTrustRulesSheetOpen` so each view can
     /// disable its button when the other surface is showing trust rules.
     @Published var isAnyTrustRulesSheetOpen = false
+
+    // MARK: - Privacy
+
+    /// Whether the user has opted in to sharing anonymised performance metrics (e.g. hang rate,
+    /// scroll speed). Defaults to `false`. Read by the MetricKit integration (M4) to decide
+    /// whether to forward payloads.
+    @Published var sendPerformanceReports: Bool = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool ?? false
 
     // MARK: - Private
 
@@ -403,6 +411,12 @@ public final class SettingsStore: ObservableObject {
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { value in UserDefaults.standard.set(value, forKey: "cmdEnterToSend") }
+            .store(in: &cancellables)
+
+        $sendPerformanceReports
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { UserDefaults.standard.set($0, forKey: "sendPerformanceReports") }
             .store(in: &cancellables)
 
         // Persist shortcut changes immediately so the hotkey re-registers without delay
@@ -687,6 +701,7 @@ public final class SettingsStore: ObservableObject {
         refreshChannelGuardianStatus(channel: "telegram")
         refreshChannelGuardianStatus(channel: "sms")
         refreshChannelGuardianStatus(channel: "voice")
+        refreshChannelGuardianStatus(channel: "slack")
 
         // Ingress config is refreshed by onAppear in SettingsPanel,
         // not here, to avoid duplicate get requests whose
@@ -970,22 +985,14 @@ public final class SettingsStore: ObservableObject {
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
         if let assistant, assistant.isManaged {
-            let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
-            // Strip "v1/" prefix — the platform proxy already namespaces under /v1/assistants/{id}/
-            let proxyPath = path.hasPrefix("v1/") ? String(path.dropFirst(3)) : path
-            // Django URL convention: trailing slash
-            let trailingSlash = proxyPath.hasSuffix("/") ? "" : "/"
-            guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistant.assistantId)/\(proxyPath)\(trailingSlash)") else { return nil }
-            var request = URLRequest(url: url)
-            request.httpMethod = method
-            request.timeoutInterval = 5
-            if let token = SessionTokenManager.getToken() {
-                request.setValue(token, forHTTPHeaderField: "X-Session-Token")
-            }
-            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
-                request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
-            }
-            return request
+            return Self.buildManagedAssistantProxyRequest(
+                baseURL: assistant.runtimeUrl ?? AuthService.shared.baseURL,
+                assistantId: assistant.assistantId,
+                path: path,
+                method: method,
+                sessionToken: SessionTokenManager.getToken(),
+                organizationId: UserDefaults.standard.string(forKey: "connectedOrganizationId")
+            )
         }
 
         // Local mode: direct to daemon runtime HTTP server
@@ -997,6 +1004,32 @@ public final class SettingsStore: ObservableObject {
         request.httpMethod = method
         request.timeoutInterval = 5
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    /// Managed requests must fail closed without a session token so callers
+    /// preserve work for later retry instead of sending unauthenticated writes.
+    nonisolated static func buildManagedAssistantProxyRequest(
+        baseURL: String,
+        assistantId: String,
+        path: String,
+        method: String,
+        sessionToken: String?,
+        organizationId: String?
+    ) -> URLRequest? {
+        guard let token = sessionToken, !token.isEmpty else { return nil }
+        // Strip "v1/" prefix — the platform proxy already namespaces under /v1/assistants/{id}/
+        let proxyPath = path.hasPrefix("v1/") ? String(path.dropFirst(3)) : path
+        // Django URL convention: trailing slash
+        let trailingSlash = proxyPath.hasSuffix("/") ? "" : "/"
+        guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/\(proxyPath)\(trailingSlash)") else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 5
+        request.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        if let orgId = organizationId, !orgId.isEmpty {
+            request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
+        }
         return request
     }
 
@@ -1252,8 +1285,7 @@ public final class SettingsStore: ObservableObject {
             return (httpTransport.baseURL, httpTransport.bearerToken)
         }
         // Local mode: call the gateway directly.
-        let gatewayPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            .flatMap(Int.init) ?? 7830
+        let gatewayPort = LockfilePaths.resolveGatewayPort()
         let baseURL = "http://127.0.0.1:\(gatewayPort)"
         let bearerToken = ActorTokenManager.getToken()
         return (baseURL, bearerToken)
@@ -1649,7 +1681,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func revokeTelegramApprovedMember(memberId: String) {
-        guard var request = buildDaemonRequest(path: "v1/contacts/channels/\(memberId)", method: "PATCH") else { return }
+        guard var request = buildDaemonRequest(path: "v1/contact-channels/\(memberId)", method: "PATCH") else { return }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
         request.timeoutInterval = 10
@@ -1731,7 +1763,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func revokeSlackApprovedMember(memberId: String) {
-        guard var request = buildDaemonRequest(path: "v1/contacts/channels/\(memberId)", method: "PATCH") else { return }
+        guard var request = buildDaemonRequest(path: "v1/contact-channels/\(memberId)", method: "PATCH") else { return }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
         request.timeoutInterval = 10
@@ -2256,10 +2288,10 @@ public final class SettingsStore: ObservableObject {
         ingressPublicBaseUrl
     }
 
-    /// LAN pairing URL for the gateway (port 7830), or nil if no LAN IP available.
+    /// LAN pairing URL for the gateway, or nil if no LAN IP available.
     var lanPairingUrl: String? {
         guard let ip = LANIPHelper.currentLANAddress() else { return nil }
-        return "http://\(ip):7830"
+        return "http://\(ip):\(LockfilePaths.resolveGatewayPort())"
     }
 
     // MARK: - Dev Mode Actions

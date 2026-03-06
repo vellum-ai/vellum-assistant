@@ -291,7 +291,6 @@ export async function getCheckoutSummary(): Promise<CheckoutSummary> {
 export async function placeOrder(
   opts: {
     paymentMethodId?: string;
-    deliverySlotId?: string;
   } = {},
 ): Promise<PlaceOrderResult> {
   const { tabId } = await prepareRequest();

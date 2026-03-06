@@ -25,21 +25,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Use encrypted backend (no keychain) with a temp store path
+// Use encrypted backend with a temp store path
 // ---------------------------------------------------------------------------
 
-import { _overrideDeps, _resetDeps } from "../security/keychain.js";
-
-// Make keychain unavailable so secure-keys always uses encrypted backend
-_overrideDeps({
-  isMacOS: () => false,
-  isLinux: () => false,
-  execFileSync: (() =>
-    "") as unknown as typeof import("node:child_process").execFileSync,
-});
-
 import { _setStorePath } from "../security/encrypted-store.js";
-import { _resetBackend, _setBackend } from "../security/secure-keys.js";
+import { _resetBackend } from "../security/secure-keys.js";
 
 const TEST_DIR = join(
   tmpdir(),
@@ -162,8 +152,8 @@ async function executeVault(
       }
 
       const key = `credential:${service}:${field}`;
-      const ok = deleteSecureKey(key);
-      if (!ok) {
+      const result = deleteSecureKey(key);
+      if (result !== "deleted") {
         return {
           content: `Error: credential ${service}/${field} not found`,
           isError: true,
@@ -206,7 +196,6 @@ describe("credential_store tool", () => {
   });
 
   afterAll(() => {
-    _resetDeps();
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
@@ -500,7 +489,7 @@ describe("credential_store tool", () => {
       expect(gmail.injection_templates).toBeUndefined();
     });
 
-    test("works with keychain backend (reads from metadata store)", async () => {
+    test("works with metadata store fallback when listing secrets", async () => {
       // Store a credential first (on encrypted backend)
       await credentialStoreTool.execute(
         {
@@ -511,9 +500,6 @@ describe("credential_store tool", () => {
         },
         _ctx,
       );
-
-      // Switch to keychain backend — list should still work via metadata
-      _setBackend("keychain");
 
       const result = await credentialStoreTool.execute(
         { action: "list" },

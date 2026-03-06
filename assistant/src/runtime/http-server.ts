@@ -127,8 +127,10 @@ import {
 } from "./routes/pairing-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
+import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { twilioRouteDefinitions } from "./routes/twilio-routes.js";
+import { usageRouteDefinitions } from "./routes/usage-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -183,15 +185,7 @@ export class RuntimeHttpServer {
   private pairingStore = new PairingStore();
   private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
-  private findSession?: (sessionId: string) =>
-    | {
-        handleSurfaceAction(
-          surfaceId: string,
-          actionId: string,
-          data?: Record<string, unknown>,
-        ): void;
-      }
-    | undefined;
+  private findSession?: RuntimeHttpServerOptions["findSession"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -691,6 +685,7 @@ export class RuntimeHttpServer {
       ...secretRouteDefinitions(),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
+      ...usageRouteDefinitions(),
 
       // Browser relay — not extracted into a domain module because
       // these two routes depend on the in-process extensionRelayServer
@@ -847,6 +842,7 @@ export class RuntimeHttpServer {
       ...approvalRouteDefinitions(),
       ...trustRulesRouteDefinitions(),
       ...surfaceActionRouteDefinitions({ findSession: this.findSession }),
+      ...surfaceContentRouteDefinitions({ findSession: this.findSession }),
       ...guardianActionRouteDefinitions(),
 
       ...contactRouteDefinitions(),

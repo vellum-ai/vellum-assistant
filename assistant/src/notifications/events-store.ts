@@ -10,7 +10,6 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { getDb } from "../memory/db.js";
 import { notificationEvents } from "../memory/schema.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import type { AttentionHints } from "./signal.js";
 
 export interface NotificationEventRow {
@@ -75,7 +74,6 @@ export function createEvent(
 
   const row = {
     id: params.id,
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     sourceEventName: params.sourceEventName,
     sourceChannel: params.sourceChannel,
     sourceSessionId: params.sourceSessionId,

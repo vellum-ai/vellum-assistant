@@ -25,8 +25,6 @@ struct ChatEmptyStateView: View {
     var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
-    @Binding var editorContentHeight: CGFloat
-    @Binding var isComposerExpanded: Bool
 
     @State private var visible = false
     @State private var title: String = titles.randomElement()!
@@ -118,9 +116,7 @@ struct ChatEmptyStateView: View {
                     onFileDrop: onFileDrop,
                     onDropImageData: onDropImageData,
                     onMicrophoneToggle: onMicrophoneToggle,
-                    placeholderText: placeholder,
-                    editorContentHeight: $editorContentHeight,
-                    isComposerExpanded: $isComposerExpanded
+                    placeholderText: placeholder
                 )
             }
             .frame(maxWidth: 500)
@@ -166,8 +162,6 @@ struct ChatTemporaryChatEmptyStateView: View {
     var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
-    @Binding var editorContentHeight: CGFloat
-    @Binding var isComposerExpanded: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -227,9 +221,7 @@ struct ChatTemporaryChatEmptyStateView: View {
                     onFileDrop: onFileDrop,
                     onDropImageData: onDropImageData,
                     onMicrophoneToggle: onMicrophoneToggle,
-                    placeholderText: "Ask anything...",
-                    editorContentHeight: $editorContentHeight,
-                    isComposerExpanded: $isComposerExpanded
+                    placeholderText: "Ask anything..."
                 )
             }
 

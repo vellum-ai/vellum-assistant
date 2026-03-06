@@ -11,6 +11,7 @@ import type { MessagingProvider } from "../../../../messaging/provider.js";
 import {
   getConnectedProviders,
   getMessagingProvider,
+  isPlatformEnabled,
 } from "../../../../messaging/registry.js";
 import { withValidToken } from "../../../../security/token-manager.js";
 import type { ToolExecutionResult } from "../../../../tools/types.js";
@@ -32,7 +33,9 @@ export function err(message: string): ToolExecutionResult {
 export function resolveProvider(platformInput?: string): MessagingProvider {
   if (platformInput) return getMessagingProvider(platformInput);
 
-  const connected = getConnectedProviders();
+  const connected = getConnectedProviders().filter((p) =>
+    isPlatformEnabled(p.id),
+  );
   if (connected.length === 1) return connected[0];
   if (connected.length === 0) {
     throw new Error(

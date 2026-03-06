@@ -292,13 +292,8 @@ export async function enforceIngressAcl(
         // user can reply with the code in the DM to self-verify.
         if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
           const slackVerifyResult = initiateSlackVerificationChallenge({
-            canonicalAssistantId,
             sourceChannel,
-            conversationExternalId,
             senderUserId: (canonicalSenderId ?? rawSenderId)!,
-            replyCallbackUrl,
-            mintBearerToken,
-            assistantId,
           });
 
           if (slackVerifyResult.initiated) {
@@ -524,13 +519,8 @@ export async function enforceIngressAcl(
             (canonicalSenderId ?? rawSenderId)
           ) {
             const slackVerifyResult = initiateSlackVerificationChallenge({
-              canonicalAssistantId,
               sourceChannel,
-              conversationExternalId,
               senderUserId: (canonicalSenderId ?? rawSenderId)!,
-              replyCallbackUrl,
-              mintBearerToken,
-              assistantId,
             });
 
             if (slackVerifyResult.initiated) {
@@ -1084,15 +1074,10 @@ interface SlackVerificationResult {
  * creates a trusted contact record (not a guardian binding).
  */
 function initiateSlackVerificationChallenge(params: {
-  canonicalAssistantId: string;
   sourceChannel: ChannelId;
-  conversationExternalId: string;
   senderUserId: string;
-  replyCallbackUrl: string | undefined;
-  mintBearerToken: () => string;
-  assistantId: string;
 }): SlackVerificationResult {
-  const { canonicalAssistantId, sourceChannel, senderUserId } = params;
+  const { sourceChannel, senderUserId } = params;
 
   // Skip if there is already a pending challenge or active session for
   // this sender to avoid flooding them with duplicate codes. We scope by

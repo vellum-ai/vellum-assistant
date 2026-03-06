@@ -87,7 +87,7 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 }));
 
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertMember } from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { createInvite, revokeInvite } from "../memory/invite-store.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
@@ -328,7 +328,7 @@ describe("inbound invite redemption intercept", () => {
 
   test("existing active member sending normal message is unaffected", async () => {
     // Pre-create an active member
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-active-member",
       externalChatId: "chat-active",
@@ -377,7 +377,7 @@ describe("inbound invite redemption intercept", () => {
     });
 
     // Pre-create an active member that will click the invite link
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-already-active",
       externalChatId: "chat-invite-test",
@@ -403,7 +403,7 @@ describe("inbound invite redemption intercept", () => {
       maxUses: 5,
     });
 
-    upsertMember({
+    upsertContactChannel({
       sourceChannel: "telegram",
       externalUserId: "user-invite-123",
       externalChatId: "chat-invite-test",

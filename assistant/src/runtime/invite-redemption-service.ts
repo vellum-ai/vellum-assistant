@@ -9,7 +9,7 @@
 
 import type { ChannelId } from "../channels/types.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertMember } from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db.js";
 import {
   findActiveVoiceInvites,
@@ -147,9 +147,9 @@ export function redeemInvite(params: {
   }
 
   // Inactive member reactivation: when the user already has a member record
-  // in a non-active state (revoked/pending), reactivate it via upsertMember
+  // in a non-active state (revoked/pending), reactivate it via upsertContactChannel
   // and consume an invite use atomically. The fresh-member path below also
-  // uses upsertMember to keep contacts in sync.
+  // uses upsertContactChannel to keep contacts in sync.
   if (existingChannel) {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
@@ -173,11 +173,11 @@ export function redeemInvite(params: {
         ? existingContact.displayName
         : displayName;
 
-    let reactivated: ReturnType<typeof upsertMember> | undefined;
+    let reactivated: ReturnType<typeof upsertContactChannel> | undefined;
     try {
       getSqlite()
         .transaction(() => {
-          reactivated = upsertMember({
+          reactivated = upsertContactChannel({
             sourceChannel,
             externalUserId,
             externalChatId,
@@ -187,6 +187,8 @@ export function redeemInvite(params: {
             status: "active",
             policy: "allow",
             inviteId: invite.id,
+            verifiedAt: Date.now(),
+            verifiedVia: "invite",
           });
 
           const recorded = recordInviteUse({
@@ -219,11 +221,11 @@ export function redeemInvite(params: {
   // Fresh member creation: upsert into contacts tables and consume an invite
   // use atomically, mirroring the reactivation path above.
   const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
-  let freshResult: ReturnType<typeof upsertMember> | undefined;
+  let freshResult: ReturnType<typeof upsertContactChannel> | undefined;
   try {
     getSqlite()
       .transaction(() => {
-        freshResult = upsertMember({
+        freshResult = upsertContactChannel({
           sourceChannel,
           externalUserId,
           externalChatId,
@@ -232,6 +234,8 @@ export function redeemInvite(params: {
           status: "active",
           policy: "allow",
           inviteId: invite.id,
+          verifiedAt: Date.now(),
+          verifiedVia: "invite",
         });
 
         const recorded = recordInviteUse({
@@ -362,7 +366,7 @@ export function redeemVoiceInviteCode(params: {
   try {
     getSqlite()
       .transaction(() => {
-        const writeResult = upsertMember({
+        const writeResult = upsertContactChannel({
           sourceChannel: "voice",
           externalUserId: callerExternalUserId,
           externalChatId: callerExternalUserId,
@@ -370,6 +374,8 @@ export function redeemVoiceInviteCode(params: {
           status: "active",
           policy: "allow",
           inviteId: invite.id,
+          verifiedAt: Date.now(),
+          verifiedVia: "invite",
         });
         memberId = writeResult!.channel.id;
 
@@ -481,7 +487,7 @@ export function redeemInviteByCode(params: {
     return { ok: false, reason: "invalid_token" };
   }
 
-  // Inactive member reactivation: reactivate via upsertMember and consume
+  // Inactive member reactivation: reactivate via upsertContactChannel and consume
   // an invite use atomically.
   if (existingChannel) {
     const STALE_INVITE_REACTIVATE = Symbol("stale_invite_reactivate");
@@ -504,11 +510,11 @@ export function redeemInviteByCode(params: {
         ? existingContact.displayName
         : displayName;
 
-    let reactivated: ReturnType<typeof upsertMember> | undefined;
+    let reactivated: ReturnType<typeof upsertContactChannel> | undefined;
     try {
       getSqlite()
         .transaction(() => {
-          reactivated = upsertMember({
+          reactivated = upsertContactChannel({
             sourceChannel,
             externalUserId,
             externalChatId,
@@ -517,6 +523,8 @@ export function redeemInviteByCode(params: {
             status: "active",
             policy: "allow",
             inviteId: invite.id,
+            verifiedAt: Date.now(),
+            verifiedVia: "invite",
           });
 
           const recorded = recordInviteUse({
@@ -546,11 +554,11 @@ export function redeemInviteByCode(params: {
   // Fresh member creation: upsert into contacts tables and consume an invite
   // use atomically.
   const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
-  let freshResult: ReturnType<typeof upsertMember> | undefined;
+  let freshResult: ReturnType<typeof upsertContactChannel> | undefined;
   try {
     getSqlite()
       .transaction(() => {
-        freshResult = upsertMember({
+        freshResult = upsertContactChannel({
           sourceChannel,
           externalUserId,
           externalChatId,
@@ -559,6 +567,8 @@ export function redeemInviteByCode(params: {
           status: "active",
           policy: "allow",
           inviteId: invite.id,
+          verifiedAt: Date.now(),
+          verifiedVia: "invite",
         });
 
         const recorded = recordInviteUse({

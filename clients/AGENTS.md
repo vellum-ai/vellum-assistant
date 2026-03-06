@@ -65,9 +65,12 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 
 | Need | Use this | Not this |
 |------|----------|----------|
-| Multi-line text input | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
+| Multi-line text input (short-form) | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
+| Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with GeometryReader height measurement (see chat composer) | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
-| Auto-growing height | `.lineLimit(1...N)` | Manual height sync + frame clamping |
+| Auto-growing height | `ScrollView` + `GeometryReader` on inner content + `.frame(height: clamp(measured, min, max))` | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
+| Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
+| Newline in chat input | Shift+Return via AppKit bridge (intercepts before `.onSubmit`); Option+Return also works natively | Relying solely on `.onSubmit` modifier detection (SwiftUI's `.onSubmit` cannot distinguish Shift+Return from plain Return) |
 | Keyboard shortcuts | `.onKeyPress()` modifiers | `keyDown(with:)` / `performKeyEquivalent` overrides |
 | Attributed/colored text display | `AttributedString` + `Text` overlay | `layoutManager.addTemporaryAttributes` |
 | File drag-drop | `.onDrop(of: [.fileURL])` | `performDragOperation` override |
@@ -77,6 +80,7 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 **When AppKit bridges are still needed** (keep them minimal — only AppKit-specific logic, no business logic or layout):
 - Intercepting `Cmd+V` for image paste detection (pasteboard inspection not available in SwiftUI)
 - Intercepting `Cmd+Enter` as a key equivalent before the field editor consumes it
+- Intercepting `Shift+Return` to insert a newline before `.onSubmit` fires (SwiftUI cannot distinguish modifier+Return combos)
 - Registering window-level event monitors (`NSEvent.addLocalMonitorForEvents`)
 - Accessing `NSWindow` properties (e.g., typing redirect handlers, container view registration)
 
@@ -134,6 +138,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 | `.scrollPosition(id:)` with unmanaged binding | Nil binding fights SwiftUI's internal tracking, crashes on re-layout | Use `ScrollViewReader` + `proxy.scrollTo()`, or fully manage the binding |
 | Strong closure capture on window | Retain cycle if window outlives view | Use `[weak coordinator]` or clear in `dismantleNSView` |
 | `@Observable` dictionary as per-entity store | Any key mutation invalidates all views reading the dictionary | Use per-entity `@Observable` wrapper objects; mutate their properties instead of the dictionary |
+| GeometryReader on ScrollView `.background` measuring parent frame | Measures the ScrollView's proposed size (parent frame), not content intrinsic height — creates feedback loop where state derived from the measurement drives the frame that's being measured | Place GeometryReader on the *inner content* (inside the ScrollView), and reset all derived state (`contentHeight`, `isExpanded`) atomically when content clears |
 
 ## Non-Apple clients
 - Follow platform-specific best practices for the target (for example, Chrome extension guidelines).

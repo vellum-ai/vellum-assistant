@@ -134,7 +134,7 @@ export function revokeGuardianBinding(channel: string): boolean {
  * Returns the native Contact + ContactChannel, or null if no usable
  * identity was provided or the lookup failed after upsert.
  */
-export function upsertMember(params: {
+export function upsertContactChannel(params: {
   sourceChannel: string;
   externalUserId?: string;
   externalChatId?: string;
@@ -144,6 +144,8 @@ export function upsertMember(params: {
   status?: string;
   inviteId?: string;
   createdBySessionId?: string;
+  verifiedAt?: number;
+  verifiedVia?: string;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -187,6 +189,8 @@ export function upsertMember(params: {
         inviteId: params.inviteId ?? null,
         revokedReason: params.status === "active" ? null : undefined,
         blockedReason: params.status === "active" ? null : undefined,
+        verifiedAt: params.verifiedAt ?? undefined,
+        verifiedVia: params.verifiedVia ?? undefined,
       },
     ],
   });

@@ -158,6 +158,10 @@ export function getQdrantUrlEnv(): string | undefined {
   return str("QDRANT_URL");
 }
 
+export function getQdrantHttpPortEnv(): number | undefined {
+  return int("QDRANT_HTTP_PORT");
+}
+
 // ── Ollama ───────────────────────────────────────────────────────────────────
 
 export function getOllamaBaseUrlEnv(): string | undefined {

@@ -106,20 +106,20 @@ describe("encrypted-store", () => {
       expect(getKey("anthropic")).toBe("new-value");
     });
 
-    test("deleteKey removes an entry and returns true", () => {
+    test("deleteKey removes an entry and returns deleted", () => {
       setKey("anthropic", "sk-ant-key123");
       const result = deleteKey("anthropic");
-      expect(result).toBe(true);
+      expect(result).toBe("deleted");
       expect(getKey("anthropic")).toBeUndefined();
     });
 
-    test("deleteKey returns false for nonexistent key", () => {
+    test("deleteKey returns not-found for nonexistent key", () => {
       setKey("anthropic", "value");
-      expect(deleteKey("nonexistent")).toBe(false);
+      expect(deleteKey("nonexistent")).toBe("not-found");
     });
 
-    test("deleteKey returns false when store does not exist", () => {
-      expect(deleteKey("anything")).toBe(false);
+    test("deleteKey returns not-found when store does not exist", () => {
+      expect(deleteKey("anything")).toBe("not-found");
     });
   });
 

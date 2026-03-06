@@ -81,18 +81,18 @@ bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 
 ### CLI commands
 
-| Command                                    | Description                                      |
-| ------------------------------------------ | ------------------------------------------------ |
-| `vellum wake`                              | Start assistant + gateway from current checkout  |
-| `vellum sleep`                             | Stop assistant + gateway processes               |
-| `vellum ps`                                | List assistants and per-assistant process status |
-| `vellum`                                   | Launch interactive CLI session                   |
-| `vellum dev`                               | Run assistant with auto-restart on file changes  |
-| `vellum sessions list\|new\|export\|clear` | Manage conversation sessions                     |
-| `vellum config set\|get\|list`             | Manage configuration                             |
-| `vellum keys set\|list\|delete`            | Manage API keys in secure storage                |
-| `vellum trust list\|remove\|clear`         | Manage trust rules                               |
-| `vellum doctor`                            | Run diagnostic checks                            |
+| Command                                       | Description                                      |
+| --------------------------------------------- | ------------------------------------------------ |
+| `vellum wake`                                 | Start assistant + gateway from current checkout  |
+| `vellum sleep`                                | Stop assistant + gateway processes               |
+| `vellum ps`                                   | List assistants and per-assistant process status |
+| `assistant`                                   | Launch interactive CLI session                   |
+| `assistant dev`                               | Run assistant with auto-restart on file changes  |
+| `assistant sessions list\|new\|export\|clear` | Manage conversation sessions                     |
+| `assistant config set\|get\|list`             | Manage configuration                             |
+| `assistant keys set\|list\|delete`            | Manage API keys in secure storage                |
+| `assistant trust list\|remove\|clear`         | Manage trust rules                               |
+| `assistant doctor`                            | Run diagnostic checks                            |
 
 ## Project Structure
 
@@ -365,29 +365,33 @@ These endpoints share the same business logic as the IPC-based verification flow
 
 ## Channel Readiness
 
-Channel readiness is exposed via HTTP control-plane endpoints that provide a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. Local checks (credential presence, phone number assignment, ingress config) run synchronously; optional remote checks (API reachability) run asynchronously with a 5-minute TTL cache.
+Channel readiness is exposed via HTTP control-plane endpoints that provide a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. Local checks (credential presence, phone number assignment, ingress config) run synchronously; remote checks (API reachability) run by default and are cached with a 5-minute TTL. Remote checks can be disabled by passing `includeRemote=false`.
 
 ### Channel Readiness HTTP Endpoints
 
-| Method | Path                             | Description                                                                                                                                                                                            |
-| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/v1/channels/readiness`         | Returns readiness snapshots for the specified channel (query param `channel`, optional) or all channels. Local checks always run; remote checks run only when `includeRemote=true` and cache is stale. |
-| POST   | `/v1/channels/readiness/refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. Body: `{ channel?: ChannelId, includeRemote?: boolean }`                                              |
+| Method | Path                             | Description                                                                                                                                                                                                                                                                 |
+| ------ | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/channels/readiness`         | Returns readiness snapshots for the specified channel (query param `channel`, optional) or all channels. Local checks always run; remote checks run by default (`includeRemote=true`) and use a cached result when fresh. Pass `includeRemote=false` to skip remote checks. |
+| POST   | `/v1/channels/readiness/refresh` | Invalidates the cache for the specified channel (or all channels), then returns fresh snapshots. Body: `{ channel?: ChannelId, includeRemote?: boolean }`. `includeRemote` defaults to `true`.                                                                              |
 
 All endpoints are bearer-authenticated. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/channels/readiness*` routes.
 
 ### Built-in Channel Probes
 
 - **SMS**: Checks Twilio credentials, phone number assignment, and public ingress URL.
+- **Voice**: Checks Twilio credentials, phone number assignment, and public ingress URL.
 - **Telegram**: Checks bot token, webhook secret, and public ingress URL.
+- **Email**: Checks AgentMail API key, invite policy, public ingress URL, and verifies an inbox address is available (remote check).
+- **WhatsApp**: Checks Meta WhatsApp Business API credentials (phoneNumberId, accessToken, appSecret, webhookVerifyToken), display phone number (`whatsapp.phoneNumber`), invite policy, and public ingress URL.
+- **Slack**: Checks bot token and app token.
 
 ### Key modules
 
-| File                                             | Purpose                                                                                              |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `src/runtime/channel-readiness-types.ts`         | Shared types: `ChannelId`, `ReadinessCheckResult`, `ChannelReadinessSnapshot`, `ChannelProbe`        |
-| `src/runtime/channel-readiness-service.ts`       | Service class with probe registration, cached readiness evaluation, and built-in SMS/Telegram probes |
-| `src/runtime/routes/channel-readiness-routes.ts` | HTTP route handlers for `/v1/channels/readiness` and `/v1/channels/readiness/refresh`                |
+| File                                             | Purpose                                                                                         |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `src/runtime/channel-readiness-types.ts`         | Shared types: `ChannelId`, `ReadinessCheckResult`, `ChannelReadinessSnapshot`, `ChannelProbe`   |
+| `src/runtime/channel-readiness-service.ts`       | Service class with probe registration, cached readiness evaluation, and built-in channel probes |
+| `src/runtime/routes/channel-readiness-routes.ts` | HTTP route handlers for `/v1/channels/readiness` and `/v1/channels/readiness/refresh`           |
 
 ## Ingress Membership + Escalation
 
@@ -415,16 +419,8 @@ The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) 
 The invite redemption system uses a three-layer architecture:
 
 - **Core redemption engine** (`invite-redemption-service.ts`) — Channel-agnostic business logic that validates tokens, enforces expiry/use-count/channel-match constraints, handles member reactivation, and returns a discriminated-union `InviteRedemptionOutcome`. Deterministic reply templates (`invite-redemption-templates.ts`) map each outcome to a user-facing message without passing through the LLM.
-- **Channel transport adapters** (`channel-invite-transport.ts` + `channel-invite-transports/`) — A registry of per-channel adapters that know how to build shareable deep links (`buildShareableInvite`) and extract inbound tokens (`extractInboundToken`). Currently only the Telegram adapter is implemented.
+- **Channel transport adapters** (`channel-invite-transport.ts` + `channel-invite-transports/`) — A registry of per-channel adapters that know how to build shareable links (`buildShareLink`) and extract inbound tokens (`extractInboundToken`). Adapters are implemented for Telegram, SMS, Voice, Email, WhatsApp, and Slack.
 - **Conversational orchestration** (`guardian-invite-intent.ts`) — Pattern-based intent detection that intercepts guardian invite management requests (create, list, revoke) in the session pipeline and forces immediate entry into the `contacts` skill, bypassing the normal agent loop.
-
-#### Deferred Channel Support
-
-The transport adapter registry is architecturally extensible to additional channels. The following are not yet implemented:
-
-- **SMS** — Requires a deep-link strategy compatible with SMS (e.g., a short URL that redirects to an SMS reply flow or web-based redemption page). The core redemption engine is channel-agnostic and ready.
-- **Slack** — Requires DM-safe ingress (Socket Mode currently handles channel messages but DM-initiated invite flows need additional routing). The adapter would build Slack deep links or slash-command payloads.
-- **Voice** — Requires DTMF or speech-based token capture during an inbound call. The adapter would need to integrate with the voice relay state machine for token entry.
 
 Redemption auto-creates a **member** record with an access policy:
 
@@ -432,7 +428,7 @@ Redemption auto-creates a **member** record with an access policy:
 - **`deny`** — Messages are rejected with a refusal notice.
 - **`escalate`** — Messages are held for guardian (owner) approval before processing.
 
-Non-members (senders with no invite redemption) are denied by default. Contacts can be listed, updated, revoked, or blocked via the HTTP API (`/v1/contacts` and `/v1/contacts/channels`).
+Non-members (senders with no invite redemption) are denied by default. Contacts can be listed, updated, revoked, or blocked via the HTTP API (`/v1/contacts` and `/v1/contact-channels`).
 
 ### Escalation Flow
 
@@ -489,7 +485,23 @@ docker run --rm -p 3001:3001 \
   vellum-assistant:local
 ```
 
-The image exposes port `3001` and bundles the `vellum` CLI binary.
+The image exposes port `3001` and bundles the `assistant` CLI binary.
+
+## Ride Shotgun
+
+Ride Shotgun is a background screen-watching feature that observes user workflows. It has two modes:
+
+- **Observe mode** — captures periodic screenshots and generates a workflow summary via the LLM.
+- **Learn mode** — records browser network traffic alongside screenshots to capture API patterns. The assistant owns CDP browser lifecycle: `ride-shotgun-handler.ts` calls `ensureChromeWithCdp()` to launch or connect to Chrome with remote debugging, so clients do not need to pre-launch Chrome with `--remote-debugging-port`.
+
+Key modules:
+
+| File                                    | Purpose                                                 |
+| --------------------------------------- | ------------------------------------------------------- |
+| `src/daemon/ride-shotgun-handler.ts`    | Session orchestration, CDP bootstrap, network recording |
+| `src/tools/browser/chrome-cdp.ts`       | Reusable Chrome CDP launcher (`ensureChromeWithCdp`)    |
+| `src/tools/browser/network-recorder.ts` | CDP-based network traffic capture                       |
+| `src/tools/browser/recording-store.ts`  | Session recording persistence                           |
 
 ## Troubleshooting
 

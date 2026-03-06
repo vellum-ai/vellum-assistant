@@ -1,3 +1,5 @@
+import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
+import { getConfig } from "../../../../config/loader.js";
 import * as appStore from "../../../../memory/app-store.js";
 import type { AppCreateInput } from "../../../../tools/apps/executors.js";
 import { executeAppCreate } from "../../../../tools/apps/executors.js";
@@ -10,9 +12,13 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  return executeAppCreate(
-    input as unknown as AppCreateInput,
-    appStore,
-    context.proxyToolResolver,
+  const multifileEnabled = isAssistantFeatureFlagEnabled(
+    "feature_flags.app-builder-multifile.enabled",
+    getConfig(),
   );
+  const createInput: AppCreateInput = {
+    ...(input as unknown as AppCreateInput),
+    featureFlags: { multifileEnabled },
+  };
+  return executeAppCreate(createInput, appStore, context.proxyToolResolver);
 }

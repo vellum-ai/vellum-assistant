@@ -23,6 +23,7 @@ dist
 
 # misc
 .DS_Store
+.githooks/.githooks
 *.pem
 .qdrant-initialized
 .claude/*

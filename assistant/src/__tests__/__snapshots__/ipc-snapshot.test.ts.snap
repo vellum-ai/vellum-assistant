@@ -495,7 +495,7 @@ exports[`IPC message snapshots ClientMessage types fork_shared_app serializes to
 
 exports[`IPC message snapshots ClientMessage types open_bundle serializes to expected JSON 1`] = `
 {
-  "filePath": "/tmp/My_App.vellumapp",
+  "filePath": "/tmp/My_App.vellum",
   "type": "open_bundle",
 }
 `;
@@ -1641,6 +1641,15 @@ exports[`IPC message snapshots ServerMessage types task_routed serializes to exp
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types ride_shotgun_error serializes to expected JSON 1`] = `
+{
+  "message": "Failed to start browser — Chrome CDP could not be launched.",
+  "sessionId": "sess-shotgun-001",
+  "type": "ride_shotgun_error",
+  "watchId": "watch-shotgun-001",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types ride_shotgun_progress serializes to expected JSON 1`] = `
 {
   "message": "Observing user activity...",
@@ -1988,7 +1997,7 @@ exports[`IPC message snapshots ServerMessage types reminders_list_response seria
 
 exports[`IPC message snapshots ServerMessage types bundle_app_response serializes to expected JSON 1`] = `
 {
-  "bundlePath": "/tmp/My_App-abc12345.vellumapp",
+  "bundlePath": "/tmp/My_App-abc12345.vellum",
   "manifest": {
     "capabilities": [],
     "content_id": "a1b2c3d4e5f6a7b8",

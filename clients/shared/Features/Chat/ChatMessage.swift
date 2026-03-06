@@ -46,6 +46,9 @@ public struct ToolConfirmationData: Equatable {
     /// The decision string that was used to approve (e.g. "allow", "allow_10m", "allow_thread", "always_allow").
     /// Set when the state transitions to `.approved`.
     public var approvedDecision: String?
+    /// When set, `toolCategory` returns this instead of deriving from `toolName`.
+    /// Used for confirmation data synthesized from persisted per-tool-call labels.
+    public var _overrideToolCategory: String?
 
     /// Normalized target label shown in confirmation UIs.
     public var normalizedExecutionTarget: String? {
@@ -439,6 +442,7 @@ public struct ToolConfirmationData: Equatable {
 
     /// User-facing tool category label (e.g. "Run Command", "Write File").
     public var toolCategory: String {
+        if let override = _overrideToolCategory { return override }
         switch toolName {
         case "bash", "host_bash":                    return "Run Command"
         case "file_write", "host_file_write":        return "Write File"
@@ -779,6 +783,12 @@ public struct ToolCallData: Identifiable, Equatable {
     public var arrivedBeforeText: Bool
     public var startedAt: Date?
     public var completedAt: Date?
+    /// The tool_use block ID from the daemon, for correlating confirmations to tool calls.
+    public var toolUseId: String?
+    /// Persisted confirmation decision for this tool call (survives app restart / thread switch).
+    public var confirmationDecision: ToolConfirmationState?
+    /// Friendly label for the confirmation (e.g. "Edit File", "Run Command").
+    public var confirmationLabel: String?
     /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
     public var imageData: String?
     /// Human-readable building status from app tool input (e.g. "Adding dark mode styles").
@@ -813,6 +823,10 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.reasonDescription == rhs.reasonDescription
             && lhs.claudeCodeSteps == rhs.claudeCodeSteps
+            && lhs.startedAt == rhs.startedAt
+            && lhs.completedAt == rhs.completedAt
+            && lhs.confirmationDecision == rhs.confirmationDecision
+            && lhs.confirmationLabel == rhs.confirmationLabel
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
@@ -1634,6 +1648,29 @@ public struct ChatMessage: Identifiable, Equatable {
         self.toolCalls = toolCalls
         self.inlineSurfaces = inlineSurfaces
         self.isError = isError
+    }
+
+    /// Synthesize `ToolConfirmationData` entries from persisted per-tool-call confirmation data.
+    /// Returns one entry per unique (toolCategory, state) pair, deduplicated.
+    /// Used as a fallback when live `decidedConfirmation` is nil (e.g. after history restore).
+    public func derivedConfirmationsFromToolCalls() -> [ToolConfirmationData] {
+        var seen = Set<String>()
+        var result: [ToolConfirmationData] = []
+        for tc in toolCalls {
+            guard let decision = tc.confirmationDecision else { continue }
+            let label = tc.confirmationLabel ?? tc.toolName
+            let key = "\(label)|\(decision)"
+            guard seen.insert(key).inserted else { continue }
+            var data = ToolConfirmationData(
+                requestId: "",
+                toolName: tc.toolName,
+                riskLevel: "medium",
+                state: decision
+            )
+            data._overrideToolCategory = tc.confirmationLabel
+            result.append(data)
+        }
+        return result
     }
 
     /// Release heavyweight data (images, attachment binary data, completed surface

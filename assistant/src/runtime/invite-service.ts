@@ -25,7 +25,11 @@ import {
 } from "../memory/invite-store.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
-import { getInviteAdapterRegistry } from "./channel-invite-transport.js";
+import {
+  getInviteAdapterRegistry,
+  resolveAdapterHandle,
+} from "./channel-invite-transport.js";
+import { generateInviteInstruction } from "./invite-instruction-generator.js";
 import {
   type InviteRedemptionOutcome,
   redeemInvite as redeemInviteTyped,
@@ -140,19 +144,19 @@ export type IngressResult<T> =
 // Invite operations
 // ---------------------------------------------------------------------------
 
-export function createIngressInvite(params: {
+export async function createIngressInvite(params: {
   sourceChannel?: string;
   note?: string;
   maxUses?: number;
   expiresInMs?: number;
-  // Contact display name for personalizing guardian instructions
+  // Contact display name for personalizing invite instructions
   contactName?: string;
   // Voice invite parameters
   expectedExternalUserId?: string;
   voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
-}): IngressResult<InviteResponseData> {
+}): Promise<IngressResult<InviteResponseData>> {
   if (!params.sourceChannel) {
     return { ok: false, error: "sourceChannel is required for create" };
   }
@@ -220,7 +224,7 @@ export function createIngressInvite(params: {
       : { inviteCodeHash }),
   });
 
-  // Build guardian instruction for non-voice invites
+  // Build invite instruction for non-voice invites via LLM generation
   let guardianInstruction: string | undefined;
   let channelHandle: string | undefined;
   if (!isVoice && inviteCode) {
@@ -230,27 +234,20 @@ export function createIngressInvite(params: {
     const adapter = channelId
       ? getInviteAdapterRegistry().get(channelId)
       : undefined;
-
-    if (adapter?.buildGuardianInstruction) {
-      try {
-        const adapterResult = adapter.buildGuardianInstruction({
-          inviteCode,
-          contactName: params.contactName,
-        });
-        if (adapterResult) {
-          guardianInstruction = adapterResult.instruction;
-          channelHandle = adapterResult.channelHandle;
-        }
-      } catch {
-        // Fall through to generic instruction if adapter fails
-      }
+    if (params.sourceChannel === "telegram") {
+      const { ensureTelegramBotUsernameResolved } =
+        await import("./channel-invite-transports/telegram.js");
+      await ensureTelegramBotUsernameResolved();
     }
-
-    if (!guardianInstruction) {
-      const contactLabel = params.contactName || "the contact";
-      const channelLabel = params.sourceChannel;
-      guardianInstruction = `Tell ${contactLabel} to contact the assistant on ${channelLabel} and provide the code ${inviteCode}.`;
-    }
+    channelHandle = adapter ? await resolveAdapterHandle(adapter) : undefined;
+    const share = buildSharePayload(params.sourceChannel, rawToken);
+    guardianInstruction = await generateInviteInstruction({
+      contactName: params.contactName,
+      channelType: params.sourceChannel,
+      channelHandle,
+      hasShareUrl: !!share?.url,
+      shareUrl: share?.url,
+    });
   }
 
   // Voice invites must not expose the token — callers must redeem via the

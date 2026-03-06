@@ -11,8 +11,9 @@
  *      no consecutive hyphens, no leading/trailing hyphens.
  *   6. `description` constraints: 1-1024 chars, non-empty.
  *   7. Optional `compatibility`: 1-500 chars if present.
- *   8. Frontmatter is followed by Markdown body content.
- *   9. Non-standard top-level fields emit migration guidance:
+ *   8. Required `metadata.emoji` (Vellum extension).
+ *   9. Frontmatter is followed by Markdown body content.
+ *  10. Non-standard top-level fields emit migration guidance:
  *      - Vellum-specific fields → move to `metadata.vellum`
  *      - Environment requirements → move to `compatibility`
  *
@@ -57,13 +58,14 @@ function parseFrontmatter(content) {
 }
 
 /**
- * Minimal YAML parser for flat key-value pairs and simple nested maps.
- * Handles string values (quoted or unquoted) and one level of nesting.
+ * Minimal YAML parser for flat key-value pairs and nested maps.
+ * Handles string values (quoted or unquoted) and multiple levels of nesting.
  */
 function parseSimpleYaml(yaml) {
   const result = {};
   const lines = yaml.split("\n");
-  let currentKey = null;
+  // Stack of { indent, obj } to track nesting context
+  const stack = [{ indent: -1, obj: result, key: null }];
 
   for (const line of lines) {
     // Skip blank lines and comments
@@ -71,30 +73,26 @@ function parseSimpleYaml(yaml) {
       continue;
     }
 
-    // Check for nested key (indented with spaces)
-    if (/^\s+\S/.test(line) && currentKey !== null) {
-      const nestedMatch = line.match(/^\s+(\S+):\s*(.*)/);
-      if (nestedMatch) {
-        if (typeof result[currentKey] !== "object" || result[currentKey] === null) {
-          result[currentKey] = {};
-        }
-        result[currentKey][nestedMatch[1]] = stripQuotes(nestedMatch[2].trim());
-      }
-      continue;
-    }
+    // Calculate indentation (number of leading spaces)
+    const indent = line.match(/^(\s*)/)[1].length;
+    const match = line.match(/^(\s*)(\S+):\s*(.*)/);
+    if (!match) continue;
 
-    // Top-level key
-    const match = line.match(/^(\S+):\s*(.*)/);
-    if (match) {
-      currentKey = match[1];
-      const value = match[2].trim();
-      if (value === "" || value === "|" || value === ">") {
-        // Will be filled by nested lines or is empty
-        result[currentKey] = value === "" ? "" : "";
-      } else {
-        result[currentKey] = stripQuotes(value);
-        currentKey = null; // Reset so next indented line doesn't attach
-      }
+    const key = match[2];
+    const value = match[3].trim();
+
+    // Pop stack to find the parent at the right indentation level
+    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
+      stack.pop();
+    }
+    const parent = stack[stack.length - 1].obj;
+
+    if (value === "" || value === "|" || value === ">") {
+      // Start of a nested object
+      parent[key] = {};
+      stack.push({ indent, obj: parent[key], key });
+    } else {
+      parent[key] = stripQuotes(value);
     }
   }
 
@@ -214,6 +212,26 @@ function validateCompatibility(compatibility) {
   return errors;
 }
 
+function validateMetadataEmoji(metadata) {
+  const errors = [];
+
+  if (!metadata || typeof metadata !== "object") {
+    errors.push(
+      'Required field "metadata.emoji" is missing. Skills must have an emoji in metadata.',
+    );
+    return errors;
+  }
+
+  const emoji = metadata.emoji;
+  if (typeof emoji !== "string" || emoji.length === 0) {
+    errors.push(
+      'Required field "metadata.emoji" is missing or empty. Skills must have an emoji in metadata.',
+    );
+  }
+
+  return errors;
+}
+
 /**
  * Detect non-standard top-level fields and recommend migration.
  *
@@ -257,10 +275,19 @@ function validateNonStandardFields(frontmatter) {
 function validateSkill(skillName) {
   const skillDir = join(SKILLS_DIR, skillName);
   const skillMdPath = join(skillDir, "SKILL.md");
+  const toolsJsonPath = join(skillDir, "TOOLS.json");
   const errors = [];
 
   if (!statSync(skillDir, { throwIfNoEntry: false })?.isDirectory()) {
     return errors;
+  }
+
+  // 0. TOOLS.json must not exist — skills should rely on CLI tools in scripts/, not custom tool definitions
+  const toolsJsonStat = statSync(toolsJsonPath, { throwIfNoEntry: false });
+  if (toolsJsonStat?.isFile()) {
+    errors.push(
+      `skills/${skillName}/TOOLS.json must not exist. Skills should rely on CLI tools in scripts/, not custom tool definitions.`,
+    );
   }
 
   // 1. SKILL.md must exist
@@ -301,7 +328,14 @@ function validateSkill(skillName) {
     ),
   );
 
-  // 5. Check for non-standard fields and recommend migration
+  // 5. Validate required metadata.emoji (Vellum requirement)
+  errors.push(
+    ...validateMetadataEmoji(frontmatter.metadata).map(
+      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+    ),
+  );
+
+  // 6. Check for non-standard fields and recommend migration
   errors.push(
     ...validateNonStandardFields(frontmatter).map(
       (e) => `skills/${skillName}/SKILL.md: ${e}`,

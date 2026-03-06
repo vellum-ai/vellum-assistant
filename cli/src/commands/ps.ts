@@ -3,19 +3,17 @@ import { homedir } from "os";
 import { join } from "path";
 
 import {
+  defaultLocalResources,
   findAssistantByName,
+  getActiveAssistant,
   loadAllAssistants,
   type AssistantEntry,
 } from "../lib/assistant-config";
-import { GATEWAY_PORT } from "../lib/constants";
 import { checkHealth } from "../lib/health-check";
 import { pgrepExact } from "../lib/pgrep";
 import { probePort } from "../lib/port-probe";
 import { withStatusEmoji } from "../lib/status-emoji";
 import { execOutput } from "../lib/step-runner";
-
-const RUNTIME_HTTP_PORT = Number(process.env.RUNTIME_HTTP_PORT) || 7821;
-const QDRANT_PORT = 6333;
 
 // ── Table formatting helpers ────────────────────────────────────
 
@@ -218,25 +216,26 @@ function formatDetectionInfo(proc: DetectedProcess): string {
 }
 
 async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
-  const vellumDir = entry.baseDataDir ?? join(homedir(), ".vellum");
+  const resources = entry.resources ?? defaultLocalResources();
+  const vellumDir = join(resources.instanceDir, ".vellum");
 
   const specs: ProcessSpec[] = [
     {
       name: "assistant",
       pgrepName: "vellum-daemon",
-      port: RUNTIME_HTTP_PORT,
-      pidFile: join(vellumDir, "vellum.pid"),
+      port: resources.daemonPort,
+      pidFile: resources.pidFile,
     },
     {
       name: "qdrant",
       pgrepName: "qdrant",
-      port: QDRANT_PORT,
+      port: resources.qdrantPort,
       pidFile: join(vellumDir, "workspace", "data", "qdrant", "qdrant.pid"),
     },
     {
       name: "gateway",
       pgrepName: "vellum-gateway",
-      port: GATEWAY_PORT,
+      port: resources.gatewayPort,
       pidFile: join(vellumDir, "gateway.pid"),
     },
     {
@@ -355,6 +354,7 @@ async function detectOrphanedProcesses(): Promise<OrphanedProcess[]> {
 
 async function listAllAssistants(): Promise<void> {
   const assistants = loadAllAssistants();
+  const activeId = getActiveAssistant();
 
   if (assistants.length === 0) {
     console.log("No assistants found.");
@@ -381,9 +381,10 @@ async function listAllAssistants(): Promise<void> {
     const infoParts = [a.runtimeUrl];
     if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
     if (a.species) infoParts.push(`species: ${a.species}`);
+    const prefix = a.assistantId === activeId ? "* " : "  ";
 
     return {
-      name: a.assistantId,
+      name: prefix + a.assistantId,
       status: withStatusEmoji("checking..."),
       info: infoParts.join(" | "),
     };
@@ -403,15 +404,34 @@ async function listAllAssistants(): Promise<void> {
 
   await Promise.all(
     assistants.map(async (a, rowIndex) => {
-      const health = await checkHealth(a.runtimeUrl, a.bearerToken);
+      // For local assistants, check if the daemon process is alive before
+      // hitting the health endpoint. If the PID file is missing or the
+      // process isn't running, the assistant is sleeping — skip the
+      // network health check to avoid a misleading "unreachable" status.
+      let health: { status: string; detail: string | null };
+      const resources =
+        a.resources ??
+        (a.cloud === "local" ? defaultLocalResources() : undefined);
+      if (a.cloud === "local" && resources) {
+        const pid = readPidFile(resources.pidFile);
+        const alive = pid !== null && isProcessAlive(pid);
+        if (!alive) {
+          health = { status: "sleeping", detail: null };
+        } else {
+          health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
+        }
+      } else {
+        health = await checkHealth(a.localUrl ?? a.runtimeUrl, a.bearerToken);
+      }
 
       const infoParts = [a.runtimeUrl];
       if (a.cloud) infoParts.push(`cloud: ${a.cloud}`);
       if (a.species) infoParts.push(`species: ${a.species}`);
       if (health.detail) infoParts.push(health.detail);
 
+      const prefix = a.assistantId === activeId ? "* " : "  ";
       const updatedRow: TableRow = {
-        name: a.assistantId,
+        name: prefix + a.assistantId,
         status: withStatusEmoji(health.status),
         info: infoParts.join(" | "),
       };

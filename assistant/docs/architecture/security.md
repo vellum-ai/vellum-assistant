@@ -4,7 +4,7 @@ Permission, trust, and credential-security architecture details.
 
 ## Permission and Trust Security Model
 
-The permission system controls which tool actions the agent can execute without explicit user approval. It supports three operating modes (`workspace`, `strict`, and `legacy`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
+The permission system controls which tool actions the agent can execute without explicit user approval. It supports two operating modes (`workspace` and `strict`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
 
 ### Permission Evaluation Flow
 
@@ -32,50 +32,46 @@ graph TB
     RISK_FALLBACK_WS -->|"Low"| AUTO_WS_LOW["decision: allow<br/>Low risk auto-allow"]
     RISK_FALLBACK_WS -->|"Medium"| PROMPT_WS_MED["decision: prompt"]
     RISK_FALLBACK_WS -->|"High"| PROMPT_WS_HIGH["decision: prompt"]
-    NO_MATCH -->|"legacy mode"| RISK_FALLBACK{"Risk level?"}
-    RISK_FALLBACK -->|"Low"| AUTO_LOW["decision: allow<br/>Low risk auto-allow"]
-    RISK_FALLBACK -->|"Medium"| PROMPT_MED["decision: prompt"]
-    RISK_FALLBACK -->|"High"| PROMPT_HIGH2["decision: prompt"]
 ```
 
-### Permission Modes: Workspace, Strict, and Legacy
+### Permission Modes: Workspace and Strict
 
-The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
+The `permissions.mode` config option (`workspace` or `strict`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
 
-| Behavior | Workspace mode (default) | Strict mode | Legacy mode (deprecated) |
-|---|---|---|---|
-| Workspace-scoped ops with no matching rule | Auto-allowed | Prompted | Auto-allowed (low risk) |
-| Non-workspace low-risk tools with no matching rule | Auto-allowed | Prompted | Auto-allowed |
-| Medium-risk tools with no matching rule | Prompted | Prompted | Prompted |
-| High-risk tools with no matching rule | Prompted | Prompted | Prompted |
-| `skill_load` with no matching rule | Prompted | Prompted | Auto-allowed (low risk) |
-| `skill_load` with system default rule | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
-| `browser_*` skill tools with system default rules | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) | Auto-allowed (priority 100 allow rules) |
-| Skill-origin tools with no matching rule | Prompted | Prompted | Prompted |
-| Allow rules for non-high-risk tools | Auto-allowed | Auto-allowed | Auto-allowed |
-| Allow rules with `allowHighRisk: true` | Auto-allowed (even high risk) | Auto-allowed (even high risk) | Auto-allowed (even high risk) |
-| Deny rules | Blocked | Blocked | Blocked |
+| Behavior                                           | Workspace mode (default)                      | Strict mode                                   |
+| -------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
+| Workspace-scoped ops with no matching rule         | Auto-allowed                                  | Prompted                                      |
+| Non-workspace low-risk tools with no matching rule | Auto-allowed                                  | Prompted                                      |
+| Medium-risk tools with no matching rule            | Prompted                                      | Prompted                                      |
+| High-risk tools with no matching rule              | Prompted                                      | Prompted                                      |
+| `skill_load` with no matching rule                 | Prompted                                      | Prompted                                      |
+| `skill_load` with system default rule              | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
+| `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
+| Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      |
+| Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  |
+| Allow rules with `allowHighRisk: true`             | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 |
+| Deny rules                                         | Blocked                                       | Blocked                                       |
 
 **Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
 
 **Strict mode** is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
 
-**Legacy mode** (deprecated) auto-allows all low-risk tools regardless of scope. It is deprecated and will be removed in a future release. A one-time runtime warning is emitted when legacy mode is active. Users should migrate to `workspace` (default) or `strict`.
+> **Migration note:** Existing config files with `permissions.mode = "legacy"` are automatically migrated to `workspace` during config loading. The `legacy` value is not a supported steady-state mode.
 
 ### Trust Rules (v3 Schema)
 
 Rules are stored in `~/.vellum/protected/trust.json` with version `3`. Each rule can include the following fields:
 
-| Field | Type | Purpose |
-|---|---|---|
-| `id` | `string` | Unique identifier (UUID for user rules, `default:*` for system defaults) |
-| `tool` | `string` | Tool name to match (e.g., `bash`, `file_write`, `skill_load`) |
-| `pattern` | `string` | Minimatch glob pattern for the command/target string |
-| `scope` | `string` | Path prefix or `everywhere` — restricts where the rule applies |
-| `decision` | `allow \| deny \| ask` | What to do when the rule matches |
-| `priority` | `number` | Higher priority wins; deny wins ties at equal priority |
-| `executionTarget` | `string?` | `sandbox` or `host` — restricts by execution context |
-| `allowHighRisk` | `boolean?` | When true, auto-allows even high-risk invocations |
+| Field             | Type                   | Purpose                                                                  |
+| ----------------- | ---------------------- | ------------------------------------------------------------------------ |
+| `id`              | `string`               | Unique identifier (UUID for user rules, `default:*` for system defaults) |
+| `tool`            | `string`               | Tool name to match (e.g., `bash`, `file_write`, `skill_load`)            |
+| `pattern`         | `string`               | Minimatch glob pattern for the command/target string                     |
+| `scope`           | `string`               | Path prefix or `everywhere` — restricts where the rule applies           |
+| `decision`        | `allow \| deny \| ask` | What to do when the rule matches                                         |
+| `priority`        | `number`               | Higher priority wins; deny wins ties at equal priority                   |
+| `executionTarget` | `string?`              | `sandbox` or `host` — restricts by execution context                     |
+| `allowHighRisk`   | `boolean?`             | When true, auto-allows even high-risk invocations                        |
 
 Missing optional fields act as wildcards. A rule with no `executionTarget` matches any target.
 
@@ -83,16 +79,16 @@ Missing optional fields act as wildcards. A rule with no `executionTarget` match
 
 The `classifyRisk()` function determines the risk level for each tool invocation:
 
-| Tool | Risk level | Notes |
-|---|---|---|
-| `file_read`, `web_search`, `skill_load` | Low | Read-only or informational |
-| `file_write`, `file_edit` | Medium (default) | Filesystem mutations |
-| `file_write`, `file_edit` targeting skill source paths | **High** | `isSkillSourcePath()` detects managed/bundled/workspace/extra skill roots |
-| `host_file_write`, `host_file_edit` targeting skill source paths | **High** | Same path classification, host variant |
-| `bash`, `host_bash` | Varies | Parsed via tree-sitter: low-risk programs = Low, high-risk programs = High, unknown = Medium |
-| `scaffold_managed_skill`, `delete_managed_skill` | High | Skill lifecycle mutations always high-risk |
-| `evaluate_typescript_code` | High | Arbitrary code execution |
-| Skill-origin tools with no matching rule | Prompted regardless of risk | Even Low-risk skill tools default to `ask` |
+| Tool                                                             | Risk level                  | Notes                                                                                        |
+| ---------------------------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
+| `file_read`, `web_search`, `skill_load`                          | Low                         | Read-only or informational                                                                   |
+| `file_write`, `file_edit`                                        | Medium (default)            | Filesystem mutations                                                                         |
+| `file_write`, `file_edit` targeting skill source paths           | **High**                    | `isSkillSourcePath()` detects managed/bundled/workspace/extra skill roots                    |
+| `host_file_write`, `host_file_edit` targeting skill source paths | **High**                    | Same path classification, host variant                                                       |
+| `bash`, `host_bash`                                              | Varies                      | Parsed via tree-sitter: low-risk programs = Low, high-risk programs = High, unknown = Medium |
+| `scaffold_managed_skill`, `delete_managed_skill`                 | High                        | Skill lifecycle mutations always high-risk                                                   |
+| `evaluate_typescript_code`                                       | High                        | Arbitrary code execution                                                                     |
+| Skill-origin tools with no matching rule                         | Prompted regardless of risk | Even Low-risk skill tools default to `ask`                                                   |
 
 The escalation of skill source file mutations to High risk is a privilege-escalation defense: modifying skill source code could grant the agent new capabilities, so such operations always require explicit approval.
 
@@ -104,20 +100,20 @@ The `skill_load` tool generates version-aware command candidates for rule matchi
 2. `skill_load:<skill-id>` — matches any-version rules
 3. `skill_load:<raw-selector>` — matches the raw user-provided selector
 
-In strict mode, `skill_load` without a matching rule is always prompted. In legacy mode, it is auto-allowed as a Low-risk tool. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
+In strict mode, `skill_load` without a matching rule is always prompted. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
 
 ### Starter Approval Bundle
 
 The starter bundle is an opt-in set of low-risk allow rules that reduces prompt noise, particularly in strict mode. It covers read-only tools that never mutate the filesystem or execute arbitrary code:
 
-| Rule | Tool | Pattern |
-|---|---|---|
-| `file_read` | `file_read` | `file_read:**` |
-| `glob` | `glob` | `glob:**` |
-| `grep` | `grep` | `grep:**` |
+| Rule             | Tool             | Pattern             |
+| ---------------- | ---------------- | ------------------- |
+| `file_read`      | `file_read`      | `file_read:**`      |
+| `glob`           | `glob`           | `glob:**`           |
+| `grep`           | `grep`           | `grep:**`           |
 | `list_directory` | `list_directory` | `list_directory:**` |
-| `web_search` | `web_search` | `web_search:**` |
-| `web_fetch` | `web_fetch` | `web_fetch:**` |
+| `web_search`     | `web_search`     | `web_search:**`     |
+| `web_fetch`      | `web_fetch`      | `web_fetch:**`      |
 
 Acceptance is idempotent and persisted as `starterBundleAccepted: true` in `trust.json`. Rules are seeded at priority 90 (below user rules at 100, above system defaults at 50).
 
@@ -125,21 +121,21 @@ Acceptance is idempotent and persisted as `starterBundleAccepted: true` in `trus
 
 In addition to the opt-in starter bundle, the permission system seeds unconditional default allow rules at priority 100 for two categories:
 
-| Rule ID | Tool | Pattern | Rationale |
-|---|---|---|---|
-| `default:allow-skill_load-global` | `skill_load` | `skill_load:*` | Loading any skill is globally allowed — no prompt for activating bundled, managed, or workspace skills |
-| `default:allow-browser_navigate-global` | `browser_navigate` | `browser_navigate:*` | Browser tools migrated from core to the bundled `browser` skill; default allow preserves frictionless UX |
-| `default:allow-browser_snapshot-global` | `browser_snapshot` | `browser_snapshot:*` | (same) |
-| `default:allow-browser_screenshot-global` | `browser_screenshot` | `browser_screenshot:*` | (same) |
-| `default:allow-browser_close-global` | `browser_close` | `browser_close:*` | (same) |
-| `default:allow-browser_click-global` | `browser_click` | `browser_click:*` | (same) |
-| `default:allow-browser_type-global` | `browser_type` | `browser_type:*` | (same) |
-| `default:allow-browser_press_key-global` | `browser_press_key` | `browser_press_key:*` | (same) |
-| `default:allow-browser_wait_for-global` | `browser_wait_for` | `browser_wait_for:*` | (same) |
-| `default:allow-browser_extract-global` | `browser_extract` | `browser_extract:*` | (same) |
-| `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same) |
+| Rule ID                                        | Tool                      | Pattern                     | Rationale                                                                                                |
+| ---------------------------------------------- | ------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `default:allow-skill_load-global`              | `skill_load`              | `skill_load:*`              | Loading any skill is globally allowed — no prompt for activating bundled, managed, or workspace skills   |
+| `default:allow-browser_navigate-global`        | `browser_navigate`        | `browser_navigate:*`        | Browser tools migrated from core to the bundled `browser` skill; default allow preserves frictionless UX |
+| `default:allow-browser_snapshot-global`        | `browser_snapshot`        | `browser_snapshot:*`        | (same)                                                                                                   |
+| `default:allow-browser_screenshot-global`      | `browser_screenshot`      | `browser_screenshot:*`      | (same)                                                                                                   |
+| `default:allow-browser_close-global`           | `browser_close`           | `browser_close:*`           | (same)                                                                                                   |
+| `default:allow-browser_click-global`           | `browser_click`           | `browser_click:*`           | (same)                                                                                                   |
+| `default:allow-browser_type-global`            | `browser_type`            | `browser_type:*`            | (same)                                                                                                   |
+| `default:allow-browser_press_key-global`       | `browser_press_key`       | `browser_press_key:*`       | (same)                                                                                                   |
+| `default:allow-browser_wait_for-global`        | `browser_wait_for`        | `browser_wait_for:*`        | (same)                                                                                                   |
+| `default:allow-browser_extract-global`         | `browser_extract`         | `browser_extract:*`         | (same)                                                                                                   |
+| `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same)                                                                                                   |
 
-These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both strict and legacy modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
+These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both workspace and strict modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
 
 ### Shell Command Identity and Allowlist Options
 
@@ -160,14 +156,14 @@ For `bash` and `host_bash` tool invocations, the permission system uses parser-d
 
 When a permission prompt is sent to the client (via `confirmation_request` IPC message), it includes:
 
-| Field | Content |
-|---|---|
-| `toolName` | The tool being invoked |
-| `input` | Redacted tool input (sensitive fields removed) |
-| `riskLevel` | `low`, `medium`, or `high` |
-| `executionTarget` | `sandbox` or `host` — where the action will execute |
-| `allowlistOptions` | Suggested patterns for "always allow" rules |
-| `scopeOptions` | Suggested scopes for rule persistence |
+| Field              | Content                                             |
+| ------------------ | --------------------------------------------------- |
+| `toolName`         | The tool being invoked                              |
+| `input`            | Redacted tool input (sensitive fields removed)      |
+| `riskLevel`        | `low`, `medium`, or `high`                          |
+| `executionTarget`  | `sandbox` or `host` — where the action will execute |
+| `allowlistOptions` | Suggested patterns for "always allow" rules         |
+| `scopeOptions`     | Suggested scopes for rule persistence               |
 
 The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `always_allow_high_risk` (create allow rule with `allowHighRisk: true`), `deny` (one-time), or `always_deny` (create deny rule).
 
@@ -177,19 +173,19 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 
 ### Key Source Files
 
-| File | Role |
-|---|---|
-| `assistant/src/permissions/types.ts` | `TrustRule`, `PolicyContext`, `RiskLevel`, `UserDecision` types |
-| `assistant/src/permissions/checker.ts` | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation |
+| File                                          | Role                                                                                                                                                                                |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/permissions/types.ts`          | `TrustRule`, `PolicyContext`, `RiskLevel`, `UserDecision` types                                                                                                                     |
+| `assistant/src/permissions/checker.ts`        | `classifyRisk()`, `check()`, `buildCommandCandidates()`, allowlist/scope generation                                                                                                 |
 | `assistant/src/permissions/shell-identity.ts` | `analyzeShellCommand()`, `deriveShellActionKeys()`, `buildShellCommandCandidates()`, `buildShellAllowlistOptions()` — parser-based shell command identity and action key derivation |
-| `assistant/src/permissions/trust-store.ts` | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle |
-| `assistant/src/permissions/prompter.ts` | IPC prompt flow: `confirmation_request` → `confirmation_response` |
-| `assistant/src/permissions/defaults.ts` | Default rule templates (system ask rules for host tools, CU, etc.) |
-| `assistant/src/skills/version-hash.ts` | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files |
-| `assistant/src/skills/path-classifier.ts` | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection |
-| `assistant/src/config/schema.ts` | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict` / `legacy`) |
-| `assistant/src/tools/executor.ts` | `ToolExecutor` — orchestrates risk classification, permission check, and execution |
-| `assistant/src/daemon/handlers/config.ts` | `handleToolPermissionSimulate()` — dry-run simulation handler |
+| `assistant/src/permissions/trust-store.ts`    | Rule persistence, `findHighestPriorityRule()`, execution-target matching, starter bundle                                                                                            |
+| `assistant/src/permissions/prompter.ts`       | IPC prompt flow: `confirmation_request` → `confirmation_response`                                                                                                                   |
+| `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
+| `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
+| `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
+| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict`)                                                                                                             |
+| `assistant/src/tools/executor.ts`             | `ToolExecutor` — orchestrates risk classification, permission check, and execution                                                                                                  |
+| `assistant/src/daemon/handlers/config.ts`     | `handleToolPermissionSimulate()` — dry-run simulation handler                                                                                                                       |
 
 ### Permission Simulation (Tool Permission Tester)
 
@@ -205,7 +201,6 @@ The `tool_permission_simulate` IPC message lets clients dry-run a tool invocatio
 - **Non-interactive override**: When `isInteractive` is false, `prompt` decisions are converted to `deny` (no client available to approve).
 
 ---
-
 
 ---
 
@@ -293,25 +288,25 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ### Storage Layout
 
-| Component | Location | What it stores |
-|-----------|----------|----------------|
-| Secret values | macOS Keychain (primary) or encrypted file fallback | Encrypted credential values keyed as `credential:{service}:{field}`. Falls back to encrypted file backend on Linux/headless or when Keychain is unavailable. |
-| Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps |
-| Config | `~/.vellum/workspace/config.*` | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend |
+| Component           | Location                                             | What it stores                                                                                                                                               |
+| ------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Secret values       | macOS Keychain (primary) or encrypted file fallback  | Encrypted credential values keyed as `credential:{service}:{field}`. Falls back to encrypted file backend on Linux/headless or when Keychain is unavailable. |
+| Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                     |
+| Config              | `~/.vellum/workspace/config.*`                       | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend                                                                              |
 
 ### Key Files
 
-| File | Role |
-|------|------|
-| `assistant/src/tools/credentials/vault.ts` | `credential_store` tool — store, list, delete, prompt actions |
-| `assistant/src/security/secure-keys.ts` | Keychain read/write via `/usr/bin/security` CLI |
-| `assistant/src/tools/credentials/metadata-store.ts` | JSON file metadata CRUD for credential records |
-| `assistant/src/tools/credentials/broker.ts` | Brokered credential access with policy enforcement and transient send |
-| `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains) |
-| `assistant/src/permissions/secret-prompter.ts` | IPC secret_request/secret_response flow |
-| `assistant/src/security/secret-scanner.ts` | Regex + entropy-based secret detection |
-| `assistant/src/security/secret-ingress.ts` | Inbound message secret blocking |
-| `clients/macos/.../SecretPromptManager.swift` | Floating panel UI for secure credential entry |
+| File                                                 | Role                                                                  |
+| ---------------------------------------------------- | --------------------------------------------------------------------- |
+| `assistant/src/tools/credentials/vault.ts`           | `credential_store` tool — store, list, delete, prompt actions         |
+| `assistant/src/security/secure-keys.ts`              | Keychain read/write via `/usr/bin/security` CLI                       |
+| `assistant/src/tools/credentials/metadata-store.ts`  | JSON file metadata CRUD for credential records                        |
+| `assistant/src/tools/credentials/broker.ts`          | Brokered credential access with policy enforcement and transient send |
+| `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains)                |
+| `assistant/src/permissions/secret-prompter.ts`       | IPC secret_request/secret_response flow                               |
+| `assistant/src/security/secret-scanner.ts`           | Regex + entropy-based secret detection                                |
+| `assistant/src/security/secret-ingress.ts`           | Inbound message secret blocking                                       |
+| `clients/macos/.../SecretPromptManager.swift`        | Floating panel UI for secure credential entry                         |
 
 ---
 
@@ -323,9 +318,9 @@ Scoped approval grants are a channel-agnostic primitive that allows a guardian's
 
 Two scope modes exist:
 
-| Mode | Key fields | Use case |
-|------|-----------|----------|
-| `request_id` | `requestId` | Grant is bound to a specific pending confirmation request. Consumed by matching the request ID. |
+| Mode             | Key fields                 | Use case                                                                                                                                                                              |
+| ---------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `request_id`     | `requestId`                | Grant is bound to a specific pending confirmation request. Consumed by matching the request ID.                                                                                       |
 | `tool_signature` | `toolName` + `inputDigest` | Grant is bound to a specific tool invocation identified by tool name and a canonical SHA-256 digest of the input. Consumed by matching both fields plus optional context constraints. |
 
 ### Lifecycle Flow
@@ -376,22 +371,21 @@ sequenceDiagram
 
 ### Key Source Files
 
-| File | Role |
-|------|------|
-| `assistant/src/memory/scoped-approval-grants.ts` | CRUD, atomic CAS consume, expiry sweep, context-based revocation |
-| `assistant/src/memory/migrations/033-scoped-approval-grants.ts` | SQLite schema migration for the `scoped_approval_grants` table |
-| `assistant/src/security/tool-approval-digest.ts` | Canonical JSON serialization + SHA-256 digest for tool signatures |
+| File                                                             | Role                                                                          |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `assistant/src/memory/scoped-approval-grants.ts`                 | CRUD, atomic CAS consume, expiry sweep, context-based revocation              |
+| `assistant/src/memory/migrations/033-scoped-approval-grants.ts`  | SQLite schema migration for the `scoped_approval_grants` table                |
+| `assistant/src/security/tool-approval-digest.ts`                 | Canonical JSON serialization + SHA-256 digest for tool signatures             |
 | `assistant/src/runtime/routes/guardian-approval-interception.ts` | Grant minting on guardian approve_once decisions (`tryMintToolApprovalGrant`) |
-| `assistant/src/calls/voice-session-bridge.ts` | Voice consumer: checks and consumes grants before auto-denying |
+| `assistant/src/calls/voice-session-bridge.ts`                    | Voice consumer: checks and consumes grants before auto-denying                |
 
 ### Test Coverage
 
-| Test file | Scenarios covered |
-|-----------|-------------------|
-| `assistant/src/__tests__/scoped-approval-grants.test.ts` | Store CRUD, request_id consume, tool_signature consume, expiry, revocation, digest stability |
-| `assistant/src/__tests__/voice-scoped-grant-consumer.test.ts` | Voice bridge integration: grant-allowed, no-grant-denied, tool-mismatch, guardian-bypass, one-time-use, revocation on call end |
-| `assistant/src/__tests__/guardian-grant-minting.test.ts` | Grant minting: callback/engine/legacy paths, informational-skip, reject-skip, identity-mismatch, stale-skip, TTL verification |
+| Test file                                                      | Scenarios covered                                                                                                                     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/__tests__/scoped-approval-grants.test.ts`       | Store CRUD, request_id consume, tool_signature consume, expiry, revocation, digest stability                                          |
+| `assistant/src/__tests__/voice-scoped-grant-consumer.test.ts`  | Voice bridge integration: grant-allowed, no-grant-denied, tool-mismatch, guardian-bypass, one-time-use, revocation on call end        |
+| `assistant/src/__tests__/guardian-grant-minting.test.ts`       | Grant minting: callback/engine/legacy paths, informational-skip, reject-skip, identity-mismatch, stale-skip, TTL verification         |
 | `assistant/src/__tests__/scoped-grant-security-matrix.test.ts` | Security matrix: requester identity mismatch, concurrent CAS, persistence across restart, fail-closed default, cross-scope invariants |
 
 ---
-

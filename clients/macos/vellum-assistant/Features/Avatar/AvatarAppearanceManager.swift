@@ -97,7 +97,10 @@ final class AvatarAppearanceManager {
     private var assistantName: String = "V"
 
     func start() {
-        assistantName = IdentityInfo.load()?.name ?? "V"
+        assistantName = AssistantDisplayName.resolve(
+            IdentityInfo.load()?.name,
+            fallback: "V"
+        )
         loadCustomAvatar()
         watchAvatarFile()
 
@@ -111,7 +114,10 @@ final class AvatarAppearanceManager {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.assistantName = IdentityInfo.load()?.name ?? "V"
+                self.assistantName = AssistantDisplayName.resolve(
+                    IdentityInfo.load()?.name,
+                    fallback: "V"
+                )
                 self.cachedFallbackAvatar = nil
                 self.cachedFallbackName = nil
                 self.cachedFullFallbackAvatar = nil

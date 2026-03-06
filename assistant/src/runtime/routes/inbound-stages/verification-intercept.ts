@@ -18,10 +18,11 @@ import { findContactChannel } from "../../../contacts/contact-store.js";
 import {
   createGuardianBinding,
   revokeGuardianBinding,
-  upsertMember,
+  upsertContactChannel,
 } from "../../../contacts/contacts-write.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { canonicalizeInboundIdentity } from "../../../util/canonicalize-identity.js";
 import { getLogger } from "../../../util/logger.js";
 import {
@@ -142,7 +143,7 @@ export async function handleVerificationIntercept(
         ? existingContact.displayName
         : actorDisplayName;
 
-    upsertMember({
+    upsertContactChannel({
       sourceChannel,
       externalUserId: canonicalSenderId ?? rawSenderId,
       externalChatId: conversationExternalId,
@@ -168,7 +169,7 @@ export async function handleVerificationIntercept(
           (canonicalSenderId ?? rawSenderId)
       ) {
         // Edge case: another user already bound. Log and skip binding creation.
-        // The upsertMember above already succeeded, so the sender is a known contact,
+        // The upsertContactChannel above already succeeded, so the sender is a known contact,
         // but they won't get guardian role.
         log.warn(
           {
@@ -230,7 +231,7 @@ export async function handleVerificationIntercept(
     if (verifyResult.verificationType === "trusted_contact") {
       void emitNotificationSignal({
         sourceEventName: "ingress.trusted_contact.activated",
-        sourceChannel,
+        sourceChannel: sourceChannel as NotificationSourceChannel,
         sourceSessionId: conversationId,
         attentionHints: {
           requiresAction: false,

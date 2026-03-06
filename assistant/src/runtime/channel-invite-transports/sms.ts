@@ -1,9 +1,9 @@
 /**
  * SMS channel invite adapter.
  *
- * Provides guardian instruction text that includes the assistant's Twilio
- * phone number. SMS invites use the universal 6-digit code path for
- * redemption, so this adapter only implements `buildGuardianInstruction` —
+ * Resolves the assistant's Twilio phone number for use in invite
+ * instructions. SMS invites use the universal 6-digit code path for
+ * redemption, so this adapter only implements `resolveChannelHandle` —
  * no `buildShareLink` or `extractInboundToken` needed.
  */
 
@@ -11,21 +11,17 @@ import type { ChannelId } from "../../channels/types.js";
 import { getTwilioPhoneNumberEnv } from "../../config/env.js";
 import { loadRawConfig } from "../../config/loader.js";
 import { getSecureKey } from "../../security/secure-keys.js";
-import type {
-  ChannelInviteAdapter,
-  GuardianInstruction,
-} from "../channel-invite-transport.js";
+import type { ChannelInviteAdapter } from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
 // Phone number resolution
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the SMS phone number with canonical precedence:
- * env override -> config sms.phoneNumber -> secure key fallback.
- * Mirrors the resolution strategy in `channel-readiness-service.ts`.
+ * Keep Twilio-backed invite transports on a single secure-key reader so the
+ * credential boundary stays narrow.
  */
-function resolveSmsPhoneNumber(): string | undefined {
+export function resolveTwilioInvitePhoneNumber(): string | undefined {
   try {
     const raw = loadRawConfig();
     const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
@@ -51,24 +47,7 @@ function resolveSmsPhoneNumber(): string | undefined {
 export const smsInviteAdapter: ChannelInviteAdapter = {
   channel: "sms" as ChannelId,
 
-  buildGuardianInstruction(params: {
-    inviteCode: string;
-    contactName?: string;
-  }): GuardianInstruction {
-    const phoneNumber = resolveSmsPhoneNumber();
-    const contactLabel = params.contactName || "the contact";
-    if (!phoneNumber) {
-      return {
-        instruction: `Tell ${contactLabel} to text the assistant and provide the code ${params.inviteCode}.`,
-      };
-    }
-    return {
-      instruction: `Tell ${contactLabel} to text ${phoneNumber} and provide the code ${params.inviteCode}.`,
-      channelHandle: phoneNumber,
-    };
-  },
-
   resolveChannelHandle(): string | undefined {
-    return resolveSmsPhoneNumber();
+    return resolveTwilioInvitePhoneNumber();
   },
 };

@@ -1141,7 +1141,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/contacts/channels/{channelId}": {
+      "/v1/contact-channels/{contactChannelId}": {
         patch: {
           summary: "Update a contact channel",
           description:
@@ -1150,7 +1150,7 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           parameters: [
             {
-              name: "channelId",
+              name: "contactChannelId",
               in: "path",
               required: true,
               schema: { type: "string" },
@@ -1207,13 +1207,11 @@ export function buildSchema(): Record<string, unknown> {
             "504": { description: "Assistant runtime request timed out" },
           },
         },
-      },
-      "/v1/contacts/{contactId}/channels/{channelId}/verify": {
-        post: {
-          summary: "Verify a contact channel",
+        delete: {
+          summary: "Delete a contact by ID",
           description:
-            "Authenticated gateway endpoint that initiates or completes verification of a contact's communication channel via the assistant runtime.",
-          operationId: "contactsChannelVerify",
+            "Authenticated gateway endpoint that deletes a contact by ID via the assistant runtime.",
+          operationId: "contactsDeleteById",
           security: [{ BearerAuth: [] }],
           parameters: [
             {
@@ -1222,8 +1220,30 @@ export function buildSchema(): Record<string, unknown> {
               required: true,
               schema: { type: "string" },
             },
+          ],
+          responses: {
+            "204": { description: "Contact deleted" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Contact cannot be deleted" },
+            "404": { description: "Contact not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/contact-channels/{contactChannelId}/verify": {
+        post: {
+          summary: "Verify a contact channel",
+          description:
+            "Authenticated gateway endpoint that initiates or completes verification of a contact's communication channel via the assistant runtime.",
+          operationId: "contactsChannelVerify",
+          security: [{ BearerAuth: [] }],
+          parameters: [
             {
-              name: "channelId",
+              name: "contactChannelId",
               in: "path",
               required: true,
               schema: { type: "string" },

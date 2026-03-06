@@ -35,7 +35,7 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 5. **Guardian receives the verification code.** The assistant delivers the code to the guardian's verified channel (Telegram chat, SMS, etc.).
 6. **Guardian gives the code to the requester out-of-band** (in person, text message, phone call, etc.). This out-of-band transfer is the trust anchor: it proves the requester has a real-world relationship with the guardian.
 7. **Requester enters the code** back to the assistant on the same channel. The inbound message handler intercepts bare 6-digit codes when a pending verification session exists for that channel.
-8. **Assistant verifies the code and activates the user.** `validateAndConsumeChallenge()` hashes the code, matches it against the pending session, verifies identity binding (the code must come from the expected channel identity), consumes the challenge, and calls `upsertMember()` with `status: 'active'` and `policy: 'allow'`.
+8. **Assistant verifies the code and activates the user.** `validateAndConsumeChallenge()` hashes the code, matches it against the pending session, verifies identity binding (the code must come from the expected channel identity), consumes the challenge, and calls `upsertContactChannel()` with `status: 'active'` and `policy: 'allow'`.
 9. **All subsequent messages are accepted normally.** The ingress ACL finds an active member record and allows the message through.
 
 ## Lifecycle States
@@ -92,11 +92,11 @@ Identity binding ensures the verification code can only be consumed by the inten
 
 ### Stage: `active` (code verified, trusted contact created)
 
-| Store                       | Table                                      | Record                                                                                                                                                                                              |
-| --------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contacts-write.ts`         | `contacts` / `contact_channels`            | Upserted via `upsertMember()`: creates a contact record and a `contact_channels` entry with `status: 'active'`, `policy: 'allow'`, channel type, `externalUserId`, `externalChatId`, `displayName`. |
-| `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | Updated to `status: 'consumed'`, `consumedByExternalUserId`, `consumedByChatId` set.                                                                                                                |
-| `channel-guardian-store.ts` | `channel_guardian_rate_limits`             | Reset via `resetRateLimit()` on successful verification.                                                                                                                                            |
+| Store                       | Table                                      | Record                                                                                                                                                                                                      |
+| --------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contacts-write.ts`         | `contacts` / `contact_channels`            | Upserted via `upsertContactChannel()`: creates a contact record and a `contact_channels` entry with `status: 'active'`, `policy: 'allow'`, channel type, `externalUserId`, `externalChatId`, `displayName`. |
+| `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | Updated to `status: 'consumed'`, `consumedByExternalUserId`, `consumedByChatId` set.                                                                                                                        |
+| `channel-guardian-store.ts` | `channel_guardian_rate_limits`             | Reset via `resetRateLimit()` on successful verification.                                                                                                                                                    |
 
 ### Stage: `denied` (guardian rejected)
 
@@ -132,15 +132,15 @@ Voice calls have a dedicated in-call guardian approval flow that differs from th
 3. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian.
 4. Relay transitions to `awaiting_guardian_decision` and polls `canonical_guardian_requests` for status changes.
 5. Guardian approves or denies via any channel. All decisions route through `applyCanonicalGuardianDecision`.
-6. On approval: the `access_request` resolver directly activates the caller as a trusted contact (`upsertMember` with `status: 'active'`, `policy: 'allow'`) — no verification session needed since the caller is already authenticated by their phone number.
+6. On approval: the `access_request` resolver directly activates the caller as a trusted contact (`upsertContactChannel` with `status: 'active'`, `policy: 'allow'`) — no verification session needed since the caller is already authenticated by their phone number.
 7. On denial or timeout: the caller hears a denial message and the call ends.
 
 **Key difference from text-channel flow:** Voice approvals skip the verification session step because the caller's phone identity is already known from the active call. Text-channel approvals still mint a 6-digit verification code for out-of-band identity confirmation.
 
-| Store                         | Table                           | Record                                                                                |
-| ----------------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
-| `canonical-guardian-store.ts` | `canonical_guardian_requests`   | `kind: 'access_request'`, `status: 'pending'` -> `'approved'` or `'denied'`           |
-| `contacts-write.ts`           | `contacts` / `contact_channels` | On approval: upserted via `upsertMember()` with `status: 'active'`, `policy: 'allow'` |
+| Store                         | Table                           | Record                                                                                        |
+| ----------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------- |
+| `canonical-guardian-store.ts` | `canonical_guardian_requests`   | `kind: 'access_request'`, `status: 'pending'` -> `'approved'` or `'denied'`                   |
+| `contacts-write.ts`           | `contacts` / `contact_channels` | On approval: upserted via `upsertContactChannel()` with `status: 'active'`, `policy: 'allow'` |
 
 ## Sequence Diagram
 
@@ -174,7 +174,7 @@ sequenceDiagram
         A->>A: validateAndConsumeChallenge()
         A->>A: Identity check: actorId matches expected
         A->>A: Hash matches, not expired → consume
-        A->>A: upsertMember(status: 'active', policy: 'allow')
+        A->>A: upsertContactChannel(status: 'active', policy: 'allow')
         A-->>U: "Verification successful! You now have access."
 
         U->>A: Subsequent messages

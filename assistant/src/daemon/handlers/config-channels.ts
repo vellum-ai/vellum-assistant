@@ -218,11 +218,11 @@ export function revokeGuardianForChannel(
 // Guardian verification handler
 // ---------------------------------------------------------------------------
 
-export function handleGuardianVerification(
+export async function handleGuardianVerification(
   msg: GuardianVerificationRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   const channel = msg.channel ?? "telegram";
 
   try {
@@ -240,7 +240,7 @@ export function handleGuardianVerification(
       const result = revokeGuardianForChannel(channel);
       ctx.send(socket, { type: "guardian_verification_response", ...result });
     } else if (msg.action === "start_outbound") {
-      const result = startOutbound({
+      const result = await startOutbound({
         channel,
         destination: msg.destination,
         rebind: msg.rebind,

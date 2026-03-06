@@ -115,6 +115,7 @@ export class AgentLoop {
         name: string,
         input: Record<string, unknown>,
         onOutput?: (chunk: string) => void,
+        toolUseId?: string,
       ) => Promise<{
         content: string;
         isError: boolean;
@@ -140,6 +141,7 @@ export class AgentLoop {
       name: string,
       input: Record<string, unknown>,
       onOutput?: (chunk: string) => void,
+      toolUseId?: string,
     ) => Promise<{
       content: string;
       isError: boolean;
@@ -507,6 +509,7 @@ export class AgentLoop {
                   chunk,
                 });
               },
+              toolUse.id,
             );
 
             const toolDurationMs = Date.now() - toolStart;

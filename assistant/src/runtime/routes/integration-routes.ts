@@ -139,8 +139,8 @@ export async function handleSetSlackChannelConfig(
 /**
  * DELETE /v1/integrations/slack/channel/config
  */
-export function handleClearSlackChannelConfig(): Response {
-  const result = clearSlackChannelConfig();
+export async function handleClearSlackChannelConfig(): Promise<Response> {
+  const result = await clearSlackChannelConfig();
   return Response.json(result);
 }
 
@@ -235,7 +235,7 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
     );
   }
 
-  const result = startOutbound({
+  const result = await startOutbound({
     channel: body.channel,
     destination: body.destination,
     rebind: body.rebind,

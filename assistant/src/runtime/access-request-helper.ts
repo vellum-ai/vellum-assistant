@@ -26,6 +26,7 @@ import {
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../notifications/signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 import { getLogger } from "../util/logger.js";
 import { ensureVellumGuardianBinding } from "./guardian-vellum-migration.js";
@@ -216,7 +217,7 @@ export function notifyGuardianOfAccessRequest(
   let vellumDeliveryId: string | null = null;
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
-    sourceChannel,
+    sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceSessionId: `access-req-${sourceChannel}-${actorExternalId}`,
     attentionHints: {
       requiresAction: true,

@@ -61,6 +61,23 @@ import {
 export { handleUserMessage } from "./session-user-message.js";
 import { handleUserMessage } from "./session-user-message.js";
 
+/**
+ * Extract a valid ChannelId from a binding's sourceChannel, which may carry a
+ * `notification:` namespace prefix (e.g. `"notification:telegram"` -> `"telegram"`).
+ * Returns the ChannelId if valid, or null otherwise.
+ */
+function parseBindingSourceChannel(
+  sourceChannel: string,
+): import("../../channels/types.js").ChannelId | null {
+  if (isChannelId(sourceChannel)) return sourceChannel;
+  const NOTIFICATION_PREFIX = "notification:";
+  if (sourceChannel.startsWith(NOTIFICATION_PREFIX)) {
+    const inner = sourceChannel.slice(NOTIFICATION_PREFIX.length);
+    if (isChannelId(inner)) return inner;
+  }
+  return null;
+}
+
 export function syncCanonicalStatusFromIpcConfirmationDecision(
   requestId: string,
   decision: ConfirmationResponse["decision"],
@@ -283,10 +300,12 @@ export function handleSessionList(
         updatedAt: c.updatedAt,
         threadType: normalizeThreadType(c.threadType),
         source: c.source ?? "user",
-        ...(binding && isChannelId(binding.sourceChannel)
+        ...(binding && parseBindingSourceChannel(binding.sourceChannel)
           ? {
               channelBinding: {
-                sourceChannel: binding.sourceChannel,
+                sourceChannel: parseBindingSourceChannel(
+                  binding.sourceChannel,
+                )!,
                 externalChatId: binding.externalChatId,
                 externalUserId: binding.externalUserId,
                 displayName: binding.displayName,

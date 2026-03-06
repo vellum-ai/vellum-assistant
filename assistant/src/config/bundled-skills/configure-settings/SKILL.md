@@ -1,6 +1,6 @@
 ---
 name: "Configure Settings"
-description: "Read, update, or reset assistant configuration values using the vellum config CLI"
+description: "Read, update, or reset assistant configuration values using the assistant config CLI"
 user-invocable: true
 metadata: { "vellum": { "emoji": "⚙️" } }
 ---
@@ -9,29 +9,29 @@ You are helping the user view or change assistant configuration through the `vel
 
 ## Domain Status Reads First
 
-When a user asks for setup/status of a specific capability, prefer domain commands before generic `vellum config get`:
+When a user asks for setup/status of a specific capability, prefer domain commands before generic `assistant config get`:
 
 ```bash
-vellum integrations voice config --json
-vellum integrations ingress config --json
-vellum integrations twilio config --json
-vellum email status --json
+assistant integrations voice config --json
+assistant integrations ingress config --json
+assistant integrations twilio config --json
+assistant email status --json
 ```
 
-Use `vellum config get` for generic keys that do not have a domain command.
+Use `assistant config get` for generic keys that do not have a domain command.
 
 ## Reading a value
 
 ```bash
-vellum config get <key>
+assistant config get <key>
 ```
 
 Examples:
 
 ```bash
-vellum config get platform.baseUrl
-vellum config get memory.qdrant.url
-vellum config get provider
+assistant config get platform.baseUrl
+assistant config get memory.qdrant.url
+assistant config get provider
 ```
 
 If the result is empty, the compiled default is in effect.
@@ -39,16 +39,16 @@ If the result is empty, the compiled default is in effect.
 ## Setting a value
 
 ```bash
-vellum config set <key> <value>
+assistant config set <key> <value>
 ```
 
 Examples:
 
 ```bash
-vellum config set platform.baseUrl "https://platform.vellum.ai"
-vellum config set provider "openai"
-vellum config set memory.enabled false
-vellum config set maxTokens 8000
+assistant config set platform.baseUrl "https://platform.vellum.ai"
+assistant config set provider "openai"
+assistant config set memory.enabled false
+assistant config set maxTokens 8000
 ```
 
 ## Resetting a value to its default
@@ -56,13 +56,13 @@ vellum config set maxTokens 8000
 Set the key to an empty string (for strings) or omit it from the config file:
 
 ```bash
-vellum config set <key> ""
+assistant config set <key> ""
 ```
 
 ## Listing all configuration
 
 ```bash
-vellum config list
+assistant config list
 ```
 
 ## Common configuration keys

@@ -529,7 +529,7 @@ extension IPCBundleAppRequest {
     }
 }
 
-/// Sent to open and scan a .vellumapp bundle.
+/// Sent to open and scan a .vellum bundle.
 /// Backed by generated `IPCOpenBundleRequest`.
 public typealias OpenBundleMessage = IPCOpenBundleRequest
 
@@ -893,6 +893,9 @@ extension IPCDictationRequest {
         self.init(type: "dictation_request", transcription: transcription, context: context, profileId: profileId)
     }
 }
+
+/// Bootstrap failure during learn-mode recording setup.
+public typealias RideShotgunErrorMessage = IPCRideShotgunError
 
 /// Progress update from a ride shotgun auto-navigation session.
 public typealias RideShotgunProgressMessage = IPCRideShotgunProgress
@@ -1687,7 +1690,7 @@ extension IPCToolNamesListRequest {
 /// Backed by generated `IPCToolNamesListResponse`.
 public typealias ToolNamesListResponseMessage = IPCToolNamesListResponse
 
-/// Response from opening and scanning a .vellumapp bundle.
+/// Response from opening and scanning a .vellum bundle.
 /// Backed by generated `IPCOpenBundleResponse`.
 public typealias OpenBundleResponseMessage = IPCOpenBundleResponse
 
@@ -1755,6 +1758,20 @@ public struct RegisterDeviceTokenMessage: Encodable, Sendable {
 }
 
 
+
+// MARK: - Cloud Sharing Messages (Manual)
+
+/// Sent to request sharing an app via a cloud link.
+/// Backed by generated `IPCShareAppCloudRequest`.
+public typealias ShareAppCloudRequestMessage = IPCShareAppCloudRequest
+
+extension IPCShareAppCloudRequest {
+    public init(appId: String) {
+        self.init(type: "share_app_cloud", appId: appId)
+    }
+}
+
+public typealias ShareAppCloudResponseMessage = IPCShareAppCloudResponse
 
 // MARK: - Slack Webhook Messages (Manual)
 
@@ -2157,6 +2174,7 @@ public enum ServerMessage: Decodable, Sendable {
     case taskRouted(TaskRoutedMessage)
     case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
+    case rideShotgunError(RideShotgunErrorMessage)
     case rideShotgunProgress(RideShotgunProgressMessage)
     case rideShotgunResult(RideShotgunResultMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
@@ -2212,6 +2230,7 @@ public enum ServerMessage: Decodable, Sendable {
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
     case signBundlePayload(SignBundlePayloadMessage)
+    case shareAppCloudResponse(ShareAppCloudResponseMessage)
     case shareToSlackResponse(ShareToSlackResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case ingressConfigResponse(IngressConfigResponseMessage)
@@ -2350,6 +2369,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "error":
             let message = try ErrorMessage(from: decoder)
             self = .error(message)
+        case "ride_shotgun_error":
+            let message = try RideShotgunErrorMessage(from: decoder)
+            self = .rideShotgunError(message)
         case "ride_shotgun_progress":
             let message = try RideShotgunProgressMessage(from: decoder)
             self = .rideShotgunProgress(message)
@@ -2527,6 +2549,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "trace_event":
             let message = try TraceEventMessage(from: decoder)
             self = .traceEvent(message)
+        case "share_app_cloud_response":
+            let message = try ShareAppCloudResponseMessage(from: decoder)
+            self = .shareAppCloudResponse(message)
         case "share_to_slack_response":
             let message = try ShareToSlackResponseMessage(from: decoder)
             self = .shareToSlackResponse(message)

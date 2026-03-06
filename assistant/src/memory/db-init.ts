@@ -45,7 +45,9 @@ import {
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
+  migrateDropAssistantIdColumns,
   migrateDropLegacyMemberGuardianTables,
+  migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
   migrateGuardianActionSupersession,
@@ -62,6 +64,7 @@ import {
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
   migrateSchemaIndexesAndColumns,
+  migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
   recoverCrashedMigrations,
@@ -288,6 +291,18 @@ export function initializeDb(): void {
 
   // 39. Backfill contact interaction stats from channel lastSeenAt
   migrateBackfillContactInteractionStats(database);
+
+  // 40. Drop assistant_id columns from all 16 daemon tables
+  migrateDropAssistantIdColumns(database);
+
+  // 41. Indexes on llm_usage_events for usage dashboard time-range and breakdown queries
+  migrateUsageDashboardIndexes(database);
+
+  // 42. (skipped) migrateReorderUsageDashboardIndexes — superseded by 43 which drops
+  // all composite indexes that 42 would create, so running it is wasted work.
+
+  // 43. Drop all composite usage indexes — they don't eliminate temp B-trees for GROUP BY
+  migrateDropUsageCompositeIndexes(database);
 
   validateMigrationState(database);
 

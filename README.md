@@ -225,13 +225,13 @@ To switch modes:
 
 ```bash
 # Workspace mode (default) — workspace-scoped ops auto-allowed, others follow risk-based policy
-vellum config set permissions.mode '"workspace"'
+assistant config set permissions.mode '"workspace"'
 
 # Strict — ALL tools require an explicit trust rule, no implicit auto-allow
-vellum config set permissions.mode '"strict"'
+assistant config set permissions.mode '"strict"'
 
 # Legacy — low-risk tools auto-allowed, medium/high prompted (deprecated)
-vellum config set permissions.mode '"legacy"'
+assistant config set permissions.mode '"legacy"'
 ```
 
 > **Note:** Legacy mode is deprecated. If your config uses `permissions.mode: "legacy"`, switch to `workspace` or `strict`. A runtime warning is emitted on first use.
@@ -319,7 +319,7 @@ Twitter integration supports two operation paths: **OAuth** (X API v2) and **Bro
 
 - **Browser path** (CDP): Uses Chrome DevTools Protocol to execute operations through an authenticated x.com browser tab. Supports all operations including read-only ones (timeline, search, home, notifications, bookmarks, likes, followers, following, media). Quick to start — no developer credentials needed. Session cookies are captured via Ride Shotgun (`vellum x refresh`).
 
-- **Strategy selection**: `vellum x strategy set <oauth|browser|auto>` controls which path is used. Default is `auto`, which prefers OAuth when credentials are available and the operation is supported, then falls back to browser. The strategy is persisted in config as `twitterOperationStrategy`.
+- **Strategy selection**: `vellum x strategy set <oauth|browser|auto>` controls which path is used. Default is `auto`, which prefers OAuth when credentials are available and the operation is supported, then falls back to browser. The strategy is persisted in config as `twitter.operationStrategy`.
 
 **OAuth2 PKCE setup** (`local_byo` mode): The user provides their own Twitter OAuth2 Client ID (and optional Client Secret). The assistant runs a standard OAuth2 PKCE flow against `twitter.com/i/oauth2/authorize` and `api.x.com/2/oauth2/token`. The flow verifies the user's identity (`GET /2/users/me`) and stores tokens in the vault for use by both identity verification and the OAuth operation path. Connect via the Settings UI or `twitter_auth_start` IPC message.
 

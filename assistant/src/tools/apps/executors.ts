@@ -8,9 +8,14 @@
  * ToolDefinition or ToolContext types.
  */
 
+import { compileApp } from "../../bundler/app-compiler.js";
 import { setHomeBaseAppLink } from "../../home-base/app-link-store.js";
-import type { AppDefinition } from "../../memory/app-store.js";
-import type { EditEngineResult } from "../../memory/app-store.js";
+import { generateAppIcon } from "../../media/app-icon-generator.js";
+import type {
+  AppDefinition,
+  EditEngineResult,
+} from "../../memory/app-store.js";
+import { getAppsDir, isMultifileApp } from "../../memory/app-store.js";
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -40,9 +45,11 @@ export interface AppStoreWriter {
   createApp(params: {
     name: string;
     description?: string;
+    icon?: string;
     schemaJson: string;
     htmlDefinition: string;
     pages?: Record<string, string>;
+    formatVersion?: number;
   }): AppDefinition;
   updateApp(
     id: string,
@@ -76,6 +83,28 @@ export type ProxyResolver = (
 ) => Promise<ExecutorResult>;
 
 // ---------------------------------------------------------------------------
+// Path resolution — multifile apps default to src/ for file operations
+// ---------------------------------------------------------------------------
+
+/**
+ * For multifile (formatVersion 2) apps, prepend `src/` to paths that don't
+ * already target a known top-level directory (src/, dist/, records/).
+ * Legacy apps pass through unchanged.
+ */
+export function resolveAppFilePath(app: AppDefinition, path: string): string {
+  if (!isMultifileApp(app)) return path;
+  const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
+  if (
+    normalized.startsWith("src/") ||
+    normalized.startsWith("dist/") ||
+    normalized.startsWith("records/")
+  ) {
+    return normalized;
+  }
+  return `src/${normalized}`;
+}
+
+// ---------------------------------------------------------------------------
 // app_create
 // ---------------------------------------------------------------------------
 
@@ -88,6 +117,8 @@ export interface AppCreateInput {
   auto_open?: boolean;
   set_as_home_base?: boolean;
   preview?: Record<string, unknown>;
+  /** When provided, controls multifile scaffold behavior. */
+  featureFlags?: { multifileEnabled: boolean };
 }
 
 export async function executeAppCreate(
@@ -139,13 +170,75 @@ export async function executeAppCreate(
     }
   }
 
+  // Extract icon from preview if provided — only persist emoji-like values,
+  // not URLs which would render as raw strings in UI and bundle manifests.
+  const rawIcon = preview?.icon as string | undefined;
+  const icon = rawIcon && !rawIcon.startsWith("http") ? rawIcon : undefined;
+
+  const multifileEnabled = input.featureFlags?.multifileEnabled === true;
+
   const app = store.createApp({
     name,
     description,
+    icon,
     schemaJson,
-    htmlDefinition,
-    pages,
+    htmlDefinition: multifileEnabled ? "" : htmlDefinition,
+    pages: multifileEnabled ? undefined : pages,
+    formatVersion: multifileEnabled ? 2 : undefined,
   });
+
+  // Scaffold multifile app with src/ files and compile to dist/
+  if (multifileEnabled) {
+    const htmlSafeName = name
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+    const jsxSafeName = name.replace(/[<>{}&"']/g, "");
+
+    const indexHtml =
+      typeof input.html === "string"
+        ? input.html
+        : `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${htmlSafeName}</title>
+</head>
+<body>
+  <div id="app"></div>
+</body>
+</html>`;
+
+    const mainTsx = `import { render } from 'preact';
+
+function App() {
+  return <div>{"Hello, ${jsxSafeName}!"}</div>;
+}
+
+render(<App />, document.getElementById('app')!);
+`;
+
+    store.writeAppFile(app.id, "src/index.html", indexHtml);
+    store.writeAppFile(app.id, "src/main.tsx", mainTsx);
+
+    // Compile src/ → dist/
+    const { join } = await import("node:path");
+    const appDir = join(getAppsDir(), app.id);
+    const compileResult = await compileApp(appDir);
+    if (!compileResult.ok) {
+      return {
+        content: JSON.stringify({
+          ...app,
+          compile_errors: compileResult.errors,
+          compile_warnings: compileResult.warnings,
+          compile_duration_ms: compileResult.durationMs,
+        }),
+        isError: false,
+      };
+    }
+  }
 
   if (input.set_as_home_base) {
     setHomeBaseAppLink(app.id, "personalized");
@@ -297,6 +390,23 @@ export function executeAppFileList(
   store: AppStoreReader,
 ): ExecutorResult {
   const files = store.listAppFiles(input.app_id);
+  const app = store.getApp(input.app_id);
+
+  if (app && isMultifileApp(app)) {
+    // Separate build output paths from source paths without mutating the
+    // file path strings — consumers need clean paths for subsequent tool calls.
+    const buildOutputPaths = files.filter((f) =>
+      f.replace(/\\/g, "/").startsWith("dist/"),
+    );
+    return {
+      content: JSON.stringify({
+        files,
+        buildOutput: buildOutputPaths,
+      }),
+      isError: false,
+    };
+  }
+
   return { content: JSON.stringify(files), isError: false };
 }
 
@@ -318,7 +428,9 @@ export function executeAppFileRead(
   const offset = input.offset ?? 1;
   const limit = input.limit;
 
-  const raw = store.readAppFile(input.app_id, input.path);
+  const app = store.getApp(input.app_id);
+  const resolvedPath = app ? resolveAppFilePath(app, input.path) : input.path;
+  const raw = store.readAppFile(input.app_id, resolvedPath);
   const allLines = raw.split("\n");
   const startIndex = Math.max(0, offset - 1);
   const sliced =
@@ -360,10 +472,13 @@ export function executeAppFileEdit(
     };
   }
 
+  const app = store.getApp(input.app_id);
+  const resolvedPath = app ? resolveAppFilePath(app, input.path) : input.path;
+
   const replaceAll = input.replace_all ?? false;
   const result = store.editAppFile(
     input.app_id,
-    input.path,
+    resolvedPath,
     input.old_string,
     input.new_string,
     replaceAll,
@@ -398,10 +513,76 @@ export function executeAppFileWrite(
     };
   }
 
-  store.writeAppFile(input.app_id, input.path, input.content);
+  const resolvedPath = resolveAppFilePath(app, input.path);
+  store.writeAppFile(input.app_id, resolvedPath, input.content);
   return {
-    content: JSON.stringify({ written: true, path: input.path }),
+    content: JSON.stringify({ written: true, path: resolvedPath }),
     isError: false,
     status: input.status,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// app_generate_icon
+// ---------------------------------------------------------------------------
+
+export interface AppGenerateIconInput {
+  app_id: string;
+  description?: string;
+}
+
+export async function executeAppGenerateIcon(
+  input: AppGenerateIconInput,
+  store: AppStoreReader,
+): Promise<ExecutorResult> {
+  const app = store.getApp(input.app_id);
+  if (!app) {
+    return {
+      content: JSON.stringify({ error: `App '${input.app_id}' not found` }),
+      isError: true,
+    };
+  }
+
+  // Generate to a temp path first, then swap on success to avoid
+  // destroying an existing icon if generation fails.
+  const { existsSync, renameSync, unlinkSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { getAppsDir } = await import("../../memory/app-store.js");
+  const iconPath = join(getAppsDir(), input.app_id, "icon.png");
+  const tempPath = join(getAppsDir(), input.app_id, "icon.tmp.png");
+
+  // Temporarily move existing icon aside so generateAppIcon doesn't skip
+  if (existsSync(iconPath)) {
+    renameSync(iconPath, tempPath);
+  }
+
+  await generateAppIcon(
+    input.app_id,
+    app.name,
+    input.description ?? app.description,
+  );
+
+  if (existsSync(iconPath)) {
+    // Success — clean up the old icon backup
+    if (existsSync(tempPath)) {
+      unlinkSync(tempPath);
+    }
+    return {
+      content: JSON.stringify({ generated: true, appId: input.app_id }),
+      isError: false,
+    };
+  }
+
+  // Generation failed — restore the previous icon if we had one
+  if (existsSync(tempPath)) {
+    renameSync(tempPath, iconPath);
+  }
+
+  return {
+    content: JSON.stringify({
+      error:
+        "Icon generation failed. Make sure a Gemini API key is configured in Settings.",
+    }),
+    isError: true,
   };
 }

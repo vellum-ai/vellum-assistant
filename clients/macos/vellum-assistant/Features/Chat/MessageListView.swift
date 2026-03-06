@@ -9,7 +9,7 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Me
 /// Holds the last-known anchor minY without triggering SwiftUI re-renders.
 /// Only `isVisible` is @Published so re-renders happen only when the
 /// visible/invisible boundary is crossed — not on every scroll tick.
-@MainActor private final class AnchorVisibilityTracker: ObservableObject {
+@MainActor final class AnchorVisibilityTracker: ObservableObject {
     var lastMinY: CGFloat = .infinity  // NOT @Published — no re-render on scroll
     @Published var isVisible: Bool = true
 
@@ -57,6 +57,8 @@ struct MessageListView: View {
     var onSubagentTap: ((String) -> Void)?
     /// Called to rehydrate truncated message content on demand.
     var onRehydrateMessage: ((UUID) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
     var subagentDetailStore: SubagentDetailStore
 
     // MARK: - Pagination
@@ -373,6 +375,7 @@ struct MessageListView: View {
                             onDismissDocumentWidget: onDismissDocumentWidget,
                             onReportMessage: onReportMessage,
                             onRehydrateMessage: onRehydrateMessage,
+                            onSurfaceRefetch: onSurfaceRefetch,
                             onAbortSubagent: onAbortSubagent,
                             onSubagentTap: onSubagentTap,
                             onModelPickerSelect: onModelPickerSelect,
@@ -451,10 +454,14 @@ struct MessageListView: View {
                 ThreadScrollbarVisibilityController(shouldShow: shouldShowThreadScrollbar)
             }
             .onPreferenceChange(ScrollViewportHeightKey.self) { height in
+                os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
                 anchorTracker.updateViewport(height: height, storedViewportHeight: &scrollViewportHeight)
+                os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
             .onPreferenceChange(AnchorMinYKey.self) { minY in
+                os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
+                os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
             .overlay(alignment: .bottom) {
                 if (!isNearBottom || !hasReceivedScrollEvent) && !anchorTracker.isVisible {
@@ -822,6 +829,8 @@ private struct MessageCellView: View {
     let onDismissDocumentWidget: ((String) -> Void)?
     let onReportMessage: ((String?) -> Void)?
     var onRehydrateMessage: ((UUID) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
     var onAbortSubagent: ((String) -> Void)?
     var onSubagentTap: ((String) -> Void)?
     var onModelPickerSelect: ((UUID, String) -> Void)?
@@ -943,6 +952,7 @@ private struct MessageCellView: View {
                 },
                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                 onReportMessage: onReportMessage,
+                onSurfaceRefetch: onSurfaceRefetch,
                 onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
                 resolveHttpPort: resolveHttpPort,

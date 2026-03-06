@@ -113,6 +113,11 @@ extension MainWindowView {
                 },
                 daemonClient: daemonClient
             )
+        case .usageDashboard:
+            UsageDashboardPanel(
+                store: usageDashboardStore,
+                onClose: { windowState.selection = nil }
+            )
         }
     }
 
@@ -436,110 +441,35 @@ extension MainWindowView {
         )
     }
 
-    private var threadHeaderPresentation: ThreadHeaderPresentation {
-        ThreadHeaderPresentation(
-            activeThread: threadManager.activeThread,
-            activeViewModel: threadManager.activeViewModel,
-            isConversationVisible: windowState.isShowingChat || isChatBubbleActive
-        )
-    }
-
-    private func dismissThreadDrawer() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-            showThreadActionsDrawer = false
-        }
-    }
-
     @ViewBuilder
     var chatView: some View {
         if let viewModel = threadManager.activeViewModel {
             let activeThread = threadManager.activeThread
-            let presentation = threadHeaderPresentation
-            VStack(spacing: 0) {
-                // Thread title header
-                HStack {
-                    ThreadTitleActionsControl(
-                        presentation: presentation,
-                        onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
-                        onPin: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.pinThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onUnpin: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.unpinThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onArchive: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.archiveThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onRename: { startRenameActiveThread(); dismissThreadDrawer() },
-                        showDrawer: $showThreadActionsDrawer
-                    )
-                    Spacer()
-                }
-
-                ActiveChatViewWrapper(
-                    viewModel: viewModel,
-                    windowState: windowState,
-                    daemonClient: daemonClient,
-                    ambientAgent: ambientAgent,
-                    settingsStore: settingsStore,
-                    onMicrophoneToggle: onMicrophoneToggle,
-                    isTemporaryChat: activeThread?.kind == .private,
-                    voiceModeManager: voiceModeManager,
-                    voiceService: voiceModeManager.openAIVoiceService,
-                    onEndVoiceMode: {
-                        voiceModeManager.deactivate()
-                    },
-                    threadId: threadManager.activeThreadId,
-                    anchorMessageId: $threadManager.pendingAnchorMessageId
-                )
-                .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
-                .overlay(alignment: .top) {
-                    if conversationZoomManager.showZoomIndicator {
-                        ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage, label: "Text")
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .padding(.top, VSpacing.xl)
-                    }
-                }
-                .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
-            }
-            .overlay {
-                if showThreadActionsDrawer {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture { dismissThreadDrawer() }
+            ActiveChatViewWrapper(
+                viewModel: viewModel,
+                windowState: windowState,
+                daemonClient: daemonClient,
+                ambientAgent: ambientAgent,
+                settingsStore: settingsStore,
+                onMicrophoneToggle: onMicrophoneToggle,
+                isTemporaryChat: activeThread?.kind == .private,
+                voiceModeManager: voiceModeManager,
+                voiceService: voiceModeManager.openAIVoiceService,
+                onEndVoiceMode: {
+                    voiceModeManager.deactivate()
+                },
+                threadId: threadManager.activeThreadId,
+                anchorMessageId: $threadManager.pendingAnchorMessageId
+            )
+            .environment(\.conversationZoomScale, conversationZoomManager.zoomLevel)
+            .overlay(alignment: .top) {
+                if conversationZoomManager.showZoomIndicator {
+                    ZoomIndicatorView(percentage: conversationZoomManager.zoomPercentage, label: "Text")
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.top, VSpacing.xl)
                 }
             }
-            .overlay(alignment: .topLeading) {
-                if showThreadActionsDrawer {
-                    ThreadActionsDrawer(
-                        presentation: presentation,
-                        onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
-                        onPin: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.pinThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onUnpin: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.unpinThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onArchive: {
-                            guard let id = threadManager.activeThreadId else { return }
-                            threadManager.archiveThread(id: id)
-                            dismissThreadDrawer()
-                        },
-                        onRename: { startRenameActiveThread(); dismissThreadDrawer() }
-                    )
-                    .offset(x: VSpacing.lg, y: 32)
-                }
-            }
+            .animation(VAnimation.fast, value: conversationZoomManager.showZoomIndicator)
         }
     }
 
@@ -611,6 +541,12 @@ extension MainWindowView {
             )
             .overlay(alignment: .topTrailing) { panelDismissButton }
             .background(adaptiveColor(light: Moss._50, dark: Moss._950))
+        case .usageDashboard:
+            UsageDashboardPanel(
+                store: usageDashboardStore,
+                onClose: { windowState.dismissOverlay() }
+            )
+            .overlay(alignment: .topTrailing) { panelDismissButton }
         default:
             EmptyView()
         }
@@ -811,6 +747,9 @@ struct ActiveChatViewWrapper: View {
             onRehydrateMessage: { messageId in
                 viewModel.rehydrateMessage(id: messageId)
             },
+            onSurfaceRefetch: { surfaceId, sessionId in
+                viewModel.refetchStrippedSurface(surfaceId: surfaceId, sessionId: sessionId)
+            },
             subagentDetailStore: viewModel.subagentDetailStore,
             resolveHttpPort: daemonClient.httpPortResolver,
             isHistoryLoaded: viewModel.isHistoryLoaded,
@@ -898,6 +837,8 @@ struct DynamicWorkspaceWrapper: View {
 
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
+    @State private var showShareDrawer = false
+    @State private var shareButtonFrame: CGRect = .zero
 
     /// Corner radius for the WKWebView clipping container — no rounding needed since the
     /// outer page container handles corner rounding.
@@ -940,15 +881,47 @@ struct DynamicWorkspaceWrapper: View {
                         }
                     }
 
-                    if sharing.isPublishing {
-                        ProgressView()
-                            .controlSize(.small)
-                            .frame(height: 28)
-                    } else if let url = sharing.publishedUrl {
+                    if let url = sharing.publishedUrl {
                         PublishedButton(url: url, copied: $publishUrlCopied)
-                    } else {
-                        VIconButton(label: "Publish", icon: "arrow.up.right", iconOnly: true, variant: .outlined, size: 28, tooltip: "Publish") {
-                            onPublishPage(data.html, data.preview?.title, data.appId)
+                    }
+
+                    ZStack {
+                        if let appId = data.appId {
+                            if sharing.isBundling || sharing.isPublishing {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .frame(height: 28)
+                            } else {
+                                VIconButton(label: "Share", icon: "square.and.arrow.up", iconOnly: true, variant: .outlined, size: 28, tooltip: "Share") {
+                                    showShareDrawer.toggle()
+                                }
+                                .background(GeometryReader { proxy in
+                                    Color.clear.onChange(of: showShareDrawer) { _, _ in
+                                        shareButtonFrame = proxy.frame(in: .named("appPageContainer"))
+                                    }
+                                    .onAppear { shareButtonFrame = proxy.frame(in: .named("appPageContainer")) }
+                                })
+                                .overlay {
+                                    AppSharePanel(
+                                        items: sharing.shareFileURL != nil ? [sharing.shareFileURL!] : [],
+                                        isPresented: Binding(
+                                            get: { sharing.showSharePicker },
+                                            set: { sharing.showSharePicker = $0 }
+                                        ),
+                                        appName: sharing.shareAppName,
+                                        appIcon: sharing.shareAppIcon
+                                    )
+                                    .allowsHitTesting(false)
+                                }
+                            }
+                        } else if sharing.isPublishing {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(height: 28)
+                        } else if sharing.publishedUrl == nil {
+                            VIconButton(label: "Publish", icon: "arrow.up.right", iconOnly: true, variant: .outlined, size: 28, tooltip: "Publish to Vercel") {
+                                onPublishPage(data.html, data.preview?.title, data.appId)
+                            }
                         }
                     }
 
@@ -1044,6 +1017,35 @@ struct DynamicWorkspaceWrapper: View {
                 }
             }
         }
+        .coordinateSpace(name: "appPageContainer")
+        .overlay(alignment: .topLeading) {
+            if showShareDrawer {
+                // Dismiss backdrop
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { showShareDrawer = false }
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if showShareDrawer, let appId = data.appId {
+                ShareDrawer(
+                    onShare: {
+                        showShareDrawer = false
+                        onBundleAndShare(appId)
+                    },
+                    onPublish: {
+                        showShareDrawer = false
+                        onPublishPage(data.html, data.preview?.title, data.appId)
+                    }
+                )
+                .offset(
+                    x: shareButtonFrame.maxX - 180,
+                    y: shareButtonFrame.maxY + VSpacing.xs
+                )
+                .zIndex(10)
+                .transition(.opacity)
+            }
+        }
     }
 }
 
@@ -1099,6 +1101,64 @@ private struct PublishedButton: View {
                 .stroke(VColor.buttonSecondaryBorder, lineWidth: 1)
         )
         .controlSize(.small)
+    }
+}
+
+// MARK: - Share Drawer
+
+/// Popover menu with "Share" and "Publish to Vercel" options.
+/// Styled to match ThreadSwitcherDrawer / DrawerMenuView.
+private struct ShareDrawer: View {
+    let onShare: () -> Void
+    let onPublish: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ShareDrawerRow(icon: "square.and.arrow.up", label: "Share", action: onShare)
+            VColor.surfaceBorder.frame(height: 1)
+                .padding(.horizontal, VSpacing.xs)
+            ShareDrawerRow(icon: "arrow.up.right", label: "Publish to Vercel", action: onPublish)
+        }
+        .padding(.vertical, VSpacing.xs)
+        .frame(width: 180)
+        .background(VColor.surfaceSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+    }
+}
+
+private struct ShareDrawerRow: View {
+    let icon: String
+    let label: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(isHovered ? VColor.textPrimary : VColor.textSecondary)
+                    .frame(width: 18)
+                Text(label)
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .background(isHovered ? VColor.navHover : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
     }
 }
 
@@ -1176,7 +1236,7 @@ private struct AppLoadingView: View {
 struct MainWindowView_Previews: PreviewProvider {
     static var previews: some View {
         let dc = DaemonClient()
-        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager(), voiceModeManager: VoiceModeManager())
+        MainWindowView(threadManager: ThreadManager(daemonClient: dc), appListManager: AppListManager(), zoomManager: ZoomManager(), conversationZoomManager: ConversationZoomManager(), traceStore: TraceStore(), usageDashboardStore: UsageDashboardStore(client: dc), daemonClient: dc, surfaceManager: SurfaceManager(), ambientAgent: AmbientAgent(), settingsStore: SettingsStore(daemonClient: dc), authManager: AuthManager(), windowState: MainWindowState(), documentManager: DocumentManager(), voiceModeManager: VoiceModeManager())
             .frame(width: 900, height: 600)
             .padding(.top, 36)
     }

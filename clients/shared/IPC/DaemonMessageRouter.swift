@@ -139,6 +139,8 @@ extension DaemonClient {
             onHistoryResponse?(msg)
         case .messageContentResponse(let msg):
             onMessageContentResponse?(msg)
+        case .shareAppCloudResponse(let msg):
+            onShareAppCloudResponse?(msg)
         case .shareToSlackResponse(let msg):
             onShareToSlackResponse?(msg)
         case .slackWebhookConfigResponse(let msg):

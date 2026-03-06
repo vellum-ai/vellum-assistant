@@ -5,7 +5,7 @@ import VellumAssistantShared
 /// Displays a QR code containing the v4 connection payload for iOS pairing.
 ///
 /// v4 payload:
-/// `{"type":"vellum-daemon","v":4,"id":"<mac-hash>","g":"<gateway-url>","pairingRequestId":"<uuid>","pairingSecret":"<32-byte-hex>","localLanUrl":"http://<lan-ip>:7830"}`
+/// `{"type":"vellum-daemon","v":4,"id":"<mac-hash>","g":"<gateway-url>","pairingRequestId":"<uuid>","pairingSecret":"<32-byte-hex>","localLanUrl":"http://<lan-ip>:<gateway-port>"}`
 ///
 /// Key differences from v3:
 /// - No bearer token in QR code (secured by pairing secret + Mac approval)
@@ -180,13 +180,9 @@ struct PairingQRCodeSheet: View {
 
     // MARK: - Registration
 
-    /// Resolve the local gateway base URL. Prefers `GATEWAY_PORT` env var,
-    /// falls back to the default gateway port 7830.
+    /// Resolve the local gateway base URL: env var > lockfile > default 7830.
     private var resolvedGatewayBaseUrl: String {
-        let envPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-            ?? getenv("GATEWAY_PORT").flatMap({ String(cString: $0) })
-        let port = envPort.flatMap(Int.init) ?? 7830
-        return "http://127.0.0.1:\(port)"
+        "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
     }
 
     private func registerWithDaemon() {
@@ -283,7 +279,7 @@ struct PairingQRCodeSheet: View {
 
     private func computeLocalLanUrl() -> String? {
         guard let lanIP = LANIPHelper.currentLANAddress() else { return nil }
-        return "http://\(lanIP):7830"
+        return "http://\(lanIP):\(LockfilePaths.resolveGatewayPort())"
     }
 
     // MARK: - QR Generation

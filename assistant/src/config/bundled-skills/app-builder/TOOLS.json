@@ -326,6 +326,32 @@
       },
       "executor": "tools/app-file-write.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "app_generate_icon",
+      "description": "Generate or regenerate an AI-designed icon for an app. Uses Gemini to create a professional app icon. Call this when the user wants a new or different icon for their app.",
+      "category": "apps",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "app_id": {
+            "type": "string",
+            "description": "The ID of the app to generate an icon for"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description to guide icon generation (e.g. 'a blue calendar with a checkmark'). If omitted, the app name and description are used."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["app_id"]
+      },
+      "executor": "tools/app-generate-icon.ts",
+      "execution_target": "host"
     }
   ]
 }

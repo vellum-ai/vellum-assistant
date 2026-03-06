@@ -226,6 +226,9 @@ struct ChatContentView: View {
                 },
                 onGuardianAction: { requestId, action in
                     viewModel.submitGuardianDecision(requestId: requestId, action: action)
+                },
+                onSurfaceRefetch: { surfaceId, sessionId in
+                    viewModel.refetchStrippedSurface(surfaceId: surfaceId, sessionId: sessionId)
                 }
             )
             .id(message.id)

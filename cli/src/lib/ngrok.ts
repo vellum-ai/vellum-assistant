@@ -1,7 +1,30 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
-import { loadRawConfig, saveRawConfig } from "./config";
 import { GATEWAY_PORT } from "./constants";
+
+function getConfigPath(): string {
+  const root = join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum");
+  return join(root, "workspace", "config.json");
+}
+
+function loadRawConfig(): Record<string, unknown> {
+  const configPath = getConfigPath();
+  if (!existsSync(configPath)) return {};
+  return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+    string,
+    unknown
+  >;
+}
+
+function saveRawConfig(config: Record<string, unknown>): void {
+  const configPath = getConfigPath();
+  const dir = dirname(configPath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+}
 
 const NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels";
 const NGROK_POLL_INTERVAL_MS = 500;

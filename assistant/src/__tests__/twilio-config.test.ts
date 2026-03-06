@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // ── Mocks (must come before source imports) ──────────────────────────
 
 let mockSecureKeys: Record<string, string | null> = {};
-let mockPhoneNumberEnv: string | undefined;
 let mockLoadConfigResult: Record<string, unknown> = {};
 
 mock.module("../util/logger.js", () => ({
@@ -15,11 +14,6 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (key: string) => mockSecureKeys[key] ?? null,
-}));
-
-mock.module("../config/env.js", () => ({
-  isHttpAuthDisabled: () => true,
-  getTwilioPhoneNumberEnv: () => mockPhoneNumberEnv,
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -36,12 +30,13 @@ import { getTwilioConfig } from "../calls/twilio-config.js";
 describe("twilio-config", () => {
   beforeEach(() => {
     mockSecureKeys = {
-      "credential:twilio:account_sid": "AC_test_sid",
       "credential:twilio:auth_token": "test_auth_token",
     };
-    mockPhoneNumberEnv = undefined;
     mockLoadConfigResult = {
-      sms: { phoneNumber: "+15551234567" },
+      twilio: {
+        accountSid: "AC_test_sid",
+        phoneNumber: "+15551234567",
+      },
     };
   });
 
@@ -55,7 +50,9 @@ describe("twilio-config", () => {
   });
 
   test("throws ConfigError when account SID is missing", () => {
-    mockSecureKeys["credential:twilio:account_sid"] = null;
+    mockLoadConfigResult = {
+      twilio: { accountSid: "", phoneNumber: "+15551234567" },
+    };
     expect(() => getTwilioConfig()).toThrow(
       /Twilio credentials not configured/,
     );
@@ -69,36 +66,18 @@ describe("twilio-config", () => {
   });
 
   test("throws ConfigError when phone number is missing", () => {
-    mockLoadConfigResult = { sms: {} };
-    mockPhoneNumberEnv = undefined;
-    mockSecureKeys["credential:twilio:phone_number"] = null;
+    mockLoadConfigResult = {
+      twilio: { accountSid: "AC_test_sid", phoneNumber: "" },
+    };
     expect(() => getTwilioConfig()).toThrow(
       /Twilio phone number not configured/,
     );
   });
 
-  test("prefers TWILIO_PHONE_NUMBER env var over config phone number", () => {
-    mockPhoneNumberEnv = "+15559999999";
-    const config = getTwilioConfig();
-    expect(config.phoneNumber).toBe("+15559999999");
-  });
-
-  test("falls back to secure key for phone number", () => {
-    mockLoadConfigResult = { sms: {} };
-    mockPhoneNumberEnv = undefined;
-    mockSecureKeys["credential:twilio:phone_number"] = "+15558888888";
-    const config = getTwilioConfig();
-    expect(config.phoneNumber).toBe("+15558888888");
-  });
-
-  test("returns global phone number when assistantPhoneNumbers mapping exists", () => {
-    mockLoadConfigResult = {
-      sms: {
-        phoneNumber: "+15551234567",
-        assistantPhoneNumbers: { "ast-1": "+15557777777" },
-      },
-    };
-    const config = getTwilioConfig();
-    expect(config.phoneNumber).toBe("+15551234567");
+  test("throws ConfigError when twilio config section is absent", () => {
+    mockLoadConfigResult = {};
+    expect(() => getTwilioConfig()).toThrow(
+      /Twilio credentials not configured/,
+    );
   });
 });

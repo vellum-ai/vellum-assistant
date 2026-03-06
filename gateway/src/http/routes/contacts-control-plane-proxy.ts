@@ -110,25 +110,35 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       return proxyToRuntime(req, `/v1/contacts/${contactId}`, "");
     },
 
+    async handleDeleteContact(
+      req: Request,
+      contactId: string,
+    ): Promise<Response> {
+      return proxyToRuntime(req, `/v1/contacts/${contactId}`, "");
+    },
+
     async handleMergeContacts(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/contacts/merge", "");
     },
 
     async handleUpdateContactChannel(
       req: Request,
-      channelId: string,
+      contactChannelId: string,
     ): Promise<Response> {
-      return proxyToRuntime(req, `/v1/contacts/channels/${channelId}`, "");
+      return proxyToRuntime(
+        req,
+        `/v1/contact-channels/${contactChannelId}`,
+        "",
+      );
     },
 
     async handleVerifyContactChannel(
       req: Request,
-      contactId: string,
-      channelId: string,
+      contactChannelId: string,
     ): Promise<Response> {
       return proxyToRuntime(
         req,
-        `/v1/contacts/${contactId}/channels/${channelId}/verify`,
+        `/v1/contact-channels/${contactChannelId}/verify`,
         "",
       );
     },

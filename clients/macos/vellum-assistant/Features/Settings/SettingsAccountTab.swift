@@ -26,6 +26,10 @@ struct SettingsAccountTab: View {
     @State private var isHatchFlagEnabled: Bool = true
     @State private var isLoadingHatchFlag: Bool = false
 
+    // -- Wake/sleep toggle state --
+    @State private var awakeStates: [String: Bool] = [:]
+    @State private var transitioningStates: Set<String> = []
+
     /// Whether the hatch new assistant feature flag is enabled.
     /// Defaults to `true` until the gateway responds. Once the gateway response
     /// arrives, this reflects the value of `feature_flags.hatch-new-assistant.enabled`.
@@ -47,6 +51,7 @@ struct SettingsAccountTab: View {
             platformUrlText = store.platformBaseUrl
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            refreshAwakeStates()
             identity = IdentityInfo.load()
             if identity == nil,
                let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
@@ -261,7 +266,7 @@ struct SettingsAccountTab: View {
     private var switchAssistantSection: some View {
         if lockfileAssistants.count > 1 {
             VStack(alignment: .leading, spacing: VSpacing.md) {
-                Text("Switch Assistant")
+                Text("Assistants")
                     .font(VFont.sectionTitle)
                     .foregroundColor(VColor.textPrimary)
 
@@ -276,26 +281,108 @@ struct SettingsAccountTab: View {
                                 .foregroundColor(VColor.textMuted)
                         }
                         Spacer()
+                        if transitioningStates.contains(assistant.assistantId) {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
                         VToggle(isOn: Binding(
-                            get: { assistant.assistantId == selectedAssistantId },
+                            get: { awakeStates[assistant.assistantId] ?? false },
                             set: { isOn in
-                                if isOn { switchToAssistant(assistant) }
+                                toggleAwakeState(assistant: assistant, awake: isOn)
                             }
                         ))
+                        .disabled(toggleDisabled(for: assistant))
                     }
                     .padding(.vertical, VSpacing.xs)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if assistant.assistantId != selectedAssistantId {
-                            switchToAssistant(assistant)
+                }
+
+                Divider().background(VColor.surfaceBorder)
+
+                HStack {
+                    Text("Active")
+                        .font(VFont.inputLabel)
+                        .foregroundColor(VColor.textSecondary)
+                    Spacer()
+                    Picker("", selection: $selectedAssistantId) {
+                        ForEach(awakeAssistants, id: \.assistantId) { assistant in
+                            Text(assistant.assistantId).tag(assistant.assistantId)
                         }
                     }
+                    .labelsHidden()
+                    .frame(maxWidth: 200)
                 }
             }
             .padding(VSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
             .vCard(background: VColor.surfaceSubtle)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .onChange(of: selectedAssistantId) { oldValue, newValue in
+                // Skip if reverting to current or unchanged
+                let currentId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                guard newValue != currentId, newValue != oldValue else { return }
+                guard let assistant = lockfileAssistants.first(where: { $0.assistantId == newValue }) else { return }
+                // Only switch if the selected assistant is awake
+                guard awakeStates[assistant.assistantId] == true else {
+                    selectedAssistantId = currentId
+                    return
+                }
+                switchToAssistant(assistant)
+            }
+        }
+    }
+
+    private var awakeAssistants: [LockfileAssistant] {
+        lockfileAssistants.filter { awakeStates[$0.assistantId] ?? false }
+    }
+
+    private func toggleDisabled(for assistant: LockfileAssistant) -> Bool {
+        // Remote assistants are always awake — can't toggle
+        if assistant.isRemote { return true }
+        // Mid-transition — prevent double-toggle
+        if transitioningStates.contains(assistant.assistantId) { return true }
+        return false
+    }
+
+    private func refreshAwakeStates() {
+        for assistant in lockfileAssistants {
+            if assistant.isRemote {
+                awakeStates[assistant.assistantId] = true
+            } else {
+                let env: [String: String]? = assistant.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                awakeStates[assistant.assistantId] = DaemonClient.isDaemonProcessAlive(environment: env)
+            }
+        }
+    }
+
+    private func toggleAwakeState(assistant: LockfileAssistant, awake: Bool) {
+        guard !assistant.isRemote else { return }
+        guard let cli = AppDelegate.shared?.assistantCli else { return }
+
+        transitioningStates.insert(assistant.assistantId)
+        Task {
+            do {
+                if awake {
+                    try await cli.wake(name: assistant.assistantId)
+                } else {
+                    try await cli.sleep(name: assistant.assistantId)
+                }
+                awakeStates[assistant.assistantId] = awake
+                // If we just slept the active assistant, auto-switch to
+                // another awake one so the app stays connected.
+                if !awake && assistant.assistantId == selectedAssistantId {
+                    if let next = lockfileAssistants.first(where: {
+                        $0.assistantId != assistant.assistantId && (awakeStates[$0.assistantId] ?? false)
+                    }) {
+                        switchToAssistant(next)
+                        selectedAssistantId = next.assistantId
+                    }
+                }
+            } catch {
+                // On failure, re-check actual state
+                let env: [String: String]? = assistant.instanceDir.map { ["BASE_DATA_DIR": $0] }
+                awakeStates[assistant.assistantId] = DaemonClient.isDaemonProcessAlive(environment: env)
+            }
+            transitioningStates.remove(assistant.assistantId)
         }
     }
 
