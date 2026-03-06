@@ -305,6 +305,7 @@ public final class AuthService {
 
     /// Ensure a self-hosted local assistant registration exists on the platform.
     public func ensureSelfHostedLocalRegistration(
+        organizationId: String,
         clientInstallationId: String,
         runtimeAssistantId: String,
         clientPlatform: String
@@ -318,6 +319,7 @@ public final class AuthService {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
         if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
@@ -364,6 +366,7 @@ public final class AuthService {
 
     /// Reprovision (rotate) the API key for a self-hosted local assistant.
     public func reprovisionSelfHostedLocalAssistantApiKey(
+        organizationId: String,
         clientInstallationId: String,
         runtimeAssistantId: String,
         clientPlatform: String
@@ -377,6 +380,7 @@ public final class AuthService {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
 
         if let token = await SessionTokenManager.getTokenAsync() {
             urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
