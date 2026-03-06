@@ -41,14 +41,16 @@ The user's assistant gets its own personal phone number through Twilio. All impl
 Check whether Twilio credentials, phone number, and public ingress are already configured:
 
 ```bash
-assistant integrations twilio config --json
+assistant config get twilio.accountSid
+assistant credentials inspect twilio:auth_token --json  # check "hasSecret" field
+assistant config get twilio.phoneNumber
 ```
 
 ```bash
 assistant config get calls.enabled
 ```
 
-If `hasCredentials` is `true`, `phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Outbound Calls** section.
+If `twilio.accountSid` has a value, `hasSecret` is `true`, `twilio.phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Outbound Calls** section.
 
 If Twilio is not yet configured, load the **twilio-setup** skill — it handles credential storage, phone number provisioning, and public ingress setup:
 
@@ -137,37 +139,33 @@ voice_config_update setting="tts_voice_id" value="<selected-voice-id>"
 
 Before making real calls, offer a quick verification:
 
-1. Confirm credentials are stored: run `assistant integrations twilio config --json` and verify `hasCredentials: true` plus `phoneNumber`
-2. Confirm ingress is running: `ingress.publicBaseUrl` must be set and the tunnel active
-3. Confirm calls are enabled: `calls.enabled` must be `true`
-4. Confirm voice is configured: `elevenlabs.voiceId` should be set
+1. Confirm credentials are stored: `assistant config get twilio.accountSid` should return a value and `assistant credentials inspect twilio:auth_token --json` should show `hasSecret: true`
+2. Confirm phone number is assigned: `assistant config get twilio.phoneNumber` should return a number
+3. Confirm ingress is running: `ingress.publicBaseUrl` must be set and the tunnel active
+4. Confirm calls are enabled: `calls.enabled` must be `true`
+5. Confirm voice is configured: `elevenlabs.voiceId` should be set
 
 Suggest a test call to the user's own phone: **"Want to do a quick test call to your phone to make sure everything works? This is a good way to hear how your chosen voice sounds."**
 
 If they agree, ask for their personal phone number and place a test call with a simple task like "Introduce yourself and confirm the call system is working."
 
-## Step 5: Verify Guardian Identity (Voice)
+## Step 5: Guardian Verification (Optional)
 
-Now link the user's phone number as the trusted voice guardian. Tell the user: "Now let's verify your guardian identity for voice. This links your phone number so the assistant can verify inbound callers."
+Link the user's phone number as the trusted voice guardian so the assistant can verify inbound callers.
 
-Load the **guardian-verify-setup** skill to handle the verification flow:
+Load the guardian-verify-setup skill with `channel: "voice"`:
 
-- Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
+```
+skill_load skill=guardian-verify-setup
+```
 
-When invoking the skill, indicate the channel is `voice`. The guardian-verify-setup skill manages the full outbound verification flow, including:
+The skill handles the full verification flow (outbound call, code entry, confirmation). If the user declines, skip this step.
 
-- Collecting the user's phone number as the destination
-- Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/outbound/start` with `channel: "voice"`
-- Calling the phone number and providing a code for the user to enter via their phone's keypad
-- Proactively polling for completion (voice auto-check) so the user gets instant confirmation
-- Checking guardian status to confirm the binding was created
-- Handling resend, cancel, and error cases
+To re-check guardian status later:
 
-Tell the user: _"I've loaded the guardian verification guide. It will walk you through linking your phone number as the trusted voice guardian."_
-
-After the guardian-verify-setup skill completes (or the user skips), continue to the next sections.
-
-**Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed without blocking. Once verified, inbound callers can be prompted for voice verification before calls proceed (see the **Guardian voice verification for inbound calls** section below).
+```bash
+assistant integrations guardian status --channel voice --json
+```
 
 ## Caller Identity
 
@@ -179,18 +177,18 @@ If the user wants a specific call to appear as coming from their own phone numbe
 
 **To configure a user phone number:**
 
-```
-credential_store action=store service=twilio field=user_phone_number value=+14155559999
+```bash
+assistant config set calls.callerIdentity.userNumber "+14155559999"
 ```
 
 **To use it for a specific call**, pass `caller_identity_mode: 'user_number'` when calling `call_start` — see the Making Outbound Calls section for examples. User-number mode cannot be set as a global default; it must be requested explicitly per call.
 
 ### Configuration reference
 
-| Setting                                     | Description                                                                                      | Default   |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------- |
-| `calls.callerIdentity.allowPerCallOverride` | Whether per-call mode selection is allowed                                                       | `true`    |
-| `calls.callerIdentity.userNumber`           | Optional E.164 phone number for user-number mode (alternative to storing via `credential_store`) | _(empty)_ |
+| Setting                                     | Description                                      | Default   |
+| ------------------------------------------- | ------------------------------------------------ | --------- |
+| `calls.callerIdentity.allowPerCallOverride` | Whether per-call mode selection is allowed       | `true`    |
+| `calls.callerIdentity.userNumber`           | Optional E.164 phone number for user-number mode | _(empty)_ |
 
 ## DTMF Callee Verification
 
@@ -236,21 +234,21 @@ Users who have an ElevenLabs account and API key (e.g., from the **voice-setup**
 To check if the user has an API key stored:
 
 ```bash
-credential_store action=get service=elevenlabs field=api_key
+assistant credentials inspect elevenlabs:api_key --json
 ```
 
 If they have a key and want to browse voices, fetch the voice list:
 
 ```bash
 curl -s "https://api.elevenlabs.io/v2/voices?category=premade&page_size=50" \
-  -H "xi-api-key: <api_key_from_credential_store>" | python3 -m json.tool
+  -H "xi-api-key: $(assistant credentials reveal elevenlabs:api_key)" | python3 -m json.tool
 ```
 
 To search for a specific voice style:
 
 ```bash
 curl -s "https://api.elevenlabs.io/v2/voices?search=warm+female&page_size=10" \
-  -H "xi-api-key: <api_key_from_credential_store>" | python3 -m json.tool
+  -H "xi-api-key: $(assistant credentials reveal elevenlabs:api_key)" | python3 -m json.tool
 ```
 
 After the user picks a voice, set the shared voice ID:
@@ -365,11 +363,7 @@ No additional configuration is needed beyond Twilio setup and `calls.enabled` be
 
 ### Guardian voice verification for inbound calls
 
-For guardian verification setup, load the skill by calling `skill_load` with `skill: "guardian-verify-setup"`. This skill handles the full outbound verification flow; `phone-calls` does not orchestrate it inline. Do not use `call_start` to place guardian verification calls — the guardian outbound verification endpoints already place those calls.
-
-Once a guardian binding exists for the voice channel, inbound callers may be prompted for verification before calls proceed. The relay server detects pending challenges and prompts callers: "Please enter your six-digit verification code using your keypad, or speak the digits now." If verification fails after 3 attempts, the call ends with "Verification failed. Goodbye."
-
-This feature is separate from the outbound DTMF callee verification. It uses the channel guardian verification system rather than the per-call verification config.
+To set up guardian verification, load the skill: `skill_load skill=guardian-verify-setup`. Once a guardian binding exists, inbound callers may be prompted for verification before calls proceed.
 
 ## Interacting with a Live Call
 
@@ -598,7 +592,7 @@ Run the **public-ingress** skill to set up ngrok and configure `ingress.publicBa
 ### Call connects but no audio / one-way audio
 
 - The ConversationRelay WebSocket may not be connecting. Check that `ingress.publicBaseUrl` is correct and the tunnel is active
-- Verify the gateway is running at `$GATEWAY_BASE_URL`
+- Verify the assistant runtime is running
 
 ### "Number not eligible for caller identity"
 
