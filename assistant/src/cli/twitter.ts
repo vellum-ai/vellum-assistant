@@ -1,5 +1,5 @@
 /**
- * CLI command group: `vellum twitter`
+ * CLI command group: `assistant twitter`
  *
  * Post tweets and manage Twitter sessions via the command line.
  * All commands output JSON to stdout. Use --json for machine-readable output.
@@ -58,7 +58,7 @@ function getJson(cmd: Command): boolean {
 
 const SESSION_EXPIRED_MSG =
   "Your Twitter session has expired. Please sign in to Twitter in Chrome — " +
-  "run `vellum twitter refresh` to capture your session automatically.";
+  "run `assistant twitter refresh` to capture your session automatically.";
 
 async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
   try {
@@ -142,11 +142,11 @@ Session management:
   - "logout" clears the saved browser session cookies
 
 Examples:
-  $ vellum x status
-  $ vellum x post "Hello world"
-  $ vellum x timeline elonmusk --count 10
-  $ vellum x search "from:vaborsh AI agents" --product Latest
-  $ vellum x strategy set oauth`,
+  $ assistant x status
+  $ assistant x post "Hello world"
+  $ assistant x timeline elonmusk --count 10
+  $ assistant x search "from:vaborsh AI agents" --product Latest
+  $ assistant x strategy set oauth`,
   );
 
   // =========================================================================
@@ -166,8 +166,8 @@ After import, all browser-path commands (timeline, search, bookmarks, etc.)
 will use these cookies for authentication.
 
 Examples:
-  $ vellum x login --recording /tmp/ride-shotgun/recording-abc123.json
-  $ vellum x login --recording ~/recordings/twitter-session.json`,
+  $ assistant x login --recording /tmp/ride-shotgun/recording-abc123.json
+  $ assistant x login --recording ~/recordings/twitter-session.json`,
     )
     .action(async (opts: { recording: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -193,7 +193,7 @@ will fail until a new session is imported via "login" or captured via "refresh".
 OAuth credentials are not affected.
 
 Examples:
-  $ vellum x logout`,
+  $ assistant x logout`,
     )
     .action((_opts: unknown, cmd: Command) => {
       clearSession();
@@ -224,9 +224,9 @@ cookies are imported automatically and Chrome is minimized.
 Requires the assistant to be running (Ride Shotgun runs via the assistant).
 
 Examples:
-  $ vellum x refresh
-  $ vellum x refresh --duration 120
-  $ vellum x refresh --duration 300`,
+  $ assistant x refresh
+  $ assistant x refresh --duration 120
+  $ assistant x refresh --duration 300`,
     )
     .action(async (opts: { duration: string }, cmd: Command) => {
       const json = getJson(cmd);
@@ -287,8 +287,8 @@ Shows the current state of both authentication paths:
 If the assistant is not running, OAuth fields will be reported as undefined.
 
 Examples:
-  $ vellum x status
-  $ vellum x status --json`,
+  $ assistant x status
+  $ assistant x status --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       const session = loadSession();
@@ -363,9 +363,9 @@ support both OAuth and browser session:
 Run without a subcommand to display the current strategy. Use "set" to change it.
 
 Examples:
-  $ vellum x strategy
-  $ vellum x strategy set oauth
-  $ vellum x strategy set auto`,
+  $ assistant x strategy
+  $ assistant x strategy set oauth
+  $ assistant x strategy set auto`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
@@ -399,9 +399,9 @@ routing. The setting is persisted by the assistant and applies to all subsequent
 operations until changed.
 
 Examples:
-  $ vellum x strategy set oauth
-  $ vellum x strategy set browser
-  $ vellum x strategy set auto`,
+  $ assistant x strategy set oauth
+  $ assistant x strategy set browser
+  $ assistant x strategy set auto`,
     )
     .action(async (value: string, _opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
@@ -446,8 +446,8 @@ browser) depends on the current strategy setting. The response includes the
 tweet ID, URL, and which path was used.
 
 Examples:
-  $ vellum x post "Hello world"
-  $ vellum x post "Check out this thread on AI agents" --json`,
+  $ assistant x post "Hello world"
+  $ assistant x post "Check out this thread on AI agents" --json`,
     )
     .action(async (text: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -480,8 +480,8 @@ numeric tweet ID. The tweet ID is extracted from the last numeric segment of the
 URL. Uses the routed dual-path system based on the current strategy.
 
 Examples:
-  $ vellum x reply https://x.com/elonmusk/status/1234567890 "Great point!"
-  $ vellum x reply 1234567890 "Interesting thread"`,
+  $ assistant x reply https://x.com/elonmusk/status/1234567890 "Great point!"
+  $ assistant x reply 1234567890 "Interesting thread"`,
     )
     .action(
       async (tweetUrl: string, text: string, _opts: unknown, cmd: Command) => {
@@ -523,9 +523,9 @@ to a user ID first, then retrieves their tweet timeline. The --count flag contro
 how many tweets to return (default: 20).
 
 Examples:
-  $ vellum x timeline elonmusk
-  $ vellum x timeline vaborsh --count 50
-  $ vellum x timeline openai --count 10 --json`,
+  $ assistant x timeline elonmusk
+  $ assistant x timeline vaborsh --count 50
+  $ assistant x timeline openai --count 10 --json`,
     )
     .action(
       async (screenName: string, opts: { count: string }, cmd: Command) => {
@@ -558,9 +558,9 @@ ID is extracted from the last numeric segment of the input. Returns an array of
 tweets representing the conversation thread.
 
 Examples:
-  $ vellum x tweet 1234567890
-  $ vellum x tweet https://x.com/elonmusk/status/1234567890
-  $ vellum x tweet https://x.com/openai/status/9876543210 --json`,
+  $ assistant x tweet 1234567890
+  $ assistant x tweet https://x.com/elonmusk/status/1234567890
+  $ assistant x tweet https://x.com/openai/status/9876543210 --json`,
     )
     .action(async (tweetIdOrUrl: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -595,9 +595,9 @@ The --product flag selects the search result type:
 Uses the browser session path. Requires an active browser session.
 
 Examples:
-  $ vellum x search "AI agents"
-  $ vellum x search "from:elonmusk SpaceX" --product Latest
-  $ vellum x search "machine learning" --product Media --json`,
+  $ assistant x search "AI agents"
+  $ assistant x search "from:elonmusk SpaceX" --product Latest
+  $ assistant x search "machine learning" --product Media --json`,
     )
     .action(async (query: string, opts: { product: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -625,9 +625,9 @@ Requires an active browser session. Bookmarks are private and only available
 for the logged-in account.
 
 Examples:
-  $ vellum x bookmarks
-  $ vellum x bookmarks --count 50
-  $ vellum x bookmarks --json`,
+  $ assistant x bookmarks
+  $ assistant x bookmarks --count 50
+  $ assistant x bookmarks --json`,
     )
     .action(async (opts: { count: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -651,9 +651,9 @@ browser session. The --count flag controls how many tweets to return (default: 2
 Requires an active browser session.
 
 Examples:
-  $ vellum x home
-  $ vellum x home --count 50
-  $ vellum x home --json`,
+  $ assistant x home
+  $ assistant x home --count 50
+  $ assistant x home --json`,
     )
     .action(async (opts: { count: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -678,9 +678,9 @@ how many notifications to return (default: 20).
 Requires an active browser session.
 
 Examples:
-  $ vellum x notifications
-  $ vellum x notifications --count 50
-  $ vellum x notifications --json`,
+  $ assistant x notifications
+  $ assistant x notifications --count 50
+  $ assistant x notifications --json`,
     )
     .action(async (opts: { count: string }, cmd: Command) => {
       await run(cmd, async () => {
@@ -707,9 +707,9 @@ screen name to a user ID first. The --count flag controls how many liked tweets
 to return (default: 20).
 
 Examples:
-  $ vellum x likes elonmusk
-  $ vellum x likes vaborsh --count 50
-  $ vellum x likes openai --json`,
+  $ assistant x likes elonmusk
+  $ assistant x likes vaborsh --count 50
+  $ assistant x likes openai --json`,
     )
     .action(
       async (screenName: string, opts: { count: string }, cmd: Command) => {
@@ -737,8 +737,8 @@ Fetches the list of accounts following the specified user via the browser sessio
 Resolves the screen name to a user ID first.
 
 Examples:
-  $ vellum x followers elonmusk
-  $ vellum x followers vaborsh --json`,
+  $ assistant x followers elonmusk
+  $ assistant x followers vaborsh --json`,
     )
     .action(async (screenName: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
@@ -767,9 +767,9 @@ Resolves the screen name to a user ID first. The --count flag controls how many
 results to return (default: 20).
 
 Examples:
-  $ vellum x following elonmusk
-  $ vellum x following vaborsh --count 100
-  $ vellum x following openai --json`,
+  $ assistant x following elonmusk
+  $ assistant x following vaborsh --count 100
+  $ assistant x following openai --json`,
     )
     .action(
       async (screenName: string, opts: { count: string }, cmd: Command) => {
@@ -802,9 +802,9 @@ session. Resolves the screen name to a user ID first. The --count flag controls
 how many media tweets to return (default: 20).
 
 Examples:
-  $ vellum x media elonmusk
-  $ vellum x media nasa --count 50
-  $ vellum x media openai --json`,
+  $ assistant x media elonmusk
+  $ assistant x media nasa --count 50
+  $ assistant x media openai --json`,
     )
     .action(
       async (screenName: string, opts: { count: string }, cmd: Command) => {

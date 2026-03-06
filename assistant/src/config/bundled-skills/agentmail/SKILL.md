@@ -10,7 +10,7 @@ metadata: {"vellum": {"emoji": "📬"}}
 `vellum` is your own CLI binary — it is already installed and available on the PATH.
 Run all commands via `bash`. Do NOT attempt to install, build, or locate the CLI — just execute it directly.
 
-Example: `bash("vellum email status --json")`
+Example: `bash("assistant email status --json")`
 
 Never use browser/computer-use unless user explicitly approves fallback.
 
@@ -20,8 +20,8 @@ This skill manages the **assistant's own** AgentMail address (`@agentmail.to`) �
 
 ## Rules
 
-- Always run `vellum email` commands via `bash` and parse JSON output.
-- Always do `vellum email status --json` preflight first.
+- Always run `assistant email` commands via `bash` and parse JSON output.
+- Always do `assistant email status --json` preflight first.
 - Prefer `draft create` before any send — never bypass draft flow.
 - Require explicit user confirmation before `draft approve-send --confirm`.
 - When uncertain, draft to ops@ inbox and notify user.
@@ -29,7 +29,7 @@ This skill manages the **assistant's own** AgentMail address (`@agentmail.to`) �
 
 ## API Key Setup
 
-If `vellum email status --json` returns an error about a missing API key, prompt the user for their AgentMail API key using the secure credential prompt. **Never ask the user to paste the key in chat.**
+If `assistant email status --json` returns an error about a missing API key, prompt the user for their AgentMail API key using the secure credential prompt. **Never ask the user to paste the key in chat.**
 
 Use `credential_store` with:
 - action: `prompt`
@@ -41,14 +41,14 @@ Use `credential_store` with:
 - allowed_tools: `["bash"]`
 - usage_description: `AgentMail email operations via vellum CLI`
 
-After the credential is stored, retry `vellum email status --json` to confirm it works.
+After the credential is stored, retry `assistant email status --json` to confirm it works.
 
 ## Workflow
 
-1. **Preflight:** `vellum email status --json` (if API key error, run API Key Setup above)
-2. **Quick inbox:** `vellum email inbox create --username <name>` (creates e.g. sam@agentmail.to — no custom domain needed)
+1. **Preflight:** `assistant email status --json` (if API key error, run API Key Setup above)
+2. **Quick inbox:** `assistant email inbox create --username <name>` (creates e.g. sam@agentmail.to — no custom domain needed)
 3. **Custom domain setup (optional):** domain -> dns -> verify -> inboxes -> webhook
-4. **Draft path:** `vellum email draft create ...` — always draft first
+4. **Draft path:** `assistant email draft create ...` — always draft first
 5. **Send path:** show draft -> user confirms -> `draft approve-send --draft-id <id> --confirm`
 6. **Inbound triage:** list -> get -> summarize -> propose reply draft
 7. **Guardrails:** check with `guardrails get`, use `guardrails set` to change
@@ -58,67 +58,67 @@ After the credential is stored, retry `vellum email status --json` to confirm it
 ### Provider
 
 ```
-vellum email provider get [--json]                         # Show active provider
-vellum email provider set <provider> [--json]               # Switch provider
+assistant email provider get [--json]                         # Show active provider
+assistant email provider set <provider> [--json]               # Switch provider
 ```
 
 ### Status
 
 ```
-vellum email status [--json]                               # Provider health + guardrails
+assistant email status [--json]                               # Provider health + guardrails
 ```
 
 ### Inbox Management
 
 ```
-vellum email inbox create --username <name> [--domain <d>] [--display-name <n>] [--json]   # Create a new inbox (e.g. --username sam)
-vellum email inbox list [--json]                                                            # List all inboxes
+assistant email inbox create --username <name> [--domain <d>] [--display-name <n>] [--json]   # Create a new inbox (e.g. --username sam)
+assistant email inbox list [--json]                                                            # List all inboxes
 ```
 
 ### Setup
 
 ```
-vellum email setup domain --domain <d> [--dry-run] [--json]
-vellum email setup dns --domain <d> [--json]
-vellum email setup verify --domain <d> [--json]
-vellum email setup inboxes --domain <d> [--json]                                            # Creates standard hello@/support@/ops@ inboxes
-vellum email setup webhook --url <u> [--secret <s>] [--json]
+assistant email setup domain --domain <d> [--dry-run] [--json]
+assistant email setup dns --domain <d> [--json]
+assistant email setup verify --domain <d> [--json]
+assistant email setup inboxes --domain <d> [--json]                                            # Creates standard hello@/support@/ops@ inboxes
+assistant email setup webhook --url <u> [--secret <s>] [--json]
 ```
 
 ### Drafts
 
 ```
-vellum email draft create --from <addr> --to <addr> --subject <s> --body <b> [--cc <addr>] [--in-reply-to <msg-id>] [--json]
-vellum email draft list [--status pending|approved|sent|rejected] [--json]
-vellum email draft get <draft-id> [--json]
-vellum email draft approve-send --draft-id <id> --confirm [--json]
-vellum email draft reject --draft-id <id> [--reason <text>] [--json]
-vellum email draft delete <draft-id> [--json]
+assistant email draft create --from <addr> --to <addr> --subject <s> --body <b> [--cc <addr>] [--in-reply-to <msg-id>] [--json]
+assistant email draft list [--status pending|approved|sent|rejected] [--json]
+assistant email draft get <draft-id> [--json]
+assistant email draft approve-send --draft-id <id> --confirm [--json]
+assistant email draft reject --draft-id <id> [--reason <text>] [--json]
+assistant email draft delete <draft-id> [--json]
 ```
 
 ### Inbound
 
 ```
-vellum email inbound list [--thread-id <id>] [--json]
-vellum email inbound get <message-id> [--json]
+assistant email inbound list [--thread-id <id>] [--json]
+assistant email inbound get <message-id> [--json]
 ```
 
 ### Threads
 
 ```
-vellum email thread list [--json]
-vellum email thread get <thread-id> [--json]
+assistant email thread list [--json]
+assistant email thread get <thread-id> [--json]
 ```
 
 ### Guardrails
 
 ```
-vellum email guardrails get [--json]
-vellum email guardrails set --paused <true|false> --daily-cap <n> [--json]
-vellum email guardrails block <pattern> [--json]
-vellum email guardrails allow <pattern> [--json]
-vellum email guardrails rules [--json]
-vellum email guardrails unrule <rule-id> [--json]
+assistant email guardrails get [--json]
+assistant email guardrails set --paused <true|false> --daily-cap <n> [--json]
+assistant email guardrails block <pattern> [--json]
+assistant email guardrails allow <pattern> [--json]
+assistant email guardrails rules [--json]
+assistant email guardrails unrule <rule-id> [--json]
 ```
 
 ## Output Format

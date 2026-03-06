@@ -225,13 +225,13 @@ To switch modes:
 
 ```bash
 # Workspace mode (default) — workspace-scoped ops auto-allowed, others follow risk-based policy
-vellum config set permissions.mode '"workspace"'
+assistant config set permissions.mode '"workspace"'
 
 # Strict — ALL tools require an explicit trust rule, no implicit auto-allow
-vellum config set permissions.mode '"strict"'
+assistant config set permissions.mode '"strict"'
 
 # Legacy — low-risk tools auto-allowed, medium/high prompted (deprecated)
-vellum config set permissions.mode '"legacy"'
+assistant config set permissions.mode '"legacy"'
 ```
 
 > **Note:** Legacy mode is deprecated. If your config uses `permissions.mode: "legacy"`, switch to `workspace` or `strict`. A runtime warning is emitted on first use.

@@ -12,7 +12,7 @@ You are helping your user set up SMS messaging. This skill orchestrates Twilio s
 First, check the current SMS channel readiness state via Vellum CLI:
 
 ```bash
-vellum integrations twilio config --json
+assistant integrations twilio config --json
 ```
 
 Inspect the response for `hasCredentials` and `phoneNumber`.
@@ -33,7 +33,7 @@ Tell the user: _"SMS needs Twilio configured first. I've loaded the Twilio setup
 After twilio-setup completes, re-check readiness:
 
 ```bash
-vellum integrations twilio config --json
+assistant integrations twilio config --json
 ```
 
 If baseline is still not ready, report the specific failures and ask the user to address them before continuing.
@@ -43,7 +43,7 @@ If baseline is still not ready, report the specific failures and ask the user to
 Once baseline is ready, check SMS compliance status including remote (Twilio API) checks:
 
 ```bash
-vellum integrations twilio sms compliance --json
+assistant integrations twilio sms compliance --json
 ```
 
 Examine the compliance results:

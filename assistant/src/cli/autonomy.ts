@@ -203,9 +203,9 @@ Config is stored in <data-dir>/.vellum/workspace/autonomy.json, where
 <data-dir> is the BASE_DATA_DIR environment variable (defaults to $HOME).
 
 Examples:
-  $ vellum autonomy get
-  $ vellum autonomy set --default draft
-  $ vellum autonomy set --channel telegram --tier auto`,
+  $ assistant autonomy get
+  $ assistant autonomy set --default draft
+  $ assistant autonomy set --channel telegram --tier auto`,
   );
 
   autonomy
@@ -222,8 +222,8 @@ Pass --json (on the parent command) for machine-readable output containing
 the complete config object.
 
 Examples:
-  $ vellum autonomy get
-  $ vellum autonomy --json get`,
+  $ assistant autonomy get
+  $ assistant autonomy --json get`,
     )
     .action((_opts: Record<string, unknown>, cmd: Command) => {
       const json = getJson(cmd);
@@ -264,10 +264,10 @@ For example, setting a channel default leaves all other channel defaults,
 category overrides, and contact overrides intact.
 
 Examples:
-  $ vellum autonomy set --default draft
-  $ vellum autonomy set --channel telegram --tier auto
-  $ vellum autonomy set --category billing --tier notify
-  $ vellum autonomy set --contact c_8f3a1b2d --tier draft`,
+  $ assistant autonomy set --default draft
+  $ assistant autonomy set --channel telegram --tier auto
+  $ assistant autonomy set --category billing --tier notify
+  $ assistant autonomy set --contact c_8f3a1b2d --tier draft`,
     )
     .action(
       (

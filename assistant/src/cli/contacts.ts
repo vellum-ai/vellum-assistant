@@ -34,10 +34,10 @@ Telegram IDs, email addresses — via channel memberships. The contact graph
 is the source of truth for identity resolution across all channels.
 
 Examples:
-  $ vellum contacts list
-  $ vellum contacts get abc-123
-  $ vellum contacts merge keep-id merge-id
-  $ vellum contacts invites list`,
+  $ assistant contacts list
+  $ assistant contacts get abc-123
+  $ assistant contacts merge keep-id merge-id
+  $ assistant contacts invites list`,
   );
 
   contacts
@@ -58,10 +58,10 @@ names and linked external identifiers (phone numbers, emails, Telegram
 usernames). Without --query, returns all contacts matching the role filter.
 
 Examples:
-  $ vellum contacts list
-  $ vellum contacts list --role guardian
-  $ vellum contacts list --query "john" --limit 10
-  $ vellum contacts list --role guardian --json`,
+  $ assistant contacts list
+  $ assistant contacts list --role guardian
+  $ assistant contacts list --query "john" --limit 10
+  $ assistant contacts list --role guardian --json`,
     )
     .action(
       async (
@@ -106,8 +106,8 @@ channel memberships (phone numbers, Telegram IDs, email addresses, etc.).
 For assistant-type contacts, additional assistant metadata is included.
 
 Examples:
-  $ vellum contacts get 7a3b1c2d-4e5f-6789-abcd-ef0123456789
-  $ vellum contacts get abc-123 --json`,
+  $ assistant contacts get 7a3b1c2d-4e5f-6789-abcd-ef0123456789
+  $ assistant contacts get abc-123 --json`,
     )
     .action(async (id: string, _opts: unknown, cmd: Command) => {
       try {
@@ -149,8 +149,8 @@ are transferred to keepId. After the merge, mergeId is permanently deleted.
 This operation is irreversible.
 
 Examples:
-  $ vellum contacts merge 7a3b1c2d-4e5f-6789-abcd-ef0123456789 9f8e7d6c-5b4a-3210-fedc-ba9876543210
-  $ vellum contacts merge keep-id merge-id --json`,
+  $ assistant contacts merge 7a3b1c2d-4e5f-6789-abcd-ef0123456789 9f8e7d6c-5b4a-3210-fedc-ba9876543210
+  $ assistant contacts merge keep-id merge-id --json`,
     )
     .action(
       async (keepId: string, mergeId: string, _opts: unknown, cmd: Command) => {
@@ -180,10 +180,10 @@ invite creates a channel membership linking a contact to an external
 identifier on the source channel.
 
 Examples:
-  $ vellum contacts invites list
-  $ vellum contacts invites create --source-channel telegram
-  $ vellum contacts invites revoke abc-123
-  $ vellum contacts invites redeem --token xyz-789 --source-channel telegram --external-user-id 12345`,
+  $ assistant contacts invites list
+  $ assistant contacts invites create --source-channel telegram
+  $ assistant contacts invites revoke abc-123
+  $ assistant contacts invites redeem --token xyz-789 --source-channel telegram --external-user-id 12345`,
   );
 
   invites
@@ -198,10 +198,10 @@ Lists all invites with optional filtering by source channel or status.
 Returns invite tokens, their source channels, usage counts, and expiration.
 
 Examples:
-  $ vellum contacts invites list
-  $ vellum contacts invites list --source-channel telegram
-  $ vellum contacts invites list --status active
-  $ vellum contacts invites list --source-channel voice --json`,
+  $ assistant contacts invites list
+  $ assistant contacts invites list --source-channel telegram
+  $ assistant contacts invites list --status active
+  $ assistant contacts invites list --source-channel voice --json`,
     )
     .action(
       async (
@@ -268,8 +268,8 @@ Voice invites require three additional fields:
   --guardian-name                Name of the guardian associated with this invite
 
 Examples:
-  $ vellum contacts invites create --source-channel telegram --note "For Alice" --max-uses 1
-  $ vellum contacts invites create --source-channel voice --expected-external-user-id "+15551234567" --friend-name "Alice" --guardian-name "Bob" --contact-name "Alice Smith"`,
+  $ assistant contacts invites create --source-channel telegram --note "For Alice" --max-uses 1
+  $ assistant contacts invites create --source-channel voice --expected-external-user-id "+15551234567" --friend-name "Alice" --guardian-name "Bob" --contact-name "Alice Smith"`,
     )
     .action(
       async (
@@ -346,8 +346,8 @@ Revokes an active invite so it can no longer be redeemed. Already-redeemed
 channel memberships are not affected. Returns the updated invite record.
 
 Examples:
-  $ vellum contacts invites revoke 7a3b1c2d-4e5f-6789-abcd-ef0123456789
-  $ vellum contacts invites revoke abc-123 --json`,
+  $ assistant contacts invites revoke 7a3b1c2d-4e5f-6789-abcd-ef0123456789
+  $ assistant contacts invites revoke abc-123 --json`,
     )
     .action(async (inviteId: string, _opts: unknown, cmd: Command) => {
       try {
@@ -393,9 +393,9 @@ Two redemption modes:
    --assistant-id to scope the redemption to a specific assistant.
 
 Examples:
-  $ vellum contacts invites redeem --token xyz-789 --source-channel telegram --external-user-id 12345
-  $ vellum contacts invites redeem --code 123456 --caller-external-user-id "+15551234567"
-  $ vellum contacts invites redeem --code 654321 --caller-external-user-id "+15559876543" --assistant-id asst-abc --json`,
+  $ assistant contacts invites redeem --token xyz-789 --source-channel telegram --external-user-id 12345
+  $ assistant contacts invites redeem --code 123456 --caller-external-user-id "+15551234567"
+  $ assistant contacts invites redeem --code 654321 --caller-external-user-id "+15559876543" --assistant-id asst-abc --json`,
     )
     .action(
       async (

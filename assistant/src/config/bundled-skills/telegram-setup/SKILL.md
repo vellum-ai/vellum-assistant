@@ -12,7 +12,7 @@ You are helping your user connect a Telegram bot to the Vellum Assistant gateway
 
 Before beginning setup, verify these conditions are met:
 
-1. **Gateway API base URL is set and reachable:** Use the injected `INTERNAL_GATEWAY_BASE_URL`, then run `curl -sf "$INTERNAL_GATEWAY_BASE_URL/healthz"` — it should return gateway health JSON (for example `{"status":"ok"}`). If it fails, tell the user to start the assistant with `vellum wake` and wait for it to become healthy before continuing.
+1. **Gateway API base URL is set and reachable:** Use the injected `INTERNAL_GATEWAY_BASE_URL`, then run `curl -sf "$INTERNAL_GATEWAY_BASE_URL/healthz"` — it should return gateway health JSON (for example `{"status":"ok"}`). If it fails, tell the user to start the assistant with `assistant wake` and wait for it to become healthy before continuing.
 2. **Public ingress URL is configured.** The gateway webhook URL is derived from `${ingress.publicBaseUrl}/webhooks/telegram`. If the ingress URL is not configured, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the URL before continuing.
 3. **Use gateway control-plane routes only.** Telegram setup/config actions in this skill must call gateway endpoints under `/v1/integrations/telegram/*` — never call the assistant runtime port directly.
 
@@ -100,7 +100,7 @@ If routing is misconfigured, inbound Telegram messages will be rejected and the 
 Before reporting success, confirm the guardian binding was actually created. Check guardian binding status via Vellum CLI:
 
 ```bash
-vellum integrations guardian status --channel telegram --json
+assistant integrations guardian status --channel telegram --json
 ```
 
 If the binding is absent and the user said they completed the verification:
@@ -119,7 +119,7 @@ Summarize what was done:
 - Guardian identity: {verified | not configured}
 - Guardian verification status: {verified via outbound flow | skipped}
 - Routing configuration validated
-- To re-check guardian status later, use: `vellum integrations guardian status --channel telegram --json`
+- To re-check guardian status later, use: `assistant integrations guardian status --channel telegram --json`
 
 The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the webhook secret changes later, the gateway's credential watcher will automatically re-register the webhook. If the ingress URL changes (e.g., tunnel restart), the assistant triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.
 

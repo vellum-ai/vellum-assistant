@@ -46,10 +46,10 @@ Values are auto-parsed as JSON (booleans, numbers, objects) with fallback to
 plain string if parsing fails.
 
 Examples:
-  $ vellum config list
-  $ vellum config get provider
-  $ vellum config set provider anthropic
-  $ vellum config set calls.enabled true`,
+  $ assistant config list
+  $ assistant config get provider
+  $ assistant config set provider anthropic
+  $ assistant config set calls.enabled true`,
   );
 
   config
@@ -71,9 +71,9 @@ After writing the value to config.json, the lockfile is automatically synced
 to reflect the updated configuration.
 
 Examples:
-  $ vellum config set provider anthropic
-  $ vellum config set calls.enabled true
-  $ vellum config set apiKeys.anthropic sk-ant-abc123`,
+  $ assistant config set provider anthropic
+  $ assistant config set calls.enabled true
+  $ assistant config set apiKeys.anthropic sk-ant-abc123`,
     )
     .action((key: string, value: string) => {
       const raw = loadRawConfig();
@@ -103,9 +103,9 @@ Prints the value at the given key path. If the key is not set, prints
 "(not set)". Object values are pretty-printed as indented JSON.
 
 Examples:
-  $ vellum config get provider
-  $ vellum config get calls.enabled
-  $ vellum config get apiKeys`,
+  $ assistant config get provider
+  $ assistant config get calls.enabled
+  $ assistant config get apiKeys`,
     )
     .action((key: string) => {
       const raw = loadRawConfig();
@@ -139,9 +139,9 @@ flattened dotted key paths. For example, --search api matches apiKeys.anthropic,
 apiKeys.openai, and any other key containing "api".
 
 Examples:
-  $ vellum config list
-  $ vellum config list --search api
-  $ vellum config list --search calls`,
+  $ assistant config list
+  $ assistant config list --search api
+  $ assistant config list --search calls`,
     )
     .action((opts: { search?: string }) => {
       const raw = loadRawConfig();
@@ -187,7 +187,7 @@ message if all patterns are valid. If no secret-allowlist.json file exists,
 reports that and exits normally.
 
 Examples:
-  $ vellum config validate-allowlist`,
+  $ assistant config validate-allowlist`,
     )
     .action(() => {
       const { validateAllowlistFile } =

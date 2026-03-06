@@ -94,7 +94,7 @@ async function runCli(
   };
 }
 
-describe("vellum integrations CLI", () => {
+describe("assistant integrations CLI", () => {
   beforeEach(() => {
     gatewayBase = "http://gateway.test";
     signingKeyInitialized = false;

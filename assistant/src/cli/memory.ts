@@ -38,10 +38,10 @@ Key concepts:
   conflicts    Pairs of contradictory statements awaiting resolution
 
 Examples:
-  $ vellum memory status
-  $ vellum memory query "What is the project deadline?"
-  $ vellum memory backfill
-  $ vellum memory dismiss-conflicts --all`,
+  $ assistant memory status
+  $ assistant memory query "What is the project deadline?"
+  $ assistant memory backfill
+  $ assistant memory dismiss-conflicts --all`,
   );
 
   memory
@@ -68,7 +68,7 @@ Fields shown:
   jobs               Status of background jobs (backfill, cleanup, rebuild-index)
 
 Examples:
-  $ vellum memory status`,
+  $ assistant memory status`,
     )
     .action(() => {
       initializeDb();
@@ -133,8 +133,8 @@ all segments regardless of whether they have already been indexed. This is
 useful after bulk imports or if the incremental state has become inconsistent.
 
 Examples:
-  $ vellum memory backfill
-  $ vellum memory backfill --force`,
+  $ assistant memory backfill
+  $ assistant memory backfill --force`,
     )
     .action((opts: { force?: boolean }) => {
       initializeDb();
@@ -165,8 +165,8 @@ record must have before it is eligible for cleanup. If omitted, the system
 default retention period is used.
 
 Examples:
-  $ vellum memory cleanup
-  $ vellum memory cleanup --retention-ms 86400000`,
+  $ assistant memory cleanup
+  $ assistant memory cleanup --retention-ms 86400000`,
     )
     .action((opts: { retentionMs?: string }) => {
       initializeDb();
@@ -207,9 +207,9 @@ The optional --session flag provides a conversation/session ID for
 context-aware recall. If omitted, the most recent conversation is used.
 
 Examples:
-  $ vellum memory query "What is the project deadline?"
-  $ vellum memory query "preferred communication style" --session conv_abc123
-  $ vellum memory query "API rate limits"`,
+  $ assistant memory query "What is the project deadline?"
+  $ assistant memory query "preferred communication style" --session conv_abc123
+  $ assistant memory query "API rate limits"`,
     )
     .action(async (text: string, opts?: { session?: string }) => {
       initializeDb();
@@ -247,12 +247,12 @@ search) index and the vector embedding index. All existing index data is
 dropped and reconstructed from the source memory items.
 
 This is useful after schema changes, embedding model upgrades, or if index
-corruption is suspected. The rebuild runs asynchronously; use "vellum memory
+corruption is suspected. The rebuild runs asynchronously; use "assistant memory
 status" to monitor job progress.
 
 Examples:
-  $ vellum memory rebuild-index
-  $ vellum memory status`,
+  $ assistant memory rebuild-index
+  $ assistant memory status`,
     )
     .action(() => {
       initializeDb();
@@ -286,9 +286,9 @@ omitted. The --dry-run flag previews which conflicts would be dismissed
 without actually modifying any records.
 
 Examples:
-  $ vellum memory dismiss-conflicts --all
-  $ vellum memory dismiss-conflicts --pattern "project deadline" --dry-run
-  $ vellum memory dismiss-conflicts --pattern "^preferred\\b" --scope work`,
+  $ assistant memory dismiss-conflicts --all
+  $ assistant memory dismiss-conflicts --pattern "project deadline" --dry-run
+  $ assistant memory dismiss-conflicts --pattern "^preferred\\b" --scope work`,
     )
     .action(
       (opts: {

@@ -35,8 +35,8 @@ during development but disruptive if a Claude Code session is active,
 since the restart kills the running assistant mid-conversation.
 
 Examples:
-  $ vellum dev
-  $ vellum dev --watch`,
+  $ assistant dev
+  $ assistant dev --watch`,
     )
     .action(async (opts: { watch?: boolean }) => {
       let status = await getDaemonStatus();

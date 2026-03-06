@@ -26,8 +26,8 @@ Table columns:
   Duration    Wall-clock execution time (e.g. 120ms, 1.3s)
 
 Examples:
-  $ vellum audit
-  $ vellum audit --limit 50`,
+  $ assistant audit
+  $ assistant audit --limit 50`,
     )
     .action((opts: { limit: string }) => {
       const limit = parseInt(opts.limit, 10) || 20;

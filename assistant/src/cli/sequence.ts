@@ -1,5 +1,5 @@
 /**
- * CLI command group: `vellum sequence`
+ * CLI command group: `assistant sequence`
  *
  * Manage email sequences — list, inspect, pause, resume, and view stats.
  */
@@ -81,10 +81,10 @@ Guardrails enforce rate limits, daily send caps, cooldown periods, and
 duplicate enrollment checks to prevent abuse.
 
 Examples:
-  $ vellum sequence list --status active
-  $ vellum sequence get seq_abc123
-  $ vellum sequence pause seq_abc123
-  $ vellum sequence stats`,
+  $ assistant sequence list --status active
+  $ assistant sequence get seq_abc123
+  $ assistant sequence pause seq_abc123
+  $ assistant sequence stats`,
   );
 
   // ── list ──────────────────────────────────────────────────────────
@@ -102,9 +102,9 @@ and active enrollment count.
 If omitted, returns all sequences regardless of status.
 
 Examples:
-  $ vellum sequence list
-  $ vellum sequence list --status active
-  $ vellum sequence list --status paused --json`,
+  $ assistant sequence list
+  $ assistant sequence list --status active
+  $ assistant sequence list --status paused --json`,
     )
     .action((opts: { status?: string }, cmd: Command) => {
       initializeDb();
@@ -149,8 +149,8 @@ setting, all steps with delay and approval configuration, and enrollment
 breakdown by status (active, paused, completed, replied, cancelled, failed).
 
 Examples:
-  $ vellum sequence get seq_abc123
-  $ vellum sequence get seq_abc123 --json`,
+  $ assistant sequence get seq_abc123
+  $ assistant sequence get seq_abc123 --json`,
     )
     .action((id: string, _opts: Record<string, unknown>, cmd: Command) => {
       initializeDb();
@@ -222,8 +222,8 @@ enrollments remain in their current state but no new steps will be sent
 until the sequence is resumed. No-op if the sequence is already paused.
 
 Examples:
-  $ vellum sequence pause seq_abc123
-  $ vellum sequence pause seq_abc123 --json`,
+  $ assistant sequence pause seq_abc123
+  $ assistant sequence pause seq_abc123 --json`,
     )
     .action((id: string, _opts: Record<string, unknown>, cmd: Command) => {
       initializeDb();
@@ -252,8 +252,8 @@ Resumes a paused sequence, re-enabling scheduled step deliveries for all
 active enrollments. No-op if the sequence is already active.
 
 Examples:
-  $ vellum sequence resume seq_abc123
-  $ vellum sequence resume seq_abc123 --json`,
+  $ assistant sequence resume seq_abc123
+  $ assistant sequence resume seq_abc123 --json`,
     )
     .action((id: string, _opts: Record<string, unknown>, cmd: Command) => {
       initializeDb();
@@ -284,8 +284,8 @@ changes to "cancelled". This does not affect the sequence itself or
 other enrollments.
 
 Examples:
-  $ vellum sequence cancel-enrollment enr_xyz789
-  $ vellum sequence cancel-enrollment enr_xyz789 --json`,
+  $ assistant sequence cancel-enrollment enr_xyz789
+  $ assistant sequence cancel-enrollment enr_xyz789 --json`,
     )
     .action(
       (enrollmentId: string, _opts: Record<string, unknown>, cmd: Command) => {
@@ -310,8 +310,8 @@ Returns aggregate statistics across all sequences: total and active
 sequence counts, total and active enrollment counts.
 
 Examples:
-  $ vellum sequence stats
-  $ vellum sequence stats --json`,
+  $ assistant sequence stats
+  $ assistant sequence stats --json`,
     )
     .action((_opts: Record<string, unknown>, cmd: Command) => {
       initializeDb();
@@ -358,9 +358,9 @@ hourly rate limits, minimum delays between steps, maximum concurrent active
 enrollments, duplicate enrollment prevention, and cooldown periods.
 
 Examples:
-  $ vellum sequence guardrails show
-  $ vellum sequence guardrails set dailySendCap 200
-  $ vellum sequence guardrails set cooldown_days 7`,
+  $ assistant sequence guardrails show
+  $ assistant sequence guardrails set dailySendCap 200
+  $ assistant sequence guardrails set cooldown_days 7`,
   );
 
   guardrailsCmd
@@ -379,8 +379,8 @@ Displays the current guardrail configuration with all safety limits:
   Cooldown period         Time before a contact can be re-enrolled after completion
 
 Examples:
-  $ vellum sequence guardrails show
-  $ vellum sequence guardrails show --json`,
+  $ assistant sequence guardrails show
+  $ assistant sequence guardrails show --json`,
     )
     .action((_opts: Record<string, unknown>, cmd: Command) => {
       const json = getJson(cmd);
@@ -428,10 +428,10 @@ Valid keys:
   cooldown_days                                Cooldown period in days (converted to ms internally) (numeric)
 
 Examples:
-  $ vellum sequence guardrails set dailySendCap 200
-  $ vellum sequence guardrails set hourly_rate 50
-  $ vellum sequence guardrails set duplicate_check true
-  $ vellum sequence guardrails set cooldown_days 7`,
+  $ assistant sequence guardrails set dailySendCap 200
+  $ assistant sequence guardrails set hourly_rate 50
+  $ assistant sequence guardrails set duplicate_check true
+  $ assistant sequence guardrails set cooldown_days 7`,
     )
     .action(
       (

@@ -22,7 +22,7 @@ This skill installs ngrok, configures authentication, starts a tunnel, discovers
 First, check whether ingress is already configured:
 
 ```bash
-vellum integrations ingress config --json
+assistant integrations ingress config --json
 ```
 
 The response includes:
@@ -156,14 +156,14 @@ If no tunnel is found, check `/tmp/ngrok.log` for errors and report them to the 
 Save the discovered public URL and enable ingress:
 
 ```bash
-vellum config set ingress.publicBaseUrl "<public-url>"
-vellum config set ingress.enabled true
+assistant config set ingress.publicBaseUrl "<public-url>"
+assistant config set ingress.enabled true
 ```
 
 Verify it was saved:
 
 ```bash
-vellum integrations ingress config --json
+assistant integrations ingress config --json
 ```
 
 ## Step 7: Report Completion
@@ -171,7 +171,7 @@ vellum integrations ingress config --json
 Summarize the setup:
 
 - **Public URL:** `<the-url>` (this is your `ingress.publicBaseUrl`)
-- **Local gateway target:** `<localGatewayTarget from vellum integrations ingress config --json>`
+- **Local gateway target:** `<localGatewayTarget from assistant integrations ingress config --json>`
 - **ngrok dashboard:** http://127.0.0.1:4040
 
 Provide useful follow-up commands:
@@ -200,7 +200,7 @@ The ngrok process may not be running. Check with `ps aux | grep ngrok`. If not r
 
 ### Gateway not reachable on local target
 
-Re-check local gateway target with `vellum integrations ingress config --json`, then run `curl -s "<localGatewayTarget>/healthz"`. If the gateway is not running, start the assistant first.
+Re-check local gateway target with `assistant integrations ingress config --json`, then run `curl -s "<localGatewayTarget>/healthz"`. If the gateway is not running, start the assistant first.
 
 ### "Too many connections" or tunnel limit errors
 

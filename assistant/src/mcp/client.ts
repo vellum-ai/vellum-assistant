@@ -107,7 +107,7 @@ export class McpClient {
             (err.code === 401 || err.code === 403));
 
         if (isAuthError) {
-          // Auth-related — user can run `vellum mcp auth <name>` to authenticate.
+          // Auth-related — user can run `assistant mcp auth <name>` to authenticate.
           log.info(
             { serverId: this.serverId, err },
             "MCP server requires authentication",

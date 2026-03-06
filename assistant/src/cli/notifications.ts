@@ -57,10 +57,10 @@ ${buildSourceChannelsHelpBlock()}
 ${buildSourceEventNamesHelpBlock()}
 
 Examples:
-  $ vellum notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Build finished"
-  $ vellum notifications send --source-channel scheduler --source-event-name reminder.fired --message "Stand-up in 5 minutes" --urgency high
-  $ vellum notifications send --source-channel watcher --source-event-name watcher.notification --message "File changed" --no-requires-action --is-async-background
-  $ vellum notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Deploy complete" --preferred-channels vellum,telegram --json`,
+  $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Build finished"
+  $ assistant notifications send --source-channel scheduler --source-event-name reminder.fired --message "Stand-up in 5 minutes" --urgency high
+  $ assistant notifications send --source-channel watcher --source-event-name watcher.notification --message "File changed" --no-requires-action --is-async-background
+  $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Deploy complete" --preferred-channels vellum,telegram --json`,
   );
 
   // -------------------------------------------------------------------------
@@ -131,8 +131,8 @@ Examples:
       "after",
       `
 Arguments:
-  --source-channel     One of the registered source channels (see "vellum notifications --help")
-  --source-event-name  One of the registered event names (see "vellum notifications --help")
+  --source-channel     One of the registered source channels (see "assistant notifications --help")
+  --source-event-name  One of the registered event names (see "assistant notifications --help")
   --message            The notification body text (required, must be non-empty)
 
 Behavioral notes:
@@ -144,9 +144,9 @@ Behavioral notes:
   - --dedupe-key suppresses duplicate signals with the same key.
 
 Examples:
-  $ vellum notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Task complete"
-  $ vellum notifications send --source-channel scheduler --source-event-name reminder.fired --message "Meeting in 5 min" --urgency high --title "Reminder"
-  $ vellum notifications send --source-channel watcher --source-event-name watcher.notification --message "Detected change" --no-requires-action --is-async-background --json`,
+  $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Task complete"
+  $ assistant notifications send --source-channel scheduler --source-event-name reminder.fired --message "Meeting in 5 min" --urgency high --title "Reminder"
+  $ assistant notifications send --source-channel watcher --source-event-name watcher.notification --message "Detected change" --no-requires-action --is-async-background --json`,
     )
     .action(
       async (
@@ -318,10 +318,10 @@ notification pipeline.
 ${buildSourceEventNamesHelpBlock()}
 
 Examples:
-  $ vellum notifications list
-  $ vellum notifications list --limit 5
-  $ vellum notifications list --source-event-name reminder.fired
-  $ vellum notifications list --source-event-name reminder.fired --limit 10 --json`,
+  $ assistant notifications list
+  $ assistant notifications list --limit 5
+  $ assistant notifications list --source-event-name reminder.fired
+  $ assistant notifications list --source-event-name reminder.fired --limit 10 --json`,
     )
     .action(
       (

@@ -227,7 +227,7 @@ export class EmailService {
     const health = await p.health();
     if (health.inboxes.length === 0) {
       throw new ConfigError(
-        "No inboxes found. Run: vellum email setup inboxes --domain <domain>",
+        "No inboxes found. Run: assistant email setup inboxes --domain <domain>",
       );
     }
     const inbox = health.inboxes.find(
