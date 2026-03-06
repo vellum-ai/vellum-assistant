@@ -206,10 +206,9 @@ extension ChatBubble {
         }.first
 
         // Render all content groups in order: text, tool calls, and surfaces.
-        // Uses \.self identity (backed by Hashable conformance) instead of
-        // \.offset so SwiftUI can skip re-evaluating children whose content
-        // hasn't changed — prevents a view-update death spiral on long
-        // conversations with many interleaved blocks.
+        // Uses \.stableId (based on the first index in each group) so SwiftUI
+        // preserves @State (like isExpanded) when new items are appended to a
+        // group, and skips re-evaluating children whose identity hasn't changed.
         ForEach(groups, id: \.stableId) { group in
             switch group {
             case .texts(let indices):
