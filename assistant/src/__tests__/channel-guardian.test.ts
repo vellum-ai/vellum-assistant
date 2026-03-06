@@ -1358,7 +1358,7 @@ describe("IPC handler channel-aware guardian status", () => {
     resetTables();
   });
 
-  test("status action for telegram returns channel and assistantId fields", () => {
+  test("status action for telegram returns channel and assistantId fields", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
@@ -1366,7 +1366,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "telegram",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1377,7 +1377,7 @@ describe("IPC handler channel-aware guardian status", () => {
     expect(resp!.guardianDeliveryChatId).toBeUndefined();
   });
 
-  test("status action for sms returns channel: sms and assistantId: self", () => {
+  test("status action for sms returns channel: sms and assistantId: self", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
@@ -1385,7 +1385,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "sms",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1395,7 +1395,7 @@ describe("IPC handler channel-aware guardian status", () => {
     expect(resp!.bound).toBe(false);
   });
 
-  test("status action returns guardianDeliveryChatId when bound", () => {
+  test("status action returns guardianDeliveryChatId when bound", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -1410,7 +1410,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "telegram",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1422,7 +1422,7 @@ describe("IPC handler channel-aware guardian status", () => {
     expect(resp!.assistantId).toBe("self");
   });
 
-  test("status action returns guardian username/displayName from binding metadata", () => {
+  test("status action returns guardian username/displayName from binding metadata", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-43",
@@ -1462,7 +1462,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "telegram",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1470,7 +1470,7 @@ describe("IPC handler channel-aware guardian status", () => {
     expect(resp!.guardianDisplayName).toBe("Guardian Name");
   });
 
-  test("status action defaults channel to telegram when omitted (backward compat)", () => {
+  test("status action defaults channel to telegram when omitted (backward compat)", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
@@ -1478,7 +1478,7 @@ describe("IPC handler channel-aware guardian status", () => {
       // channel omitted — should default to 'telegram'
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1486,7 +1486,7 @@ describe("IPC handler channel-aware guardian status", () => {
     expect(resp!.assistantId).toBe("self");
   });
 
-  test("status action defaults assistantId to self when omitted (backward compat)", () => {
+  test("status action defaults assistantId to self when omitted (backward compat)", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
@@ -1495,7 +1495,7 @@ describe("IPC handler channel-aware guardian status", () => {
       // assistantId omitted — should default to 'self'
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1503,7 +1503,7 @@ describe("IPC handler channel-aware guardian status", () => {
     expect(resp!.channel).toBe("sms");
   });
 
-  test("status action for unbound sms does not return guardianDeliveryChatId", () => {
+  test("status action for unbound sms does not return guardianDeliveryChatId", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
@@ -1511,7 +1511,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "sms",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1520,7 +1520,7 @@ describe("IPC handler channel-aware guardian status", () => {
     expect(resp!.guardianExternalUserId).toBeUndefined();
   });
 
-  test("status action includes hasPendingChallenge when challenge exists", () => {
+  test("status action includes hasPendingChallenge when challenge exists", async () => {
     createVerificationChallenge("voice");
 
     const { ctx, lastResponse } = createMockCtx();
@@ -1530,7 +1530,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "voice",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1538,7 +1538,7 @@ describe("IPC handler channel-aware guardian status", () => {
     expect(resp!.hasPendingChallenge).toBe(true);
   });
 
-  test("status action hasPendingChallenge is false when no challenge exists", () => {
+  test("status action hasPendingChallenge is false when no challenge exists", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
@@ -1546,7 +1546,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "voice",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1982,7 +1982,7 @@ describe("IPC handler voice guardian verification", () => {
     resetTables();
   });
 
-  test("create_challenge for voice returns a high-entropy hex secret", () => {
+  test("create_challenge for voice returns a high-entropy hex secret", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
@@ -1990,7 +1990,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "voice",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2002,7 +2002,7 @@ describe("IPC handler voice guardian verification", () => {
     expect(resp!.channel).toBe("voice");
   });
 
-  test("status for voice reflects unbound state", () => {
+  test("status for voice reflects unbound state", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
@@ -2010,7 +2010,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "voice",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2020,7 +2020,7 @@ describe("IPC handler voice guardian verification", () => {
     expect(resp!.guardianExternalUserId).toBeUndefined();
   });
 
-  test("status for voice reflects bound state", () => {
+  test("status for voice reflects bound state", async () => {
     createGuardianBinding({
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
@@ -2035,7 +2035,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "voice",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2046,7 +2046,7 @@ describe("IPC handler voice guardian verification", () => {
     expect(resp!.channel).toBe("voice");
   });
 
-  test("revoke for voice clears active binding", () => {
+  test("revoke for voice clears active binding", async () => {
     createGuardianBinding({
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
@@ -2061,7 +2061,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "voice",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2072,7 +2072,7 @@ describe("IPC handler voice guardian verification", () => {
     expect(getGuardianBinding("self", "voice")).toBeNull();
   });
 
-  test("revoke for voice does not affect telegram binding", () => {
+  test("revoke for voice does not affect telegram binding", async () => {
     createGuardianBinding({
       channel: "voice",
       guardianExternalUserId: "voice-user-1",
@@ -2093,7 +2093,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "voice",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     expect(getGuardianBinding("self", "voice")).toBeNull();
     expect(getGuardianBinding("self", "telegram")).not.toBeNull();
@@ -2568,7 +2568,7 @@ describe("outbound SMS verification", () => {
     resetTables();
   });
 
-  test("start_outbound creates session with expected E.164 identity and returns code", () => {
+  test("start_outbound creates session with expected E.164 identity and returns code", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
@@ -2577,7 +2577,7 @@ describe("outbound SMS verification", () => {
       destination: "+15551234567",
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2596,7 +2596,7 @@ describe("outbound SMS verification", () => {
     expect(session!.destinationAddress).toBe("+15551234567");
   });
 
-  test("start_outbound rejects when active binding exists (rebind=false)", () => {
+  test("start_outbound rejects when active binding exists (rebind=false)", async () => {
     // Create an existing guardian binding
     createGuardianBinding({
       channel: "sms",
@@ -2614,7 +2614,7 @@ describe("outbound SMS verification", () => {
       rebind: false,
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2622,7 +2622,7 @@ describe("outbound SMS verification", () => {
     expect(resp!.error).toBe("already_bound");
   });
 
-  test("start_outbound allows rebind when rebind=true", () => {
+  test("start_outbound allows rebind when rebind=true", async () => {
     // Create an existing guardian binding
     createGuardianBinding({
       channel: "sms",
@@ -2640,7 +2640,7 @@ describe("outbound SMS verification", () => {
       rebind: true,
     };
 
-    handleGuardianVerification(msg, mockSocket, ctx);
+    await handleGuardianVerification(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2648,10 +2648,10 @@ describe("outbound SMS verification", () => {
     expect(resp!.verificationSessionId).toBeDefined();
   });
 
-  test("resend_outbound before cooldown is rejected", () => {
+  test("resend_outbound before cooldown is rejected", async () => {
     // Start an outbound session first
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -2664,7 +2664,7 @@ describe("outbound SMS verification", () => {
 
     // Immediately try to resend (before cooldown)
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "resend_outbound",
@@ -2680,10 +2680,10 @@ describe("outbound SMS verification", () => {
     expect(resp!.error).toBe("rate_limited");
   });
 
-  test("resend_outbound after cooldown succeeds and increments sendCount", () => {
+  test("resend_outbound after cooldown succeeds and increments sendCount", async () => {
     // Start an outbound session
     const { ctx: startCtx, lastResponse: startResp } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -2709,7 +2709,7 @@ describe("outbound SMS verification", () => {
 
     // Now resend should succeed
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "resend_outbound",
@@ -2726,10 +2726,10 @@ describe("outbound SMS verification", () => {
     expect(resp!.nextResendAt).toBeGreaterThan(Date.now());
   });
 
-  test("resend_outbound exceeding max sends is rejected", () => {
+  test("resend_outbound exceeding max sends is rejected", async () => {
     // Start an outbound session
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -2752,7 +2752,7 @@ describe("outbound SMS verification", () => {
 
     // Resend should be rejected due to max sends
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "resend_outbound",
@@ -2768,10 +2768,10 @@ describe("outbound SMS verification", () => {
     expect(resp!.error).toBe("max_sends_exceeded");
   });
 
-  test("cancel_outbound revokes active session", () => {
+  test("cancel_outbound revokes active session", async () => {
     // Start an outbound session
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -2788,7 +2788,7 @@ describe("outbound SMS verification", () => {
 
     // Cancel it
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "cancel_outbound",
@@ -2880,9 +2880,9 @@ describe("outbound SMS verification", () => {
     expect(alreadySms).toContain("already verified");
   });
 
-  test("start_outbound rejects unsupported channels", () => {
+  test("start_outbound rejects unsupported channels", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -2899,9 +2899,9 @@ describe("outbound SMS verification", () => {
     expect(resp!.error).toBe("unsupported_channel");
   });
 
-  test("start_outbound rejects missing destination", () => {
+  test("start_outbound rejects missing destination", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -2918,9 +2918,9 @@ describe("outbound SMS verification", () => {
     expect(resp!.error).toBe("missing_destination");
   });
 
-  test("start_outbound rejects unparseable phone number", () => {
+  test("start_outbound rejects unparseable phone number", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -2939,7 +2939,7 @@ describe("outbound SMS verification", () => {
 
   test("start_outbound normalizes formatted phone number for SMS", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -2981,9 +2981,9 @@ describe("outbound SMS verification", () => {
     expect(sms).not.toContain("999999");
   });
 
-  test("cancel_outbound returns error when no active session", () => {
+  test("cancel_outbound returns error when no active session", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "cancel_outbound",
@@ -3009,9 +3009,9 @@ describe("outbound Telegram verification", () => {
     resetTables();
   });
 
-  test("start_outbound for telegram with handle returns deep link URL, no outbound message", () => {
+  test("start_outbound for telegram with handle returns deep link URL, no outbound message", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3044,9 +3044,9 @@ describe("outbound Telegram verification", () => {
     expect(session!.bootstrapTokenHash).not.toBeNull();
   });
 
-  test("start_outbound for telegram with handle (no @ prefix) returns deep link", () => {
+  test("start_outbound for telegram with handle (no @ prefix) returns deep link", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3068,7 +3068,7 @@ describe("outbound Telegram verification", () => {
 
   test("start_outbound for telegram with known chat ID sends message, no deep link", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3105,11 +3105,11 @@ describe("outbound Telegram verification", () => {
     expect(telegramDeliverCalls[0].text).toContain("code you were given");
   });
 
-  test("start_outbound for telegram without bot username fails", () => {
+  test("start_outbound for telegram without bot username fails", async () => {
     mockBotUsername = undefined;
 
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3126,7 +3126,7 @@ describe("outbound Telegram verification", () => {
     expect(resp!.error).toBe("no_bot_username");
   });
 
-  test("start_outbound for telegram rejects when active binding exists (rebind=false)", () => {
+  test("start_outbound for telegram rejects when active binding exists (rebind=false)", async () => {
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "user-42",
@@ -3135,7 +3135,7 @@ describe("outbound Telegram verification", () => {
     });
 
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3299,7 +3299,7 @@ describe("outbound Telegram verification", () => {
   test("resend_outbound for telegram works with known chat ID", async () => {
     // Start an outbound session with a known chat ID
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3321,7 +3321,7 @@ describe("outbound Telegram verification", () => {
     );
 
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "resend_outbound",
@@ -3342,10 +3342,10 @@ describe("outbound Telegram verification", () => {
     expect(telegramDeliverCalls.length).toBeGreaterThanOrEqual(2);
   });
 
-  test("resend_outbound for pending_bootstrap session is rejected", () => {
+  test("resend_outbound for pending_bootstrap session is rejected", async () => {
     // Start an outbound session with a handle (pending_bootstrap)
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3357,7 +3357,7 @@ describe("outbound Telegram verification", () => {
     );
 
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "resend_outbound",
@@ -3373,10 +3373,10 @@ describe("outbound Telegram verification", () => {
     expect(resp!.error).toBe("pending_bootstrap");
   });
 
-  test("cancel_outbound for telegram revokes session", () => {
+  test("cancel_outbound for telegram revokes session", async () => {
     // Start an outbound session
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3391,7 +3391,7 @@ describe("outbound Telegram verification", () => {
     expect(session).not.toBeNull();
 
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "cancel_outbound",
@@ -3438,9 +3438,9 @@ describe("outbound Telegram verification", () => {
     expect(msg).not.toContain("999999");
   });
 
-  test("start_outbound for telegram with missing destination fails", () => {
+  test("start_outbound for telegram with missing destination fails", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3456,10 +3456,10 @@ describe("outbound Telegram verification", () => {
     expect(resp!.error).toBe("missing_destination");
   });
 
-  test("rate limits apply to telegram outbound (per-session send cap)", () => {
+  test("rate limits apply to telegram outbound (per-session send cap)", async () => {
     // Start an outbound session with a known chat ID
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3482,7 +3482,7 @@ describe("outbound Telegram verification", () => {
 
     // Resend should be rejected due to max sends
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "resend_outbound",
@@ -3498,10 +3498,10 @@ describe("outbound Telegram verification", () => {
     expect(resp!.error).toBe("max_sends_exceeded");
   });
 
-  test("rate limits apply to telegram outbound (cooldown)", () => {
+  test("rate limits apply to telegram outbound (cooldown)", async () => {
     // Start an outbound session with a known chat ID
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3514,7 +3514,7 @@ describe("outbound Telegram verification", () => {
 
     // Immediately try to resend (before cooldown)
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "resend_outbound",
@@ -3542,7 +3542,7 @@ describe("outbound voice verification", () => {
 
   test("start_outbound for voice creates session with 6-digit code and initiates call", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3584,9 +3584,9 @@ describe("outbound voice verification", () => {
     );
   });
 
-  test("start_outbound for voice rejects unparseable phone number", () => {
+  test("start_outbound for voice rejects unparseable phone number", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3605,7 +3605,7 @@ describe("outbound voice verification", () => {
 
   test("start_outbound for voice normalizes formatted phone number", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3639,7 +3639,7 @@ describe("outbound voice verification", () => {
     expect(lastCall.phoneNumber).toBe("+15551234567");
   });
 
-  test("start_outbound for voice rejects when binding exists (rebind=false)", () => {
+  test("start_outbound for voice rejects when binding exists (rebind=false)", async () => {
     createGuardianBinding({
       channel: "voice",
       guardianExternalUserId: "+15551234567",
@@ -3648,7 +3648,7 @@ describe("outbound voice verification", () => {
     });
 
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3669,7 +3669,7 @@ describe("outbound voice verification", () => {
   test("resend_outbound for voice initiates a new call with cooldown check", async () => {
     // Start an outbound session first
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3682,7 +3682,7 @@ describe("outbound voice verification", () => {
 
     // Immediately try to resend (before cooldown)
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "resend_outbound",
@@ -3698,10 +3698,10 @@ describe("outbound voice verification", () => {
     expect(resp!.error).toBe("rate_limited");
   });
 
-  test("cancel_outbound for voice cancels session", () => {
+  test("cancel_outbound for voice cancels session", async () => {
     // Start an outbound session first
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3714,7 +3714,7 @@ describe("outbound voice verification", () => {
 
     // Cancel the session
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "cancel_outbound",
@@ -3733,7 +3733,7 @@ describe("outbound voice verification", () => {
     expect(session).toBeNull();
   });
 
-  test("rate limit enforcement: destination rate limit applies to voice", () => {
+  test("rate limit enforcement: destination rate limit applies to voice", async () => {
     // Exhaust the per-destination rate limit by creating many sessions
     const db = getDb();
     const now = Date.now();
@@ -3756,7 +3756,7 @@ describe("outbound voice verification", () => {
     }
 
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3773,9 +3773,9 @@ describe("outbound voice verification", () => {
     expect(resp!.error).toBe("rate_limited");
   });
 
-  test("start_outbound for voice requires destination", () => {
+  test("start_outbound for voice requires destination", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3809,9 +3809,9 @@ describe("M1–M4 hardening coverage", () => {
 
   // ── M2: start_outbound for SMS returns secret in response ──
 
-  test("start_outbound for SMS response includes secret", () => {
+  test("start_outbound for SMS response includes secret", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3832,10 +3832,10 @@ describe("M1–M4 hardening coverage", () => {
 
   // ── M2: resend_outbound for SMS returns secret in response ──
 
-  test("resend_outbound for SMS response includes secret", () => {
+  test("resend_outbound for SMS response includes secret", async () => {
     // Start a session first
     const { ctx: startCtx } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
@@ -3858,7 +3858,7 @@ describe("M1–M4 hardening coverage", () => {
 
     // Resend
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "resend_outbound",
@@ -3878,9 +3878,9 @@ describe("M1–M4 hardening coverage", () => {
 
   // ── M2: start_outbound for Telegram bootstrap does NOT return secret ──
 
-  test("start_outbound for Telegram bootstrap (handle) does NOT return secret", () => {
+  test("start_outbound for Telegram bootstrap (handle) does NOT return secret", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    handleGuardianVerification(
+    await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
