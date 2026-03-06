@@ -98,8 +98,10 @@ Arguments:
   id   Full UUID or any unique prefix of the rule to remove
 
 Matches the given id against all stored rule IDs using prefix matching. If
-exactly one rule matches, it is removed. If no rule matches, exits with an
-error. Use "trust list" to see rule IDs (shown truncated to 8 chars).
+exactly one rule matches, it is removed. If multiple rules match (ambiguous
+prefix), lists the matches and exits with an error — no rule is removed. If
+no rule matches, exits with an error. Use "trust list" to see rule IDs
+(shown truncated to 8 chars).
 
 Examples:
   $ vellum trust remove abc12345
@@ -108,11 +110,22 @@ Examples:
     )
     .action((id: string) => {
       const rules = getAllRules();
-      const match = rules.find((r) => r.id.startsWith(id));
-      if (!match) {
+      const matches = rules.filter((r) => r.id.startsWith(id));
+      if (matches.length === 0) {
         log.error(`No rule found matching "${id}"`);
         process.exit(1);
       }
+      if (matches.length > 1) {
+        log.error(`Ambiguous prefix "${id}" matches ${matches.length} rules:`);
+        for (const m of matches) {
+          log.error(
+            `  ${m.id.slice(0, SHORT_HASH_LENGTH)}  ${m.tool}: ${m.pattern}`,
+          );
+        }
+        log.error("Provide a longer prefix to uniquely identify the rule.");
+        process.exit(1);
+      }
+      const match = matches[0]!;
       try {
         removeRule(match.id);
       } catch (err) {
