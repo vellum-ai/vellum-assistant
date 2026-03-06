@@ -56,6 +56,9 @@
     "web-tree-sitter": "0.26.5",
     "zod": "^4.3.6"
   },
+  "engines": {
+    "node": ">=20.12.0"
+  },
   "devDependencies": {
     "@pydantic/logfire-node": "^0.13.0",
     "@types/archiver": "^7.0.0",
