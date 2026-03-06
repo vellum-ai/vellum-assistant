@@ -1,4 +1,3 @@
-import { getTwilioPhoneNumberEnv } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
 import {
   getPublicBaseUrl,
@@ -18,29 +17,11 @@ export interface TwilioConfig {
   wssBaseUrl: string;
 }
 
-function resolveTwilioPhoneNumber(
-  config: ReturnType<typeof loadConfig>,
-  assistantId?: string,
-): string {
-  if (assistantId) {
-    const scoped = (
-      config.sms?.assistantPhoneNumbers as Record<string, string> | undefined
-    )?.[assistantId];
-    if (scoped) return scoped;
-  }
-  return (
-    getTwilioPhoneNumberEnv() ||
-    config.twilio?.phoneNumber ||
-    config.sms?.phoneNumber ||
-    ""
-  );
-}
-
-export function getTwilioConfig(assistantId?: string): TwilioConfig {
+export function getTwilioConfig(): TwilioConfig {
   const config = loadConfig();
   const accountSid = config.twilio?.accountSid || "";
   const authToken = getSecureKey("credential:twilio:auth_token");
-  const phoneNumber = resolveTwilioPhoneNumber(config, assistantId);
+  const phoneNumber = config.twilio?.phoneNumber || "";
   const webhookBaseUrl = getPublicBaseUrl(config);
 
   let wssBaseUrl: string;
