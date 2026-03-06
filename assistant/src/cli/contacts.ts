@@ -46,6 +46,14 @@ Examples:
     .option("--role <role>", "Filter by role (default: contact)", "contact")
     .option("--limit <limit>", "Maximum number of contacts to return")
     .option("--query <query>", "Search query to filter contacts")
+    .option(
+      "--channel-address <address>",
+      "Search by channel address (email, phone, handle)",
+    )
+    .option(
+      "--channel-type <channelType>",
+      "Filter by channel type (email, telegram, sms, voice, whatsapp, slack)",
+    )
     .addHelpText(
       "after",
       `
@@ -53,14 +61,20 @@ Lists contacts with optional filtering. The --role flag accepts: contact
 or guardian (defaults to contact). The --limit flag sets
 the maximum number of results (defaults to 50).
 
-When --query is provided, a full-text search is performed across contact
-names and linked external identifiers (phone numbers, emails, Telegram
-usernames). Without --query, returns all contacts matching the role filter.
+When --query, --channel-address, or --channel-type is provided, a search
+is performed. --query does full-text search across contact names and
+linked external identifiers. --channel-address matches phone numbers,
+emails, or handles. --channel-type filters by channel kind. These filters
+can be combined. Without any search params, returns all contacts matching
+the role filter.
 
 Examples:
   $ assistant contacts list
   $ assistant contacts list --role guardian
   $ assistant contacts list --query "john" --limit 10
+  $ assistant contacts list --channel-address "+15551234567"
+  $ assistant contacts list --channel-type telegram
+  $ assistant contacts list --query "alice" --channel-type email
   $ assistant contacts list --role guardian --json`,
     )
     .action(
@@ -69,6 +83,8 @@ Examples:
           role?: string;
           limit?: string;
           query?: string;
+          channelAddress?: string;
+          channelType?: string;
         },
         cmd: Command,
       ) => {
@@ -79,8 +95,16 @@ Examples:
 
           const effectiveLimit = limit ?? 50;
 
-          const results = opts.query
-            ? searchContacts({ query: opts.query, role, limit: effectiveLimit })
+          const hasSearchParams =
+            opts.query || opts.channelAddress || opts.channelType;
+          const results = hasSearchParams
+            ? searchContacts({
+                query: opts.query,
+                channelAddress: opts.channelAddress,
+                channelType: opts.channelType,
+                role,
+                limit: effectiveLimit,
+              })
             : listContacts(effectiveLimit, role);
 
           writeOutput(cmd, { ok: true, contacts: results });
