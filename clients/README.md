@@ -21,12 +21,13 @@ clients/
 │   ├── vellum-assistant-app/  # Executable entry point
 │   ├── build.sh               # Build script (wraps SPM → .app → codesign)
 │   └── CLAUDE.md              # Development guide for Claude Code
-└── ios/                       # iOS-specific code
-    ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
-    ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ThreadListView, etc.)
-    │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, etc.)
-    ├── Tests/                 # iOS integration tests (70 tests)
-    └── Resources/             # Assets, Info.plist, background.png
+├── ios/                       # iOS-specific code
+│   ├── App/                   # App lifecycle (VellumAssistantApp, AppDelegate, VellumIntents, etc.)
+│   ├── Views/                 # iOS-specific SwiftUI views (ChatTabView, ThreadListView, etc.)
+│   │   └── Settings/          # Decomposed settings sections (Integrations, TrustRules, etc.)
+│   ├── Tests/                 # iOS integration tests
+│   └── Resources/             # Assets, Info.plist, background.png
+└── chrome-extension/          # Chrome browser extension
 ```
 
 ## Targets
@@ -38,7 +39,7 @@ clients/
 **Contains**:
 - **IPC layer** (`DaemonClient`, `IPCMessages`, `Generated/IPCContractGenerated`) - Network communication with the assistant
   - macOS: Unix domain socket (`~/.vellum/vellum.sock`)
-  - iOS: TCP connection (configurable hostname:port)
+  - iOS: HTTP+SSE through the gateway (no direct TCP or Unix socket connection)
   - Wire types are auto-generated from the TS IPC contract; `IPCMessages.swift` provides
     typealiases, convenience inits, the `ServerMessage` routing enum, and a few hand-maintained
     types that need Swift-specific logic (e.g. typed enums, polymorphic `AnyCodable` data)
@@ -47,7 +48,7 @@ clients/
 - **Shared utilities** (`APIKeyManager` for Keychain credential storage, `PermissionManager`, `MacOSClientFeatureFlagManager`)
 - **Shared app utilities** (signing identity management)
 
-**Dependencies**: None (only system frameworks: Network, Security)
+**Dependencies**: None (only system frameworks: AuthenticationServices, Network, Security)
 
 ### VellumAssistantLib (Library)
 **Platforms**: macOS 14+ only
@@ -58,8 +59,8 @@ clients/
 - Computer-use features (accessibility, screen capture, input injection)
 - macOS-specific integrations (menu bar, hotkeys, voice input)
 
-**Dependencies**: VellumAssistantShared, HotKey, Sparkle
-**Frameworks**: AppKit, ScreenCaptureKit, ApplicationServices, Vision, Speech
+**Dependencies**: VellumAssistantShared, Sentry, Sparkle
+**Frameworks**: AppKit, ApplicationServices, AuthenticationServices, AVKit, CoreGraphics, Network, ScreenCaptureKit, Security, Speech, SpriteKit, Vision
 
 **⚠️ iOS apps should NOT depend on this target** - it links macOS-only frameworks.
 
@@ -108,7 +109,7 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 
 **Current features:**
 - ✅ Standalone mode — direct Anthropic API connection (no Mac required)
-- ✅ Connected to Mac mode — TCP proxy through the Vellum assistant
+- ✅ Connected to Mac mode — HTTP+SSE through the gateway with bearer token authentication
 - ✅ Chat interface with streaming, markdown, code blocks
 - ✅ Multiple threads with JSON persistence
 - ✅ Onboarding with adaptive steps per connection mode
@@ -120,7 +121,7 @@ See [clients/ios/README.md](ios/README.md) for full build, packaging, and config
 - ✅ Siri Shortcuts ("Ask Vellum..." via AppIntents)
 - ✅ Deep linking (`vellum://send?message=...`)
 - ✅ Responsive typography/spacing (compact scaling for iPhone, full size on iPad)
-- ✅ 70 integration tests (ChatViewModel, threads, attachments, formatting)
+- ✅ Integration tests (ChatViewModel, threads, attachments, formatting, usage dashboard)
 
 Depends only on `VellumAssistantShared` (no macOS frameworks).
 
@@ -160,13 +161,13 @@ Depends only on `VellumAssistantShared` (no macOS frameworks).
 ## Known Limitations
 
 ### iOS Signing Operations
-- iOS clients log errors when assistant sends signing requests (macOS-specific IPC)
-- Cannot send error responses (protocol limitation)
+- iOS clients return explicit error responses when the assistant sends signing requests (macOS-specific IPC)
+- Unsupported operations (`signBundlePayload`, `getSigningIdentity`) are logged and answered with an error message rather than silently dropped
 
-### iOS TCP — Real Device Networking
-- `localhost` only works in the simulator (simulator shares Mac's network stack)
-- For real device: enter Mac's local IP in Settings → Mac Assistant → Hostname
-- For remote access: requires VPN, SSH tunnel, or port forwarding
+### iOS Gateway Networking
+- iOS connects to the assistant exclusively via the HTTP gateway
+- Pair via QR code (Settings → Connect on both devices); all pairings require Mac-side approval
+- LAN pairing works automatically when both devices are on the same network
 
 ### iOS Computer-Use
 - AXUIElement + CGEvent APIs are macOS-only (sandbox prevents on iOS)
@@ -188,14 +189,15 @@ cd clients/macos
 
 ```bash
 cd clients/ios
-./build.sh test    # 70 iOS-specific tests (via xcodebuild)
+./build.sh test    # iOS-specific tests (via xcodebuild)
 ```
 
 Test files in `clients/ios/Tests/`:
+- `AttachmentFlowIOSTests.swift` — attachment limits, send flow, thumbnails
+- `ChatTranscriptFormatterIOSTests.swift` — markdown formatting
 - `ChatViewModelIOSTests.swift` — send/receive flow, streaming, error handling
 - `ThreadLifecycleIOSTests.swift` — session creation, thread isolation
-- `ChatTranscriptFormatterIOSTests.swift` — markdown formatting
-- `AttachmentFlowIOSTests.swift` — attachment limits, send flow, thumbnails
+- `UsageDashboardViewTests.swift` — usage dashboard state, data loading, formatting
 
 Tests use mock implementations of protocols for dependency injection:
 - `DaemonClientProtocol` → `MockDaemonClient`
