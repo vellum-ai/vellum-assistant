@@ -5,8 +5,8 @@
  * POST  /v1/contacts              — create or update a contact
  * GET   /v1/contacts/:id          — get a contact by ID
  * POST  /v1/contacts/merge        — merge two contacts
- * PATCH /v1/contacts/channels/:id — update a contact channel's status/policy
- * POST  /v1/contacts/:contactId/channels/:channelId/verify — initiate trusted contact verification
+ * PATCH /v1/contact-channels/:contactChannelId — update a contact channel's status/policy
+ * POST  /v1/contact-channels/:contactChannelId/verify — initiate trusted contact verification
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -339,7 +339,7 @@ export async function handleUpsertContact(req: Request): Promise<Response> {
 }
 
 /**
- * PATCH /v1/contacts/channels/:channelId { status?, policy?, reason? }
+ * PATCH /v1/contact-channels/:contactChannelId { status?, policy?, reason? }
  */
 export async function handleUpdateContactChannel(
   req: Request,
@@ -459,27 +459,32 @@ function getTelegramBotUsername(): string | undefined {
 }
 
 /**
- * POST /v1/contacts/:contactId/channels/:channelId/verify
+ * POST /v1/contact-channels/:contactChannelId/verify
  *
  * Initiate trusted contact verification for a specific channel. Sends a
  * verification code via SMS, Telegram, Slack, or voice and returns session
  * info so the client can track the verification flow.
  */
 export async function handleVerifyContactChannel(
-  contactId: string,
-  channelId: string,
+  contactChannelId: string,
   assistantId: string,
 ): Promise<Response> {
-  const contact = getContact(contactId);
-  if (!contact) {
-    return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
+  const channel = getChannelById(contactChannelId);
+  if (!channel) {
+    return httpError(
+      "NOT_FOUND",
+      `Channel "${contactChannelId}" not found`,
+      404,
+    );
   }
 
-  const channel: ContactChannel | undefined = contact.channels.find(
-    (ch) => ch.id === channelId,
-  );
-  if (!channel) {
-    return httpError("NOT_FOUND", `Channel "${channelId}" not found`, 404);
+  const contact = getContact(channel.contactId);
+  if (!contact) {
+    return httpError(
+      "NOT_FOUND",
+      `Contact "${channel.contactId}" not found`,
+      404,
+    );
   }
 
   // Already verified — no need to re-verify
@@ -713,20 +718,19 @@ export function contactRouteDefinitions(): RouteDefinition[] {
       handler: async ({ req }) => handleMergeContacts(req),
     },
     {
-      endpoint: "contacts/channels/:id",
+      endpoint: "contact-channels/:contactChannelId",
       method: "PATCH",
-      policyKey: "contacts/channels",
+      policyKey: "contact-channels",
       handler: async ({ req, params }) =>
-        handleUpdateContactChannel(req, params.id),
+        handleUpdateContactChannel(req, params.contactChannelId),
     },
     {
-      endpoint: "contacts/:contactId/channels/:channelId/verify",
+      endpoint: "contact-channels/:contactChannelId/verify",
       method: "POST",
-      policyKey: "contacts/channels",
+      policyKey: "contact-channels",
       handler: async ({ params, authContext }) =>
         handleVerifyContactChannel(
-          params.contactId,
-          params.channelId,
+          params.contactChannelId,
           authContext.assistantId,
         ),
     },

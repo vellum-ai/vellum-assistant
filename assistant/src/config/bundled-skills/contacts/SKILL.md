@@ -10,7 +10,7 @@ Manage the user's contacts, relationship graph, access control (trusted contacts
 ## Prerequisites
 
 - Use the injected `INTERNAL_GATEWAY_BASE_URL` for gateway API calls.
-- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/contacts/channels`, `/v1/contacts/invites`, `/v1/channels/readiness`, and `/v1/integrations/telegram/config` on the gateway, never the assistant runtime port directly.
+- Use gateway control-plane routes only: this skill calls `/v1/contacts`, `/v1/contact-channels`, `/v1/contacts/invites`, `/v1/channels/readiness`, and `/v1/integrations/telegram/config` on the gateway, never the assistant runtime port directly.
 - The bearer token is available as the `$GATEWAY_AUTH_TOKEN` environment variable for control-plane `curl` requests.
 
 ## Contact Management
@@ -177,7 +177,7 @@ First, list contacts to find the channel's `id` (each entry in a contact's `chan
 **Important**: Before revoking, check the channel's current `status`. If the channel is **blocked**, do not attempt to revoke it -- blocking is stronger than revoking. Inform the user that the contact is already blocked and revoking is not applicable. Only channels with `active` or `pending` status can be revoked.
 
 ```bash
-curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/channels/<channel_id>" \
+curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/contact-channels/<channel_id>" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"status": "revoked", "reason": "<optional reason>"}'
@@ -192,7 +192,7 @@ Use this when the user wants to explicitly block someone. Blocking is stronger t
 Ask the user: _"I'll block [name/identifier]. They will be permanently denied from messaging the assistant. Should I proceed?"_
 
 ```bash
-curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/contacts/channels/<channel_id>" \
+curl -s -X PATCH "$INTERNAL_GATEWAY_BASE_URL/v1/contact-channels/<channel_id>" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"status": "blocked", "reason": "<optional reason>"}'

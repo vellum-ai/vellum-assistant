@@ -2003,20 +2003,17 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Routes through `HTTPTransport` when available. Falls back to the
     /// local gateway (port 7830) for socket-based connections.
     public func verifyContactChannel(
-        contactId: String,
-        channelId: String
+        contactChannelId: String
     ) async throws -> ChannelVerificationResult? {
         if let httpTransport {
             return try await httpTransport.verifyContactChannel(
-                contactId: contactId,
-                channelId: channelId
+                contactChannelId: contactChannelId
             )
         }
 
         #if os(macOS)
-        let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
-        let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-        guard var request = buildLocalRequest(target: .gateway, path: "v1/contacts/\(cEncoded)/channels/\(chEncoded)/verify", method: "POST") else { return nil }
+        let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+        guard var request = buildLocalRequest(target: .gateway, path: "v1/contact-channels/\(encoded)/verify", method: "POST") else { return nil }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let (data, response) = try await URLSession.shared.data(for: request)

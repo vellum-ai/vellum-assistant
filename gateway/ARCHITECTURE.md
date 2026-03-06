@@ -141,7 +141,7 @@ Telegram integration setup/config endpoints and contacts/invites endpoints are a
 | GET/POST | `/v1/contacts`                   |
 | GET      | `/v1/contacts/:contactId`        |
 | POST     | `/v1/contacts/merge`             |
-| PATCH    | `/v1/contacts/channels/:id`      |
+| PATCH    | `/v1/contact-channels/:contactChannelId` |
 | GET/POST | `/v1/contacts/invites`           |
 | DELETE   | `/v1/contacts/invites/:inviteId` |
 | POST     | `/v1/contacts/invites/redeem`    |

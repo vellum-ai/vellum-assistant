@@ -441,13 +441,13 @@ External users who are not the guardian can gain access to the assistant through
 
 **HTTP API (for management):**
 
-| Endpoint                    | Method | Description                                                      |
-| --------------------------- | ------ | ---------------------------------------------------------------- |
-| `/v1/contacts`              | GET    | List contacts (filterable by role, search by query/channel/etc.) |
-| `/v1/contacts`              | POST   | Create or update a contact                                       |
-| `/v1/contacts/:id`          | GET    | Get a contact by ID                                              |
-| `/v1/contacts/merge`        | POST   | Merge two contacts                                               |
-| `/v1/contacts/channels/:id` | PATCH  | Update a contact channel's status/policy                         |
+| Endpoint                                 | Method | Description                                                      |
+| ---------------------------------------- | ------ | ---------------------------------------------------------------- |
+| `/v1/contacts`                           | GET    | List contacts (filterable by role, search by query/channel/etc.) |
+| `/v1/contacts`                           | POST   | Create or update a contact                                       |
+| `/v1/contacts/:id`                       | GET    | Get a contact by ID                                              |
+| `/v1/contacts/merge`                     | POST   | Merge two contacts                                               |
+| `/v1/contact-channels/:contactChannelId` | PATCH  | Update a contact channel's status/policy                         |
 
 **Key source files:**
 

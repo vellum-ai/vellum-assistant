@@ -3,12 +3,12 @@ export type ContactsControlPlaneRoute =
   | { kind: "upsertContact" }
   | { kind: "getContact"; contactId: string }
   | { kind: "mergeContacts" }
-  | { kind: "updateContactChannel"; channelId: string }
+  | { kind: "updateContactChannel"; contactChannelId: string }
   | { kind: "listInvites" }
   | { kind: "createInvite" }
   | { kind: "redeemInvite" }
   | { kind: "revokeInvite"; inviteId: string }
-  | { kind: "verifyContactChannel"; contactId: string; channelId: string };
+  | { kind: "verifyContactChannel"; contactChannelId: string };
 
 export function matchContactsControlPlaneRoute(
   pathname: string,
@@ -26,20 +26,22 @@ export function matchContactsControlPlaneRoute(
   }
 
   // Channel status/policy updates
-  const channelMatch = pathname.match(/^\/v1\/contacts\/channels\/([^/]+)$/);
+  const channelMatch = pathname.match(/^\/v1\/contact-channels\/([^/]+)$/);
   if (channelMatch && method === "PATCH") {
-    return { kind: "updateContactChannel", channelId: channelMatch[1] };
+    return {
+      kind: "updateContactChannel",
+      contactChannelId: channelMatch[1],
+    };
   }
 
   // Trusted channel verification
   const verifyMatch = pathname.match(
-    /^\/v1\/contacts\/([^/]+)\/channels\/([^/]+)\/verify$/,
+    /^\/v1\/contact-channels\/([^/]+)\/verify$/,
   );
   if (verifyMatch && method === "POST") {
     return {
       kind: "verifyContactChannel",
-      contactId: verifyMatch[1],
-      channelId: verifyMatch[2],
+      contactChannelId: verifyMatch[1],
     };
   }
 

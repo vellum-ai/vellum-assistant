@@ -367,21 +367,20 @@ function main() {
       handler: (req) => contactsControlPlaneProxy.handleMergeContacts(req),
     },
     {
-      path: /^\/v1\/contacts\/channels\/([^/]+)$/,
+      path: /^\/v1\/contact-channels\/([^/]+)$/,
       method: "PATCH",
       auth: "edge",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
     },
     {
-      path: /^\/v1\/contacts\/([^/]+)\/channels\/([^/]+)\/verify$/,
+      path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
       method: "POST",
       auth: "edge",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleVerifyContactChannel(
           req,
           params[0],
-          params[1],
         ),
     },
 

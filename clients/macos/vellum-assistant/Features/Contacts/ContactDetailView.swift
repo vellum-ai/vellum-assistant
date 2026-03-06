@@ -914,8 +914,7 @@ struct ContactDetailView: View {
         Task {
             do {
                 let result = try await daemonClient.verifyContactChannel(
-                    contactId: displayContact.id,
-                    channelId: channel.id
+                    contactChannelId: channel.id
                 )
                 if result?.ok == true {
                     // Telegram bootstrap: ok is true but no code was sent yet —

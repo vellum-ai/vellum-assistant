@@ -1104,7 +1104,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/contacts/channels/{channelId}": {
+      "/v1/contact-channels/{contactChannelId}": {
         patch: {
           summary: "Update a contact channel",
           description:
@@ -1113,7 +1113,7 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           parameters: [
             {
-              name: "channelId",
+              name: "contactChannelId",
               in: "path",
               required: true,
               schema: { type: "string" },
@@ -1171,7 +1171,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/contacts/{contactId}/channels/{channelId}/verify": {
+      "/v1/contact-channels/{contactChannelId}/verify": {
         post: {
           summary: "Verify a contact channel",
           description:
@@ -1180,13 +1180,7 @@ export function buildSchema(): Record<string, unknown> {
           security: [{ BearerAuth: [] }],
           parameters: [
             {
-              name: "contactId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-            {
-              name: "channelId",
+              name: "contactChannelId",
               in: "path",
               required: true,
               schema: { type: "string" },

@@ -170,8 +170,8 @@ public final class HTTPTransport {
         case pendingInteractions(conversationKey: String?)
         case contactsList(limit: Int, role: String?)
         case contactsGet(id: String)
-        case contactsChannelUpdate(channelId: String)
-        case contactsChannelVerify(contactId: String, channelId: String)
+        case contactChannelUpdate(contactChannelId: String)
+        case contactChannelVerify(contactChannelId: String)
         case contactsUpsert
         case contactsInvitesCreate
         case channelsReadiness
@@ -264,13 +264,12 @@ public final class HTTPTransport {
         case .contactsGet(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/contacts/\(encoded)", nil)
-        case .contactsChannelUpdate(let channelId):
-            let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-            return ("/v1/contacts/channels/\(encoded)", nil)
-        case .contactsChannelVerify(let contactId, let channelId):
-            let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
-            let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-            return ("/v1/contacts/\(cEncoded)/channels/\(chEncoded)/verify", nil)
+        case .contactChannelUpdate(let contactChannelId):
+            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+            return ("/v1/contact-channels/\(encoded)", nil)
+        case .contactChannelVerify(let contactChannelId):
+            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+            return ("/v1/contact-channels/\(encoded)/verify", nil)
         case .contactsUpsert:
             return ("/v1/contacts", nil)
         case .contactsInvitesCreate:
@@ -354,13 +353,12 @@ public final class HTTPTransport {
         case .contactsGet(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/contacts/\(encoded)/", nil)
-        case .contactsChannelUpdate(let channelId):
-            let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-            return ("\(prefix)/contacts/channels/\(encoded)/", nil)
-        case .contactsChannelVerify(let contactId, let channelId):
-            let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
-            let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-            return ("\(prefix)/contacts/\(cEncoded)/channels/\(chEncoded)/verify/", nil)
+        case .contactChannelUpdate(let contactChannelId):
+            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+            return ("\(prefix)/contact-channels/\(encoded)/", nil)
+        case .contactChannelVerify(let contactChannelId):
+            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+            return ("\(prefix)/contact-channels/\(encoded)/verify/", nil)
         case .contactsUpsert:
             return ("\(prefix)/contacts/", nil)
         case .contactsInvitesCreate:
@@ -1078,7 +1076,7 @@ public final class HTTPTransport {
     }
 
     private func updateContactChannel(channelId: String, status: String?, policy: String?, reason: String?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .contactsChannelUpdate(channelId: channelId)) else { return }
+        guard let url = buildURL(for: .contactChannelUpdate(contactChannelId: channelId)) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "PATCH"
@@ -1128,7 +1126,7 @@ public final class HTTPTransport {
         let contacts: [ContactPayload]
     }
 
-    /// Response wrapper for `GET /v1/contacts/:id` and `PATCH /v1/contacts/channels/:id`.
+    /// Response wrapper for `GET /v1/contacts/:id` and `PATCH /v1/contact-channels/:contactChannelId`.
     private struct HTTPContactResponse: Decodable {
         let ok: Bool
         let contact: ContactPayload?
@@ -1341,8 +1339,8 @@ public final class HTTPTransport {
     // MARK: - Channel Verification
 
     /// Send a verification code to a contact's channel via the gateway.
-    func verifyContactChannel(contactId: String, channelId: String, isRetry: Bool = false) async throws -> DaemonClient.ChannelVerificationResult? {
-        guard let url = buildURL(for: .contactsChannelVerify(contactId: contactId, channelId: channelId)) else { return nil }
+    func verifyContactChannel(contactChannelId: String, isRetry: Bool = false) async throws -> DaemonClient.ChannelVerificationResult? {
+        guard let url = buildURL(for: .contactChannelVerify(contactChannelId: contactChannelId)) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1352,7 +1350,7 @@ public final class HTTPTransport {
             if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    return try await verifyContactChannel(contactId: contactId, channelId: channelId, isRetry: true)
+                    return try await verifyContactChannel(contactChannelId: contactChannelId, isRetry: true)
                 }
                 return nil
             }

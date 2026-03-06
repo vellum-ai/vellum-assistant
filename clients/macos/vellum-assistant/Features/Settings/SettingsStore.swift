@@ -1681,7 +1681,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func revokeTelegramApprovedMember(memberId: String) {
-        guard var request = buildDaemonRequest(path: "v1/contacts/channels/\(memberId)", method: "PATCH") else { return }
+        guard var request = buildDaemonRequest(path: "v1/contact-channels/\(memberId)", method: "PATCH") else { return }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
         request.timeoutInterval = 10
@@ -1763,7 +1763,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func revokeSlackApprovedMember(memberId: String) {
-        guard var request = buildDaemonRequest(path: "v1/contacts/channels/\(memberId)", method: "PATCH") else { return }
+        guard var request = buildDaemonRequest(path: "v1/contact-channels/\(memberId)", method: "PATCH") else { return }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "revoked"])
         request.timeoutInterval = 10
