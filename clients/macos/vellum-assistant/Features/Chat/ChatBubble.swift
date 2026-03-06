@@ -90,15 +90,12 @@ struct ChatBubble: View {
 
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
-        // Merged: the inner `.frame(maxWidth: error ? .infinity : nil)` and the outer
-        // `.frame(maxWidth: error ? .infinity : 520)` collapsed into a single frame
-        // to remove one layout measurement layer. The visual result is identical because
-        // error messages already used .infinity for both, and non-error messages used
-        // nil (unconstrained) then 520 — equivalent to just 520.
         return content()
             .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
             .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
-            .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
+            // Inner frame: let content determine natural width (shrink-wrap for
+            // user bubbles). Error messages expand to fill available width.
+            .frame(maxWidth: message.isError ? .infinity : nil)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
@@ -106,6 +103,8 @@ struct ChatBubble: View {
             .overlay {
                 bubbleBorderOverlay
             }
+            // Outer frame: cap the maximum width and position the bubble.
+            .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
     }
 
     private var formattedTimestamp: String {
@@ -216,9 +215,9 @@ struct ChatBubble: View {
                 .layoutPriority(1)
                 // Flatten the render tree for stable (non-streaming) messages into a
                 // single compositing layer, reducing recursive SwiftUI layout passes.
-                // Skipped during streaming because drawingGroup would re-rasterize
-                // the entire layer on every token delta.
-                .modifier(ConditionalDrawingGroup(isEnabled: !message.isStreaming))
+                // Uses compositingGroup instead of drawingGroup to avoid rasterizing
+                // text into a Metal texture (which breaks .textSelection(.enabled)).
+                .compositingGroup()
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)
@@ -540,18 +539,3 @@ struct ChatBubble: View {
     @MainActor static var lastStreamingMarkdown: (text: String, value: AttributedString)?
 }
 
-// MARK: - Conditional Drawing Group
-
-/// Applies `.drawingGroup()` only when `isEnabled` is true, avoiding type erasure
-/// overhead and allowing the modifier to be toggled per-message (e.g. skipped during streaming).
-private struct ConditionalDrawingGroup: ViewModifier {
-    let isEnabled: Bool
-
-    func body(content: Content) -> some View {
-        if isEnabled {
-            content.drawingGroup(opaque: false)
-        } else {
-            content
-        }
-    }
-}
