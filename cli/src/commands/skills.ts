@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -221,6 +222,33 @@ function upsertSkillsIndex(id: string): void {
   atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
 }
 
+function removeSkillsIndexEntry(id: string): void {
+  const indexPath = getSkillsIndexPath();
+  if (!existsSync(indexPath)) return;
+
+  const lines = readFileSync(indexPath, "utf-8").split("\n");
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^[-*]\\s+(?:\`)?${escaped}(?:\`)?\\s*$`);
+  const filtered = lines.filter((line) => !pattern.test(line));
+
+  // If nothing changed, skip the write
+  if (filtered.length === lines.length) return;
+
+  const content = filtered.join("\n");
+  atomicWriteFile(indexPath, content.endsWith("\n") ? content : content + "\n");
+}
+
+function uninstallSkillLocally(skillId: string): void {
+  const skillDir = join(getSkillsDir(), skillId);
+
+  if (!existsSync(skillDir)) {
+    throw new Error(`Skill "${skillId}" is not installed.`);
+  }
+
+  rmSync(skillDir, { recursive: true, force: true });
+  removeSkillsIndexEntry(skillId);
+}
+
 async function installSkillLocally(
   skillId: string,
   catalogEntry: CatalogSkill,
@@ -287,6 +315,9 @@ function printUsage(): void {
   );
   console.log(
     "  install <skill-id> [--overwrite]  Install a skill from the catalog",
+  );
+  console.log(
+    "  uninstall <skill-id>              Uninstall a previously installed skill",
   );
   console.log("");
   console.log("Options:");
@@ -367,6 +398,35 @@ export async function skills(): Promise<void> {
           console.log(JSON.stringify({ ok: true, skillId }));
         } else {
           console.log(`Installed skill "${skillId}".`);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (json) {
+          console.log(JSON.stringify({ ok: false, error: msg }));
+        } else {
+          console.error(`Error: ${msg}`);
+        }
+        process.exitCode = 1;
+      }
+      break;
+    }
+
+    case "uninstall": {
+      const skillId = args.find(
+        (a) => !a.startsWith("--") && a !== "uninstall",
+      );
+      if (!skillId) {
+        console.error("Usage: vellum skills uninstall <skill-id>");
+        process.exit(1);
+      }
+
+      try {
+        uninstallSkillLocally(skillId);
+
+        if (json) {
+          console.log(JSON.stringify({ ok: true, skillId }));
+        } else {
+          console.log(`Uninstalled skill "${skillId}".`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
