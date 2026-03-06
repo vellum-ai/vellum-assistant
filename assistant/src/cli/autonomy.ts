@@ -181,9 +181,49 @@ export function registerAutonomyCommand(program: Command): void {
     .description("View and configure autonomy tiers")
     .option("--json", "Machine-readable JSON output");
 
+  autonomy.addHelpText(
+    "after",
+    `
+Autonomy tiers control how independently the assistant acts on each message:
+
+  auto     Assistant acts independently — sends messages, executes actions
+           without asking for permission.
+  draft    Assistant creates drafts for your approval before sending or
+           executing. You review and confirm each action.
+  notify   Assistant notifies you about incoming messages and events but
+           does not act or draft. Purely informational.
+
+Resolution order (first match wins):
+  1. Contact override   — per-contact tier set via --contact
+  2. Category override  — per-category tier set via --category
+  3. Channel default    — per-channel tier set via --channel
+  4. Global default     — the fallback tier set via --default
+
+Config is stored in ~/.vellum/workspace/autonomy.json.
+
+Examples:
+  $ vellum autonomy get
+  $ vellum autonomy set --default draft
+  $ vellum autonomy set --channel telegram --tier auto`,
+  );
+
   autonomy
     .command("get")
     .description("Show current autonomy configuration")
+    .addHelpText(
+      "after",
+      `
+Prints the full autonomy configuration: the global default tier, per-channel
+defaults, category overrides, and contact overrides. Sections with no entries
+are shown as "(none)".
+
+Pass --json (on the parent command) for machine-readable output containing
+the complete config object.
+
+Examples:
+  $ vellum autonomy get
+  $ vellum autonomy --json get`,
+    )
     .action((_opts: Record<string, unknown>, cmd: Command) => {
       const json = getJson(cmd);
       const config = loadConfig();
@@ -203,6 +243,30 @@ export function registerAutonomyCommand(program: Command): void {
     .option("--category <category>", "Category to configure")
     .option("--contact <contactId>", "Contact to configure")
     .option("--tier <tier>", "Tier to set (auto, draft, notify)")
+    .addHelpText(
+      "after",
+      `
+Four mutually exclusive targeting modes (use exactly one per invocation):
+
+  --default <tier>                Set the global default tier. The <tier>
+                                  value is the argument itself — do not
+                                  combine with --tier.
+  --channel <channel> --tier <t>  Set the default tier for a specific channel.
+  --category <cat> --tier <t>     Set the tier override for a message category.
+  --contact <id> --tier <t>       Set the tier override for a specific contact.
+
+Valid tier values: auto, draft, notify.
+
+Each call merges into the existing config — it does not replace other entries.
+For example, setting a channel default leaves all other channel defaults,
+category overrides, and contact overrides intact.
+
+Examples:
+  $ vellum autonomy set --default draft
+  $ vellum autonomy set --channel telegram --tier auto
+  $ vellum autonomy set --category billing --tier notify
+  $ vellum autonomy set --contact c_8f3a1b2d --tier draft`,
+    )
     .action(
       (
         opts: {
