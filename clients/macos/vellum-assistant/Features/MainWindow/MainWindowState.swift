@@ -170,6 +170,7 @@ public final class MainWindowState: ObservableObject {
             case .selection(let viewSelection):
                 self.selection = viewSelection
             case .chatDefault(let threadSnapshot):
+                self.persistentThreadId = threadSnapshot
                 if let threadId = threadSnapshot {
                     self.selection = .thread(threadId)
                 } else {
@@ -189,6 +190,7 @@ public final class MainWindowState: ObservableObject {
             case .selection(let viewSelection):
                 self.selection = viewSelection
             case .chatDefault(let threadSnapshot):
+                self.persistentThreadId = threadSnapshot
                 if let threadId = threadSnapshot {
                     self.selection = .thread(threadId)
                 } else {
