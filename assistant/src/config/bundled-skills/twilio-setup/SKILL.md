@@ -17,10 +17,18 @@ vellum integrations twilio config --json
 curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/credentials" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
   -d '{"accountSid":"ACxxx","authToken":"xxx"}'
-# 3. Provision or assign a number
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/provision" \
+# 3. Get credential ID and Account SID for proxied calls
+credential_store action=list  # → note credential_id for twilio/account_sid
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" | jq -r '.accountSid'
+# 4. Search and provision via Twilio API (proxy injects auth automatically)
+#    bash network_mode=proxied credential_ids=["<cred_id>"]
+curl -s "https://api.twilio.com/2010-04-01/Accounts/<SID>/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true"
+curl -s -X POST "https://api.twilio.com/2010-04-01/Accounts/<SID>/IncomingPhoneNumbers.json" -d "PhoneNumber=+1xxx"
+# 5. Assign locally (saves to config + sets up webhooks)
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/assign" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" -H "Content-Type: application/json" \
-  -d '{"country":"US","areaCode":"415"}'
+  -d '{"phoneNumber":"+1xxx"}'
 ```
 
 For voice call setup after Twilio is configured, use `phone-calls` + `call_start`.
@@ -30,11 +38,11 @@ For voice call setup after Twilio is configured, use `phone-calls` + `call_start
 This skill manages the full Twilio lifecycle:
 
 - **Credential storage** — Account SID and Auth Token
-- **Phone number provisioning** — Buy a new number directly from Twilio
+- **Direct Twilio API access** — Search and purchase numbers via proxied calls to the Twilio REST API (the proxy injects authentication automatically)
 - **Phone number assignment** — Assign an existing Twilio number to the assistant
 - **Status checking** — Verify credentials and assigned number
 
-Mutating operations use Twilio HTTP control-plane endpoints on the gateway. Status/list retrieval uses `vellum integrations ...` CLI reads.
+Number search and purchase use proxied calls to the Twilio REST API (`bash` with `network_mode: "proxied"`). Local bookkeeping (assign, webhook sync) uses gateway control-plane endpoints. Status/list retrieval uses `vellum integrations ...` CLI reads.
 
 ### Multi-Assistant Setups
 
@@ -110,19 +118,62 @@ The assistant needs a phone number to make calls and send SMS. There are two pat
 
 If the user wants to buy a new number through Twilio:
 
-```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/provision" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"country":"US","areaCode":"415"}'
+**3a. Get the credential ID and Account SID:**
+
+```
+credential_store action=list
 ```
 
-- `areaCode` is optional — ask the user if they have a preferred area code
-- `country` defaults to `"US"` — ask if they want a different country (ISO 3166-1 alpha-2)
+Find the entry with `service: "twilio"` and `field: "account_sid"`. Note its `credential_id`.
 
-The endpoint provisions the number via the Twilio API, automatically assigns it to the assistant (persisting to both secure storage and config), and configures Twilio webhooks (voice, status callback, SMS) if a public ingress URL is available. The response includes the new `phoneNumber`. No separate assign call is needed.
+Then retrieve the Account SID (needed for Twilio URL paths):
 
-**Webhook auto-configuration:** When `ingress.publicBaseUrl` is configured, the endpoint automatically sets the following webhooks on the Twilio phone number:
+```bash
+curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/config" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" | jq -r '.accountSid'
+```
+
+**3b. Search for available numbers (proxied Twilio API):**
+
+```
+bash:
+  network_mode: proxied
+  credential_ids: ["<credential_id from 3a>"]
+  command: |
+    curl -s "https://api.twilio.com/2010-04-01/Accounts/<ACCOUNT_SID>/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true&AreaCode=415"
+```
+
+- `AreaCode` is optional — ask the user if they have a preferred area code
+- Replace `US` with a different ISO 3166-1 alpha-2 country code if the user wants a non-US number
+- The proxy automatically injects `Authorization: Basic <credentials>` — do not include an Authorization header
+
+The response contains an `available_phone_numbers` array. Present the first few options to the user with their `phone_number` and `friendly_name`.
+
+**3c. Purchase the chosen number (proxied Twilio API):**
+
+```
+bash:
+  network_mode: proxied
+  credential_ids: ["<credential_id from 3a>"]
+  command: |
+    curl -s -X POST "https://api.twilio.com/2010-04-01/Accounts/<ACCOUNT_SID>/IncomingPhoneNumbers.json" \
+      -d "PhoneNumber=+14155551234"
+```
+
+The response includes the purchased number's `phone_number` and `sid`.
+
+**3d. Assign locally (saves to config + sets up webhooks):**
+
+```bash
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/twilio/numbers/assign" \
+  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"phoneNumber":"+14155551234"}'
+```
+
+This persists the number to secure storage and config, and configures Twilio webhooks (voice, status callback, SMS) if a public ingress URL is available. The response includes the new `phoneNumber`. No separate assign call is needed.
+
+**Webhook auto-configuration:** When `ingress.publicBaseUrl` is configured, the assign endpoint automatically sets the following webhooks on the Twilio phone number:
 
 - Voice webhook: `{publicBaseUrl}/webhooks/twilio/voice`
 - Voice status callback: `{publicBaseUrl}/webhooks/twilio/status`
@@ -134,13 +185,17 @@ If ingress is not yet configured, webhook setup is skipped gracefully — the nu
 
 ### Option B: Assign an Existing Number
 
-If the user already has a Twilio phone number, first list available numbers:
+If the user already has a Twilio phone number, first get the credential ID and Account SID (same as Option A, step 3a), then list available numbers:
 
-```bash
-vellum integrations twilio numbers --json
+```
+bash:
+  network_mode: proxied
+  credential_ids: ["<credential_id>"]
+  command: |
+    curl -s "https://api.twilio.com/2010-04-01/Accounts/<ACCOUNT_SID>/IncomingPhoneNumbers.json"
 ```
 
-The response includes a `numbers` array with each number's `phoneNumber`, `friendlyName`, and `capabilities` (voice, SMS). Present these to the user and let them choose.
+The response includes an `incoming_phone_numbers` array with each number's `phone_number`, `friendly_name`, and `capabilities`. Present these to the user and let them choose.
 
 Then assign the chosen number:
 
