@@ -68,13 +68,6 @@ struct SlackChannelPickerView: View {
                 hoveredChannelID = nil
             }
         }
-        .background(VColor.surfaceSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         .task {
             await loadChannels()
         }
