@@ -195,8 +195,8 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     expect(browserSrc).not.toContain("getCredentialValue");
   });
 
-  test("getSecureKey is only imported by authorized modules", () => {
-    // Hard boundary: only these production files may import getSecureKey.
+  test("secure-keys is only imported by authorized modules", () => {
+    // Hard boundary: only these production files may import from secure-keys.
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
       "security/secure-keys.ts", // self (re-export infrastructure)
@@ -231,6 +231,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/oauth-connect.ts", // OAuth connect handler for integration setup
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
+      "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
+      "mcp/client.ts", // MCP client cached-token lookup
+      "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
+      "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -258,11 +262,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
 
     for (const filePath of allFiles) {
       const content = readFileSync(filePath, "utf-8");
-      // Check for imports of getSecureKey via static import, dynamic import(), or require()
+      // Check for any import from the secure-keys module (static import, dynamic import(), or require())
       if (
-        content.match(/\bgetSecureKey\b/) &&
-        (content.match(/from\s+['"].*secure-keys/) ||
-          content.match(/(?:import|require)\s*\(\s*['"].*secure-keys/))
+        content.match(/from\s+['"].*secure-keys/) ||
+        content.match(/(?:import|require)\s*\(\s*['"].*secure-keys/)
       ) {
         const relative = filePath.slice(srcDir.length + 1);
         if (!ALLOWED_IMPORTERS.has(relative)) {
