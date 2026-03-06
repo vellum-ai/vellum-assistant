@@ -189,6 +189,13 @@ export async function executeAppCreate(
 
   // Scaffold multifile app with src/ files and compile to dist/
   if (multifileEnabled) {
+    const htmlSafeName = name
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+    const jsxSafeName = name.replace(/[<>{}&"']/g, "");
+
     const indexHtml =
       typeof input.html === "string"
         ? input.html
@@ -197,7 +204,7 @@ export async function executeAppCreate(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${name}</title>
+  <title>${htmlSafeName}</title>
 </head>
 <body>
   <div id="app"></div>
@@ -207,7 +214,7 @@ export async function executeAppCreate(
     const mainTsx = `import { render } from 'preact';
 
 function App() {
-  return <div>Hello, ${name}!</div>;
+  return <div>{"Hello, ${jsxSafeName}!"}</div>;
 }
 
 render(<App />, document.getElementById('app')!);

@@ -47,7 +47,8 @@ describe("migrateAppToMultifile", () => {
     // src/main.tsx created
     const mainTsx = readFileSync(join(appDir, "src", "main.tsx"), "utf-8");
     expect(mainTsx).toContain("Entry point");
-    expect(mainTsx).toContain("import './styles.css'");
+    // No inline styles in source HTML → no styles.css import
+    expect(mainTsx).not.toContain("import './styles.css'");
   });
 
   test("sets formatVersion to 2 after migration", () => {

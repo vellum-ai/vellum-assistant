@@ -386,7 +386,7 @@ describe("executeAppCreate", () => {
     expect(files["src/index.html"]).toContain('<div id="app"></div>');
     expect(files["src/main.tsx"]).toBeDefined();
     expect(files["src/main.tsx"]).toContain("import { render } from 'preact'");
-    expect(files["src/main.tsx"]).toContain("Hello, New App!");
+    expect(files["src/main.tsx"]).toContain('{"Hello, New App!"}');
   });
 
   test("flag on with explicit html: uses provided html as src/index.html", async () => {
