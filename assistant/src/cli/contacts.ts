@@ -8,7 +8,12 @@ import {
   searchContacts,
   upsertContact,
 } from "../contacts/contact-store.js";
-import type { ContactRole } from "../contacts/types.js";
+import type {
+  ChannelPolicy,
+  ChannelStatus,
+  ContactRole,
+  ContactType,
+} from "../contacts/types.js";
 import { initializeDb } from "../memory/db.js";
 import {
   createIngressInvite,
@@ -248,7 +253,7 @@ Examples:
             displayName: opts.displayName,
             notes: opts.notes,
             role: opts.role as ContactRole | undefined,
-            contactType: opts.contactType as "human" | "assistant" | undefined,
+            contactType: opts.contactType as ContactType | undefined,
             channels: channels as
               | {
                   type: string;
@@ -256,8 +261,8 @@ Examples:
                   isPrimary?: boolean;
                   externalUserId?: string;
                   externalChatId?: string;
-                  status?: string;
-                  policy?: string;
+                  status?: ChannelStatus;
+                  policy?: ChannelPolicy;
                 }[]
               | undefined,
           });
