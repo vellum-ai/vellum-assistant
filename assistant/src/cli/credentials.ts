@@ -550,10 +550,10 @@ Examples:
           return;
         }
 
-        writeOutput(cmd, { ok: true, value: secret });
-
-        if (!shouldOutputJson(cmd)) {
-          log.info(secret);
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, { ok: true, value: secret });
+        } else {
+          process.stdout.write(secret);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
