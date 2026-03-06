@@ -10,6 +10,25 @@ export function registerAuditCommand(program: Command): void {
     .command("audit")
     .description("Show recent tool invocations")
     .option("-l, --limit <n>", "Number of entries to show", "20")
+    .addHelpText(
+      "after",
+      `
+Reads from the local tool invocation log stored by the daemon. Each row
+represents one tool call the assistant made, including what was invoked,
+how the approval system classified it, and how long it took.
+
+Table columns:
+  Timestamp   When the tool was invoked (UTC, YYYY-MM-DD HH:MM:SS)
+  Tool        Tool name (e.g. bash, read_file, write_file, browser)
+  Input       Truncated summary of the tool input (command, path, etc.)
+  Decision    Approval decision: allow, deny, or ask
+  Risk        Risk classification: none, low, medium, high
+  Duration    Wall-clock execution time (e.g. 120ms, 1.3s)
+
+Examples:
+  $ vellum audit
+  $ vellum audit --limit 50`,
+    )
     .action((opts: { limit: string }) => {
       const limit = parseInt(opts.limit, 10) || 20;
       const rows = getRecentInvocations(limit);
