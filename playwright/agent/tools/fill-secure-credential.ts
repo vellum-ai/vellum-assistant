@@ -6,7 +6,7 @@
  * This tool uses AppleScript to:
  *   1. Find the panel via its accessibility identifier
  *   2. Focus the SecureField
- *   3. Paste the env var value via clipboard (generates real input events that
+ *   3. Type the env var value via `keystroke` (generates real input events that
  *      update SwiftUI's @State binding, unlike `set value` which doesn't)
  *   4. Click Save using a three-strategy cascade:
  *      - Strategy 1: AXIdentifier — reads `value of attribute "AXIdentifier"` to
@@ -122,15 +122,11 @@ tell application "System Events"
       error "Could not find a Secure Credential panel window"
     end if
 
-    -- Save the current clipboard so we can restore it after pasting.
-    set savedClip to ""
-    try
-      set savedClip to the clipboard as text
-    end try
-
     -- Find and fill the text field using entire contents (works regardless of nesting depth).
-    -- We use clipboard paste instead of `set value` because SecureField's SwiftUI
+    -- We use `keystroke` instead of `set value` because SecureField's SwiftUI
     -- @State binding only updates from real input events, not programmatic value sets.
+    -- We intentionally avoid the clipboard to prevent exposing the secret to
+    -- clipboard observers, history apps, or cross-device clipboard sync.
     set foundField to false
     set allElems to entire contents of credentialWindow
     repeat with elem in allElems
@@ -143,22 +139,13 @@ tell application "System Events"
           -- Clear any existing content
           keystroke "a" using command down
           delay 0.1
-          set the clipboard to "${escaped}"
-          delay 0.1
-          keystroke "v" using command down
+          keystroke "${escaped}"
           delay 0.3
           set foundField to true
           exit repeat
         end if
       end try
     end repeat
-
-    -- Restore the clipboard to its original value.
-    -- Only restore if we captured text; if the original clipboard was non-text
-    -- (image, file, etc.), savedClip is still "" and restoring would clobber it.
-    if savedClip is not "" then
-      set the clipboard to savedClip
-    end if
 
     if not foundField then
       error "Could not find or focus the text field in the Secure Credential panel"
