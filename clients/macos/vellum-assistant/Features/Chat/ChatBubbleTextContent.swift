@@ -36,7 +36,7 @@ extension ChatBubble {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .task(id: segmentText) {
+        .task(id: "\(segmentText)|\(streaming)") {
             // Only run async parsing for large, non-streaming text with a cache miss
             guard !streaming,
                   segmentText.count > Self.asyncParseThreshold,
@@ -45,9 +45,21 @@ extension ChatBubble {
             let result = await MarkdownParseActor.shared.parse(segmentText)
             guard !Task.isCancelled else { return }
             asyncSegments[segmentText] = result
-            // Backfill the synchronous cache so subsequent renders hit it directly
-            Self.lruCounter += 1
-            Self.segmentCache[segmentText] = (result, Self.lruCounter)
+            // Backfill the synchronous cache with guardrails (size limit,
+            // byte tracking, eviction) — mirrors the logic in cachedSegments.
+            if segmentText.count <= Self.maxCacheableTextLength {
+                if Self.segmentCache.count >= Self.maxCacheSize {
+                    if let lruKey = Self.segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                        Self.estimatedCacheBytes -= Self.estimatedBytes(for: lruKey)
+                        Self.segmentCache.removeValue(forKey: lruKey)
+                    }
+                }
+                Self.lruCounter += 1
+                let cost = Self.estimatedBytes(for: segmentText)
+                Self.segmentCache[segmentText] = (result, Self.lruCounter)
+                Self.estimatedCacheBytes += cost
+                Self.evictIfOverBudget()
+            }
         }
     }
 

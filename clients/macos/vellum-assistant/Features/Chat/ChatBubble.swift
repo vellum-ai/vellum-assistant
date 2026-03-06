@@ -386,7 +386,7 @@ struct ChatBubble: View {
                 }
             }
         }
-        .task(id: message.text) {
+        .task(id: "\(message.text)|\(message.isStreaming)") {
             // Async-parse large messages that missed the synchronous cache
             let text = message.text
             guard !message.isStreaming,
@@ -396,9 +396,21 @@ struct ChatBubble: View {
             let result = await MarkdownParseActor.shared.parse(text)
             guard !Task.isCancelled else { return }
             asyncSegments[text] = result
-            // Backfill synchronous cache for future renders
-            Self.lruCounter += 1
-            Self.segmentCache[text] = (result, Self.lruCounter)
+            // Backfill synchronous cache with guardrails (size limit, byte
+            // tracking, eviction) — mirrors the logic in cachedSegments.
+            if text.count <= Self.maxCacheableTextLength {
+                if Self.segmentCache.count >= Self.maxCacheSize {
+                    if let lruKey = Self.segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                        Self.estimatedCacheBytes -= Self.estimatedBytes(for: lruKey)
+                        Self.segmentCache.removeValue(forKey: lruKey)
+                    }
+                }
+                Self.lruCounter += 1
+                let cost = Self.estimatedBytes(for: text)
+                Self.segmentCache[text] = (result, Self.lruCounter)
+                Self.estimatedCacheBytes += cost
+                Self.evictIfOverBudget()
+            }
         }
     }
 
