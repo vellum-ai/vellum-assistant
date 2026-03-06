@@ -698,6 +698,37 @@ fi
 # Copy document type icon for .vellum UTI
 cp "$SCRIPT_DIR/vellum-assistant/Resources/VellumDocument.icns" "$RESOURCES_DIR/"
 
+# Build and embed Quick Look Thumbnail extension (appex)
+QLTHUMB_SRC="$SCRIPT_DIR/VellumQLThumbnail"
+if [ -d "$QLTHUMB_SRC" ]; then
+    echo "Building VellumQLThumbnail appex..."
+    QLTHUMB_APPEX="$CONTENTS/PlugIns/VellumQLThumbnail.appex"
+    QLTHUMB_APPEX_CONTENTS="$QLTHUMB_APPEX/Contents"
+    QLTHUMB_APPEX_MACOS="$QLTHUMB_APPEX_CONTENTS/MacOS"
+    mkdir -p "$QLTHUMB_APPEX_MACOS"
+
+    # Compile the extension as an appex binary.
+    # App extensions use NSExtensionMain as the entry point (provided by Foundation).
+    # The -Xlinker -e -Xlinker _NSExtensionMain flags tell the linker to use it
+    # instead of a regular main() function.
+    xcrun swiftc \
+        -module-name VellumQLThumbnail \
+        -emit-executable \
+        -target "$(uname -m)-apple-macosx14.0" \
+        -sdk "$(xcrun --show-sdk-path)" \
+        -framework QuickLookThumbnailing \
+        -framework AppKit \
+        -framework CoreGraphics \
+        -Xlinker -e -Xlinker _NSExtensionMain \
+        -o "$QLTHUMB_APPEX_MACOS/VellumQLThumbnail" \
+        "$QLTHUMB_SRC/ThumbnailProvider.swift"
+
+    # Copy Info.plist
+    cp "$QLTHUMB_SRC/Info.plist" "$QLTHUMB_APPEX_CONTENTS/Info.plist"
+
+    echo "VellumQLThumbnail appex built"
+fi
+
 # Remove transient runtime artifacts that may be written into the app bundle
 # during local dev runs (for example qdrant marker files). These are not part
 # of the distributable app and can break outer-bundle codesign verification.
@@ -743,6 +774,17 @@ if [ -d "$FRAMEWORKS_DIR/Sparkle.framework" ]; then
         codesign "${FW_SIGN_FLAGS[@]}" "$FRAMEWORKS_DIR/Sparkle.framework"
     fi
     echo "Sparkle.framework signed (including nested binaries)"
+fi
+
+# Sign Quick Look Thumbnail extension (must be signed before outer app bundle)
+QLTHUMB_APPEX="$CONTENTS/PlugIns/VellumQLThumbnail.appex"
+if [ -d "$QLTHUMB_APPEX" ]; then
+    QLTHUMB_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+    if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+        QLTHUMB_SIGN_FLAGS+=(--timestamp --options runtime)
+    fi
+    codesign "${QLTHUMB_SIGN_FLAGS[@]}" "$QLTHUMB_APPEX"
+    echo "VellumQLThumbnail.appex signed"
 fi
 
 # Sign CLI binary
