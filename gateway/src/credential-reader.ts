@@ -192,6 +192,10 @@ async function readBrokerCredential(
       let buf = "";
       let settled = false;
 
+      // Declare socket before the timer so the timeout closure never
+      // hits a TDZ if createConnection throws synchronously.
+      let socket: ReturnType<typeof createConnection> | undefined;
+
       const timer = setTimeout(() => {
         if (!settled) {
           settled = true;
@@ -205,7 +209,6 @@ async function readBrokerCredential(
         }
       }, BROKER_TIMEOUT_MS);
 
-      let socket: ReturnType<typeof createConnection> | undefined;
       try {
         socket = createConnection({ path: socketPath });
       } catch (err) {
