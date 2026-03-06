@@ -99,10 +99,11 @@ final class BundleConfirmationViewModel {
             let cornerRadius = size * 0.22
             let path = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
 
-            // Gradient background using a stable hash for consistent colors
-            var hasher = Hasher()
-            hasher.combine(glyph)
-            let hash = hasher.finalize() & Int.max
+            // Gradient background using a deterministic hash (djb2) for consistent colors across launches
+            var hash: UInt64 = 5381
+            for byte in glyph.utf8 {
+                hash = hash &* 33 &+ UInt64(byte)
+            }
             let hue = CGFloat(hash % 360) / 360.0
             let topColor = NSColor(hue: hue, saturation: 0.6, brightness: 0.85, alpha: 1.0)
             let bottomColor = NSColor(

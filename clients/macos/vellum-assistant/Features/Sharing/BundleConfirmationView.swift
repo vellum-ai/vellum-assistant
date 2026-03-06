@@ -10,7 +10,11 @@ struct BundleConfirmationView: View {
             switch viewModel.installState {
             case .installed:
                 installedStateView
-            default:
+            case .installing:
+                installingStateView
+            case .error(let message):
+                errorStateView(message: message)
+            case .ready:
                 confirmationContent
             }
         }
@@ -255,6 +259,55 @@ struct BundleConfirmationView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Installing State
+
+    private var installingStateView: some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            ProgressView()
+                .controlSize(.large)
+
+            Text("Installing…")
+                .font(VFont.title)
+                .foregroundColor(VColor.textPrimary)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
+    }
+
+    // MARK: - Error State
+
+    private func errorStateView(message: String) -> some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 56))
+                .foregroundColor(VColor.error)
+
+            Text("Installation Failed")
+                .font(VFont.title)
+                .foregroundColor(VColor.textPrimary)
+
+            Text(message)
+                .font(VFont.body)
+                .foregroundColor(VColor.error)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, VSpacing.xxl)
+
+            VButton(label: "Dismiss", style: .ghost, size: .medium) {
+                viewModel.cancel()
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
     }
 
     // MARK: - Installed State

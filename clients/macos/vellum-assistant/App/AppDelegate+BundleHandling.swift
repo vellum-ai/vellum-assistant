@@ -68,8 +68,8 @@ extension AppDelegate {
         let confirmWindow = BundleConfirmationWindow()
         self.bundleConfirmationWindow = confirmWindow
 
-        viewModel.onConfirm = { [weak self] in
-            guard let self else { return }
+        viewModel.onConfirm = { [weak self, weak viewModel] in
+            guard let self, let viewModel else { return }
             viewModel.installState = .installing
             self.unpackAndLoadBundle(
                 filePath: filePath,
