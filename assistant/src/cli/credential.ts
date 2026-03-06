@@ -6,8 +6,8 @@ import {
   setSecureKey,
 } from "../security/secure-keys.js";
 import {
-  type CredentialMetadata,
   assertMetadataWritable,
+  type CredentialMetadata,
   deleteCredentialMetadata,
   getCredentialMetadata,
   getCredentialMetadataById,

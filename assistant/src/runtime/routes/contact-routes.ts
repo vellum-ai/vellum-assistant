@@ -25,7 +25,6 @@ import {
   upsertContact,
   validateSpeciesMetadata,
 } from "../../contacts/contact-store.js";
-import type { ContactChannel } from "../../contacts/types.js";
 import type {
   AssistantSpecies,
   ChannelPolicy,
