@@ -62,7 +62,7 @@ Examples:
   bun run scripts/twitter-cli.ts post "Hello, world!"
   bun run scripts/twitter-cli.ts reply https://x.com/user/status/123 "Nice post!"
   bun run scripts/twitter-cli.ts timeline elonmusk --count 10
-  bun run scripts/twitter-cli.ts search "bun runtime" --product Latest --count 20
+  bun run scripts/twitter-cli.ts search "bun runtime" --product Latest
   bun run scripts/twitter-cli.ts strategy set oauth
 `);
 }
