@@ -25,7 +25,6 @@ import { registerNotificationsCommand } from "./notifications.js";
 import { registerSequenceCommand } from "./sequence.js";
 import { registerSessionsCommand } from "./sessions.js";
 import { registerTrustCommand } from "./trust.js";
-import { registerTwitterCommand } from "./twitter.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json") as { version: string };
@@ -56,7 +55,6 @@ export function buildCliProgram(): Command {
   registerCompletionsCommand(program);
   registerNotificationsCommand(program);
 
-  registerTwitterCommand(program);
   registerMapCommand(program);
   registerInfluencerCommand(program);
   registerSequenceCommand(program);
