@@ -109,7 +109,7 @@ struct SettingsPanel: View {
                     icon: "chevron.left",
                     iconOnly: true,
                     variant: .outlined,
-                    action: onClose
+                    action: closeWithNudge
                 )
 
                 Text("Settings")
