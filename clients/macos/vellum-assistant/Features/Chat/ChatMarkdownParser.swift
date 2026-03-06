@@ -251,6 +251,39 @@ func isTableSeparator(_ line: String) -> Bool {
     }
 }
 
+// MARK: - Async Markdown Parse Actor
+
+/// Actor that runs markdown parsing off the main thread.
+/// Used for large messages (>2000 chars) to avoid blocking scroll on cache miss.
+actor MarkdownParseActor {
+    static let shared = MarkdownParseActor()
+
+    private let cache = NSCache<NSString, CacheEntry>()
+
+    private class CacheEntry: NSObject {
+        let segments: [MarkdownSegment]
+        init(_ segments: [MarkdownSegment]) { self.segments = segments }
+    }
+
+    init() {
+        cache.countLimit = 256
+    }
+
+    func parse(_ text: String) -> [MarkdownSegment] {
+        let key = text as NSString
+        if let cached = cache.object(forKey: key) {
+            return cached.segments
+        }
+        let result = parseMarkdownSegments(text)
+        cache.setObject(CacheEntry(result), forKey: key)
+        return result
+    }
+
+    func clearCache() {
+        cache.removeAllObjects()
+    }
+}
+
 func parseTableCells(_ line: String) -> [String] {
     let trimmed = line.trimmingCharacters(in: .whitespaces)
     let inner = String(trimmed.dropFirst().dropLast())  // strip outer pipes

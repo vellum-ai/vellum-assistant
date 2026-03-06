@@ -31,6 +31,9 @@ struct ChatBubble: View {
     var processingStatusText: String?
     @State private var appearance = AvatarAppearanceManager.shared
     @State private var isHovered = false
+    /// Stores async-parsed segments for large messages (>2000 chars) that missed the
+    /// synchronous cache. Keyed by text content so multiple segments can be in flight.
+    @State var asyncSegments: [String: [MarkdownSegment]] = [:]
 
     @State private var showCopyConfirmation = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
@@ -316,7 +319,7 @@ struct ChatBubble: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if hasText {
-                    let segments = Self.cachedSegments(for: message.text, isStreaming: message.isStreaming)
+                    let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
                     let hasRichContent = segments.contains(where: {
                         switch $0 {
                         case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
@@ -383,6 +386,20 @@ struct ChatBubble: View {
                 }
             }
         }
+        .task(id: message.text) {
+            // Async-parse large messages that missed the synchronous cache
+            let text = message.text
+            guard !message.isStreaming,
+                  text.count > Self.asyncParseThreshold,
+                  Self.segmentCache[text] == nil,
+                  asyncSegments[text] == nil else { return }
+            let result = await MarkdownParseActor.shared.parse(text)
+            guard !Task.isCancelled else { return }
+            asyncSegments[text] = result
+            // Backfill synchronous cache for future renders
+            Self.lruCounter += 1
+            Self.segmentCache[text] = (result, Self.lruCounter)
+        }
     }
 
     // MARK: - Document Widget
@@ -408,6 +425,10 @@ struct ChatBubble: View {
             .padding(.top, VSpacing.sm)
         }
     }
+
+    /// Length threshold above which a segment cache miss triggers async parsing
+    /// instead of blocking the main thread.
+    static let asyncParseThreshold = 2000
 
     // MARK: - LRU Caches
     //
