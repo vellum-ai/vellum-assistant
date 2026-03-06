@@ -23,7 +23,12 @@ public final class ChatMessageManager: ObservableObject {
 
     // MARK: - Input / send state
 
-    @Published public var inputText: String = ""
+    @Published public var inputText: String = "" {
+        didSet {
+            guard inputText != oldValue else { return }
+            suggestion = nil
+        }
+    }
     @Published public var isThinking: Bool = false
     @Published public var isSending: Bool = false
     @Published public var assistantActivityPhase: String = "idle"
