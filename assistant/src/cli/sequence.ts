@@ -366,6 +366,22 @@ Examples:
   guardrailsCmd
     .command("show")
     .description("Show current guardrail configuration")
+    .addHelpText(
+      "after",
+      `
+Displays the current guardrail configuration with all safety limits:
+
+  Daily send cap          Max emails sent per day across all sequences
+  Hourly rate (per-seq)   Max emails per hour within a single sequence
+  Min step delay          Minimum seconds between consecutive step deliveries
+  Max active enrollments  Max concurrent active enrollments across all sequences
+  Duplicate check         Whether duplicate enrollment in the same sequence is blocked
+  Cooldown period         Time before a contact can be re-enrolled after completion
+
+Examples:
+  $ vellum sequence guardrails show
+  $ vellum sequence guardrails show --json`,
+    )
     .action((_opts: Record<string, unknown>, cmd: Command) => {
       const json = getJson(cmd);
       const cfg = getGuardrailConfig();
