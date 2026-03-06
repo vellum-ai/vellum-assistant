@@ -1,9 +1,16 @@
 /**
  * File watchers and config reload logic extracted from DaemonServer.
  * Watches workspace files (config, prompts), protected directory
- * (trust rules, secret allowlist), and skills directories for changes.
+ * (trust rules, secret allowlist), skills directories, and the repo-level
+ * /skills directory for changes.
  */
-import { existsSync, type FSWatcher, readdirSync, watch } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  type FSWatcher,
+  readdirSync,
+  watch,
+} from "node:fs";
 import { join } from "node:path";
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
@@ -23,6 +30,19 @@ import {
 } from "../util/platform.js";
 
 const log = getLogger("config-watcher");
+
+/**
+ * Resolve the repo-level /skills directory from the source tree.
+ * Returns null when running from a compiled binary (where import.meta.dir
+ * points into /$bunfs/) or when the directory does not exist on disk.
+ */
+function resolveRepoSkillsDir(): string | null {
+  const srcDir = import.meta.dir;
+  if (srcDir.startsWith("/$bunfs/")) return null;
+  // srcDir is assistant/src/daemon/ — go up three levels to the repo root
+  const dir = join(srcDir, "..", "..", "..", "skills");
+  return existsSync(dir) ? dir : null;
+}
 
 export class ConfigWatcher {
   private watchers: FSWatcher[] = [];
@@ -186,6 +206,7 @@ export class ConfigWatcher {
     }
 
     this.startSkillsWatchers(onSessionEvict);
+    this.startRepoSkillsWatcher();
   }
 
   stop(): void {
@@ -194,6 +215,105 @@ export class ConfigWatcher {
       watcher.close();
     }
     this.watchers = [];
+  }
+
+  /**
+   * Watch the repo-level /skills directory. When a skill file changes and
+   * the workspace already contains that skill, copy the updated content
+   * into the workspace so the existing workspace watcher picks up the
+   * change and triggers a session reload.
+   */
+  private startRepoSkillsWatcher(): void {
+    const repoSkillsDir = resolveRepoSkillsDir();
+    if (!repoSkillsDir) return;
+
+    const workspaceSkillsDir = getWorkspaceSkillsDir();
+
+    const syncSkillToWorkspace = (skillName: string): void => {
+      const repoSkillDir = join(repoSkillsDir, skillName);
+      const workspaceSkillDir = join(workspaceSkillsDir, skillName);
+
+      // Only sync when the skill is already installed in the workspace
+      if (!existsSync(workspaceSkillDir)) return;
+      // Only sync actual skill directories (must contain SKILL.md)
+      if (!existsSync(join(repoSkillDir, "SKILL.md"))) return;
+
+      try {
+        cpSync(repoSkillDir, workspaceSkillDir, {
+          recursive: true,
+          force: true,
+        });
+        log.info({ skillName }, "Synced repo skill to workspace");
+      } catch (err) {
+        log.warn({ err, skillName }, "Failed to sync repo skill to workspace");
+      }
+    };
+
+    const scheduleSync = (skillName: string): void => {
+      this.debounceTimers.schedule(`repo-skill:${skillName}`, () => {
+        syncSkillToWorkspace(skillName);
+      });
+    };
+
+    /** Extract the top-level skill directory name from a watcher filename. */
+    const extractSkillName = (filename: string): string | null => {
+      const first = filename.split(/[\/\\]/)[0];
+      return first && first !== "." ? first : null;
+    };
+
+    // Try recursive watching first (native on macOS, supported on modern Linux)
+    try {
+      const watcher = watch(
+        repoSkillsDir,
+        { recursive: true },
+        (_eventType, filename) => {
+          if (!filename) return;
+          const skillName = extractSkillName(String(filename));
+          if (skillName) scheduleSync(skillName);
+        },
+      );
+      this.watchers.push(watcher);
+      log.info(
+        { dir: repoSkillsDir },
+        "Watching repo skills directory for workspace sync",
+      );
+      return;
+    } catch {
+      // Fall through to per-directory fallback
+    }
+
+    // Non-recursive fallback: watch root + each skill subdirectory
+    try {
+      const rootWatcher = watch(repoSkillsDir, (_eventType, filename) => {
+        if (!filename) return;
+        scheduleSync(String(filename));
+      });
+      this.watchers.push(rootWatcher);
+
+      const entries = readdirSync(repoSkillsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        try {
+          const childWatcher = watch(
+            join(repoSkillsDir, entry.name),
+            () => scheduleSync(entry.name),
+          );
+          this.watchers.push(childWatcher);
+        } catch {
+          // Skip individual directory failures
+        }
+      }
+
+      log.info(
+        { dir: repoSkillsDir },
+        "Watching repo skills directory with non-recursive fallback",
+      );
+    } catch (err) {
+      log.warn(
+        { err, dir: repoSkillsDir },
+        "Failed to watch repo skills directory",
+      );
+    }
   }
 
   private startSkillsWatchers(onSessionEvict: () => void): void {

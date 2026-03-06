@@ -73,6 +73,7 @@ interface CapturedWatcher {
 }
 
 const capturedWatchers: CapturedWatcher[] = [];
+let cpSyncCalls: { src: string; dest: string; opts?: unknown }[] = [];
 
 const fakeWatcher = {
   close: () => {},
@@ -96,6 +97,9 @@ mock.module("node:fs", () => {
 
       capturedWatchers.push({ dir, callback, options });
       return fakeWatcher;
+    },
+    cpSync: (src: string, dest: string, opts?: unknown) => {
+      cpSyncCalls.push({ src, dest, opts });
     },
   };
 });
@@ -171,6 +175,7 @@ const onSessionEvict = () => {
 
 beforeEach(() => {
   capturedWatchers.length = 0;
+  cpSyncCalls.length = 0;
   evictCallCount = 0;
   trustClearCacheCallCount = 0;
   resetAllowlistCallCount = 0;
@@ -345,6 +350,93 @@ describe("ConfigWatcher watcher lifecycle", () => {
     await new Promise((r) => setTimeout(r, 300));
     // Each file has its own debounce key, so both should fire
     expect(evictCallCount).toBe(2);
+  });
+});
+
+describe("ConfigWatcher repo skills watcher", () => {
+  /** Find the repo skills watcher (recursive watcher that is not the workspace skills dir). */
+  function findRepoSkillsWatcher(): CapturedWatcher | undefined {
+    return capturedWatchers.find(
+      (w) =>
+        w.dir !== SKILLS_DIR &&
+        w.dir.endsWith("/skills") &&
+        w.options?.recursive,
+    );
+  }
+
+  afterEach(() => {
+    rmSync(SKILLS_DIR, { recursive: true, force: true });
+  });
+
+  test("syncs changed repo skill to workspace when skill is installed", async () => {
+    /** Repo skill change triggers cpSync for skills already in workspace. */
+
+    // GIVEN a workspace skill directory for "weather" exists
+    mkdirSync(join(SKILLS_DIR, "weather"), { recursive: true });
+
+    // WHEN the watcher starts and a change to "weather/SKILL.md" is detected
+    watcher.start(onSessionEvict);
+    const repoWatcher = findRepoSkillsWatcher();
+    expect(repoWatcher).toBeDefined();
+    repoWatcher!.callback("change", "weather/SKILL.md");
+
+    // THEN after debounce, cpSync is called targeting the workspace skill dir
+    await new Promise((r) => setTimeout(r, 300));
+    expect(cpSyncCalls.length).toBe(1);
+    // AND the destination is the workspace skill directory
+    expect(cpSyncCalls[0].dest).toBe(join(SKILLS_DIR, "weather"));
+  });
+
+  test("does not sync when skill is not installed in workspace", async () => {
+    /** Repo skill changes for skills absent from workspace are ignored. */
+
+    // GIVEN no workspace skill directory exists (SKILLS_DIR may not exist)
+
+    // WHEN the watcher detects a change for "weather/SKILL.md"
+    watcher.start(onSessionEvict);
+    const repoWatcher = findRepoSkillsWatcher();
+    expect(repoWatcher).toBeDefined();
+    repoWatcher!.callback("change", "weather/SKILL.md");
+
+    // THEN cpSync is not called
+    await new Promise((r) => setTimeout(r, 300));
+    expect(cpSyncCalls.length).toBe(0);
+  });
+
+  test("debounces multiple changes to the same repo skill", async () => {
+    /** Multiple rapid changes to the same repo skill result in a single sync. */
+
+    // GIVEN a workspace skill directory for "weather" exists
+    mkdirSync(join(SKILLS_DIR, "weather"), { recursive: true });
+
+    // WHEN multiple rapid changes to the same skill are detected
+    watcher.start(onSessionEvict);
+    const repoWatcher = findRepoSkillsWatcher();
+    expect(repoWatcher).toBeDefined();
+    repoWatcher!.callback("change", "weather/SKILL.md");
+    repoWatcher!.callback("change", "weather/scripts/run.sh");
+    repoWatcher!.callback("change", "weather/SKILL.md");
+
+    // THEN only one cpSync call occurs (all changes map to "weather" skill)
+    await new Promise((r) => setTimeout(r, 300));
+    expect(cpSyncCalls.length).toBe(1);
+  });
+
+  test("null filename from watcher is ignored", async () => {
+    /** Null filename events from the file watcher are silently ignored. */
+
+    // GIVEN a workspace skill directory for "weather" exists
+    mkdirSync(join(SKILLS_DIR, "weather"), { recursive: true });
+
+    // WHEN a null filename event occurs
+    watcher.start(onSessionEvict);
+    const repoWatcher = findRepoSkillsWatcher();
+    expect(repoWatcher).toBeDefined();
+    repoWatcher!.callback("change", null);
+
+    // THEN no sync occurs
+    await new Promise((r) => setTimeout(r, 300));
+    expect(cpSyncCalls.length).toBe(0);
   });
 });
 
