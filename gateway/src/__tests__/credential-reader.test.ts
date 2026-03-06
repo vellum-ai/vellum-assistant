@@ -295,10 +295,16 @@ describe("readCredential broker integration", () => {
     process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = BROKER_SOCKET_PLACEHOLDER;
     writeBrokerToken(TEST_TOKEN);
 
-    mockSpawnSyncImpl = () => ({
-      stdout: Buffer.from("broker-secret-value"),
-      status: 0,
-    });
+    mockSpawnSyncImpl = (cmd, args, opts) => {
+      expect(cmd).toBe("node");
+      expect(args).toEqual(["-e", expect.stringContaining("BROKER_SOCKET")]);
+      const env = opts.env as Record<string, string>;
+      expect(env.BROKER_SOCKET).toBe(BROKER_SOCKET_PLACEHOLDER);
+      expect(env.BROKER_TOKEN).toBe(TEST_TOKEN);
+      expect(env.BROKER_ACCOUNT).toBe("credential:test:key");
+      expect(env.BROKER_REQ_ID).toBeDefined();
+      return { stdout: Buffer.from("broker-secret-value"), status: 0 };
+    };
 
     const result = readCredential("credential:test:key");
     expect(result).toBe("broker-secret-value");
@@ -312,10 +318,16 @@ describe("readCredential broker integration", () => {
       "credential:test:key": "encrypted-value",
     });
 
-    mockSpawnSyncImpl = () => ({
-      stdout: Buffer.from("broker-value"),
-      status: 0,
-    });
+    mockSpawnSyncImpl = (cmd, args, opts) => {
+      expect(cmd).toBe("node");
+      expect(args).toEqual(["-e", expect.stringContaining("BROKER_SOCKET")]);
+      const env = opts.env as Record<string, string>;
+      expect(env.BROKER_SOCKET).toBe(BROKER_SOCKET_PLACEHOLDER);
+      expect(env.BROKER_TOKEN).toBe(TEST_TOKEN);
+      expect(env.BROKER_ACCOUNT).toBe("credential:test:key");
+      expect(env.BROKER_REQ_ID).toBeDefined();
+      return { stdout: Buffer.from("broker-value"), status: 0 };
+    };
 
     const result = readCredential("credential:test:key");
     expect(result).toBe("broker-value");
@@ -330,10 +342,16 @@ describe("readCredential broker integration", () => {
     });
 
     // Mock returns empty stdout, simulating broker returning no value
-    mockSpawnSyncImpl = () => ({
-      stdout: Buffer.from(""),
-      status: 0,
-    });
+    mockSpawnSyncImpl = (cmd, args, opts) => {
+      expect(cmd).toBe("node");
+      expect(args).toEqual(["-e", expect.stringContaining("BROKER_SOCKET")]);
+      const env = opts.env as Record<string, string>;
+      expect(env.BROKER_SOCKET).toBe(BROKER_SOCKET_PLACEHOLDER);
+      expect(env.BROKER_TOKEN).toBe(TEST_TOKEN);
+      expect(env.BROKER_ACCOUNT).toBe("credential:test:key");
+      expect(env.BROKER_REQ_ID).toBeDefined();
+      return { stdout: Buffer.from(""), status: 0 };
+    };
 
     const result = readCredential("credential:test:key");
     expect(result).toBe("encrypted-value");
