@@ -1,8 +1,8 @@
 # Just-in-Time Onboarding Recipes
 
-## Shipped Today
+## Implemented (Not Yet Wired)
 
-The recipe system automates integration setup via computer use. The `RecipeExecutor` (at `ComputerUse/RecipeExecutor.swift`) loads structured markdown recipes, builds a task prompt from the recipe steps, and drives a `ComputerUseSession` to execute the setup end-to-end.
+The recipe execution engine is implemented but **not yet invoked from any code path**. The `RecipeExecutor` class (at `ComputerUse/RecipeExecutor.swift`) loads structured markdown recipes, builds a task prompt from the recipe steps, and drives a `ComputerUseSession` to execute the setup end-to-end. It is fully functional but has no call sites — it will be wired into the onboarding flow once the integration picker (see Planned section) is built.
 
 ### Available Recipe Files
 
