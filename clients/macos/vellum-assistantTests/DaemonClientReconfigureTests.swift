@@ -139,7 +139,7 @@ final class DaemonClientReconfigureTests: XCTestCase {
     func testWeakReferencesSurviveReconfigure() {
         // Simulate what RecordingManager does: hold a weak reference
         weak var weakClient = client
-        weakClient = weakClient  // silence "never mutated" warning (weak must be var)
+        _ = { weakClient = nil }  // prevent "never mutated" warning; not called
 
         XCTAssertNotNil(weakClient, "Weak reference should be non-nil before reconfigure")
 
