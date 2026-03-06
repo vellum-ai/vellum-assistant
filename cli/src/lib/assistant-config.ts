@@ -228,19 +228,12 @@ async function findAvailablePort(
 
 /**
  * Allocate an isolated set of resources for a named local instance.
- * The first local assistant gets `instanceDir = ~` with default ports (same as
- * legacy single-instance layout). Subsequent assistants are placed under
- * `~/.local/share/vellum/assistants/<name>/` with scanned ports.
+ * Each assistant is placed under `~/.local/share/vellum/assistants/<name>/`
+ * with ports scanned for availability starting from the default base ports.
  */
 export async function allocateLocalResources(
   instanceName: string,
 ): Promise<LocalInstanceResources> {
-  // First local assistant gets the home directory — identical to legacy layout.
-  const existingLocals = loadAllAssistants().filter((e) => e.cloud === "local");
-  if (existingLocals.length === 0) {
-    return defaultLocalResources();
-  }
-
   const instanceDir = join(
     homedir(),
     ".local",
