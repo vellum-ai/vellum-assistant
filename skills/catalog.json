@@ -12,8 +12,7 @@
     {
       "id": "weather",
       "name": "weather",
-      "description": "Get current weather conditions and forecasts for any location",
-      "emoji": "🌤️"
+      "description": "Get current weather conditions and forecasts for any location"
     }
   ]
 }
