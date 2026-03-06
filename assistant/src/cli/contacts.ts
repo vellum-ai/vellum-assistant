@@ -386,15 +386,18 @@ Examples:
           const status = opts.status as ChannelStatus | undefined;
           const policy = opts.policy as ChannelPolicy | undefined;
 
-          let revokedReason: string | null | undefined;
-          let blockedReason: string | null | undefined;
-          if (opts.reason) {
-            if (status === "revoked") {
-              revokedReason = opts.reason;
-            } else if (status === "blocked") {
-              blockedReason = opts.reason;
-            }
-          }
+          const revokedReason: string | null | undefined =
+            status !== undefined
+              ? status === "revoked"
+                ? (opts.reason ?? null)
+                : null
+              : undefined;
+          const blockedReason: string | null | undefined =
+            status !== undefined
+              ? status === "blocked"
+                ? (opts.reason ?? null)
+                : null
+              : undefined;
 
           const result = updateChannelStatus(channelId, {
             status,
