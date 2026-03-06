@@ -304,7 +304,7 @@ export async function loadConfig(): Promise<GatewayConfig> {
   const twilioCreds = await readTwilioCredentials();
   const twilioAuthToken =
     process.env.TWILIO_AUTH_TOKEN || twilioCreds?.authToken || undefined;
-  const twilioAccountSid =
+  let twilioAccountSid =
     process.env.TWILIO_ACCOUNT_SID || twilioCreds?.accountSid || undefined;
 
   // Phone number: env var > config file sms.phoneNumber > credential store
@@ -321,6 +321,13 @@ export async function loadConfig(): Promise<GatewayConfig> {
       typeof data.sms.phoneNumber === "string"
     ) {
       twilioPhoneNumber = data.sms.phoneNumber;
+    }
+    if (
+      !twilioAccountSid &&
+      data?.twilio?.accountSid &&
+      typeof data.twilio.accountSid === "string"
+    ) {
+      twilioAccountSid = data.twilio.accountSid;
     }
     const rawMapping = data?.sms?.assistantPhoneNumbers;
     if (
