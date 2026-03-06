@@ -8,13 +8,14 @@
  * ToolDefinition or ToolContext types.
  */
 
+import { compileApp } from "../../bundler/app-compiler.js";
 import { setHomeBaseAppLink } from "../../home-base/app-link-store.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
 import type {
   AppDefinition,
   EditEngineResult,
 } from "../../memory/app-store.js";
-import { isMultifileApp } from "../../memory/app-store.js";
+import { getAppsDir, isMultifileApp } from "../../memory/app-store.js";
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -116,6 +117,8 @@ export interface AppCreateInput {
   auto_open?: boolean;
   set_as_home_base?: boolean;
   preview?: Record<string, unknown>;
+  /** When provided, controls multifile scaffold behavior. */
+  featureFlags?: { multifileEnabled: boolean };
 }
 
 export async function executeAppCreate(
@@ -172,14 +175,52 @@ export async function executeAppCreate(
   const rawIcon = preview?.icon as string | undefined;
   const icon = rawIcon && !rawIcon.startsWith("http") ? rawIcon : undefined;
 
+  const multifileEnabled = input.featureFlags?.multifileEnabled === true;
+
   const app = store.createApp({
     name,
     description,
     icon,
     schemaJson,
-    htmlDefinition,
-    pages,
+    htmlDefinition: multifileEnabled ? "" : htmlDefinition,
+    pages: multifileEnabled ? undefined : pages,
+    formatVersion: multifileEnabled ? 2 : undefined,
   });
+
+  // Scaffold multifile app with src/ files and compile to dist/
+  if (multifileEnabled) {
+    const indexHtml =
+      typeof input.html === "string"
+        ? input.html
+        : `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${name}</title>
+</head>
+<body>
+  <div id="app"></div>
+</body>
+</html>`;
+
+    const mainTsx = `import { render } from 'preact';
+
+function App() {
+  return <div>Hello, ${name}!</div>;
+}
+
+render(<App />, document.getElementById('app')!);
+`;
+
+    store.writeAppFile(app.id, "src/index.html", indexHtml);
+    store.writeAppFile(app.id, "src/main.tsx", mainTsx);
+
+    // Compile src/ → dist/
+    const { join } = await import("node:path");
+    const appDir = join(getAppsDir(), app.id);
+    await compileApp(appDir);
+  }
 
   if (input.set_as_home_base) {
     setHomeBaseAppLink(app.id, "personalized");

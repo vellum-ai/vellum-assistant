@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { AppDefinition } from "../memory/app-store.js";
 import type { AppStore } from "../tools/apps/executors.js";
 import {
+  executeAppCreate,
   executeAppFileEdit,
   executeAppFileList,
   executeAppFileRead,
@@ -315,5 +316,102 @@ describe("executeAppFileList", () => {
     expect(parsed.every((f: string) => !f.includes("[build output]"))).toBe(
       true,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// executeAppCreate
+// ---------------------------------------------------------------------------
+
+describe("executeAppCreate", () => {
+  test("flag off: creates legacy app with root index.html", async () => {
+    const files: Record<string, string> = {};
+    let createdParams: Record<string, unknown> | undefined;
+    const app = makeLegacyApp();
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: (params) => {
+        createdParams = params as unknown as Record<string, unknown>;
+        return app;
+      },
+    };
+
+    const result = await executeAppCreate(
+      {
+        name: "Test App",
+        html: "<html><body>Hello</body></html>",
+      },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    // Legacy path: no formatVersion set, htmlDefinition is the provided html
+    expect(createdParams?.formatVersion).toBeUndefined();
+    expect(createdParams?.htmlDefinition).toBe(
+      "<html><body>Hello</body></html>",
+    );
+    // No src/ files should be written
+    expect(files["src/index.html"]).toBeUndefined();
+    expect(files["src/main.tsx"]).toBeUndefined();
+  });
+
+  test("flag on: creates multifile app with src/ scaffold", async () => {
+    const files: Record<string, string> = {};
+    let createdParams: Record<string, unknown> | undefined;
+    const app = makeMultifileApp({ name: "New App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: (params) => {
+        createdParams = params as unknown as Record<string, unknown>;
+        return app;
+      },
+    };
+
+    const result = await executeAppCreate(
+      {
+        name: "New App",
+        featureFlags: { multifileEnabled: true },
+      },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    // formatVersion 2 passed to createApp
+    expect(createdParams?.formatVersion).toBe(2);
+    // htmlDefinition should be empty for multifile apps
+    expect(createdParams?.htmlDefinition).toBe("");
+    // Scaffold files should be written
+    expect(files["src/index.html"]).toBeDefined();
+    expect(files["src/index.html"]).toContain("<title>New App</title>");
+    expect(files["src/index.html"]).toContain('<div id="app"></div>');
+    expect(files["src/main.tsx"]).toBeDefined();
+    expect(files["src/main.tsx"]).toContain("import { render } from 'preact'");
+    expect(files["src/main.tsx"]).toContain("Hello, New App!");
+  });
+
+  test("flag on with explicit html: uses provided html as src/index.html", async () => {
+    const files: Record<string, string> = {};
+    const app = makeMultifileApp({ name: "Custom App" });
+    const store: AppStore = {
+      ...mockStore(app, files),
+      createApp: () => app,
+    };
+
+    const customHtml =
+      '<!DOCTYPE html><html><head></head><body><div id="root"></div></body></html>';
+    const result = await executeAppCreate(
+      {
+        name: "Custom App",
+        html: customHtml,
+        featureFlags: { multifileEnabled: true },
+      },
+      store,
+    );
+
+    expect(result.isError).toBe(false);
+    // Explicit HTML should be used instead of scaffold
+    expect(files["src/index.html"]).toBe(customHtml);
+    // main.tsx scaffold should still be written
+    expect(files["src/main.tsx"]).toBeDefined();
   });
 });
