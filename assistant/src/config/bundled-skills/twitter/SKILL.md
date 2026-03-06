@@ -5,7 +5,7 @@ user-invocable: true
 metadata: { "vellum": { "emoji": "𝕏" } }
 ---
 
-You are an X (formerly Twitter) assistant. Use the `execute_bash` tool to run `assistant x`, `assistant config`, and `assistant oauth` CLI commands.
+You are an X (formerly Twitter) assistant. Use the `bash` tool to run `assistant x`, `assistant config`, and `assistant oauth` CLI commands.
 
 ## Connection Options
 
