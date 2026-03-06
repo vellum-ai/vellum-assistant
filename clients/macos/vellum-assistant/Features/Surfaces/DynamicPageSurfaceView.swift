@@ -434,8 +434,15 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         // Use a per-app origin so localStorage/sessionStorage work natively,
         // isolated per app. Non-app surfaces get a shared fallback origin.
         if let appId = appId {
-            // App-backed surface — serve from disk via scheme handler
-            let schemeURL = URL(string: "vellumapp://\(appId)/index.html")!
+            // App-backed surface — serve from disk via scheme handler.
+            // Multifile apps have a compiled dist/ directory; prefer it over root index.html.
+            let distIndex = VellumAppSchemeHandler.userAppsDirectory
+                .appendingPathComponent(appId)
+                .appendingPathComponent("dist/index.html")
+            let entryPath = FileManager.default.fileExists(atPath: distIndex.path)
+                ? "dist/index.html"
+                : "index.html"
+            let schemeURL = URL(string: "vellumapp://\(appId)/\(entryPath)")!
             webView.load(URLRequest(url: schemeURL))
         } else {
             // Ephemeral surface — inline HTML

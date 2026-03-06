@@ -126,16 +126,9 @@ function serveMultifileApp(appId: string, appName: string): Response {
     );
   }
 
-  // Rewrite relative asset paths to use the dist route so the WebView
-  // can load main.js and main.css via the HTTP server.
-  let html = readFileSync(indexPath, "utf-8");
-  html = html.replace(
-    /(?:src|href)="(main\.(js|css))"/g,
-    (_match, filename) => {
-      const attr = (filename as string).endsWith(".css") ? "href" : "src";
-      return `${attr}="/v1/apps/${appId}/dist/${filename}"`;
-    },
-  );
+  // Keep relative asset paths — the WebView's vellumapp:// scheme handler
+  // resolves them relative to the dist/ directory on disk.
+  const html = readFileSync(indexPath, "utf-8");
 
   // Compiled apps use external scripts so 'unsafe-inline' is not needed for
   // script-src; however we keep it for style-src since the app HTML may use

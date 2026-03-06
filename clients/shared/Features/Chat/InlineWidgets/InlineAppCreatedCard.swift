@@ -8,12 +8,10 @@ struct InlineAppCreatedCard: View {
     let preview: DynamicPagePreview
     let appId: String?
     let onOpenApp: () -> Void
-    let onPinToHomebase: () -> Void
     var onShareApp: (() -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var previewImage: String?
-    @State private var isPinned: Bool = false
 
     /// Inverse card background: dark in light mode, light in dark mode.
     private var cardBackground: Color {
@@ -70,15 +68,6 @@ struct InlineAppCreatedCard: View {
                     onOpenApp()
                 }
 
-                if isPinned {
-                    VButton(label: "Pinned", leftIcon: "checkmark", style: .success, size: .small) {}
-                } else {
-                    VButton(label: "Pin to Homebase", leftIcon: "pin.fill", style: .outlined, size: .small) {
-                        isPinned = true
-                        onPinToHomebase()
-                    }
-                }
-
                 Spacer()
 
                 if let onShareApp = onShareApp {
@@ -130,8 +119,7 @@ struct InlineAppCreatedCard: View {
                 icon: "🎯"
             ),
             appId: "test-app-id",
-            onOpenApp: {},
-            onPinToHomebase: {}
+            onOpenApp: {}
         )
         .frame(width: 400)
         .padding()
