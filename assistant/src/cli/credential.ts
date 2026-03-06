@@ -86,9 +86,9 @@ function printCredentialHuman(output: Record<string, unknown>): void {
   log.info(`  ${output.service}:${output.field}`);
   log.info(`    ID:          ${output.credentialId}`);
   log.info(`    Value:       ${output.scrubbedValue}`);
-  if (output.alias) log.info(`    Alias:       ${output.alias}`);
+  if (output.alias) log.info(`    Label:       ${output.alias}`);
   if (output.usageDescription)
-    log.info(`    Usage:       ${output.usageDescription}`);
+    log.info(`    Description: ${output.usageDescription}`);
   if (
     Array.isArray(output.allowedTools) &&
     (output.allowedTools as string[]).length > 0
@@ -141,7 +141,7 @@ storage convention used internally (credential:{service}:{field}):
   agentmail:api_key         AgentMail API key
 
 Secrets are stored in AES-256-GCM encrypted storage. Metadata (policy,
-timestamps, aliases) is tracked separately and never contains secret values.
+timestamps, labels) is tracked separately and never contains secret values.
 
 Examples:
   $ vellum credential list
@@ -391,7 +391,7 @@ Arguments:
 Shows everything known about a credential without revealing the secret value.
 The secret is masked to show only the last 4 characters (e.g. ****c123).
 
-Displayed fields include: alias, creation/update timestamps, allowed tools,
+Displayed fields include: label, creation/update timestamps, allowed tools,
 allowed domains, OAuth2 scopes, account info, and injection template count.
 
 Examples:
