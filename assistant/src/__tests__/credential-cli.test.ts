@@ -479,6 +479,26 @@ describe("vellum credential CLI", () => {
       expect(result.exitCode).not.toBe(0);
     });
 
+    test("stores metadata with --allowed-tools", async () => {
+      const result = await runCli([
+        "set",
+        "twilio:auth_token",
+        "sometoken",
+        "--allowed-tools",
+        "bash,host_bash",
+        "--json",
+      ]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+
+      const meta = metadataStore.find(
+        (m) => m.service === "twilio" && m.field === "auth_token",
+      );
+      expect(meta).toBeTruthy();
+      expect(meta!.allowedTools).toEqual(["bash", "host_bash"]);
+    });
+
     test("updates existing credential on second set", async () => {
       // First set
       await runCli(["set", "twilio:account_sid", "original_value", "--json"]);
@@ -536,6 +556,15 @@ describe("vellum credential CLI", () => {
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
       expect(parsed.error).toContain("not found");
+    });
+
+    test("rejects invalid name without colon", async () => {
+      const result = await runCli(["delete", "badname", "--json"]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("Invalid credential name");
+      expect(parsed.error).toContain("service:field");
     });
 
     test("succeeds when only metadata exists (no secret)", async () => {
@@ -620,6 +649,23 @@ describe("vellum credential CLI", () => {
       expect(parsed.ok).toBe(true);
       expect(parsed.scrubbedValue).toBe("(not set)");
       expect(parsed.hasSecret).toBe(false);
+    });
+
+    test("rejects invalid name without colon", async () => {
+      const result = await runCli(["inspect", "badname", "--json"]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("not found");
+    });
+
+    test("rejects name with leading colon", async () => {
+      const result = await runCli(["inspect", ":field_only", "--json"]);
+      expect(result.exitCode).toBe(1);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(false);
+      expect(parsed.error).toContain("Invalid credential name");
+      expect(parsed.error).toContain("service:field");
     });
 
     test("errors on nonexistent credential", async () => {
