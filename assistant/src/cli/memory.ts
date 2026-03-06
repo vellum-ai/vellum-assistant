@@ -22,9 +22,54 @@ export function registerMemoryCommand(program: Command): void {
     .command("memory")
     .description("Manage long-term memory indexing/retrieval");
 
+  memory.addHelpText(
+    "after",
+    `
+The memory subsystem indexes conversation segments into full-text search (FTS)
+and vector embeddings for semantic recall. When the assistant encounters new
+information that contradicts a stored fact, a conflict is created and held in
+"pending_clarification" status until explicitly dismissed or resolved.
+
+Key concepts:
+  segments     Chunks of conversation text extracted for indexing
+  items        Distilled facts/statements derived from segments
+  summaries    Compressed representations of conversation history
+  embeddings   Vector representations used for semantic similarity search
+  conflicts    Pairs of contradictory statements awaiting resolution
+
+Examples:
+  $ vellum memory status
+  $ vellum memory query "What is the project deadline?"
+  $ vellum memory backfill
+  $ vellum memory dismiss-conflicts --all`,
+  );
+
   memory
     .command("status")
     .description("Show memory subsystem status")
+    .addHelpText(
+      "after",
+      `
+Displays a comprehensive snapshot of the memory subsystem's health and counts.
+
+Fields shown:
+  enabled/degraded   Whether memory is active and whether it is running in a
+                     degraded mode (e.g. missing embedding backend)
+  embedding backend  The provider/model pair used for vector embeddings (or "none")
+  segments           Total conversation segments indexed
+  items              Total distilled fact items stored
+  summaries          Total compressed conversation summaries
+  embeddings         Total vector embeddings computed
+  pending conflicts  Conflicts awaiting user resolution
+  resolved conflicts Conflicts that have been dismissed or resolved
+  oldest pending age How long the oldest unresolved conflict has been waiting
+  cleanup backlogs   Number of resolved conflicts and superseded items pending cleanup
+  cleanup throughput Number of cleanup operations completed in the last 24 hours
+  jobs               Status of background jobs (backfill, cleanup, rebuild-index)
+
+Examples:
+  $ vellum memory status`,
+    )
     .action(() => {
       initializeDb();
       const status = getMemorySystemStatus();
@@ -76,6 +121,21 @@ export function registerMemoryCommand(program: Command): void {
     .command("backfill")
     .description("Queue a memory backfill job")
     .option("-f, --force", "Restart backfill from the beginning")
+    .addHelpText(
+      "after",
+      `
+Queues a background job to index unprocessed conversation segments into FTS
+and vector embeddings. The job resumes from where the last backfill left off,
+processing only new or unindexed segments.
+
+The --force flag restarts the backfill from the very beginning, reprocessing
+all segments regardless of whether they have already been indexed. This is
+useful after bulk imports or if the incremental state has become inconsistent.
+
+Examples:
+  $ vellum memory backfill
+  $ vellum memory backfill --force`,
+    )
     .action((opts: { force?: boolean }) => {
       initializeDb();
       const jobId = requestMemoryBackfill(Boolean(opts?.force));
@@ -90,6 +150,23 @@ export function registerMemoryCommand(program: Command): void {
     .option(
       "--retention-ms <ms>",
       "Optional retention threshold in milliseconds",
+    )
+    .addHelpText(
+      "after",
+      `
+Queues two background cleanup jobs:
+  1. Resolved conflicts cleanup — removes conflict records that have been
+     dismissed or resolved past the retention threshold.
+  2. Stale superseded items cleanup — removes memory items that have been
+     superseded by newer, corrected facts past the retention threshold.
+
+The optional --retention-ms flag sets the minimum age (in milliseconds) a
+record must have before it is eligible for cleanup. If omitted, the system
+default retention period is used.
+
+Examples:
+  $ vellum memory cleanup
+  $ vellum memory cleanup --retention-ms 86400000`,
     )
     .action((opts: { retentionMs?: string }) => {
       initializeDb();
@@ -113,6 +190,27 @@ export function registerMemoryCommand(program: Command): void {
       "Run a memory recall query and print the injected memory payload",
     )
     .option("-s, --session <id>", "Optional conversation/session ID")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  text   The recall query string used to search memory (e.g. "What is the
+         project deadline?"). Matched against indexed segments using the full
+         recall pipeline: lexical (FTS), semantic (vector similarity), recency
+         (time-weighted), and entity (named entity extraction).
+
+Runs the complete memory recall pipeline and displays hit counts for each
+retrieval strategy, the total injected token count, query latency, and the
+assembled memory text that would be injected into context.
+
+The optional --session flag provides a conversation/session ID for
+context-aware recall. If omitted, the most recent conversation is used.
+
+Examples:
+  $ vellum memory query "What is the project deadline?"
+  $ vellum memory query "preferred communication style" --session conv_abc123
+  $ vellum memory query "API rate limits"`,
+    )
     .action(async (text: string, opts?: { session?: string }) => {
       initializeDb();
       let sessionId = opts?.session;
@@ -141,6 +239,21 @@ export function registerMemoryCommand(program: Command): void {
   memory
     .command("rebuild-index")
     .description("Queue a memory FTS+embedding index rebuild job")
+    .addHelpText(
+      "after",
+      `
+Queues a background job that performs a full rebuild of both the FTS (full-text
+search) index and the vector embedding index. All existing index data is
+dropped and reconstructed from the source memory items.
+
+This is useful after schema changes, embedding model upgrades, or if index
+corruption is suspected. The rebuild runs asynchronously; use "vellum memory
+status" to monitor job progress.
+
+Examples:
+  $ vellum memory rebuild-index
+  $ vellum memory status`,
+    )
     .action(() => {
       initializeDb();
       const jobId = requestMemoryRebuildIndex();
@@ -157,6 +270,25 @@ export function registerMemoryCommand(program: Command): void {
     )
     .option("-s, --scope <id>", 'Memory scope (default: "default")')
     .option("--dry-run", "Show what would be dismissed without making changes")
+    .addHelpText(
+      "after",
+      `
+Two modes of operation:
+  --all              Dismiss every pending conflict in the scope
+  --pattern <regex>  Dismiss only conflicts where either the existing or
+                     candidate statement matches the given regex (case-insensitive)
+
+Exactly one of --all or --pattern must be provided.
+
+The --scope flag targets a specific memory scope. Defaults to "default" if
+omitted. The --dry-run flag previews which conflicts would be dismissed
+without actually modifying any records.
+
+Examples:
+  $ vellum memory dismiss-conflicts --all
+  $ vellum memory dismiss-conflicts --pattern "project deadline" --dry-run
+  $ vellum memory dismiss-conflicts --pattern "^preferred\\b" --scope work`,
+    )
     .action(
       (opts: {
         all?: boolean;
