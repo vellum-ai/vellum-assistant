@@ -235,6 +235,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "mcp/client.ts", // MCP client cached-token lookup
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
+      "daemon/session-messaging.ts", // credential storage during session messaging
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

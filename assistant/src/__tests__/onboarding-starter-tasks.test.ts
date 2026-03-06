@@ -39,6 +39,7 @@ mock.module("../util/platform.js", () => ({
   migrateToWorkspaceLayout: () => {},
   migrateToDataLayout: () => {},
   readLockfile: () => null,
+  writeLockfile: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
