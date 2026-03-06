@@ -12,7 +12,6 @@ import { createHash, randomBytes } from "node:crypto";
 import { startGuardianVerificationCall } from "../calls/call-domain.js";
 import type { ChannelId } from "../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
-import { sendMessage as sendSms } from "../messaging/providers/sms/client.js";
 import { getCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
@@ -154,8 +153,24 @@ export function deliverVerificationSms(
     try {
       const gatewayUrl = getGatewayInternalBaseUrl();
       const bearerToken = mintDaemonDeliveryToken();
-      await sendSms(gatewayUrl, bearerToken, to, text, assistantId);
-      log.info({ to, assistantId }, "Verification SMS delivered");
+      const url = `${gatewayUrl}/deliver/sms`;
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${bearerToken}`,
+        },
+        body: JSON.stringify({ to, text, assistantId }),
+      });
+      if (!resp.ok) {
+        const body = await resp.text().catch(() => "<unreadable>");
+        log.error(
+          { to, assistantId, status: resp.status, body },
+          "Gateway /deliver/sms failed for verification",
+        );
+      } else {
+        log.info({ to, assistantId }, "Verification SMS delivered");
+      }
     } catch (err) {
       log.error({ err, to, assistantId }, "Failed to deliver verification SMS");
     }
