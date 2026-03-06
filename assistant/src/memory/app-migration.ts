@@ -93,7 +93,8 @@ export function migrateAppToMultifile(appId: string): MigrationResult {
   writeFileSync(join(srcDir, "index.html"), processedHtml, "utf-8");
 
   // Write src/main.tsx placeholder
-  const mainTsx = `// Entry point — migrated from legacy single-file app\nimport './styles.css';\n\nconsole.log('App loaded');\n`;
+  const styleImport = css ? "import './styles.css';\n" : "";
+  const mainTsx = `// Entry point — migrated from legacy single-file app\n${styleImport}\nconsole.log('App loaded');\n`;
   writeFileSync(join(srcDir, "main.tsx"), mainTsx, "utf-8");
 
   // Write src/styles.css if styles were extracted
