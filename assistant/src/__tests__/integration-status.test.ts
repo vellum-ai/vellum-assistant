@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const secureKeyValues = new Map<string, string>();
+let mockTwilioAccountSid: string | undefined;
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyValues.get(account),
+}));
+
+mock.module("../config/loader.js", () => ({
+  loadConfig: () => ({
+    twilio: mockTwilioAccountSid
+      ? { accountSid: mockTwilioAccountSid }
+      : undefined,
+  }),
 }));
 
 const { getIntegrationSummary, formatIntegrationSummary, hasCapability } =
@@ -12,6 +21,7 @@ const { getIntegrationSummary, formatIntegrationSummary, hasCapability } =
 describe("integration-status", () => {
   beforeEach(() => {
     secureKeyValues.clear();
+    mockTwilioAccountSid = undefined;
   });
 
   describe("getIntegrationSummary", () => {
@@ -30,7 +40,7 @@ describe("integration-status", () => {
       secureKeyValues.set("credential:integration:gmail:access_token", "tok");
       secureKeyValues.set("credential:integration:twitter:access_token", "tok");
       secureKeyValues.set("credential:integration:slack:access_token", "tok");
-      secureKeyValues.set("credential:twilio:account_sid", "sid");
+      mockTwilioAccountSid = "sid";
       secureKeyValues.set("credential:twilio:auth_token", "auth");
       secureKeyValues.set("credential:telegram:bot_token", "tok");
       secureKeyValues.set("credential:telegram:webhook_secret", "secret");
@@ -42,7 +52,7 @@ describe("integration-status", () => {
     });
 
     test("returns mixed status", () => {
-      secureKeyValues.set("credential:twilio:account_sid", "sid");
+      mockTwilioAccountSid = "sid";
       secureKeyValues.set("credential:twilio:auth_token", "auth");
       secureKeyValues.set("credential:telegram:bot_token", "tok");
       secureKeyValues.set("credential:telegram:webhook_secret", "secret");
@@ -67,7 +77,7 @@ describe("integration-status", () => {
     });
 
     test("SMS disconnected when only account_sid is set (missing auth_token)", () => {
-      secureKeyValues.set("credential:twilio:account_sid", "sid");
+      mockTwilioAccountSid = "sid";
 
       const summary = getIntegrationSummary();
       const sms = summary.find((s: { name: string }) => s.name === "SMS");
@@ -87,7 +97,7 @@ describe("integration-status", () => {
 
   describe("formatIntegrationSummary", () => {
     test("shows checkmarks and crosses", () => {
-      secureKeyValues.set("credential:twilio:account_sid", "sid");
+      mockTwilioAccountSid = "sid";
       secureKeyValues.set("credential:twilio:auth_token", "auth");
       secureKeyValues.set("credential:telegram:bot_token", "tok");
       secureKeyValues.set("credential:telegram:webhook_secret", "secret");
@@ -109,7 +119,7 @@ describe("integration-status", () => {
       secureKeyValues.set("credential:integration:gmail:access_token", "tok");
       secureKeyValues.set("credential:integration:twitter:access_token", "tok");
       secureKeyValues.set("credential:integration:slack:access_token", "tok");
-      secureKeyValues.set("credential:twilio:account_sid", "sid");
+      mockTwilioAccountSid = "sid";
       secureKeyValues.set("credential:twilio:auth_token", "auth");
       secureKeyValues.set("credential:telegram:bot_token", "tok");
       secureKeyValues.set("credential:telegram:webhook_secret", "secret");
