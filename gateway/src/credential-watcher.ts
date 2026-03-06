@@ -54,6 +54,7 @@ export class CredentialWatcher {
   private lastSlackChannelBotToken: string | undefined;
   private lastSlackChannelAppToken: string | undefined;
   private polling = false;
+  private pendingPoll = false;
   private callback: CredentialChangeCallback;
   private metadataPath: string;
 
@@ -142,7 +143,12 @@ export class CredentialWatcher {
   }
 
   private async pollOnce(): Promise<void> {
-    if (this.polling) return;
+    if (this.polling) {
+      // A poll is already in flight — flag that another round is needed
+      // so credential updates arriving mid-poll aren't silently dropped.
+      this.pendingPoll = true;
+      return;
+    }
     this.polling = true;
     try {
       const telegramCredentials = await readTelegramCredentials();
@@ -237,6 +243,10 @@ export class CredentialWatcher {
       });
     } finally {
       this.polling = false;
+      if (this.pendingPoll) {
+        this.pendingPoll = false;
+        void this.pollOnce();
+      }
     }
   }
 }
