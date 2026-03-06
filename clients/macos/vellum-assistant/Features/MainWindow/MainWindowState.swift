@@ -17,8 +17,11 @@ public final class MainWindowState: ObservableObject {
     @AppStorage("isAppChatOpen") private var isAppChatOpen = false
 
     /// The single source of truth for what the main content area displays.
+    let navigationHistory = NavigationHistory()
+
     @Published var selection: ViewSelection? {
         didSet {
+            navigationHistory.recordTransition(from: oldValue, to: selection, persistentThreadId: persistentThreadId)
             // When navigating to a thread, update the persistent thread tracker.
             // For overlays (app, appEditing, panel) and nil, leave persistentThreadId unchanged.
             if case .thread(let id) = selection {
@@ -157,6 +160,50 @@ public final class MainWindowState: ObservableObject {
         selection = newSelection
     }
 
+    func navigateBack() {
+        guard let destination = navigationHistory.popBack(
+            currentSelection: selection,
+            persistentThreadId: persistentThreadId
+        ) else { return }
+        navigationHistory.withRecordingSuppressed {
+            switch destination {
+            case .selection(let viewSelection):
+                self.selection = viewSelection
+            case .chatDefault(let threadSnapshot):
+                if let threadId = threadSnapshot {
+                    self.selection = .thread(threadId)
+                } else {
+                    self.selection = nil
+                }
+            }
+        }
+    }
+
+    func navigateForward() {
+        guard let destination = navigationHistory.popForward(
+            currentSelection: selection,
+            persistentThreadId: persistentThreadId
+        ) else { return }
+        navigationHistory.withRecordingSuppressed {
+            switch destination {
+            case .selection(let viewSelection):
+                self.selection = viewSelection
+            case .chatDefault(let threadSnapshot):
+                if let threadId = threadSnapshot {
+                    self.selection = .thread(threadId)
+                } else {
+                    self.selection = nil
+                }
+            }
+        }
+    }
+
+    func applySelectionCorrection(_ newSelection: ViewSelection?) {
+        navigationHistory.withRecordingSuppressed {
+            self.selection = newSelection
+        }
+    }
+
     /// Whether an app is currently shown (either standalone or editing)
     var activeAppId: String? {
         switch selection {
@@ -253,8 +300,9 @@ public final class MainWindowState: ObservableObject {
     func restoreLastActivePanel() {
         guard let savedPanelString = lastActivePanelString,
               let panel = SidePanelType(rawValue: savedPanelString) else { return }
-
-        selection = .panel(panel)
+        navigationHistory.withRecordingSuppressed {
+            selection = .panel(panel)
+        }
     }
 }
 
