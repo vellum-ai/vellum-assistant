@@ -1,5 +1,36 @@
 import Foundation
 
+/// Limits concurrent async operations to a fixed number of slots.
+///
+/// Used by `ImageMIMEProbe` to cap in-flight HTTP HEAD requests so that
+/// a burst of extensionless URLs (e.g. many messages scrolling into view)
+/// doesn't saturate the network.
+private actor AsyncSemaphore {
+    private var count: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(value: Int) { self.count = value }
+
+    func wait() async {
+        if count > 0 {
+            count -= 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func signal() {
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume()
+        } else {
+            count += 1
+        }
+    }
+}
+
 /// Probes URLs via HTTP HEAD to determine whether they serve image content.
 ///
 /// This is the second stage of image detection, used for extensionless URLs
@@ -10,6 +41,7 @@ public final class ImageMIMEProbe {
 
     private let cache = NSCache<NSString, CacheEntry>()
     private let session: URLSession
+    private let semaphore = AsyncSemaphore(value: 4)
 
     /// Wraps the classification value so it can be stored in `NSCache`.
     private class CacheEntry: NSObject {
@@ -43,6 +75,9 @@ public final class ImageMIMEProbe {
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         request.timeoutInterval = 5
+
+        await semaphore.wait()
+        defer { Task { await semaphore.signal() } }
 
         let result: ImageURLClassification
         do {
