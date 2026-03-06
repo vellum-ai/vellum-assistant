@@ -953,7 +953,7 @@ private struct MessageCellView: View {
                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
                 onReportMessage: onReportMessage,
                 onSurfaceRefetch: onSurfaceRefetch,
-                onRehydrate: message.wasTruncated ? { onRehydrateMessage?(message.id) } : nil,
+                onRehydrate: (message.wasTruncated || message.isContentStripped) ? { onRehydrateMessage?(message.id) } : nil,
                 mediaEmbedSettings: mediaEmbedSettings,
                 resolveHttpPort: resolveHttpPort,
                 showAvatar: !previousIsAssistant,

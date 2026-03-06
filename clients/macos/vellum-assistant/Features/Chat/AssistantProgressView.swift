@@ -216,6 +216,22 @@ struct AssistantProgressView: View {
                 startDate = Date()
             }
         }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded, onRehydrate != nil {
+                // Trigger rehydrate when expanding if any complete tool call
+                // has been stripped (all detail fields cleared by stripHeavyContent).
+                let hasStrippedToolCall = toolCalls.contains { tc in
+                    tc.isComplete
+                        && tc.inputFull.isEmpty
+                        && tc.result == nil
+                        && tc.inputRawDict == nil
+                        && tc.cachedImage == nil
+                }
+                if hasStrippedToolCall {
+                    onRehydrate?()
+                }
+            }
+        }
         .onAppear {
             if phase == .processing && processingStartDate == nil {
                 processingStartDate = Date()
