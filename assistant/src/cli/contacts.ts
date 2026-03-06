@@ -189,10 +189,16 @@ export function registerContactsCommand(program: Command): void {
     .command("revoke <inviteId>")
     .description("Revoke an active invite")
     .action(async (inviteId: string, _opts: unknown, cmd: Command) => {
-      initializeDb();
-      const result = revokeIngressInvite(inviteId);
-      writeOutput(cmd, result);
-      if (!result.ok) process.exitCode = 1;
+      try {
+        initializeDb();
+        const result = revokeIngressInvite(inviteId);
+        writeOutput(cmd, result);
+        if (!result.ok) process.exitCode = 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeOutput(cmd, { ok: false, error: message });
+        process.exitCode = 1;
+      }
     });
 
   invites
