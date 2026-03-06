@@ -425,7 +425,7 @@ Drafts follow a lifecycle: create -> approve-send or reject.
 
   1. "draft create" stages an outbound email without sending it
   2. "draft approve-send" runs guardrail checks and sends if allowed
-  3. "draft reject" marks a draft as rejected (will not be sent)
+  3. "draft reject" permanently deletes a draft (will not be sent)
 
 Drafts can also be listed, inspected by ID, or deleted. Use "draft list
 --status pending" to see drafts awaiting approval.
@@ -499,10 +499,11 @@ Lists all email drafts, optionally filtered by status. Returns an array
 of draft objects with their IDs, recipients, subjects, and current status.
 
 Use --status to narrow results to a specific lifecycle stage:
-  pending   — created but not yet approved or rejected
+  pending   — created but not yet approved
   approved  — approved and queued for sending
   sent      — successfully delivered
-  rejected  — explicitly rejected via "draft reject"
+
+Note: rejected drafts are permanently deleted and will not appear here.
 
 Examples:
   $ vellum email draft list
@@ -596,11 +597,9 @@ Examples:
     .addHelpText(
       "after",
       `
-Marks a pending draft as rejected so it will not be sent. Optionally
-include a --reason to record why the draft was rejected.
-
-Rejected drafts remain in the system for audit purposes but cannot be
-approved or sent. Use "draft list --status rejected" to view them.
+Rejects a pending draft by permanently deleting it so it will not be
+sent. The --reason flag is accepted for logging but the draft itself is
+removed from the provider and cannot be recovered.
 
 Examples:
   $ vellum email draft reject --draft-id d_abc123
@@ -629,9 +628,9 @@ Examples:
 Arguments:
   draftId   The ID of the draft to delete (e.g. d_abc123)
 
-Permanently removes a draft from the system. Unlike "reject", deleted
-drafts cannot be recovered or audited. Use --inbox to scope the deletion
-in multi-inbox setups.
+Permanently removes a draft from the system. Both "reject" and "delete"
+result in permanent deletion; use "reject" when you want to log a reason
+for not sending. Use --inbox to scope the deletion in multi-inbox setups.
 
 Examples:
   $ vellum email draft delete d_abc123
