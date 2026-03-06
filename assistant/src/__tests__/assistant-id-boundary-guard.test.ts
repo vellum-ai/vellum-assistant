@@ -594,6 +594,18 @@ describe("assistant ID boundary", () => {
         match;
         match = exportFnStartRegex.exec(content)
       ) {
+        // Skip matches that fall inside comments. Find the beginning of
+        // the line containing the match and check for comment prefixes.
+        const lineStart = content.lastIndexOf("\n", match.index) + 1;
+        const linePrefix = content.slice(lineStart, match.index).trim();
+        if (
+          linePrefix.startsWith("//") ||
+          linePrefix.startsWith("*") ||
+          linePrefix.startsWith("/*")
+        ) {
+          continue;
+        }
+
         // Find the matching closing paren to extract the full parameter list,
         // which may span multiple lines.
         const parenStart = match.index + match[0].length - 1; // index of '('
