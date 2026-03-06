@@ -142,7 +142,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 // Import the module under test (after mocks are registered)
 // ---------------------------------------------------------------------------
 
-const { registerCredentialCommand } = await import("../cli/credential.js");
+const { registerCredentialsCommand } = await import("../cli/credentials.js");
 
 // ---------------------------------------------------------------------------
 // Test helper
@@ -172,8 +172,8 @@ async function runCli(
       writeErr: () => {},
       writeOut: (str: string) => stdoutChunks.push(str),
     });
-    registerCredentialCommand(program);
-    await program.parseAsync(["node", "vellum", "credential", ...args]);
+    registerCredentialsCommand(program);
+    await program.parseAsync(["node", "vellum", "credentials", ...args]);
   } catch {
     // Commander throws on --help and on missing required args; treat as non-zero exit
     if (process.exitCode === 0) process.exitCode = 1;
@@ -243,7 +243,7 @@ function seedMetadataOnly(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("vellum credential CLI", () => {
+describe("vellum credentials CLI", () => {
   beforeEach(() => {
     secureKeyStore = new Map();
     metadataStore = [];
@@ -736,7 +736,7 @@ describe("vellum credential CLI", () => {
   // =========================================================================
 
   describe("help text", () => {
-    test("credential --help contains naming convention table and storage description", async () => {
+    test("credentials --help contains naming convention table and storage description", async () => {
       const result = await runCli(["--help"]);
       const out = result.stdout;
       expect(out).toContain("twilio:account_sid");
@@ -744,28 +744,28 @@ describe("vellum credential CLI", () => {
       expect(out).toContain("Examples:");
     });
 
-    test("credential list --help contains --search description and examples", async () => {
+    test("credentials list --help contains --search description and examples", async () => {
       const result = await runCli(["list", "--help"]);
       const out = result.stdout;
       expect(out).toContain("--search");
       expect(out).toContain("Examples:");
-      expect(out).toContain("credential list --search twilio");
+      expect(out).toContain("credentials list --search twilio");
     });
 
-    test("credential set --help contains Arguments: and Examples: sections", async () => {
+    test("credentials set --help contains Arguments: and Examples: sections", async () => {
       const result = await runCli(["set", "--help"]);
       const out = result.stdout;
       expect(out).toContain("Arguments:");
       expect(out).toContain("Examples:");
     });
 
-    test("credential inspect --help mentions UUID support", async () => {
+    test("credentials inspect --help mentions UUID support", async () => {
       const result = await runCli(["inspect", "--help"]);
       const out = result.stdout;
       expect(out).toContain("UUID");
     });
 
-    test("credential reveal --help mentions not yet implemented and points to inspect", async () => {
+    test("credentials reveal --help mentions not yet implemented and points to inspect", async () => {
       const result = await runCli(["reveal", "--help"]);
       const out = result.stdout;
       expect(out).toContain("inspect");
