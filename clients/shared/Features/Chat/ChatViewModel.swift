@@ -594,10 +594,11 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - On-Demand Content Rehydration
 
     /// Fetch full (untruncated) content for a message that was loaded with truncated
-    /// text/tool results. No-ops if the message is not found or wasn't truncated.
+    /// text/tool results or had its heavy content stripped. No-ops if the message is
+    /// not found or doesn't need rehydration.
     public func rehydrateMessage(id: UUID) {
         guard let idx = messages.firstIndex(where: { $0.id == id }),
-              messages[idx].wasTruncated,
+              messages[idx].wasTruncated || messages[idx].isContentStripped,
               let sessionId = sessionId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         do {
