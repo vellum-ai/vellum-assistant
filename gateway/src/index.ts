@@ -891,7 +891,7 @@ async function main() {
     );
 
     // Side effects keyed by service name
-    if (changed.has("telegram")) {
+    if (changed.has("telegram") && isTelegramConfigured()) {
       registerTelegramCommands();
       reconcileTelegramWebhook(config).catch((err) => {
         log.error(
