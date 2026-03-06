@@ -234,12 +234,12 @@ export async function createIngressInvite(params: {
     const adapter = channelId
       ? getInviteAdapterRegistry().get(channelId)
       : undefined;
-    channelHandle = adapter ? await resolveAdapterHandle(adapter) : undefined;
     if (params.sourceChannel === "telegram") {
       const { ensureTelegramBotUsernameResolved } =
         await import("./channel-invite-transports/telegram.js");
       await ensureTelegramBotUsernameResolved();
     }
+    channelHandle = adapter ? await resolveAdapterHandle(adapter) : undefined;
     const share = buildSharePayload(params.sourceChannel, rawToken);
     guardianInstruction = await generateInviteInstruction({
       contactName: params.contactName,
