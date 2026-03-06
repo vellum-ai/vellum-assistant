@@ -3,7 +3,7 @@
   "version": "0.4.36",
   "type": "module",
   "bin": {
-    "vellum": "./src/index.ts"
+    "assistant": "./src/index.ts"
   },
   "scripts": {
     "dev": "bun run src/index.ts",
