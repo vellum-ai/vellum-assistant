@@ -49,7 +49,8 @@ export function registerKeysCommand(program: Command): void {
     .command("delete <provider>")
     .description("Delete a stored API key")
     .action((provider: string) => {
-      if (deleteSecureKey(provider)) {
+      const result = deleteSecureKey(provider);
+      if (result === "deleted") {
         log.info(`Deleted API key for "${provider}"`);
       } else {
         log.error(`No API key found for "${provider}"`);

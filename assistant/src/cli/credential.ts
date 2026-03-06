@@ -354,10 +354,10 @@ Examples:
 
         assertMetadataWritable();
 
-        const secretDeleted = deleteSecureKey(storageKey);
+        const secretResult = deleteSecureKey(storageKey);
         const metadataDeleted = deleteCredentialMetadata(service, field);
 
-        if (!secretDeleted && !metadataDeleted) {
+        if (secretResult !== "deleted" && !metadataDeleted) {
           writeOutput(cmd, { ok: false, error: "Credential not found" });
           process.exitCode = 1;
           return;

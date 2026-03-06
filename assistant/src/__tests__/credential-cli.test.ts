@@ -39,13 +39,13 @@ mock.module("../security/secure-keys.js", () => ({
     secureKeyStore.set(account, value);
     return true;
   },
-  deleteSecureKey: (account: string): boolean => {
+  deleteSecureKey: (account: string) => {
     _deleteSecureKeyCalls += 1;
     if (secureKeyStore.has(account)) {
       secureKeyStore.delete(account);
-      return true;
+      return "deleted" as const;
     }
-    return false;
+    return "not-found" as const;
   },
   listSecureKeys: (): string[] => {
     return [...secureKeyStore.keys()];

@@ -128,8 +128,8 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
           400,
         );
       }
-      const deleted = deleteSecureKey(name);
-      if (!deleted) {
+      const deleteResult = deleteSecureKey(name);
+      if (deleteResult !== "deleted") {
         return httpError("NOT_FOUND", `API key not found: ${name}`, 404);
       }
       invalidateConfigCache();
@@ -151,8 +151,8 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       const field = name.slice(colonIdx + 1);
       assertMetadataWritable();
       const key = `credential:${service}:${field}`;
-      const deleted = deleteSecureKey(key);
-      if (!deleted) {
+      const deleteResult = deleteSecureKey(key);
+      if (deleteResult !== "deleted") {
         return httpError("NOT_FOUND", `Credential not found: ${name}`, 404);
       }
       deleteCredentialMetadata(service, field);

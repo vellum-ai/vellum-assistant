@@ -10,7 +10,7 @@ mock.module("../security/secure-keys.js", () => ({
     secureKeyStore[account] = value;
     return true;
   },
-  deleteSecureKey: () => true,
+  deleteSecureKey: () => "deleted",
   listSecureKeys: () => Object.keys(secureKeyStore),
   getBackendType: () => "encrypted",
   isDowngradedFromKeychain: () => false,

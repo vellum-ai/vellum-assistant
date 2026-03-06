@@ -38,11 +38,15 @@ export function setSecureKey(account: string, value: string): boolean {
   return encryptedStore.setKey(account, value);
 }
 
+/** Result of a delete operation — distinguishes success, not-found, and error. */
+export type DeleteResult = "deleted" | "not-found" | "error";
+
 /**
  * Delete a secret from secure storage (sync — encrypted store only).
- * Returns `true` on success, `false` if not found or on error.
+ * Returns `"deleted"` on success, `"not-found"` if key doesn't exist,
+ * or `"error"` on failure.
  */
-export function deleteSecureKey(account: string): boolean {
+export function deleteSecureKey(account: string): DeleteResult {
   return encryptedStore.deleteKey(account);
 }
 
@@ -128,21 +132,28 @@ export async function setSecureKeyAsync(
 /**
  * Async version of `deleteSecureKey`. When the broker is available the
  * key is deleted there **and** from the encrypted store so that sync
- * callers have a consistent view. Returns `true` only when both stores
- * succeed.
+ * callers have a consistent view.
  *
- * If the broker is available but `broker.del()` fails we return `false`
+ * Returns `"deleted"` when the key was removed, `"not-found"` when it
+ * didn't exist (idempotent), or `"error"` on a real backend failure.
+ *
+ * If the broker is available but `broker.del()` fails we return `"error"`
  * immediately — falling through to an encrypted-store-only delete would
  * leave the broker with the key, and async readers would still see it.
  */
-export async function deleteSecureKeyAsync(account: string): Promise<boolean> {
+export async function deleteSecureKeyAsync(
+  account: string,
+): Promise<DeleteResult> {
   const broker = getBroker();
   if (broker.isAvailable()) {
     const brokerOk = await broker.del(account);
-    if (!brokerOk) return false;
+    if (!brokerOk) return "error";
     // Broker succeeded — also remove from encrypted store for sync callers.
-    const encOk = encryptedStore.deleteKey(account);
-    return encOk;
+    const encResult = encryptedStore.deleteKey(account);
+    // Broker deletion succeeded; encrypted-store "not-found" is fine
+    // (key may only exist in the broker).
+    if (encResult === "error") return "error";
+    return "deleted";
   }
   return encryptedStore.deleteKey(account);
 }

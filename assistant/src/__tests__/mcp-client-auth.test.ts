@@ -4,7 +4,7 @@ import { describe, expect, jest, mock, test } from "bun:test";
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: jest.fn().mockResolvedValue(null),
   setSecureKeyAsync: jest.fn().mockResolvedValue(true),
-  deleteSecureKeyAsync: jest.fn().mockResolvedValue(true),
+  deleteSecureKeyAsync: jest.fn().mockResolvedValue("deleted"),
 }));
 
 const { McpClient } = await import("../mcp/client.js");

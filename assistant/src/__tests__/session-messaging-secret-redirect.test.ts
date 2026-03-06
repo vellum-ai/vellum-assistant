@@ -26,7 +26,7 @@ const metadataByKey = new Map<
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: () => undefined,
   setSecureKey: setSecureKeyMock,
-  deleteSecureKey: () => true,
+  deleteSecureKey: () => "deleted",
   listSecureKeys: () => [],
   getBackendType: () => null,
   isDowngradedFromKeychain: () => false,

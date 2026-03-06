@@ -71,9 +71,9 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKey: (account: string) => {
     if (account in secureKeyStore) {
       delete secureKeyStore[account];
-      return true;
+      return "deleted";
     }
-    return false;
+    return "not-found";
   },
   listSecureKeys: () => Object.keys(secureKeyStore),
   getBackendType: () => "encrypted",

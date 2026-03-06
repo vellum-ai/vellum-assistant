@@ -36,7 +36,13 @@ mock.module("../security/secure-keys.js", () => ({
     storedKeys.set(key, value);
     return true;
   },
-  deleteSecureKey: (key: string) => storedKeys.delete(key),
+  deleteSecureKey: (key: string) => {
+    if (storedKeys.has(key)) {
+      storedKeys.delete(key);
+      return "deleted";
+    }
+    return "not-found";
+  },
   listSecureKeys: () => [...storedKeys.keys()],
   getBackendType: () => "encrypted",
   isDowngradedFromKeychain: () => false,
