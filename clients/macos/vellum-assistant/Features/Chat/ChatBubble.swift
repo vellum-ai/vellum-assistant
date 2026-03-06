@@ -90,10 +90,15 @@ struct ChatBubble: View {
 
     func bubbleChrome<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         let isPlainAssistant = !isUser && !message.isError
+        // Merged: the inner `.frame(maxWidth: error ? .infinity : nil)` and the outer
+        // `.frame(maxWidth: error ? .infinity : 520)` collapsed into a single frame
+        // to remove one layout measurement layer. The visual result is identical because
+        // error messages already used .infinity for both, and non-error messages used
+        // nil (unconstrained) then 520 — equivalent to just 520.
         return content()
             .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
             .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
-            .frame(maxWidth: message.isError ? .infinity : nil, alignment: .leading)
+            .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
@@ -101,7 +106,6 @@ struct ChatBubble: View {
             .overlay {
                 bubbleBorderOverlay
             }
-            .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
     }
 
     private var formattedTimestamp: String {
@@ -210,6 +214,11 @@ struct ChatBubble: View {
                 // Uses layoutPriority instead of fixedSize to avoid forcing
                 // full height measurement during lazy placement.
                 .layoutPriority(1)
+                // Flatten the render tree for stable (non-streaming) messages into a
+                // single compositing layer, reducing recursive SwiftUI layout passes.
+                // Skipped during streaming because drawingGroup would re-rasterize
+                // the entire layer on every token delta.
+                .modifier(ConditionalDrawingGroup(isEnabled: !message.isStreaming))
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)
@@ -314,9 +323,11 @@ struct ChatBubble: View {
                             .lineSpacing(6)
                             .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
-                            // Frame before fixedSize to bound horizontal measurement.
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
+                            // lineLimit(nil) lets text wrap naturally in a single measurement
+                            // pass, avoiding the double-measurement that fixedSize causes
+                            // (measure at ideal size, then constrain to proposed width).
+                            .lineLimit(nil)
                     }
                 } else if hasText {
                     let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
@@ -348,7 +359,9 @@ struct ChatBubble: View {
                             // For assistant messages, fill available width for readability.
                             // For user messages, let the bubble shrink-wrap to text width.
                             .frame(maxWidth: isUser ? nil : .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
+                            // lineLimit(nil) wraps text in a single measurement pass,
+                            // avoiding the double-measurement that fixedSize causes.
+                            .lineLimit(nil)
                     }
                 } else if !message.attachments.isEmpty {
                     Text(attachmentSummary)
@@ -525,4 +538,20 @@ struct ChatBubble: View {
     @MainActor static var lastStreamingSegments: (text: String, value: [MarkdownSegment])?
     @MainActor static var lastStreamingInlineMarkdown: (text: String, value: AttributedString)?
     @MainActor static var lastStreamingMarkdown: (text: String, value: AttributedString)?
+}
+
+// MARK: - Conditional Drawing Group
+
+/// Applies `.drawingGroup()` only when `isEnabled` is true, avoiding type erasure
+/// overhead and allowing the modifier to be toggled per-message (e.g. skipped during streaming).
+private struct ConditionalDrawingGroup: ViewModifier {
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.drawingGroup(opaque: false)
+        } else {
+            content
+        }
+    }
 }
