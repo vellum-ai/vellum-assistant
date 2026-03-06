@@ -237,11 +237,11 @@ To preview the DMG installer layout locally (requires `brew install create-dmg`)
 
 This builds the app (if needed), generates the background image, creates a styled DMG, and opens it in Finder.
 
-## Daemon
+## Local Assistant (Daemon)
 
-The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **daemon**, a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to the daemon via a Unix domain socket at `~/.vellum/vellum.sock`.
+The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to it via a Unix domain socket at `~/.vellum/vellum.sock`.
 
-**You must start the daemon before using the app.** Without it, the app will connect but get no responses.
+**Local mode: You must start the assistant before using the app.** Without it, the app will connect but get no responses. (In managed mode, the assistant runs on the Vellum platform — no local process needed.)
 
 ```bash
 # Recommended: use the vellum CLI (starts daemon + gateway)
@@ -260,7 +260,7 @@ For low-level development, you can also start the daemon directly:
 cd assistant && bun run src/index.ts daemon start
 ```
 
-The app will auto-reconnect if the daemon restarts.
+The app will auto-reconnect if the assistant process restarts.
 
 ## Permissions
 
@@ -309,7 +309,7 @@ Users can send multiple messages while the assistant is busy. Messages are queue
 - The queue drains at safe tool-loop checkpoints, not just at full completion
 - UI shows queue status: "N messages queued, sending automatically"
 - Message bubbles show status: queued (dimmed) -> processing -> sent
-- The daemon emits `generation_handoff` when it yields to queued work at a checkpoint, followed by `message_dequeued` as each queued message begins processing
+- The assistant emits `generation_handoff` when it yields to queued work at a checkpoint, followed by `message_dequeued` as each queued message begins processing
 
 **Current limitations:** Text-only messages, no conversation history browser.
 
@@ -431,9 +431,9 @@ Logging/
   Session recording   JSON logs to ~/Library/App Support/
 ```
 
-## Remote Daemon
+## Remote Assistant
 
-The app supports connecting to a remote daemon via SSH socket forwarding. Set `VELLUM_DAEMON_SOCKET` to the forwarded socket path. See the [Remote Access](../../README.md#remote-access) section in the root README.
+The app supports connecting to a remote assistant process via SSH socket forwarding. Set `VELLUM_DAEMON_SOCKET` to the forwarded socket path. See the [Remote Access](../../README.md#remote-access) section in the root README.
 
 ### Zero-Copy Blob Transport
 
