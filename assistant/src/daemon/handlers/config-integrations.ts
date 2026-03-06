@@ -1,6 +1,11 @@
 import * as net from "node:net";
 
-import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
+import {
+  getNestedValue,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../config/loader.js";
 import {
   deleteSecureKeyAsync,
   getSecureKey,
@@ -108,18 +113,18 @@ export async function handleTwitterIntegrationConfig(
     if (msg.action === "get") {
       const raw = loadRawConfig();
       const mode =
-        (raw.twitterIntegrationMode as "local_byo" | "managed" | undefined) ??
-        "local_byo";
+        (getNestedValue(raw, "twitter.integrationMode") as
+          | "local_byo"
+          | "managed"
+          | undefined) ?? "local_byo";
       const strategy =
-        (raw.twitterOperationStrategy as
+        (getNestedValue(raw, "twitter.operationStrategy") as
           | "oauth"
           | "browser"
           | "auto"
           | undefined) ?? "auto";
-      const strategyConfigured = Object.prototype.hasOwnProperty.call(
-        raw,
-        "twitterOperationStrategy",
-      );
+      const strategyConfigured =
+        getNestedValue(raw, "twitter.operationStrategy") !== undefined;
       const localClientConfigured = hasTwitterClientId();
       const connected = !!getSecureKey(
         "credential:integration:twitter:access_token",
@@ -139,15 +144,13 @@ export async function handleTwitterIntegrationConfig(
     } else if (msg.action === "get_strategy") {
       const raw = loadRawConfig();
       const strategy =
-        (raw.twitterOperationStrategy as
+        (getNestedValue(raw, "twitter.operationStrategy") as
           | "oauth"
           | "browser"
           | "auto"
           | undefined) ?? "auto";
-      const strategyConfigured = Object.prototype.hasOwnProperty.call(
-        raw,
-        "twitterOperationStrategy",
-      );
+      const strategyConfigured =
+        getNestedValue(raw, "twitter.operationStrategy") !== undefined;
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: true,
@@ -174,7 +177,7 @@ export async function handleTwitterIntegrationConfig(
         return;
       }
       const raw = loadRawConfig();
-      raw.twitterOperationStrategy = value;
+      setNestedValue(raw, "twitter.operationStrategy", value);
       saveRawConfig(raw);
       ctx.send(socket, {
         type: "twitter_integration_config_response",
@@ -189,7 +192,7 @@ export async function handleTwitterIntegrationConfig(
       });
     } else if (msg.action === "set_mode") {
       const raw = loadRawConfig();
-      raw.twitterIntegrationMode = msg.mode ?? "local_byo";
+      setNestedValue(raw, "twitter.integrationMode", msg.mode ?? "local_byo");
       saveRawConfig(raw);
       ctx.send(socket, {
         type: "twitter_integration_config_response",

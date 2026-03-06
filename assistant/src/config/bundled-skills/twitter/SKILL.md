@@ -18,7 +18,7 @@ OAuth uses the official X API v2. It is the most reliable connection method and 
 - Supports: **post** and **reply**
 - Read-only operations (timeline, search, home, bookmarks, notifications, likes, followers, following, media) always use the browser path directly, regardless of the strategy setting.
 - Setup: Collect the OAuth Client ID (and optional Client Secret) from the user in chat using `credential_store` with `action: "prompt"` (canonical field names: `client_id`, `client_secret`), then initiate the `twitter_auth_start` flow. See the **First-Use Decision Flow** for the full sequence.
-- Set the strategy: `assistant config set twitterOperationStrategy oauth`
+- Set the strategy: `assistant config set twitter.operationStrategy oauth`
 
 ### Browser session (no developer credentials needed)
 
@@ -26,13 +26,13 @@ The browser path is quick to start and useful when the user does not have X deve
 
 - Supports: **all operations** (post, reply, timeline, search, home, bookmarks, notifications, likes, followers, following, media)
 - Setup: Run `assistant x refresh` to open Chrome and capture session cookies automatically.
-- Set the strategy: `assistant config set twitterOperationStrategy browser`
+- Set the strategy: `assistant config set twitter.operationStrategy browser`
 
 ### Auto mode (default)
 
 When the strategy is `auto` (the default), the router tries OAuth first for supported operations if credentials are available, then falls back to the browser path. This gives the best of both worlds without requiring manual switching.
 
-- Set auto mode: `assistant config set twitterOperationStrategy auto`
+- Set auto mode: `assistant config set twitter.operationStrategy auto`
 
 ## First-Use Decision Flow
 
@@ -42,7 +42,7 @@ When the user triggers a Twitter operation and no strategy has been configured y
 
    ```bash
    # Check strategy
-   assistant config get twitterOperationStrategy
+   assistant config get twitter.operationStrategy
 
    # Check if OAuth token is available
    assistant oauth token twitter --json
@@ -81,7 +81,7 @@ When the user chooses OAuth, collect their X developer credentials conversationa
 
 5. **Set the preferred strategy:**
    ```bash
-   assistant config set twitterOperationStrategy <oauth|browser|auto>
+   assistant config set twitter.operationStrategy <oauth|browser|auto>
    ```
 
 ## Failure Recovery Flow
@@ -99,14 +99,14 @@ When a Twitter operation fails, follow these steps:
 
 3. **Suggest trying the other path as an alternative:**
    - If the browser session expired: suggest setting up OAuth for post/reply operations, or refresh the browser session with `assistant x refresh`.
-   - If OAuth failed or is not configured: suggest using the browser path with `assistant config set twitterOperationStrategy browser` and `assistant x refresh`.
-   - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `assistant config set twitterOperationStrategy browser`.
+   - If OAuth failed or is not configured: suggest using the browser path with `assistant config set twitter.operationStrategy browser` and `assistant x refresh`.
+   - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `assistant config set twitter.operationStrategy browser`.
 
 4. **Offer concrete steps to switch:**
 
    ```bash
    # Switch to the other strategy
-   assistant config set twitterOperationStrategy <oauth|browser|auto>
+   assistant config set twitter.operationStrategy <oauth|browser|auto>
 
    # If switching to browser, refresh the session
    assistant x refresh
@@ -116,12 +116,12 @@ When a Twitter operation fails, follow these steps:
 
 ```bash
 # Check current strategy
-assistant config get twitterOperationStrategy
+assistant config get twitter.operationStrategy
 
 # Set strategy to OAuth, browser, or auto
-assistant config set twitterOperationStrategy oauth
-assistant config set twitterOperationStrategy browser
-assistant config set twitterOperationStrategy auto
+assistant config set twitter.operationStrategy oauth
+assistant config set twitter.operationStrategy browser
+assistant config set twitter.operationStrategy auto
 
 # Check full status (session, OAuth, and strategy info)
 assistant x status --json
@@ -133,7 +133,7 @@ Before posting, fetch the current strategy and OAuth token:
 
 ```bash
 # 1. Get the configured strategy
-STRATEGY=$(assistant config get twitterOperationStrategy)
+STRATEGY=$(assistant config get twitter.operationStrategy)
 # If not set, default to "auto"
 
 # 2. If strategy is "oauth" or "auto", get a valid OAuth token

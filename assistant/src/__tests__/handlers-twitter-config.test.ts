@@ -10,18 +10,49 @@ const testDir = mkdtempSync(join(tmpdir(), "handlers-twitter-cfg-test-"));
 let rawConfigStore: Record<string, unknown> = {};
 const saveRawConfigCalls: Record<string, unknown>[] = [];
 
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const keys = path.split(".");
+  let current: unknown = obj;
+  for (const key of keys) {
+    if (current == null || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+function setNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const keys = path.split(".");
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i]!;
+    if (current[key] == null || typeof current[key] !== "object") {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]!] = value;
+}
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
   }),
   loadConfig: () => ({}),
-  loadRawConfig: () => ({ ...rawConfigStore }),
+  loadRawConfig: () => structuredClone(rawConfigStore),
   saveRawConfig: (cfg: Record<string, unknown>) => {
     saveRawConfigCalls.push(cfg);
-    rawConfigStore = { ...cfg };
+    rawConfigStore = structuredClone(cfg);
   },
   saveConfig: () => {},
   invalidateConfigCache: () => {},
+  getNestedValue,
+  setNestedValue,
 }));
 
 mock.module("../util/platform.js", () => ({
@@ -225,7 +256,7 @@ describe("Twitter integration config handler", () => {
   });
 
   test("get action returns correct status when configured and connected", () => {
-    rawConfigStore = { twitterIntegrationMode: "local_byo" };
+    rawConfigStore = { twitter: { integrationMode: "local_byo" } };
     secureKeyStore["credential:integration:twitter:oauth_client_id"] =
       "test-client-id";
     secureKeyStore["credential:integration:twitter:access_token"] =
@@ -278,7 +309,9 @@ describe("Twitter integration config handler", () => {
     expect(res.mode).toBe("managed");
 
     expect(saveRawConfigCalls).toHaveLength(1);
-    expect(saveRawConfigCalls[0]!.twitterIntegrationMode).toBe("managed");
+    expect(
+      getNestedValue(saveRawConfigCalls[0]!, "twitter.integrationMode"),
+    ).toBe("managed");
   });
 
   test("set_local_client stores credentials in secure storage", async () => {
@@ -1006,7 +1039,9 @@ describe("Twitter integration config handler", () => {
     // Verify persistence via saveRawConfig
     expect(saveRawConfigCalls.length).toBeGreaterThan(0);
     const lastSaved = saveRawConfigCalls[saveRawConfigCalls.length - 1]!;
-    expect(lastSaved.twitterOperationStrategy).toBe("oauth");
+    expect(getNestedValue(lastSaved, "twitter.operationStrategy")).toBe(
+      "oauth",
+    );
   });
 
   test("set_strategy with invalid value returns error", () => {
@@ -1044,7 +1079,7 @@ describe("Twitter integration config handler", () => {
 
   test("get action includes strategy field with strategyConfigured=true when set", () => {
     // Set a specific strategy first
-    rawConfigStore = { twitterOperationStrategy: "browser" };
+    rawConfigStore = { twitter: { operationStrategy: "browser" } };
 
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
