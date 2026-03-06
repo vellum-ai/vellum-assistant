@@ -5,11 +5,15 @@
     {
       "id": "amazon",
       "name": "amazon",
-      "description": "Shop on Amazon and Amazon Fresh using the built-in CLI integration",
+      "description": "Shop on Amazon and Amazon Fresh using the CLI integration",
       "metadata": {
         "emoji": "📦",
         "vellum": {
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "cli": {
+            "command": "amazon",
+            "entry": "scripts/amazon.ts"
+          }
         }
       }
     },
