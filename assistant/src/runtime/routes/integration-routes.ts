@@ -220,7 +220,7 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
   // (e.g. "+15551234567" vs "(555) 123-4567", or "@User" vs "user")
   let rateLimitKey = body.destination;
   if (rateLimitKey) {
-    if (body.channel === "sms" || body.channel === "voice") {
+    if (body.channel === "voice") {
       rateLimitKey = normalizePhoneNumber(rateLimitKey) ?? rateLimitKey;
     } else if (body.channel === "telegram") {
       rateLimitKey = normalizeTelegramDestination(rateLimitKey);

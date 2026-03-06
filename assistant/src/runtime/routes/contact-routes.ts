@@ -35,7 +35,6 @@ import type {
   ContactType,
 } from "../../contacts/types.js";
 import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
-import { normalizePhoneNumber } from "../../util/phone.js";
 import {
   countRecentSendsToDestination,
   createOutboundSession,
@@ -43,7 +42,6 @@ import {
 } from "../channel-guardian-service.js";
 import {
   deliverVerificationSlack,
-  deliverVerificationSms,
   deliverVerificationTelegram,
   DESTINATION_RATE_WINDOW_MS,
   MAX_SENDS_PER_DESTINATION_WINDOW,
@@ -51,7 +49,6 @@ import {
 } from "../guardian-outbound-actions.js";
 import {
   composeVerificationSlack,
-  composeVerificationSms,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../guardian-verification-templates.js";
@@ -446,8 +443,6 @@ const SESSION_TTL_SECONDS = 600;
  */
 function toVerificationChannel(channelType: string): ChannelId | null {
   switch (channelType) {
-    case "phone":
-      return "sms";
     case "telegram":
       return "telegram";
     case "slack":
@@ -477,8 +472,8 @@ function getTelegramBotUsername(): string | undefined {
  * POST /v1/contact-channels/:contactChannelId/verify
  *
  * Initiate trusted contact verification for a specific channel. Sends a
- * verification code via SMS, Telegram, Slack, or voice and returns session
- * info so the client can track the verification flow.
+ * verification code via Telegram or Slack and returns session info so the
+ * client can track the verification flow.
  */
 export async function handleVerifyContactChannel(
   contactChannelId: string,
@@ -544,46 +539,6 @@ export async function handleVerifyContactChannel(
       "Too many verification attempts to this destination. Please try again later.",
       429,
     );
-  }
-
-  // --- SMS verification ---
-  if (verificationChannel === "sms") {
-    const phoneE164 = normalizePhoneNumber(destination);
-    if (!phoneE164) {
-      return httpError(
-        "BAD_REQUEST",
-        "Channel address is not a valid phone number",
-        400,
-      );
-    }
-
-    const sessionResult = createOutboundSession({
-      channel: verificationChannel,
-      expectedPhoneE164: phoneE164,
-      expectedExternalUserId: channel.externalUserId ?? undefined,
-      destinationAddress: phoneE164,
-      verificationPurpose: "trusted_contact",
-    });
-
-    const smsBody = composeVerificationSms(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
-      {
-        code: sessionResult.secret,
-        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-      },
-    );
-
-    const now = Date.now();
-    const sendCount = 1;
-    updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
-    deliverVerificationSms(phoneE164, smsBody, assistantId);
-
-    return Response.json({
-      ok: true,
-      verificationSessionId: sessionResult.sessionId,
-      expiresAt: sessionResult.expiresAt,
-      sendCount,
-    });
   }
 
   // --- Telegram verification ---

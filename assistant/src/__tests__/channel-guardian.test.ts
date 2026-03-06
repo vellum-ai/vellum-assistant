@@ -32,13 +32,6 @@ mock.module("../util/logger.js", () => ({
 
 import type * as net from "node:net";
 
-// SMS delivery calls are tracked via the globalThis.fetch mock below.
-const smsSendCalls: Array<{
-  to: string;
-  text: string;
-  assistantId?: string;
-}> = [];
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -87,15 +80,6 @@ globalThis.fetch = (async (
       : input instanceof URL
         ? input.toString()
         : input.url;
-  if (url.includes("/deliver/sms") && init?.method === "POST") {
-    const body = JSON.parse(init.body as string) as {
-      to: string;
-      text: string;
-      assistantId?: string;
-    };
-    smsSendCalls.push(body);
-    return new Response(JSON.stringify({ ok: true }), { status: 200 });
-  }
   if (url.includes("/deliver/telegram") && init?.method === "POST") {
     const body = JSON.parse(init.body as string) as {
       chatId: string;
@@ -161,7 +145,6 @@ import {
   validateAndConsumeChallenge,
 } from "../runtime/channel-guardian-service.js";
 import {
-  composeVerificationSms,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/guardian-verification-templates.js";
@@ -186,7 +169,6 @@ function resetTables(): void {
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   db.run("DELETE FROM external_conversation_bindings");
-  smsSendCalls.length = 0;
   telegramDeliverCalls.length = 0;
   voiceCallInitCalls.length = 0;
   mockBotUsername = "test_bot";
@@ -2854,29 +2836,6 @@ describe("outbound SMS verification", () => {
     }
   });
 
-  test("template composer returns expected SMS format", () => {
-    const challengeSms = composeVerificationSms(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
-      { code: "123456", expiresInMinutes: 10 },
-    );
-    // Code should NOT appear in the message — user sees it in the app
-    expect(challengeSms).not.toContain("123456");
-    expect(challengeSms).toContain("code you were given");
-
-    const resendSms = composeVerificationSms(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND,
-      { code: "ABCDEF", expiresInMinutes: 5 },
-    );
-    expect(resendSms).not.toContain("ABCDEF");
-    expect(resendSms).toContain("resent");
-
-    const alreadySms = composeVerificationSms(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED,
-      { code: "unused", expiresInMinutes: 0 },
-    );
-    expect(alreadySms).toContain("already verified");
-  });
-
   test("start_outbound rejects unsupported channels", async () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
@@ -2896,14 +2855,14 @@ describe("outbound SMS verification", () => {
     expect(resp!.error).toBe("unsupported_channel");
   });
 
-  test("start_outbound rejects missing destination", async () => {
+  test("start_outbound rejects SMS as unsupported channel", async () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "start_outbound",
         channel: "sms",
-        // no destination
+        destination: "+15551234567",
       },
       mockSocket,
       ctx,
@@ -2912,70 +2871,7 @@ describe("outbound SMS verification", () => {
     const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe("missing_destination");
-  });
-
-  test("start_outbound rejects unparseable phone number", async () => {
-    const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
-      {
-        type: "guardian_verification",
-        action: "start_outbound",
-        channel: "sms",
-        destination: "not-a-phone",
-      },
-      mockSocket,
-      ctx,
-    );
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe("invalid_destination");
-  });
-
-  test("start_outbound normalizes formatted phone number for SMS", async () => {
-    const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
-      {
-        type: "guardian_verification",
-        action: "start_outbound",
-        channel: "sms",
-        destination: "(555) 123-4567",
-      },
-      mockSocket,
-      ctx,
-    );
-
-    const resp = lastResponse();
-    expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(true);
-    expect(resp!.verificationSessionId).toBeDefined();
-    expect(resp!.secret).toBeDefined();
-
-    // Verify the session was created with the normalized E.164 number
-    const session = serviceFindActiveSession("sms");
-    expect(session).not.toBeNull();
-    expect(session!.expectedPhoneE164).toBe("+15551234567");
-    expect(session!.destinationAddress).toBe("+15551234567");
-
-    // Allow fire-and-forget SMS delivery to complete
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    // Verify SMS was sent to the normalized number
-    expect(smsSendCalls.length).toBeGreaterThanOrEqual(1);
-    const lastSms = smsSendCalls[smsSendCalls.length - 1];
-    expect(lastSms.to).toBe("+15551234567");
-  });
-
-  test("template composer includes Vellum assistant prefix", () => {
-    const sms = composeVerificationSms(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
-      { code: "999999", expiresInMinutes: 10, assistantName: "MyBot" },
-    );
-    expect(sms).toContain("Vellum assistant");
-    // Code should NOT appear in the message
-    expect(sms).not.toContain("999999");
+    expect(resp!.error).toBe("unsupported_channel");
   });
 
   test("cancel_outbound returns error when no active session", async () => {
@@ -2984,7 +2880,7 @@ describe("outbound SMS verification", () => {
       {
         type: "guardian_verification",
         action: "cancel_outbound",
-        channel: "sms",
+        channel: "telegram",
       },
       mockSocket,
       ctx,
