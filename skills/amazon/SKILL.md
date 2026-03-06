@@ -20,7 +20,7 @@ Run the Amazon CLI via:
 bun run scripts/amazon.ts <command> [options] --json
 ```
 
-**IMPORTANT: Always use `host_bash` (not `bash`) for all Amazon commands.** The CLI needs host access for session cookies and the Ride Shotgun session capture — neither of which are available inside the sandbox.
+**IMPORTANT: Run all Amazon commands on the host machine (not in a sandbox).** The CLI needs host access for session cookies and the Ride Shotgun session capture — neither of which are available inside sandboxed environments.
 
 ## Typical Flow — Regular Amazon Shopping
 
