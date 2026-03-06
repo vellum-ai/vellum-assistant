@@ -130,7 +130,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       const val = argv[i + 1];
       if (!["Top", "Latest", "People", "Media"].includes(val)) {
         outputError(
-          'Invalid product type. Use "Top", "Latest", "People", or "Media".'
+          'Invalid product type. Use "Top", "Latest", "People", or "Media".',
         );
         process.exit(1);
       }
@@ -165,7 +165,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 function buildInput(
   command: TwitterCommand,
   args: string[],
-  options: ParsedArgs["options"]
+  options: ParsedArgs["options"],
 ): Record<string, unknown> {
   switch (command) {
     case "status":
@@ -253,14 +253,14 @@ function buildInput(
       if (args[0] === "set") {
         if (args.length < 2) {
           outputError(
-            "strategy set requires a value (oauth, browser, or auto)"
+            "strategy set requires a value (oauth, browser, or auto)",
           );
           process.exit(1);
         }
         const value = args[1];
         if (!["oauth", "browser", "auto"].includes(value)) {
           outputError(
-            'Invalid strategy value. Use "oauth", "browser", or "auto".'
+            'Invalid strategy value. Use "oauth", "browser", or "auto".',
           );
           process.exit(1);
         }

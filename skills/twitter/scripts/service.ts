@@ -205,7 +205,7 @@ export interface StrategyResult {
 
 export async function executeTwitterCommand(
   command: TwitterCommand,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
 ): Promise<ToolExecutionResult> {
   // TODO: Implement in M2 - will delegate to the assistant's Twitter client
   return {
