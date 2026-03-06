@@ -923,7 +923,7 @@ struct DynamicWorkspaceWrapper: View {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(height: 28)
-                        } else {
+                        } else if sharing.publishedUrl == nil {
                             VIconButton(label: "Publish", icon: "arrow.up.right", iconOnly: true, variant: .outlined, size: 28, tooltip: "Publish to Vercel") {
                                 onPublishPage(data.html, data.preview?.title, data.appId)
                             }
