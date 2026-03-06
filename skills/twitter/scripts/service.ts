@@ -99,7 +99,6 @@ export interface TweetInput {
 
 export interface SearchInput {
   query: string;
-  count?: number;
   product?: "Top" | "Latest" | "People" | "Media";
 }
 
@@ -259,15 +258,14 @@ function failure(error: string): ToolExecutionResult {
 }
 
 function extractTweetId(tweetIdOrUrl: string): string | null {
-  // Handle URLs like https://x.com/user/status/1234567890?s=20
-  // Extract the numeric ID after /status/ before any query params or trailing content
-  const statusMatch = tweetIdOrUrl.match(/\/status\/(\d+)/);
-  if (statusMatch) {
-    return statusMatch[1];
+  // First try to match a Twitter/X status URL pattern
+  const urlMatch = tweetIdOrUrl.match(/\/status\/(\d+)/);
+  if (urlMatch) {
+    return urlMatch[1];
   }
-  // Fall back to extracting trailing digits for bare tweet IDs
-  const match = tweetIdOrUrl.match(/(\d+)\s*$/);
-  return match ? match[1] : null;
+  // Otherwise, treat as a raw tweet ID (pure digits only)
+  const idMatch = tweetIdOrUrl.match(/^(\d+)$/);
+  return idMatch ? idMatch[1] : null;
 }
 
 function getPreferredStrategy(): "oauth" | "browser" | "auto" {
