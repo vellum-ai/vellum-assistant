@@ -179,7 +179,18 @@ const DIST_CONTENT_TYPES: Record<string, string> = {
  * Validates the filename to prevent path traversal.
  */
 export function handleServeDistFile(appId: string, filename: string): Response {
-  // Reject any traversal attempts
+  // Reject any traversal attempts on appId
+  if (
+    !appId ||
+    appId.includes("..") ||
+    appId.includes("/") ||
+    appId.includes("\\") ||
+    appId !== appId.trim()
+  ) {
+    return httpError("BAD_REQUEST", "Invalid appId", 400);
+  }
+
+  // Reject any traversal attempts on filename
   if (
     !filename ||
     filename.includes("..") ||

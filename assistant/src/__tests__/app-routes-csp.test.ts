@@ -60,7 +60,10 @@ mock.module("node:fs", () => ({
   },
 }));
 
-import { handleServePage } from "../runtime/routes/app-routes.js";
+import {
+  handleServeDistFile,
+  handleServePage,
+} from "../runtime/routes/app-routes.js";
 
 /** Parse CSP header into a directive map. */
 function parseCsp(header: string): Record<string, string> {
@@ -129,6 +132,49 @@ describe("app-routes CSP headers", () => {
       expect(directives["img-src"]).toContain("'self'");
       expect(directives["img-src"]).toContain("data:");
       expect(directives["img-src"]).toContain("https:");
+    });
+  });
+
+  describe("handleServeDistFile appId validation", () => {
+    test("rejects appId with encoded path traversal (..)", () => {
+      const res = handleServeDistFile("..", "main.js");
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects appId with forward slash", () => {
+      const res = handleServeDistFile("../../etc", "main.js");
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects appId with backslash", () => {
+      const res = handleServeDistFile("foo\\bar", "main.js");
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects empty appId", () => {
+      const res = handleServeDistFile("", "main.js");
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects appId with leading whitespace", () => {
+      const res = handleServeDistFile(" multi-1", "main.js");
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects appId with trailing whitespace", () => {
+      const res = handleServeDistFile("multi-1 ", "main.js");
+      expect(res.status).toBe(400);
+    });
+
+    test("rejects appId containing .. in the middle", () => {
+      const res = handleServeDistFile("foo..bar", "main.js");
+      expect(res.status).toBe(400);
+    });
+
+    test("allows valid appId and filename (file not found is 404)", () => {
+      const res = handleServeDistFile("multi-1", "main.js");
+      // File doesn't exist in our mock fs, so 404
+      expect(res.status).toBe(404);
     });
   });
 
