@@ -19,6 +19,7 @@ import {
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../notifications/signal.js";
 import { addRule } from "../permissions/trust-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
@@ -345,7 +346,8 @@ const accessRequestResolver: GuardianRequestResolver = {
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, channelDeliveryContext } = ctx;
-    const channel = request.sourceChannel ?? "unknown";
+    const channel = (request.sourceChannel ??
+      "unknown") as NotificationSourceChannel;
     const requesterExternalUserId = request.requesterExternalUserId ?? "";
     const requesterChatId =
       request.requesterChatId ?? request.requesterExternalUserId ?? "";

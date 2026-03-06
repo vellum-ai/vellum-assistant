@@ -11,6 +11,7 @@ import {
   type GuardianApprovalRequest,
 } from "../../../memory/channel-guardian-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { getLogger } from "../../../util/logger.js";
 import { runApprovalConversationTurn } from "../../approval-conversation-turn.js";
 import { composeApprovalMessageGenerative } from "../../approval-message-composer.js";
@@ -791,7 +792,7 @@ async function handleAccessRequestApproval(
     // Emit both guardian_decision and denied signals so all lifecycle
     // observers are notified of the denial.
     const deniedPayload = {
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       requesterExternalUserId: approval.requesterExternalUserId,
       requesterChatId: approval.requesterChatId,
       decidedByExternalUserId,
@@ -800,7 +801,7 @@ async function handleAccessRequestApproval(
 
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
       attentionHints: {
         requiresAction: false,
@@ -814,7 +815,7 @@ async function handleAccessRequestApproval(
 
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.denied",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
       attentionHints: {
         requiresAction: false,
@@ -882,7 +883,7 @@ async function handleAccessRequestApproval(
   if (!decisionResult.verificationSessionId) {
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
       attentionHints: {
         requiresAction: false,
@@ -891,7 +892,7 @@ async function handleAccessRequestApproval(
         visibleInSourceNow: false,
       },
       contextPayload: {
-        sourceChannel: approval.channel,
+        sourceChannel: approval.channel as NotificationSourceChannel,
         requesterExternalUserId: approval.requesterExternalUserId,
         requesterChatId: approval.requesterChatId,
         decidedByExternalUserId,
@@ -908,7 +909,7 @@ async function handleAccessRequestApproval(
   if (decisionResult.verificationSessionId && codeDelivered) {
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.verification_sent",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
       attentionHints: {
         requiresAction: false,
@@ -917,7 +918,7 @@ async function handleAccessRequestApproval(
         visibleInSourceNow: true,
       },
       contextPayload: {
-        sourceChannel: approval.channel,
+        sourceChannel: approval.channel as NotificationSourceChannel,
         requesterExternalUserId: approval.requesterExternalUserId,
         requesterChatId: approval.requesterChatId,
         verificationSessionId: decisionResult.verificationSessionId,

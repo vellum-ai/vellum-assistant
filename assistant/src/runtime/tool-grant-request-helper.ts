@@ -18,6 +18,7 @@ import {
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
 import { getGuardianBinding } from "./channel-guardian-service.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
@@ -144,7 +145,7 @@ export function createOrReuseToolGrantRequest(
   // pipeline is preserved.
   const signalPromise = emitNotificationSignal({
     sourceEventName: "guardian.question",
-    sourceChannel,
+    sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceSessionId: conversationId,
     attentionHints: {
       requiresAction: true,

@@ -34,6 +34,7 @@ import type {
   AttentionHints,
   NotificationContextPayload,
   NotificationSignal,
+  NotificationSourceChannel,
   RoutingIntent,
 } from "./signal.js";
 import type {
@@ -151,8 +152,8 @@ function getConnectedChannels(): NotificationChannel[] {
 export interface EmitSignalParams<TEventName extends string = string> {
   /** Free-form event name, e.g. 'reminder.fired', 'schedule.complete'. */
   sourceEventName: TEventName;
-  /** Source channel that produced the event. */
-  sourceChannel: string;
+  /** Source channel that produced the event — must be a registered channel. */
+  sourceChannel: NotificationSourceChannel;
   /** Session or conversation ID from the source context. */
   sourceSessionId: string;
   /** Attention hints for the decision engine. */

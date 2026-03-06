@@ -22,6 +22,7 @@ import {
 } from "../../../contacts/contacts-write.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { canonicalizeInboundIdentity } from "../../../util/canonicalize-identity.js";
 import { getLogger } from "../../../util/logger.js";
 import {
@@ -230,7 +231,7 @@ export async function handleVerificationIntercept(
     if (verifyResult.verificationType === "trusted_contact") {
       void emitNotificationSignal({
         sourceEventName: "ingress.trusted_contact.activated",
-        sourceChannel,
+        sourceChannel: sourceChannel as NotificationSourceChannel,
         sourceSessionId: conversationId,
         attentionHints: {
           requiresAction: false,
