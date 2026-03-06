@@ -124,7 +124,7 @@ export function registerTwitterCommand(program: Command): void {
 Twitter (X) uses a dual-path architecture for interacting with the platform:
 
   1. OAuth (official API) — uses an authenticated Twitter OAuth application for
-     posting and reading. Requires a connected OAuth credential.
+     posting and replying. Requires a connected OAuth credential.
   2. Browser session (Ride Shotgun) — uses cookies captured from a real Chrome
      session to call Twitter's internal GraphQL API. Supports all read operations
      and posting as a fallback.
@@ -221,7 +221,7 @@ The --duration flag sets how long (in seconds) the recording runs before
 stopping. Default is 180 seconds (3 minutes). After the recording completes,
 cookies are imported automatically and Chrome is minimized.
 
-Requires the assistant daemon to be running (Ride Shotgun runs via the daemon).
+Requires the assistant to be running (Ride Shotgun runs via the assistant).
 
 Examples:
   $ vellum x refresh
@@ -284,7 +284,7 @@ Shows the current state of both authentication paths:
   OAuth — whether an OAuth credential is connected, the linked account, the
     current strategy setting, and whether a strategy has been explicitly configured.
 
-If the daemon is not running, OAuth fields will be reported as undefined.
+If the assistant is not running, OAuth fields will be reported as undefined.
 
 Examples:
   $ vellum x status
@@ -395,7 +395,7 @@ Arguments:
   value   Strategy to use: "oauth", "browser", or "auto"
 
 Sets the preferred strategy for Twitter operations that support dual-path
-routing. The setting is persisted by the daemon and applies to all subsequent
+routing. The setting is persisted by the assistant and applies to all subsequent
 operations until changed.
 
 Examples:
