@@ -241,7 +241,7 @@ import type { ClientMessage } from "../../../assistant/src/daemon/ipc-contract.j
 
 const SESSION_EXPIRED_MSG =
   "Your Twitter session has expired. Please import a fresh session recording " +
-  "via `login --recording <path>` or switch to OAuth for post/reply operations.";
+  "via `bun run scripts/twitter-cli.ts login --recording <path>` or switch to OAuth for post/reply operations.";
 
 function success(data: Record<string, unknown>): ToolExecutionResult {
   return {

@@ -100,7 +100,7 @@ When a Twitter operation fails, follow these steps:
 
 3. **Suggest trying the other path as an alternative:**
    - If the browser session expired: suggest setting up OAuth for post/reply operations, or ask the user to import a fresh session recording.
-   - If OAuth failed or is not configured: suggest using the browser path with `bun run scripts/twitter-cli.ts strategy set browser` and importing a session via `login --recording`.
+   - If OAuth failed or is not configured: suggest using the browser path with `bun run scripts/twitter-cli.ts strategy set browser` and importing a session via `bun run scripts/twitter-cli.ts login --recording <path>`.
    - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `bun run scripts/twitter-cli.ts strategy set browser`.
 
 4. **Offer concrete steps to switch:**
@@ -256,6 +256,6 @@ When the user wants to see how their posts are performing:
 - All commands return JSON with an `ok` field
 - When drafting replies, match the tone of the conversation — casual threads get casual replies
 - Always show the user what you're about to post and get approval before sending
-- If a browser session is expired, ask the user to import a fresh session recording via `login --recording`, or suggest switching to OAuth for post/reply operations
+- If a browser session is expired, ask the user to import a fresh session recording via `bun run scripts/twitter-cli.ts login --recording <path>`, or suggest switching to OAuth for post/reply operations
 - If an operation fails, check `bun run scripts/twitter-cli.ts status --json` to diagnose the issue before retrying
 - The `post` and `reply` commands include a `pathUsed` field in their response so you can tell the user which connection method was used
