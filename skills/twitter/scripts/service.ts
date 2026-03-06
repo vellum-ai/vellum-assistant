@@ -122,7 +122,6 @@ export interface LikesInput {
 
 export interface FollowersInput {
   screenName: string;
-  count?: number;
 }
 
 export interface FollowingInput {
@@ -243,7 +242,7 @@ import type { ClientMessage } from "../../../assistant/src/daemon/ipc-contract.j
 
 const SESSION_EXPIRED_MSG =
   "Your Twitter session has expired. Please sign in to Twitter in Chrome — " +
-  "run `vellum twitter refresh` to capture your session automatically.";
+  "run `vellum x refresh` to capture your session automatically.";
 
 function success(data: Record<string, unknown>): ToolExecutionResult {
   return {
@@ -260,6 +259,13 @@ function failure(error: string): ToolExecutionResult {
 }
 
 function extractTweetId(tweetIdOrUrl: string): string | null {
+  // Handle URLs like https://x.com/user/status/1234567890?s=20
+  // Extract the numeric ID after /status/ before any query params or trailing content
+  const statusMatch = tweetIdOrUrl.match(/\/status\/(\d+)/);
+  if (statusMatch) {
+    return statusMatch[1];
+  }
+  // Fall back to extracting trailing digits for bare tweet IDs
   const match = tweetIdOrUrl.match(/(\d+)\s*$/);
   return match ? match[1] : null;
 }
