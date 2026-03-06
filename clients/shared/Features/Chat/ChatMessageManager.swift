@@ -26,7 +26,9 @@ public final class ChatMessageManager: ObservableObject {
     @Published public var inputText: String = "" {
         didSet {
             guard inputText != oldValue else { return }
-            suggestion = nil
+            if let suggestion, !suggestion.hasPrefix(inputText) {
+                self.suggestion = nil
+            }
         }
     }
     @Published public var isThinking: Bool = false
