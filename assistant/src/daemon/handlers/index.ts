@@ -198,11 +198,25 @@ export function handleMessage(
   if (msg.type === "auth") return;
 
   const handler = handlers[msg.type] as
-    | ((msg: ClientMessage, socket: net.Socket, ctx: HandlerContext) => void)
+    | ((
+        msg: ClientMessage,
+        socket: net.Socket,
+        ctx: HandlerContext,
+      ) => void | Promise<void>)
     | undefined;
   if (!handler) {
     log.warn({ type: msg.type }, "Unknown message type, ignoring");
     return;
   }
-  handler(msg, socket, ctx);
+  // Handlers may be async — catch rejected promises so they don't become
+  // unhandled rejections at the process level.
+  const result = handler(msg, socket, ctx);
+  if (result && typeof result.catch === "function") {
+    result.catch((err: unknown) => {
+      log.error(
+        { err, type: msg.type },
+        "Unhandled error in async message handler",
+      );
+    });
+  }
 }
