@@ -246,19 +246,12 @@ struct MessageListView: View {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
 
-            // Let stage 1's scrollTo propagate through layout (~2 frames)
-            // so anchorTracker.isVisible reflects whether it landed.
-            try? await Task.sleep(nanoseconds: 30_000_000)
+            // Stage 2: ~9 frames — catches slower layout/materialization.
+            // scrollLanded is computed after the full wait so it reflects
+            // the latest geometry, not a stale snapshot from before the delay.
+            try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
             let scrollLanded = hasFreshAnchorMeasurement && anchorTracker.isVisible
-
-            // Stage 2: ~7 frames — catches slower layout/materialization.
-            // Gated on scrollLanded: if an earlier stage succeeded (confirmed
-            // by real geometry, not our manual reset), skip — this prevents
-            // snapping back if the user repositioned via scrollbar drag or
-            // keyboard scroll (which ScrollWheelDetector doesn't catch).
-            try? await Task.sleep(nanoseconds: 120_000_000)
-            guard !Task.isCancelled else { return }
             if anchorMessageId == nil && !hasReceivedScrollEvent && !scrollLanded {
                 proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
@@ -542,7 +535,7 @@ struct MessageListView: View {
             .onPreferenceChange(AnchorMinYKey.self) { minY in
                 os_signpost(.begin, log: PerfSignposts.log, name: "anchorPreferenceChange")
                 anchorTracker.update(minY: minY, viewportHeight: scrollViewportHeight)
-                hasFreshAnchorMeasurement = true
+                if !hasFreshAnchorMeasurement { hasFreshAnchorMeasurement = true }
                 os_signpost(.end, log: PerfSignposts.log, name: "anchorPreferenceChange")
             }
             .overlay(alignment: .bottom) {
