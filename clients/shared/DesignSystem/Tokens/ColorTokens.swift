@@ -228,4 +228,14 @@ public enum VColor {
     public static let buttonSecondaryBorder = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._500)
     public static let buttonSecondaryText = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
     public static let buttonTertiaryBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
+
+    // Neutral button — dark fill that works in both light and dark modes
+    public static let buttonNeutral = adaptiveColor(light: Stone._800, dark: Moss._500)
+    public static let buttonNeutralHover = adaptiveColor(light: Stone._700, dark: Moss._400)
+    public static let buttonNeutralPressed = adaptiveColor(light: Stone._900, dark: Moss._600)
+
+    // Danger button
+    public static let buttonDanger = Color(hex: 0xC1421B)
+    public static let buttonDangerHover = Color(hex: 0xD4582F)
+    public static let buttonDangerPressed = Color(hex: 0xE0745A)
 }

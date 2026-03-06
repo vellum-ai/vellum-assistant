@@ -188,7 +188,7 @@ struct InputBarView: View {
                 Button(action: onStop) {
                     ZStack {
                         Circle()
-                            .fill(VColor.textPrimary)
+                            .fill(VColor.buttonNeutral)
                             .frame(width: 32, height: 32)
                         RoundedRectangle(cornerRadius: 3)
                             .fill(VColor.background)

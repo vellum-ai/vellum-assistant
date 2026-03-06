@@ -172,7 +172,7 @@ struct AppsGridView: View {
                                 .controlSize(.small)
                                 .frame(width: 24, height: 24)
                         } else {
-                            VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary), size: 24) {}
+                            VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .primary, size: 24) {}
                                 .allowsHitTesting(false)
                         }
                         Menu {
