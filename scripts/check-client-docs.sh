@@ -54,8 +54,9 @@ check_absent "$CLIENTS_DIR/ios/README.md" \
   "clients/ios/README.md still references stale '70 tests' count"
 
 # --- Stale dependency claims ---
+# Match "HotKey" as a dependency/package name (capitalized), not the generic word "hotkeys".
 check_absent "$CLIENTS_DIR/README.md" \
-  "HotKey" \
+  "Dependencies:.*HotKey|HotKey,|, HotKey" \
   "clients/README.md still lists HotKey as a dependency (should be Sentry)"
 
 check_absent "$CLIENTS_DIR/macos/CLAUDE.md" \
