@@ -24,6 +24,18 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Prevent ensureTelegramBotUsernameResolved() from reading real credentials
+// and calling the Telegram API, which would populate credential metadata
+// with the real bot username and shadow the env var override in tests.
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKey: () => undefined,
+  setSecureKey: () => {},
+  deleteSecureKey: () => {},
+  getSecureKeyAsync: async () => undefined,
+  setSecureKeyAsync: async () => {},
+  deleteSecureKeyAsync: async () => {},
+}));
+
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
   handleCreateInvite,
