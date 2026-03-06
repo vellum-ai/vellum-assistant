@@ -326,7 +326,13 @@ export async function startSession(
             if (!value) return req.headers;
 
             const headerValue = buildInjectedValue(tpl, value);
-            if (!headerValue) return req.headers;
+            if (!headerValue) {
+              log.warn(
+                { host: req.hostname, credentialId: credId },
+                "MITM rewrite: blocking request — composeWith credential missing",
+              );
+              return null;
+            }
             req.headers[tpl.headerName.toLowerCase()] = headerValue;
             return req.headers;
           }
@@ -409,7 +415,13 @@ export async function startSession(
 
         if (template.injectionType === "header" && template.headerName) {
           const headerValue = buildInjectedValue(template, value);
-          if (!headerValue) return {};
+          if (!headerValue) {
+            log.warn(
+              { hostname, credentialId },
+              "Policy: blocking matched request — composeWith credential missing",
+            );
+            return null;
+          }
           return { [template.headerName.toLowerCase()]: headerValue };
         }
         // Query param injection is handled via URL rewriting in the MITM path
