@@ -876,7 +876,7 @@ struct DynamicWorkspaceWrapper: View {
                     }
 
                     ZStack {
-                        if let appId = data.appId {
+                        if data.appId != nil {
                             if sharing.isBundling || sharing.isPublishing {
                                 ProgressView()
                                     .controlSize(.small)
