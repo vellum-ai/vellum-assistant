@@ -51,6 +51,7 @@ mock.module("../util/platform.js", () => ({
   isWindows: () => false,
   normalizeAssistantId: (id: string) => id,
   readLockfile: () => null,
+  writeLockfile: () => {},
 }));
 
 mock.module("../tools/executor.js", () => ({
