@@ -1719,8 +1719,12 @@ public struct IPCGalleryApp: Codable, Sendable {
     public let featured: Bool?
     public let schemaJson: String
     public let htmlDefinition: String
+    /// 2 = multi-file TSX format with sourceFiles
+    public let formatVersion: Int?
+    /// Maps relative path to file content, e.g. { "src/main.tsx": "...", "src/index.html": "..." }
+    public let sourceFiles: [String: String]?
 
-    public init(id: String, name: String, description: String, icon: String, category: String, version: String, featured: Bool? = nil, schemaJson: String, htmlDefinition: String) {
+    public init(id: String, name: String, description: String, icon: String, category: String, version: String, featured: Bool? = nil, schemaJson: String, htmlDefinition: String, formatVersion: Int? = nil, sourceFiles: [String: String]? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -1730,6 +1734,8 @@ public struct IPCGalleryApp: Codable, Sendable {
         self.featured = featured
         self.schemaJson = schemaJson
         self.htmlDefinition = htmlDefinition
+        self.formatVersion = formatVersion
+        self.sourceFiles = sourceFiles
     }
 }
 
