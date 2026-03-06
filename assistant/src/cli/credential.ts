@@ -159,7 +159,7 @@ Examples:
     .description("List all stored credentials with metadata and masked values")
     .option(
       "--search <query>",
-      "Filter credentials by substring match on service, field, or alias",
+      "Filter credentials by substring match on service, field, label, or description",
     )
     .addHelpText(
       "after",
@@ -168,7 +168,7 @@ Lists all credentials in the vault. Each entry includes the same fields as
 "inspect" — scrubbed value, timestamps, policy, and metadata.
 
 The --search flag filters results by case-insensitive substring match against
-the credential's service name, field name, or alias. For example, --search
+the credential's service name, field name, label, or description. For example, --search
 twilio matches twilio:account_sid, twilio:auth_token, and twilio:phone_number.
 
 Returns an array of credential objects. Empty array if no credentials exist
@@ -190,10 +190,12 @@ Examples:
             const service = m.service.toLowerCase();
             const field = m.field.toLowerCase();
             const alias = (m.alias ?? "").toLowerCase();
+            const description = (m.usageDescription ?? "").toLowerCase();
             return (
               service.includes(query) ||
               field.includes(query) ||
-              alias.includes(query)
+              alias.includes(query) ||
+              description.includes(query)
             );
           });
         }
@@ -230,8 +232,8 @@ Examples:
   credential
     .command("set <name> <value>")
     .description("Store a secret and create or update its metadata")
-    .option("--alias <alias>", 'Human-friendly label (e.g. "prod", "work")')
-    .option("--usage <description>", "What this credential is used for")
+    .option("--label <label>", 'Human-friendly label (e.g. "prod", "work")')
+    .option("--description <description>", "What this credential is used for")
     .option(
       "--allowed-tools <tools>",
       "Comma-separated tool names that may use this credential",
@@ -248,14 +250,14 @@ updated with any provided flags. Omitted flags leave existing metadata intact.
 
 Examples:
   $ vellum credential set twilio:account_sid AC1234567890
-  $ vellum credential set fal:api_key key_live_abc --alias "fal-prod" --usage "Image generation"
+  $ vellum credential set fal:api_key key_live_abc --label "fal-prod" --description "Image generation"
   $ vellum credential set github:token ghp_abc --allowed-tools "bash,host_bash"`,
     )
     .action(
       (
         name: string,
         value: string,
-        opts: { alias?: string; usage?: string; allowedTools?: string },
+        opts: { label?: string; description?: string; allowedTools?: string },
         cmd: Command,
       ) => {
         try {
@@ -287,8 +289,8 @@ Examples:
             : undefined;
 
           const metadata = upsertCredentialMetadata(service, field, {
-            alias: opts.alias,
-            usageDescription: opts.usage,
+            alias: opts.label,
+            usageDescription: opts.description,
             allowedTools,
           });
 
