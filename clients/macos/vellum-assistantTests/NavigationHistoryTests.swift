@@ -117,7 +117,7 @@ final class NavigationHistoryTests: XCTestCase {
         let history = NavigationHistory()
 
         // Record 55 transitions: each from thread(i) to thread(i+1)
-        for i in 0..<55 {
+        for _ in 0..<55 {
             let fromId = UUID()
             let toId = UUID()
             // Use unique IDs so no transition is a no-op
