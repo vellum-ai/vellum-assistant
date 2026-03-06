@@ -63,7 +63,16 @@ export async function ensureTelegramBotUsernameResolved(): Promise<void> {
   if (!token) return;
 
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+    let res: Response;
+    try {
+      res = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!res.ok) {
       getLogger("telegram-invite").warn(
         "Failed to resolve Telegram bot username: HTTP %d",
