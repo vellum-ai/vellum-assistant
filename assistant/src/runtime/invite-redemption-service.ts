@@ -187,6 +187,8 @@ export function redeemInvite(params: {
             status: "active",
             policy: "allow",
             inviteId: invite.id,
+            verifiedAt: Date.now(),
+            verifiedVia: "invite",
           });
 
           const recorded = recordInviteUse({
@@ -232,6 +234,8 @@ export function redeemInvite(params: {
           status: "active",
           policy: "allow",
           inviteId: invite.id,
+          verifiedAt: Date.now(),
+          verifiedVia: "invite",
         });
 
         const recorded = recordInviteUse({
@@ -370,6 +374,8 @@ export function redeemVoiceInviteCode(params: {
           status: "active",
           policy: "allow",
           inviteId: invite.id,
+          verifiedAt: Date.now(),
+          verifiedVia: "invite",
         });
         memberId = writeResult!.channel.id;
 
@@ -517,6 +523,8 @@ export function redeemInviteByCode(params: {
             status: "active",
             policy: "allow",
             inviteId: invite.id,
+            verifiedAt: Date.now(),
+            verifiedVia: "invite",
           });
 
           const recorded = recordInviteUse({
@@ -559,6 +567,8 @@ export function redeemInviteByCode(params: {
           status: "active",
           policy: "allow",
           inviteId: invite.id,
+          verifiedAt: Date.now(),
+          verifiedVia: "invite",
         });
 
         const recorded = recordInviteUse({

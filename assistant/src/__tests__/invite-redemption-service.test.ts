@@ -24,6 +24,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
 import {
@@ -74,6 +75,31 @@ describe("invite-redemption-service", () => {
       memberId: expect.any(String),
       inviteId: invite.id,
     });
+  });
+
+  test("marks channel as verified via invite on redemption", () => {
+    const { rawToken } = createInvite({
+      sourceChannel: "telegram",
+      maxUses: 1,
+    });
+
+    const outcome = redeemInvite({
+      rawToken,
+      sourceChannel: "telegram",
+      externalUserId: "user-1",
+    });
+
+    expect(outcome.ok).toBe(true);
+
+    const result = findContactChannel({
+      channelType: "telegram",
+      externalUserId: "user-1",
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.channel.verifiedAt).toBeGreaterThan(0);
+    expect(result!.channel.verifiedVia).toBe("invite");
+    expect(result!.channel.status).toBe("active");
   });
 
   test("returns invalid_token for a bogus token", () => {
