@@ -12,24 +12,25 @@ private actor AsyncSemaphore {
 
     init(value: Int) { self.count = value }
 
-    /// Waits for a slot. If the calling task is cancelled while waiting,
-    /// the waiter is removed from the queue so it doesn't occupy a slot.
-    func wait() async throws {
+    /// Waits for a slot. If the calling task is cancelled while waiting
+    /// in the queue, the waiter is removed and the slot is not consumed.
+    /// If a slot was already acquired (via signal() resuming the waiter),
+    /// this returns normally — the caller must use defer to release the slot,
+    /// and the subsequent HTTP request will throw CancellationError naturally.
+    func wait() async {
         if count > 0 {
             count -= 1
             return
         }
         let id = nextID
         nextID += 1
-        try await withTaskCancellationHandler {
+        await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 waiters.append((id: id, continuation: continuation))
             }
         } onCancel: {
             Task { await self.cancelWaiter(id: id) }
         }
-        // After resuming, re-check cancellation so cancelled tasks don't proceed.
-        try Task.checkCancellation()
     }
 
     /// Removes a cancelled waiter and restores the slot it would have used.
@@ -101,11 +102,7 @@ public final class ImageMIMEProbe {
         request.httpMethod = "HEAD"
         request.timeoutInterval = 5
 
-        do {
-            try await semaphore.wait()
-        } catch {
-            return .unknown  // Task was cancelled while waiting for a slot
-        }
+        await semaphore.wait()
         defer { Task { await semaphore.signal() } }
 
         let result: ImageURLClassification
