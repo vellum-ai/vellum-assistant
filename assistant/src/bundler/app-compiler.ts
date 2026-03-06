@@ -15,7 +15,12 @@ import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { ensureCompilerTools } from "./compiler-tools.js";
-import { getCacheDir } from "./package-resolver.js";
+import {
+  getCacheDir,
+  isBareImport,
+  packageName,
+  resolvePackage,
+} from "./package-resolver.js";
 
 const log = getLogger("app-compiler");
 
@@ -75,6 +80,29 @@ function parseEsbuildStderr(stderr: string): {
 }
 
 /**
+ * Scan source files for bare import specifiers and pre-install any
+ * allowlisted packages into the shared cache so esbuild can resolve them.
+ */
+async function resolveAppImports(srcDir: string): Promise<void> {
+  const importRe = /(?:import|from)\s+["']([^"'.][^"']*)["']/g;
+  const seen = new Set<string>();
+
+  const files = await readdir(srcDir, { recursive: true });
+  for (const file of files) {
+    if (!/\.[jt]sx?$/.test(String(file))) continue;
+    const content = await readFile(join(srcDir, String(file)), "utf-8");
+    for (const match of content.matchAll(importRe)) {
+      const specifier = match[1];
+      if (!isBareImport(specifier)) continue;
+      const pkg = packageName(specifier);
+      if (seen.has(pkg)) continue;
+      seen.add(pkg);
+      await resolvePackage(pkg);
+    }
+  }
+}
+
+/**
  * Compile a TSX app from appDir/src/ into appDir/dist/.
  *
  * Expects appDir/src/main.tsx as the entry point and appDir/src/index.html
@@ -109,6 +137,9 @@ export async function compileApp(appDir: string): Promise<CompileResult> {
     };
   }
 
+  // Scan source files for bare imports and JIT-install allowed packages
+  await resolveAppImports(srcDir);
+
   // Build NODE_PATH: preact parent dir + shared package cache
   const preactParent = dirname(tools.preactDir);
   const cacheNodeModules = join(getCacheDir(), "node_modules");
@@ -133,7 +164,7 @@ export async function compileApp(appDir: string): Promise<CompileResult> {
     "--loader:.jsx=jsx",
     "--loader:.js=js",
     "--loader:.css=css",
-    "--log-level=silent",
+    "--log-level=warning",
   ];
 
   const proc = Bun.spawn({
