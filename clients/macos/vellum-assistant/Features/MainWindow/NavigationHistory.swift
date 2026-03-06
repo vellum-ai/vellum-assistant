@@ -8,6 +8,26 @@ final class NavigationHistory: ObservableObject {
     enum HistoryEntry: Equatable {
         case selection(ViewSelection)
         case chatDefault(threadSnapshot: UUID?)
+
+        /// Whether two entries resolve to the same visible state.
+        /// `.chatDefault(threadSnapshot: T)` and `.selection(.thread(T))` both
+        /// display the same thread, so transitioning between them is a no-op.
+        func isEquivalent(to other: HistoryEntry) -> Bool {
+            if self == other { return true }
+            switch (self.resolvedThread, other.resolvedThread) {
+            case (.some(let a), .some(let b)): return a == b
+            default: return false
+            }
+        }
+
+        /// The thread UUID this entry resolves to, if any.
+        private var resolvedThread: UUID? {
+            switch self {
+            case .selection(.thread(let id)): return id
+            case .chatDefault(let snapshot): return snapshot
+            default: return nil
+            }
+        }
     }
 
     @Published private(set) var backStack: [HistoryEntry] = []
@@ -36,7 +56,10 @@ final class NavigationHistory: ObservableObject {
         let fromEntry = entry(for: from, persistentThreadId: persistentThreadId)
         let toEntry = entry(for: to, persistentThreadId: persistentThreadId)
 
-        guard fromEntry != toEntry else { return }
+        // Treat chatDefault(threadSnapshot: T) and .selection(.thread(T)) as
+        // equivalent — they resolve to the same visible state, so recording a
+        // transition between them would create a no-op back step.
+        guard !fromEntry.isEquivalent(to: toEntry) else { return }
 
         backStack.append(fromEntry)
         forwardStack.removeAll()

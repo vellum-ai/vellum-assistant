@@ -15,6 +15,16 @@ final class NavigationHistoryTests: XCTestCase {
         XCTAssertTrue(history.backStack.isEmpty)
     }
 
+    func testChatDefaultAndThreadWithSameIdAreEquivalent() {
+        let history = NavigationHistory()
+        let id = UUID()
+
+        // nil selection with persistentThreadId == id → .thread(id) should be no-op
+        history.recordTransition(from: nil, to: .thread(id), persistentThreadId: id)
+
+        XCTAssertTrue(history.backStack.isEmpty)
+    }
+
     // MARK: - Chat default snapshot
 
     func testRecordTransitionCapturesChatDefaultSnapshot() {
