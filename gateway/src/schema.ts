@@ -1906,19 +1906,9 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "List Slack channels",
           description:
-            "Authenticated gateway endpoint that lists available Slack channels by proxying to the assistant runtime.",
+            "Authenticated gateway endpoint that lists available Slack channels by proxying to the assistant runtime. Returns all channels in a single response.",
           operationId: "slackChannelsGet",
           security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "cursor",
-              in: "query",
-              required: false,
-              schema: { type: "string" },
-              description:
-                "Pagination cursor for fetching the next page of channels",
-            },
-          ],
           responses: {
             "200": { description: "Slack channels returned" },
             "401": {
