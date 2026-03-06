@@ -160,6 +160,7 @@ const BROKER_INLINE_SCRIPT = `
 const net = require("net");
 const socket = net.createConnection({ path: process.env.BROKER_SOCKET });
 let buf = "";
+const timer = setTimeout(() => { socket.destroy(); }, 4000);
 socket.on("connect", () => {
   const req = JSON.stringify({
     v: 1,
@@ -180,12 +181,11 @@ socket.on("data", (chunk) => {
         process.stdout.write(resp.result.value);
       }
     } catch {}
+    clearTimeout(timer);
     socket.destroy();
-    process.exit(0);
   }
 });
-socket.on("error", () => process.exit(0));
-setTimeout(() => process.exit(0), 4000);
+socket.on("error", () => { clearTimeout(timer); });
 `;
 
 function getBrokerTokenPath(): string {
