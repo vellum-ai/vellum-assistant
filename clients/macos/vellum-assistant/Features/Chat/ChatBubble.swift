@@ -93,7 +93,9 @@ struct ChatBubble: View {
         return content()
             .padding(.horizontal, isPlainAssistant ? 0 : VSpacing.lg)
             .padding(.vertical, isPlainAssistant ? 0 : VSpacing.md)
-            .frame(maxWidth: message.isError ? .infinity : nil, alignment: .leading)
+            // Inner frame: let content determine natural width (shrink-wrap for
+            // user bubbles). Error messages expand to fill available width.
+            .frame(maxWidth: message.isError ? .infinity : nil)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.lg)
                     .fill(bubbleFill)
@@ -101,6 +103,7 @@ struct ChatBubble: View {
             .overlay {
                 bubbleBorderOverlay
             }
+            // Outer frame: cap the maximum width and position the bubble.
             .frame(maxWidth: message.isError ? .infinity : 520, alignment: isUser ? .trailing : .leading)
     }
 
@@ -210,6 +213,11 @@ struct ChatBubble: View {
                 // Uses layoutPriority instead of fixedSize to avoid forcing
                 // full height measurement during lazy placement.
                 .layoutPriority(1)
+                // For non-streaming messages, flatten the render tree into a single
+                // compositing layer, reducing recursive SwiftUI layout passes.
+                // Uses compositingGroup instead of drawingGroup to preserve text selection.
+                // Skipped during streaming to avoid re-compositing on every token delta.
+                .modifier(ConditionalCompositingGroup(isActive: !message.isStreaming))
                 .overlay(alignment: .topLeading) {
                     if !isUser && showAvatar {
                         Image(nsImage: appearance.chatAvatarImage)
@@ -314,9 +322,11 @@ struct ChatBubble: View {
                             .lineSpacing(6)
                             .foregroundColor(VColor.textPrimary)
                             .textSelection(.enabled)
-                            // Frame before fixedSize to bound horizontal measurement.
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
+                            // lineLimit(nil) lets text wrap naturally in a single measurement
+                            // pass, avoiding the double-measurement that fixedSize causes
+                            // (measure at ideal size, then constrain to proposed width).
+                            .lineLimit(nil)
                     }
                 } else if hasText {
                     let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
@@ -348,7 +358,9 @@ struct ChatBubble: View {
                             // For assistant messages, fill available width for readability.
                             // For user messages, let the bubble shrink-wrap to text width.
                             .frame(maxWidth: isUser ? nil : .infinity, alignment: .leading)
-                            .fixedSize(horizontal: false, vertical: true)
+                            // lineLimit(nil) wraps text in a single measurement pass,
+                            // avoiding the double-measurement that fixedSize causes.
+                            .lineLimit(nil)
                     }
                 } else if !message.attachments.isEmpty {
                     Text(attachmentSummary)
@@ -526,3 +538,17 @@ struct ChatBubble: View {
     @MainActor static var lastStreamingInlineMarkdown: (text: String, value: AttributedString)?
     @MainActor static var lastStreamingMarkdown: (text: String, value: AttributedString)?
 }
+
+/// Applies `.compositingGroup()` only when active, to avoid re-compositing during streaming.
+private struct ConditionalCompositingGroup: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.compositingGroup()
+        } else {
+            content
+        }
+    }
+}
+

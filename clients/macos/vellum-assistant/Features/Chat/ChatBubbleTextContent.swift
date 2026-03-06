@@ -29,11 +29,10 @@ extension ChatBubble {
                     .foregroundColor(VColor.textPrimary)
                     .tint(VColor.accent)
                     .textSelection(.enabled)
-                    // Bound width before fixedSize so vertical measurement is
-                    // computed within a finite horizontal space, preventing
-                    // unbounded layout passes on long messages during scroll.
                     .frame(maxWidth: 520, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                    // lineLimit(nil) wraps text in a single measurement pass,
+                    // avoiding the double-measurement that fixedSize causes.
+                    .lineLimit(nil)
             }
         }
         .task(id: "\(segmentText)|\(streaming)") {
