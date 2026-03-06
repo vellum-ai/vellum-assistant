@@ -505,10 +505,8 @@ describe("composeWith injection", () => {
     }
   });
 
-  test("composeWith with missing composed credential fails gracefully", async () => {
-    let receivedHeaders: http.IncomingHttpHeaders = {};
-    const echo = http.createServer((req, res) => {
-      receivedHeaders = req.headers;
+  test("composeWith with missing composed credential blocks request", async () => {
+    const echo = http.createServer((_req, res) => {
       res.writeHead(200);
       res.end("ok");
     });
@@ -551,9 +549,8 @@ describe("composeWith injection", () => {
         `http://127.0.0.1:${echoPort}/test`,
       );
 
-      // Graceful degradation: request passes through without injection, not a 403
-      expect(status).toBe(200);
-      expect(receivedHeaders["authorization"]).toBeUndefined();
+      // Missing composeWith credential blocks the request (fail-closed)
+      expect(status).toBe(403);
     } finally {
       echo.close();
     }
@@ -596,6 +593,65 @@ describe("composeWith injection", () => {
       const expectedValue =
         "Token " + Buffer.from("plaintext").toString("base64");
       expect(receivedHeaders["authorization"]).toBe(expectedValue);
+    } finally {
+      echo.close();
+    }
+  });
+
+  test("composeWith blocks when composed credential resolves but secret value is missing", async () => {
+    const echo = http.createServer((_req, res) => {
+      res.writeHead(200);
+      res.end("ok");
+    });
+    await new Promise<void>((resolve) => echo.listen(0, "127.0.0.1", resolve));
+    const echoPort = (echo.address() as { port: number }).port;
+
+    try {
+      const tpl: CredentialInjectionTemplate = {
+        hostPattern: "127.0.0.1",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Basic ",
+        valueTransform: "base64",
+        composeWith: { service: "twilio", field: "auth_token", separator: ":" },
+      };
+
+      const primaryResolved = makeResolved(
+        "cred-primary",
+        [tpl],
+        "twilio",
+        "account_sid",
+      );
+      resolveByIdResults.set("cred-primary", primaryResolved);
+      credentialMetadataList.push(primaryResolved.metadata);
+      secureKeyValues.set("credential:twilio:account_sid", "ACtest123");
+
+      // Composed credential metadata resolves, but no secret value stored
+      const composedResolved = makeResolved(
+        "cred-composed",
+        [],
+        "twilio",
+        "auth_token",
+      );
+      resolveByServiceFieldResults.set("twilio:auth_token", composedResolved);
+      // Do NOT set secureKeyValues for "credential:twilio:auth_token"
+
+      const session = createSession(
+        CONV_ID,
+        ["cred-primary"],
+        undefined,
+        DATA_DIR,
+      );
+      const started = await startSession(session.id);
+      expect(started.status).toBe("active");
+
+      const status = await proxyRequest(
+        started.port!,
+        `http://127.0.0.1:${echoPort}/test`,
+      );
+
+      // Missing secret value for composed credential blocks the request
+      expect(status).toBe(403);
     } finally {
       echo.close();
     }
