@@ -175,14 +175,32 @@ export function registerContactsCommand(program: Command): void {
         cmd: Command,
       ) => {
         try {
+          const maxUses = opts.maxUses ? Number(opts.maxUses) : undefined;
+          if (maxUses !== undefined && !Number.isFinite(maxUses)) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `--max-uses must be a number, got: ${opts.maxUses}`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+          const expiresInMs = opts.expiresInMs
+            ? Number(opts.expiresInMs)
+            : undefined;
+          if (expiresInMs !== undefined && !Number.isFinite(expiresInMs)) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `--expires-in-ms must be a number, got: ${opts.expiresInMs}`,
+            });
+            process.exitCode = 1;
+            return;
+          }
           initializeDb();
           const result = await createIngressInvite({
             sourceChannel: opts.sourceChannel,
             note: opts.note,
-            maxUses: opts.maxUses ? Number(opts.maxUses) : undefined,
-            expiresInMs: opts.expiresInMs
-              ? Number(opts.expiresInMs)
-              : undefined,
+            maxUses,
+            expiresInMs,
             contactName: opts.contactName,
             expectedExternalUserId: opts.expectedExternalUserId,
             friendName: opts.friendName,
