@@ -311,14 +311,7 @@ extension MainWindowView {
                         }
                     )
                     .onAppear {
-                        // Ensure an active thread exists for the chat panel
-                        if threadManager.activeViewModel == nil {
-                            if let firstThread = threadManager.visibleThreads.first {
-                                threadManager.selectThread(id: firstThread.id)
-                            } else {
-                                threadManager.createThread()
-                            }
-                        }
+                        threadManager.ensureActiveThread()
                     }
                 } else {
                     HomeBaseContainerView(
@@ -371,6 +364,9 @@ extension MainWindowView {
                         )
                     }
                 )
+                .onAppear {
+                    threadManager.ensureActiveThread(preferredSessionId: documentManager.sessionId)
+                }
             } else if isAppChatOpen {
                 // Split view: chat (left) + panel (right)
                 VSplitView(
@@ -387,13 +383,7 @@ extension MainWindowView {
                     }
                 )
                 .onAppear {
-                    if threadManager.activeViewModel == nil {
-                        if let firstThread = threadManager.visibleThreads.first {
-                            threadManager.selectThread(id: firstThread.id)
-                        } else {
-                            threadManager.createThread()
-                        }
-                    }
+                    threadManager.ensureActiveThread()
                 }
             } else {
                 // Full-window panels: settings, debug, identity
