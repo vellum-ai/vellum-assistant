@@ -1,13 +1,7 @@
 ---
 name: "weather"
 description: "Get current weather conditions and forecasts for any location"
-metadata:
-  {
-    "vellum": {
-      "emoji": "\ud83c\udf24\ufe0f",
-      "cli": { "command": "weather", "entry": "scripts/weather-cli.ts" }
-    }
-  }
+emoji: "\ud83c\udf24\ufe0f"
 ---
 
 You are a weather assistant. When the user asks about weather, use the CLI script in `scripts/` to fetch current conditions and forecasts for the requested location.
