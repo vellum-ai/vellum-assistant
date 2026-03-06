@@ -50,24 +50,24 @@ They need two values from the Twilio Console dashboard (https://console.twilio.c
 - **Account SID** -- visible on the dashboard, starts with `AC`
 - **Auth Token** -- click "Show" to reveal (this is the only secret)
 
-### Collect Account SID (non-secret config value)
+### Collect Account SID
 
-Ask the user for their Account SID. They can paste it directly in chat since it is not a secret. Use `AskUserQuestion` or accept it from a message. Then store it:
+Ask the user for their Account SID. They can paste it directly in chat since it is not a secret. Then store it:
 
 ```bash
 assistant config set twilio.accountSid "<Account SID from user>"
 ```
 
-### Collect Auth Token (secret credential)
+### Collect Auth Token
 
-The Auth Token is the only secret value. Collect it securely:
+Collect the Twilio auth token securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard (click 'Show' to reveal it)"`, `placeholder: "your_auth_token"`.
 
-Then store it:
+Confirm it has been stored successfully:
 
 ```bash
-assistant credentials set twilio:auth_token "<value from credential_store for twilio/auth_token>"
+assistant credentials inspect "twilio:auth_token"
 ```
 
 If credentials are invalid, Twilio API calls in Step 3 will fail -- ask the user to re-enter.
@@ -76,7 +76,20 @@ If credentials are invalid, Twilio API calls in Step 3 will fail -- ask the user
 
 The assistant needs a phone number for voice calls. Three options:
 
-### Option A: Provision a New Number
+### Option A: Use an Existing Number
+
+You should assume this option if the user had just created their Twilio account. Trial accounts come with one free number.
+
+Retrieve credentials, then list numbers on the account:
+
+```bash
+curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json"
+```
+
+Present the `incoming_phone_numbers` array. Let the user choose.
+
+### Option B: Provision a New Number
 
 Retrieve credentials (see "Retrieving Twilio Credentials" above), then:
 
@@ -102,26 +115,13 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
 
 Note the `sid` field (starts with `PN`) from the response -- needed for webhook setup in Step 4.
 
-**Trial account note:** Trial accounts come with one free number. Check "Active Numbers" in the Console first.
-
-### Option B: Use an Existing Number
-
-Retrieve credentials, then list numbers on the account:
-
-```bash
-curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
-  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json"
-```
-
-Present the `incoming_phone_numbers` array. Let the user choose.
-
 ### Option C: Manual Entry
 
-If the user already knows their number, skip the API calls. They can paste it directly in chat.
+If the user already has a number and knows it, skip the API calls. They can paste it directly in chat.
 
 ### Save the phone number
 
-After choosing a number via any option, store it as a config value (not a secret):
+After choosing a number via any option, store it as a config value:
 
 ```bash
 assistant config set twilio.phoneNumber "+14155551234"
