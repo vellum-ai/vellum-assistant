@@ -134,13 +134,19 @@ struct OnboardingFlowView: View {
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated {
                 let currentAssistant = LockfileAssistant.loadLatest()
-                if currentAssistant?.isManaged == true || managedBootstrapEnabled {
+                if let assistant = currentAssistant {
+                    if assistant.isManaged {
+                        Task {
+                            await performManagedBootstrap()
+                        }
+                    } else {
+                        Task {
+                            await performLocalBootstrap(assistant: assistant)
+                        }
+                    }
+                } else if managedBootstrapEnabled {
                     Task {
                         await performManagedBootstrap()
-                    }
-                } else if let assistant = currentAssistant, !assistant.isManaged {
-                    Task {
-                        await performLocalBootstrap(assistant: assistant)
                     }
                 } else {
                     onComplete()
@@ -284,7 +290,7 @@ struct OnboardingFlowView: View {
         let daemonBaseURL = "http://localhost:\(port)"
 
         guard let daemonToken = ActorTokenManager.getToken(), !daemonToken.isEmpty else {
-            localBootstrapError = "No daemon credentials available. Please restart the assistant and try again."
+            localBootstrapError = "No assistant credentials available. Please restart the assistant and try again."
             return
         }
 
