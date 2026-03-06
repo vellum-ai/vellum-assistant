@@ -1,12 +1,12 @@
 ---
 name: "Twilio Setup"
-description: "Configure Twilio credentials and phone numbers for voice calls and SMS messaging"
+description: "Configure Twilio credentials and phone numbers for voice calls"
 user-invocable: true
 includes: ["public-ingress"]
 metadata: { "vellum": { "emoji": "\ud83d\udcf1" } }
 ---
 
-You are helping your user configure Twilio for voice calls and SMS messaging. Walk through each step below.
+You are helping your user configure Twilio for voice calls. Walk through each step below.
 
 ## Retrieving Twilio Credentials
 
@@ -53,7 +53,7 @@ If credentials are invalid, Twilio API calls in Step 3 will fail -- ask the user
 
 ## Step 3: Get a Phone Number
 
-The assistant needs a phone number for calls and SMS. Three options:
+The assistant needs a phone number for voice calls. Three options:
 
 ### Option A: Provision a New Number
 
@@ -63,7 +63,7 @@ Retrieve credentials (see "Retrieving Twilio Credentials" above), then:
 
 ```bash
 curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
-  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true&AreaCode=415"
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/AvailablePhoneNumbers/US/Local.json?VoiceEnabled=true&AreaCode=415"
 ```
 
 - `AreaCode` is optional -- ask the user if they have a preference
@@ -108,7 +108,7 @@ assistant config set twilio.phoneNumber "+14155551234"
 
 ## Step 4: Set Up Public Ingress and Webhooks
 
-Twilio needs a publicly reachable URL for voice webhooks and SMS delivery. Check if ingress is configured:
+Twilio needs a publicly reachable URL for voice webhooks. Check if ingress is configured:
 
 ```bash
 assistant config get ingress.publicBaseUrl
@@ -147,8 +147,7 @@ Note the `sid` field (starts with `PN`) from the matching entry, then update web
 curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers/$PHONE_SID.json" \
   -d "VoiceUrl=$PUBLIC_URL/webhooks/twilio/voice" \
-  -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status" \
-  -d "SmsUrl=$PUBLIC_URL/webhooks/twilio/sms"
+  -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status"
 ```
 
 ## Step 5: Verify and Enable
@@ -158,8 +157,6 @@ Re-run the checks from Step 1 to confirm everything is set. Then enable voice ca
 ```bash
 assistant config set calls.enabled true
 ```
-
-SMS is available automatically once Twilio is configured -- no flag needed.
 
 Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}."**
 
@@ -190,7 +187,7 @@ assistant credentials delete twilio:auth_token
 assistant config set twilio.accountSid ""
 ```
 
-Phone number assignments are preserved. Voice calls and SMS will stop until credentials are reconfigured.
+Phone number assignments are preserved. Voice calls will stop until credentials are reconfigured.
 
 ## Troubleshooting
 
@@ -208,13 +205,13 @@ Run Step 3.
 - Trial accounts may already have a free number -- check "Active Numbers" in the Console
 - Ensure the account has sufficient balance
 
-### Calls/SMS fail after setup
+### Calls fail after setup
 
 - Verify ingress is running: `assistant config get ingress.publicBaseUrl`
 - For calls, ensure `calls.enabled` is `true`
 - Trial accounts can only reach verified numbers
 
-### Incoming calls/SMS not reaching the assistant
+### Incoming calls not reaching the assistant
 
 Webhooks on the Twilio phone number may not match the current ingress URL. This happens when ngrok restarts with a new URL or webhooks were never configured.
 
@@ -230,13 +227,12 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
   "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json?PhoneNumber=$PHONE_NUMBER"
 ```
 
-Check that `voice_url`, `status_callback`, and `sms_url` start with the current `ingress.publicBaseUrl`. If they don't match, update them:
+Check that `voice_url` and `status_callback` start with the current `ingress.publicBaseUrl`. If they don't match, update them:
 
 ```bash
 PHONE_SID=<PN sid from the response above>
 curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers/$PHONE_SID.json" \
   -d "VoiceUrl=$PUBLIC_URL/webhooks/twilio/voice" \
-  -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status" \
-  -d "SmsUrl=$PUBLIC_URL/webhooks/twilio/sms"
+  -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status"
 ```
