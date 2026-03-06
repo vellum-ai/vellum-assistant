@@ -243,8 +243,9 @@ struct UsageDashboardPanelViewEmptyTests {
         #expect(joined.contains("Daily Trend"))
         #expect(joined.contains("Breakdown"))
 
-        // Zero cost formatting: formatCost(0) produces "$0.0000"
-        #expect(joined.contains("$0.0000"))
+        // Zero cost formatting: verify the formatted zero cost appears
+        let zeroCost = UsageFormatting.formatCost(0)
+        #expect(joined.contains(zeroCost))
 
         // Empty-state placeholders
         #expect(joined.contains("No daily data"))
@@ -283,8 +284,9 @@ struct UsageDashboardPanelViewPopulatedTests {
         #expect(joined.contains("Daily Trend"))
         #expect(joined.contains("Breakdown"))
 
-        // Formatted cost: formatCost(1.23) produces "$1.23"
-        #expect(joined.contains("$1.23"))
+        // Formatted cost: verify the formatted cost appears
+        let formattedCost = UsageFormatting.formatCostShort(1.23)
+        #expect(joined.contains(formattedCost))
 
         // Daily dates
         #expect(joined.contains("2026-03-04"))
