@@ -61,7 +61,7 @@ export async function getProductDetails(
           // Parent ASIN (for variation child products)
           var parentAsinEl = doc.querySelector('[data-asin]') || doc.querySelector('[name="ASIN"]');
           var parentAsin = undefined;
-          var m = html.match(/"parentAsin"\s*:\s*"([A-Z0-9]+)"/);
+          var m = html.match(/"parentAsin"\\s*:\\s*"([A-Z0-9]+)"/);
           if (m) parentAsin = m[1];
 
           // Detect Fresh
@@ -70,10 +70,10 @@ export async function getProductDetails(
           // Variations -- parse from inline JS objects
           var variations = [];
           try {
-            var dimMatch = html.match(/dimensionRelationshipsStr\s*=\s*'([^']+)'/);
-            if (!dimMatch) dimMatch = html.match(/"dimensionRelationshipsStr"\s*:\s*"([^"]+)"/);
+            var dimMatch = html.match(/dimensionRelationshipsStr\\s*=\\s*'([^']+)'/);
+            if (!dimMatch) dimMatch = html.match(/"dimensionRelationshipsStr"\\s*:\\s*"([^"]+)"/);
             if (dimMatch) {
-              var dimStr = dimMatch[1].replace(/\\\\/g, '\\\\').replace(/\\'/g, "'");
+              var dimStr = dimMatch[1];
               var dimData = JSON.parse(dimStr);
               if (Array.isArray(dimData)) {
                 for (var i = 0; i < dimData.length; i++) {
@@ -96,7 +96,7 @@ export async function getProductDetails(
           // Fallback: look for asinVariationValues
           if (variations.length === 0) {
             try {
-              var asinVarMatch = html.match(/asinVariationValues\s*=\s*(\{[^;]+\})/);
+              var asinVarMatch = html.match(/asinVariationValues\\s*=\\s*(\\{[^;]+\\})/);
               if (asinVarMatch) {
                 var asinVarData = JSON.parse(asinVarMatch[1]);
                 var dims = Object.keys(asinVarData);
