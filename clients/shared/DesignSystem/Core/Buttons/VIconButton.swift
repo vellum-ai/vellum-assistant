@@ -4,9 +4,12 @@ import AppKit
 #endif
 
 public enum VIconButtonVariant {
-    case standard
-    case filled(Color)
+    case ghost
+    case primary
+    case secondary
+    case danger
     case outlined
+    case neutral
 }
 
 public struct VIconButton: View {
@@ -15,7 +18,7 @@ public struct VIconButton: View {
     public var customIcon: Image? = nil
     public var isActive: Bool = false
     public var iconOnly: Bool = false
-    public var variant: VIconButtonVariant = .standard
+    public var variant: VIconButtonVariant = .ghost
     public var size: CGFloat? = nil
     public var tooltip: String? = nil
     public let action: () -> Void
@@ -23,7 +26,7 @@ public struct VIconButton: View {
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
 
-    public init(label: String, icon: String = "", customIcon: Image? = nil, isActive: Bool = false, iconOnly: Bool = false, variant: VIconButtonVariant = .standard, size: CGFloat? = nil, tooltip: String? = nil, action: @escaping () -> Void) {
+    public init(label: String, icon: String = "", customIcon: Image? = nil, isActive: Bool = false, iconOnly: Bool = false, variant: VIconButtonVariant = .ghost, size: CGFloat? = nil, tooltip: String? = nil, action: @escaping () -> Void) {
         self.label = label
         self.icon = icon
         self.customIcon = customIcon
@@ -59,12 +62,8 @@ public struct VIconButton: View {
         #if os(macOS)
         .onHover { hovering in
             isHovered = hovering
-            switch variant {
-            case .filled: break
-            default:
-                if hovering { NSCursor.pointingHand.set() }
-                else { NSCursor.arrow.set() }
-            }
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
         }
         #else
         .onHover { isHovered = $0 }
@@ -74,10 +73,12 @@ public struct VIconButton: View {
     }
 
     private var iconForegroundForVariant: Color {
-        if case .filled = variant {
+        switch variant {
+        case .primary, .danger, .neutral:
             return .white
+        case .ghost, .secondary, .outlined:
+            return iconForegroundColor
         }
-        return iconForegroundColor
     }
 
     private var iconForegroundColor: Color {
@@ -112,7 +113,7 @@ public struct VIconButtonStyle: ButtonStyle {
 
     @Environment(\.isEnabled) private var isEnabled
 
-    public init(isActive: Bool = false, isHovered: Bool, isFocused: Bool = false, size: CGFloat? = nil, variant: VIconButtonVariant = .standard) {
+    public init(isActive: Bool = false, isHovered: Bool, isFocused: Bool = false, size: CGFloat? = nil, variant: VIconButtonVariant = .ghost) {
         self.isActive = isActive
         self.isHovered = isHovered
         self.isFocused = isFocused
@@ -121,11 +122,7 @@ public struct VIconButtonStyle: ButtonStyle {
     }
 
     public func makeBody(configuration: Configuration) -> some View {
-        let cornerRadius: CGFloat = {
-            if case .filled = variant { return VRadius.md }
-            return VRadius.md
-        }()
-        let shape = RoundedRectangle(cornerRadius: cornerRadius)
+        let shape = RoundedRectangle(cornerRadius: VRadius.md)
 
         configuration.label
             .frame(width: size, height: size)
@@ -147,28 +144,49 @@ public struct VIconButtonStyle: ButtonStyle {
     }
 
     private func backgroundColor(isPressed: Bool) -> Color {
-        if case .filled(let color) = variant {
-            guard isEnabled else { return color.opacity(0.5) }
-            if isPressed { return color.opacity(0.7) }
-            if isHovered { return color.opacity(0.85) }
-            return color
-        }
-        if case .outlined = variant {
+        switch variant {
+        case .primary:
+            guard isEnabled else { return VColor.buttonPrimary.opacity(0.5) }
+            if isPressed { return VColor.buttonPrimaryPressed }
+            if isHovered { return VColor.buttonPrimaryHover }
+            return VColor.buttonPrimary
+
+        case .danger:
+            guard isEnabled else { return VColor.buttonDanger.opacity(0.5) }
+            if isPressed { return VColor.buttonDangerPressed }
+            if isHovered { return VColor.buttonDangerHover }
+            return VColor.buttonDanger
+
+        case .neutral:
+            guard isEnabled else { return VColor.buttonNeutral.opacity(0.5) }
+            if isPressed { return VColor.buttonNeutralPressed }
+            if isHovered { return VColor.buttonNeutralHover }
+            return VColor.buttonNeutral
+
+        case .secondary:
+            guard isEnabled else { return VColor.buttonSecondaryBg.opacity(0.5) }
+            if isPressed { return VColor.buttonSecondaryBgPressed }
+            if isHovered { return VColor.buttonSecondaryBgHover }
+            return VColor.buttonSecondaryBg
+
+        case .outlined:
             if isPressed { return VColor.ghostPressed }
             if isHovered { return VColor.ghostHover }
             return .clear
-        }
-        guard isEnabled else {
-            return isActive ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear
-        }
-        if isActive {
-            if isPressed { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-            if isHovered { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-            return adaptiveColor(light: Moss._100, dark: Moss._700)
-        } else {
-            if isPressed { return adaptiveColor(light: Moss._200, dark: Moss._600) }
-            if isHovered { return adaptiveColor(light: Moss._100, dark: Moss._700) }
-            return .clear
+
+        case .ghost:
+            guard isEnabled else {
+                return isActive ? adaptiveColor(light: Moss._100, dark: Moss._700).opacity(0.5) : .clear
+            }
+            if isActive {
+                if isPressed { return adaptiveColor(light: Moss._200, dark: Moss._600) }
+                if isHovered { return adaptiveColor(light: Moss._200, dark: Moss._600) }
+                return adaptiveColor(light: Moss._100, dark: Moss._700)
+            } else {
+                if isPressed { return adaptiveColor(light: Moss._200, dark: Moss._600) }
+                if isHovered { return adaptiveColor(light: Moss._100, dark: Moss._700) }
+                return .clear
+            }
         }
     }
 
@@ -178,27 +196,37 @@ public struct VIconButtonStyle: ButtonStyle {
     }
 
     private var borderColor: Color {
-        if case .filled = variant { return .clear }
-        if case .outlined = variant {
+        switch variant {
+        case .primary, .danger, .neutral:
+            return .clear
+        case .outlined:
             return VColor.buttonSecondaryBorder
+        case .ghost, .secondary:
+            guard isEnabled, isFocused else { return .clear }
+            return VColor.accent.opacity(0.72)
         }
-        guard isEnabled, isFocused else { return .clear }
-        return VColor.accent.opacity(0.72)
     }
 }
 
 #Preview("VIconButton") {
     ZStack {
         VColor.background.ignoresSafeArea()
-        HStack(spacing: 12) {
-            VIconButton(label: "Settings", icon: "gear") {}
-            VIconButton(label: "Active", icon: "star.fill", isActive: true) {}
-            VIconButton(label: "Icon Only", icon: "plus", iconOnly: true) {}
-            VIconButton(label: "Active Icon", icon: "pencil", isActive: true, iconOnly: true) {}
-            VIconButton(label: "Filled", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary)) {}
-            VIconButton(label: "Outlined", icon: "xmark", iconOnly: true, variant: .outlined) {}
+        VStack(spacing: 16) {
+            HStack(spacing: 12) {
+                VIconButton(label: "Ghost", icon: "gear") {}
+                VIconButton(label: "Active", icon: "star.fill", isActive: true) {}
+                VIconButton(label: "Icon Only", icon: "plus", iconOnly: true) {}
+                VIconButton(label: "Active Icon", icon: "pencil", isActive: true, iconOnly: true) {}
+            }
+            HStack(spacing: 12) {
+                VIconButton(label: "Primary", icon: "ellipsis", iconOnly: true, variant: .primary) {}
+                VIconButton(label: "Danger", icon: "xmark", iconOnly: true, variant: .danger) {}
+                VIconButton(label: "Neutral", icon: "stop.fill", iconOnly: true, variant: .neutral) {}
+                VIconButton(label: "Secondary", icon: "arrow.up", iconOnly: true, variant: .secondary) {}
+                VIconButton(label: "Outlined", icon: "xmark", iconOnly: true, variant: .outlined) {}
+            }
         }
         .padding()
     }
-    .frame(width: 500, height: 80)
+    .frame(width: 500, height: 140)
 }
