@@ -211,19 +211,26 @@ extension AppDelegate {
     /// Uses event monitoring (like Cmd+K) instead of NSMenu key equivalents
     /// because SwiftUI manages the menu bar and may interfere with programmatic
     /// NSMenu items and their validation.
+    ///
+    /// Matches on `charactersIgnoringModifiers` instead of hardware keycodes
+    /// so the shortcuts work correctly on non-ANSI keyboard layouts (ISO, JIS).
+    /// Only consumes the event when navigation actually occurs — if the history
+    /// stack is empty, the event passes through to the responder chain.
     func registerNavigationMonitor() {
         guard navLocalMonitor == nil else { return }
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             guard mods == [.command] else { return event }
-            // kVK_ANSI_LeftBracket = 0x21 (33), kVK_ANSI_RightBracket = 0x1E (30)
-            switch event.keyCode {
-            case 0x21: // Cmd+[
+            guard let chars = event.charactersIgnoringModifiers else { return event }
+            switch chars {
+            case "[":
+                guard self?.mainWindow?.windowState.navigationHistory.canGoBack == true else { return event }
                 Task { @MainActor in
                     self?.mainWindow?.windowState.navigateBack()
                 }
                 return nil
-            case 0x1E: // Cmd+]
+            case "]":
+                guard self?.mainWindow?.windowState.navigationHistory.canGoForward == true else { return event }
                 Task { @MainActor in
                     self?.mainWindow?.windowState.navigateForward()
                 }
