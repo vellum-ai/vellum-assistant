@@ -25,6 +25,7 @@ import { registerNotificationsCommand } from "./notifications.js";
 import { registerOAuthCommand } from "./oauth.js";
 import { registerSequenceCommand } from "./sequence.js";
 import { registerSessionsCommand } from "./sessions.js";
+import { registerSkillsCommand } from "./skills.js";
 import { registerTrustCommand } from "./trust.js";
 import { registerTwitterCommand } from "./twitter.js";
 
@@ -57,6 +58,7 @@ export function buildCliProgram(): Command {
   registerCompletionsCommand(program);
   registerNotificationsCommand(program);
   registerOAuthCommand(program);
+  registerSkillsCommand(program);
 
   registerTwitterCommand(program);
   registerMapCommand(program);

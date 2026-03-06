@@ -13,20 +13,23 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { gunzipSync } from "node:zlib";
 
+import type { Command } from "commander";
+
+import { getCliLogger } from "../util/logger.js";
+import {
+  getWorkspaceConfigPath,
+  getWorkspaceSkillsDir,
+  readPlatformToken,
+} from "../util/platform.js";
+
+const log = getCliLogger("cli");
+
 // ---------------------------------------------------------------------------
 // Path helpers
 // ---------------------------------------------------------------------------
 
-function getRootDir(): string {
-  return join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum");
-}
-
-function getSkillsDir(): string {
-  return join(getRootDir(), "workspace", "skills");
-}
-
 function getSkillsIndexPath(): string {
-  return join(getSkillsDir(), "SKILLS.md");
+  return join(getWorkspaceSkillsDir(), "SKILLS.md");
 }
 
 /**
@@ -36,7 +39,7 @@ function getSkillsIndexPath(): string {
 function getRepoSkillsDir(): string | undefined {
   if (!process.env.VELLUM_DEV) return undefined;
 
-  // cli/src/commands/skills.ts -> ../../../skills/
+  // assistant/src/cli/skills.ts -> ../../../skills/
   const candidate = join(import.meta.dir, "..", "..", "..", "skills");
   if (existsSync(join(candidate, "catalog.json"))) {
     return candidate;
@@ -49,10 +52,7 @@ function getRepoSkillsDir(): string | undefined {
  */
 function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
   try {
-    const raw = readFileSync(
-      join(repoSkillsDir, "catalog.json"),
-      "utf-8",
-    );
+    const raw = readFileSync(join(repoSkillsDir, "catalog.json"), "utf-8");
     const manifest = JSON.parse(raw) as CatalogManifest;
     if (!Array.isArray(manifest.skills)) return [];
     return manifest.skills;
@@ -67,7 +67,7 @@ function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
 
 function getConfigPlatformUrl(): string | undefined {
   try {
-    const configPath = join(getRootDir(), "workspace", "config.json");
+    const configPath = getWorkspaceConfigPath();
     if (!existsSync(configPath)) return undefined;
     const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
       string,
@@ -90,17 +90,9 @@ function getPlatformUrl(): string {
   );
 }
 
-function getPlatformToken(): string | null {
-  try {
-    return readFileSync(join(getRootDir(), "platform-token"), "utf-8").trim();
-  } catch {
-    return null;
-  }
-}
-
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
-  const token = getPlatformToken();
+  const token = readPlatformToken();
   if (token) {
     headers["X-Session-Token"] = token;
   }
@@ -272,7 +264,7 @@ function removeSkillsIndexEntry(id: string): void {
 }
 
 function uninstallSkillLocally(skillId: string): void {
-  const skillDir = join(getSkillsDir(), skillId);
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
 
   if (!existsSync(skillDir)) {
     throw new Error(`Skill "${skillId}" is not installed.`);
@@ -287,7 +279,7 @@ async function installSkillLocally(
   catalogEntry: CatalogSkill,
   overwrite: boolean,
 ): Promise<void> {
-  const skillDir = join(getSkillsDir(), skillId);
+  const skillDir = join(getWorkspaceSkillsDir(), skillId);
   const skillFilePath = join(skillDir, "SKILL.md");
 
   if (existsSync(skillFilePath) && !overwrite) {
@@ -324,7 +316,7 @@ async function installSkillLocally(
 
   // Install npm dependencies if the skill has a package.json
   if (existsSync(join(skillDir, "package.json"))) {
-    const bunPath = `${process.env.HOME || "/root"}/.bun/bin`;
+    const bunPath = `${homedir()}/.bun/bin`;
     execSync("bun install", {
       cwd: skillDir,
       stdio: "inherit",
@@ -337,51 +329,51 @@ async function installSkillLocally(
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Exported types and functions for testing
 // ---------------------------------------------------------------------------
 
-function hasFlag(args: string[], flag: string): boolean {
-  return args.includes(flag);
-}
+export type { CatalogManifest, CatalogSkill };
+
+export {
+  extractTarToDir,
+  fetchAndExtractSkill,
+  fetchCatalog,
+  getSkillsIndexPath,
+  installSkillLocally,
+  readLocalCatalog,
+  removeSkillsIndexEntry,
+  uninstallSkillLocally,
+  upsertSkillsIndex,
+};
 
 // ---------------------------------------------------------------------------
-// Usage
+// Command registration
 // ---------------------------------------------------------------------------
 
-function printUsage(): void {
-  console.log("Usage: vellum skills <subcommand> [options]");
-  console.log("");
-  console.log("Subcommands:");
-  console.log(
-    "  list                             List available catalog skills",
+export function registerSkillsCommand(program: Command): void {
+  const skills = program
+    .command("skills")
+    .description("Browse and install skills from the Vellum catalog");
+
+  skills.addHelpText(
+    "after",
+    `
+Manage skills from the Vellum catalog. Skills extend the assistant's
+capabilities with pre-built workflows and tools.
+
+Examples:
+  $ assistant skills list
+  $ assistant skills list --json
+  $ assistant skills install weather
+  $ assistant skills install weather --overwrite
+  $ assistant skills uninstall weather`,
   );
-  console.log(
-    "  install <skill-id> [--overwrite]  Install a skill from the catalog",
-  );
-  console.log(
-    "  uninstall <skill-id>              Uninstall a previously installed skill",
-  );
-  console.log("");
-  console.log("Options:");
-  console.log("  --json    Machine-readable JSON output");
-}
 
-// ---------------------------------------------------------------------------
-// Command entry point
-// ---------------------------------------------------------------------------
-
-export async function skills(): Promise<void> {
-  const args = process.argv.slice(3);
-  const subcommand = args[0];
-  const json = hasFlag(args, "--json");
-
-  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
-    printUsage();
-    return;
-  }
-
-  switch (subcommand) {
-    case "list": {
+  skills
+    .command("list")
+    .description("List available catalog skills")
+    .option("--json", "Machine-readable JSON output")
+    .action(async (opts: { json?: boolean }) => {
       try {
         const catalog = await fetchCatalog();
 
@@ -397,93 +389,95 @@ export async function skills(): Promise<void> {
           }
         }
 
-        if (json) {
+        if (opts.json) {
           console.log(JSON.stringify({ ok: true, skills: catalog }));
           return;
         }
 
         if (catalog.length === 0) {
-          console.log("No skills available in the catalog.");
+          log.info("No skills available in the catalog.");
           return;
         }
 
-        console.log(`Available skills (${catalog.length}):\n`);
+        log.info(`Available skills (${catalog.length}):\n`);
         for (const s of catalog) {
           const emoji = s.emoji ? `${s.emoji} ` : "";
           const deps = s.includes?.length
             ? ` (requires: ${s.includes.join(", ")})`
             : "";
-          console.log(`  ${emoji}${s.id}`);
-          console.log(`    ${s.name} — ${s.description}${deps}`);
+          log.info(`  ${emoji}${s.id}`);
+          log.info(`    ${s.name} — ${s.description}${deps}`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (json) {
+        if (opts.json) {
           console.log(JSON.stringify({ ok: false, error: msg }));
         } else {
-          console.error(`Error: ${msg}`);
+          log.error(`Error: ${msg}`);
         }
         process.exitCode = 1;
       }
-      break;
-    }
+    });
 
-    case "install": {
-      const skillId = args.find((a) => !a.startsWith("--") && a !== "install");
-      if (!skillId) {
-        console.error("Usage: vellum skills install <skill-id>");
-        process.exit(1);
-      }
+  skills
+    .command("install <skill-id>")
+    .description("Install a skill from the catalog")
+    .option("--overwrite", "Replace an already installed skill")
+    .option("--json", "Machine-readable JSON output")
+    .action(
+      async (
+        skillId: string,
+        opts: { overwrite?: boolean; json?: boolean },
+      ) => {
+        const json = opts.json ?? false;
 
-      const overwrite = hasFlag(args, "--overwrite");
+        try {
+          // In dev mode, also check the repo-local skills/ directory
+          const repoSkillsDir = getRepoSkillsDir();
+          let localSkills: CatalogSkill[] = [];
+          if (repoSkillsDir) {
+            localSkills = readLocalCatalog(repoSkillsDir);
+          }
 
-      try {
-        // In dev mode, also check the repo-local skills/ directory
-        const repoSkillsDir = getRepoSkillsDir();
-        let localSkills: CatalogSkill[] = [];
-        if (repoSkillsDir) {
-          localSkills = readLocalCatalog(repoSkillsDir);
+          // Check local catalog first, then fall back to remote
+          let entry = localSkills.find((s) => s.id === skillId);
+          if (!entry) {
+            const catalog = await fetchCatalog();
+            entry = catalog.find((s) => s.id === skillId);
+          }
+
+          if (!entry) {
+            throw new Error(
+              `Skill "${skillId}" not found in the Vellum catalog`,
+            );
+          }
+
+          // Fetch, extract, and install
+          await installSkillLocally(skillId, entry, opts.overwrite ?? false);
+
+          if (json) {
+            console.log(JSON.stringify({ ok: true, skillId }));
+          } else {
+            log.info(`Installed skill "${skillId}".`);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (json) {
+            console.log(JSON.stringify({ ok: false, error: msg }));
+          } else {
+            log.error(`Error: ${msg}`);
+          }
+          process.exitCode = 1;
         }
+      },
+    );
 
-        // Check local catalog first, then fall back to remote
-        let entry = localSkills.find((s) => s.id === skillId);
-        if (!entry) {
-          const catalog = await fetchCatalog();
-          entry = catalog.find((s) => s.id === skillId);
-        }
-
-        if (!entry) {
-          throw new Error(`Skill "${skillId}" not found in the Vellum catalog`);
-        }
-
-        // Fetch, extract, and install
-        await installSkillLocally(skillId, entry, overwrite);
-
-        if (json) {
-          console.log(JSON.stringify({ ok: true, skillId }));
-        } else {
-          console.log(`Installed skill "${skillId}".`);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (json) {
-          console.log(JSON.stringify({ ok: false, error: msg }));
-        } else {
-          console.error(`Error: ${msg}`);
-        }
-        process.exitCode = 1;
-      }
-      break;
-    }
-
-    case "uninstall": {
-      const skillId = args.find(
-        (a) => !a.startsWith("--") && a !== "uninstall",
-      );
-      if (!skillId) {
-        console.error("Usage: vellum skills uninstall <skill-id>");
-        process.exit(1);
-      }
+  skills
+    .command("uninstall <skill-id>")
+    .description("Uninstall a previously installed skill")
+    .option("--json", "Machine-readable JSON output")
+    .action(async (skillId: string, opts: { json?: boolean }) => {
+      const json = opts.json ?? false;
 
       try {
         uninstallSkillLocally(skillId);
@@ -491,24 +485,16 @@ export async function skills(): Promise<void> {
         if (json) {
           console.log(JSON.stringify({ ok: true, skillId }));
         } else {
-          console.log(`Uninstalled skill "${skillId}".`);
+          log.info(`Uninstalled skill "${skillId}".`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (json) {
           console.log(JSON.stringify({ ok: false, error: msg }));
         } else {
-          console.error(`Error: ${msg}`);
+          log.error(`Error: ${msg}`);
         }
         process.exitCode = 1;
       }
-      break;
-    }
-
-    default: {
-      console.error(`Unknown skills subcommand: ${subcommand}`);
-      printUsage();
-      process.exit(1);
-    }
-  }
+    });
 }

@@ -978,7 +978,7 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
     "### Installing additional skills",
     "If `skill_load` fails because a skill is not found, additional first-party skills may be available in the Vellum catalog.",
     "Use `bash` to discover and install them:",
-    "- `vellum skills list` — list all available catalog skills",
-    "- `vellum skills install <skill-id>` — install a skill, then retry `skill_load`",
+    "- `assistant skills list` — list all available catalog skills",
+    "- `assistant skills install <skill-id>` — install a skill, then retry `skill_load`",
   ].join("\n");
 }
