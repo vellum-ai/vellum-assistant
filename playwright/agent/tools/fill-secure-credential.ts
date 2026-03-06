@@ -146,15 +146,23 @@ tell application "System Events"
           keystroke "a" using command down
           delay 0.1
           -- Set clipboard, paste, then clear clipboard.
-          -- The clear lives outside the try so the clipboard is wiped
-          -- even if the paste keystroke throws an AppleScript error.
+          -- pasteOk tracks whether the paste succeeded so we can
+          -- always clear the clipboard (the set runs unconditionally)
+          -- while still surfacing paste failures instead of silently
+          -- swallowing them.
+          set pasteOk to true
           set the clipboard to "${escaped}"
           try
             keystroke "v" using command down
             delay 0.1
+          on error
+            set pasteOk to false
           end try
           set the clipboard to ""
           delay 0.2
+          if not pasteOk then
+            error "Paste keystroke failed — credential may not have been entered"
+          end if
           set foundField to true
           exit repeat
         end if
