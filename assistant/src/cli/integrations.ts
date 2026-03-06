@@ -205,7 +205,7 @@ export function registerIntegrationsCommand(program: Command): void {
     "after",
     `
 Reads integration configuration and status through the gateway API. The
-daemon must be running for most subcommands (telegram, twilio, guardian)
+assistant must be running for most subcommands (telegram, twilio, guardian)
 since they query the gateway. Exceptions: "ingress config" and "voice config"
 read from the local config file and do not require the gateway.
 
@@ -230,7 +230,7 @@ Examples:
     "after",
     `
 Checks the Telegram bot configuration status through the gateway API.
-Requires the daemon to be running.
+Requires the assistant to be running.
 
 Examples:
   $ vellum integrations telegram config
@@ -244,7 +244,7 @@ Examples:
       "after",
       `
 Returns the Telegram bot token status, webhook URL, and bot username from
-the gateway. Requires the daemon to be running.
+the gateway. Requires the assistant to be running.
 
 The response includes whether a bot token is configured, the current webhook
 endpoint, and the bot's Telegram username.
@@ -268,7 +268,7 @@ Examples:
     `
 Guardian is the trust verification system for contacts. It tracks whether
 contacts on each channel have completed identity verification. Requires
-the daemon to be running.
+the assistant to be running.
 
 Examples:
   $ vellum integrations guardian status
@@ -283,7 +283,7 @@ Examples:
       "after",
       `
 Returns the guardian verification state for the specified channel. Requires
-the daemon to be running.
+the assistant to be running.
 
 The --channel flag accepts: telegram, voice, sms. Defaults to telegram if
 not specified. The response includes whether guardian verification is active
@@ -312,7 +312,7 @@ Examples:
     "after",
     `
 Covers Twilio credential status, phone number management, and SMS regulatory
-compliance. All subcommands require the daemon to be running since they
+compliance. All subcommands require the assistant to be running since they
 query the gateway API.
 
 Subcommands:
@@ -333,7 +333,7 @@ Examples:
       "after",
       `
 Checks the Twilio credential status and phone number configuration through
-the gateway. Requires the daemon to be running.
+the gateway. Requires the assistant to be running.
 
 The response includes whether the Twilio account SID and auth token are
 configured, and the currently assigned phone number.
@@ -355,7 +355,7 @@ Examples:
       "after",
       `
 Lists all incoming phone numbers associated with the configured Twilio
-account. Requires the daemon to be running.
+account. Requires the assistant to be running.
 
 Returns an array of phone number objects with their SID, phone number,
 friendly name, and capabilities.
@@ -393,7 +393,7 @@ Examples:
       "after",
       `
 Checks the SMS regulatory compliance status for the configured Twilio
-account. Requires the daemon to be running.
+account. Requires the assistant to be running.
 
 Returns the current compliance state, including whether the account is
 approved for SMS messaging and any outstanding compliance requirements.
