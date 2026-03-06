@@ -63,7 +63,6 @@ export async function handleVercelApiConfig(
       });
     } else {
       const r = await deleteSecureKeyAsync("credential:vercel:api_token");
-      deleteCredentialMetadata("vercel", "api_token");
       if (r === "error") {
         ctx.send(socket, {
           type: "vercel_api_config_response",
@@ -73,6 +72,7 @@ export async function handleVercelApiConfig(
         });
         return;
       }
+      deleteCredentialMetadata("vercel", "api_token");
       ctx.send(socket, {
         type: "vercel_api_config_response",
         hasToken: false,
@@ -310,7 +310,6 @@ export async function handleTwitterIntegrationConfig(
             "credential:integration:twitter:refresh_token",
           ),
         );
-        deleteCredentialMetadata("integration:twitter", "access_token");
       }
       // Remove both canonical and legacy client credential keys
       deleteResults.push(
@@ -332,6 +331,9 @@ export async function handleTwitterIntegrationConfig(
         ),
       );
       const hasDeleteError = deleteResults.some((r) => r === "error");
+      if (!hasDeleteError) {
+        deleteCredentialMetadata("integration:twitter", "access_token");
+      }
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: !hasDeleteError,
@@ -354,10 +356,12 @@ export async function handleTwitterIntegrationConfig(
       const dr2 = await deleteSecureKeyAsync(
         "credential:integration:twitter:refresh_token",
       );
-      deleteCredentialMetadata("integration:twitter", "access_token");
       // Client credentials (client_id, oauth_client_id, etc.) are intentionally
       // preserved so the user can re-connect without reconfiguring.
       const disconnectFailed = dr1 === "error" || dr2 === "error";
+      if (!disconnectFailed) {
+        deleteCredentialMetadata("integration:twitter", "access_token");
+      }
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: !disconnectFailed,

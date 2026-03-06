@@ -278,8 +278,6 @@ export async function handleSetTwilioCredentials(
 export async function handleClearTwilioCredentials(): Promise<Response> {
   const r1 = await deleteSecureKeyAsync("credential:twilio:account_sid");
   const r2 = await deleteSecureKeyAsync("credential:twilio:auth_token");
-  deleteCredentialMetadata("twilio", "account_sid");
-  deleteCredentialMetadata("twilio", "auth_token");
 
   if (r1 === "error" || r2 === "error") {
     return Response.json(
@@ -290,6 +288,9 @@ export async function handleClearTwilioCredentials(): Promise<Response> {
       { status: 500 },
     );
   }
+
+  deleteCredentialMetadata("twilio", "account_sid");
+  deleteCredentialMetadata("twilio", "auth_token");
 
   return Response.json({ success: true, hasCredentials: false });
 }
