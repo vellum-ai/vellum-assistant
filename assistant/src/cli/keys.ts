@@ -18,8 +18,8 @@ export function registerKeysCommand(program: Command): void {
   keys.addHelpText(
     "after",
     `
-Keys are stored in OS-native secure storage (macOS Keychain on macOS) and are
-never written to disk in plaintext. Each key is identified by provider name.
+Keys are stored in secure local storage and are never written to disk in
+plaintext. Each key is identified by provider name.
 
 Known providers: ${API_KEY_PROVIDERS.join(", ")}
 
@@ -92,7 +92,7 @@ Examples:
 Arguments:
   provider   Provider name whose key should be removed from secure storage
 
-Removes the API key for the given provider from OS-native secure storage. If
+Removes the API key for the given provider from secure local storage. If
 no key exists for the provider, exits with an error.
 
 Examples:

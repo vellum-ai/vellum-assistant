@@ -98,8 +98,8 @@ function getClientIp(
   return addr?.address ?? "unknown";
 }
 
-function main() {
-  const config = loadConfig();
+async function main() {
+  const config = await loadConfig();
   initLogger(config.logFile);
 
   log.info("Starting Vellum Gateway...");
@@ -378,10 +378,7 @@ function main() {
       method: "POST",
       auth: "edge",
       handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(
-          req,
-          params[0],
-        ),
+        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
     },
 
     // ── Contacts/invites control plane ──

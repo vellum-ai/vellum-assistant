@@ -201,7 +201,7 @@ struct SecretPromptView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     safetyBullet(
                         icon: "key.fill",
-                        text: "Stored in your Mac's Keychain, not sent to any server"
+                        text: "Stored securely on your Mac, not sent to any server"
                     )
                     safetyBullet(
                         icon: "eye.slash.fill",
@@ -214,7 +214,7 @@ struct SecretPromptView: View {
                     HStack(spacing: VSpacing.xs) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(VColor.success)
-                        Text("Saved to Keychain")
+                        Text("Saved securely")
                             .font(VFont.caption)
                             .foregroundColor(VColor.success)
                             .textSelection(.enabled)
