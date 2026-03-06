@@ -51,6 +51,15 @@ export interface AppDefinition {
   pages?: Record<string, string>;
   createdAt: number;
   updatedAt: number;
+  /** App format version. undefined or 1 = legacy single-HTML, 2 = multi-file TSX. */
+  formatVersion?: number;
+}
+
+/**
+ * Returns true if the app uses the multi-file TSX format (formatVersion 2).
+ */
+export function isMultifileApp(app: AppDefinition): boolean {
+  return app.formatVersion === 2;
 }
 
 export interface AppRecord {
@@ -195,6 +204,7 @@ export function createApp(params: {
   htmlDefinition: string;
   version?: string;
   pages?: Record<string, string>;
+  formatVersion?: number;
 }): AppDefinition {
   const dir = getAppsDir();
   const now = Date.now();
@@ -209,6 +219,7 @@ export function createApp(params: {
     version: params.version,
     createdAt: now,
     updatedAt: now,
+    formatVersion: params.formatVersion,
   };
 
   // Write htmlDefinition to {appId}/index.html on disk

@@ -45,6 +45,7 @@ export interface AppStoreWriter {
     schemaJson: string;
     htmlDefinition: string;
     pages?: Record<string, string>;
+    formatVersion?: number;
   }): AppDefinition;
   updateApp(
     id: string,
