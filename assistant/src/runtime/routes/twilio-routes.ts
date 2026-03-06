@@ -148,6 +148,9 @@ function pruneAssistantPhoneNumbers(
  */
 export function handleGetTwilioConfig(): Response {
   const hasCredentials = hasTwilioCredentials();
+  const accountSid = hasCredentials
+    ? getSecureKey("credential:twilio:account_sid")
+    : undefined;
   const raw = loadRawConfig();
   const sms = (raw?.sms ?? {}) as Record<string, unknown>;
   const phoneNumber = (sms.phoneNumber as string) ?? "";
@@ -155,6 +158,7 @@ export function handleGetTwilioConfig(): Response {
   return Response.json({
     success: true,
     hasCredentials,
+    accountSid: accountSid || undefined,
     phoneNumber: phoneNumber || undefined,
   });
 }
