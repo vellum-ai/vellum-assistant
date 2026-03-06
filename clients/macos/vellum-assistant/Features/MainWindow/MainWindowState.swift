@@ -19,9 +19,18 @@ public final class MainWindowState: ObservableObject {
     /// The single source of truth for what the main content area displays.
     let navigationHistory = NavigationHistory()
 
+    /// Tracks the previous selection for navigation history recording.
+    /// `@Published` property wrappers don't provide a reliable `oldValue`
+    /// in `didSet` — it can equal the new value. We capture it in `willSet`.
+    private var _previousSelection: ViewSelection?
+
     @Published var selection: ViewSelection? {
+        willSet {
+            _previousSelection = selection
+        }
         didSet {
-            navigationHistory.recordTransition(from: oldValue, to: selection, persistentThreadId: persistentThreadId)
+            navigationHistory.recordTransition(from: _previousSelection, to: selection, persistentThreadId: persistentThreadId)
+            _previousSelection = nil
             // When navigating to a thread, update the persistent thread tracker.
             // For overlays (app, appEditing, panel) and nil, leave persistentThreadId unchanged.
             if case .thread(let id) = selection {
