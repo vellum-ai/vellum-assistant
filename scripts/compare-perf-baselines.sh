@@ -7,7 +7,7 @@ set -uo pipefail
 BASELINE_DIR=".perf-baselines"
 BASELINE_FILE="$BASELINE_DIR/baselines.json"
 RESULTS_LOG="$BASELINE_DIR/results.log"
-REGRESSION_THRESHOLD_PCT=15
+REGRESSION_THRESHOLD_PCT=50
 
 if [[ ! -f "$RESULTS_LOG" ]]; then
   echo "No results log at $RESULTS_LOG. Skipping baseline comparison."

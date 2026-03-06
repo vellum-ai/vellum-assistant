@@ -130,7 +130,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
     func testUnseenVisibleConversationCountExcludesArchivedThreads() {
         // Start with the initial thread created by setUp
         guard let threadId = threadManager.activeThreadId,
-              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
+              threadManager.threads.firstIndex(where: { $0.id == threadId }) != nil else {
             XCTFail("Expected an initial active thread")
             return
         }

@@ -139,7 +139,6 @@ final class BootstrapStateTests: XCTestCase {
         // .complete on a non-first-launch should remain untouched.
         testDefaults.set(BootstrapState.complete.rawValue, forKey: bootstrapKey)
 
-        let isFirstLaunch = false
         let restoredRaw = testDefaults.string(forKey: bootstrapKey)!
         let current = BootstrapState(rawValue: restoredRaw)!
         let isBootstrapping = current != .complete

@@ -138,7 +138,7 @@ final class DaemonClientReconfigureTests: XCTestCase {
 
     func testWeakReferencesSurviveReconfigure() {
         // Simulate what RecordingManager does: hold a weak reference
-        weak var weakClient = client
+        weak var weakClient: DaemonClient? = client
 
         XCTAssertNotNil(weakClient, "Weak reference should be non-nil before reconfigure")
 

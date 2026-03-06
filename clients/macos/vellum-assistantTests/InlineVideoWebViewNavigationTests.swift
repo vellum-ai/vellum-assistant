@@ -9,12 +9,12 @@ final class InlineVideoWebViewNavigationTests: XCTestCase {
 
     func testCoordinatorConformsToWKNavigationDelegate() {
         let coordinator = InlineVideoWebView.Coordinator(provider: "youtube")
-        XCTAssertTrue(coordinator is WKNavigationDelegate)
+        XCTAssertTrue(coordinator as Any is WKNavigationDelegate)
     }
 
     func testCoordinatorConformsToWKUIDelegate() {
         let coordinator = InlineVideoWebView.Coordinator(provider: "youtube")
-        XCTAssertTrue(coordinator is WKUIDelegate)
+        XCTAssertTrue(coordinator as Any is WKUIDelegate)
     }
 
     // MARK: - Popup blocking
