@@ -5,10 +5,12 @@ import VellumAssistantShared
 
 extension ChatBubble {
     /// Render a single text segment as a styled bubble, with table and image support.
+    /// For large messages (>2000 chars) with a segment cache miss, renders plain text
+    /// immediately and parses rich formatting asynchronously to avoid blocking scroll.
     @ViewBuilder
     func textBubble(for segmentText: String) -> some View {
         let streaming = message.isStreaming
-        let segments = Self.cachedSegments(for: segmentText, isStreaming: streaming)
+        let segments = resolveSegments(for: segmentText, isStreaming: streaming)
         let hasRichContent = segments.contains(where: {
             switch $0 {
             case .table, .image, .heading, .codeBlock, .horizontalRule, .list: return true
@@ -34,6 +36,52 @@ extension ChatBubble {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .task(id: "\(segmentText)|\(streaming)") {
+            // Only run async parsing for large, non-streaming text with a cache miss
+            guard !streaming,
+                  segmentText.count > Self.asyncParseThreshold,
+                  Self.segmentCache[segmentText] == nil,
+                  asyncSegments[segmentText] == nil else { return }
+            let result = await MarkdownParseActor.shared.parse(segmentText)
+            guard !Task.isCancelled else { return }
+            asyncSegments[segmentText] = result
+            // Backfill the synchronous cache with guardrails (size limit,
+            // byte tracking, eviction) — mirrors the logic in cachedSegments.
+            if segmentText.count <= Self.maxCacheableTextLength {
+                if Self.segmentCache.count >= Self.maxCacheSize {
+                    if let lruKey = Self.segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
+                        Self.estimatedCacheBytes -= Self.estimatedBytes(for: lruKey)
+                        Self.segmentCache.removeValue(forKey: lruKey)
+                    }
+                }
+                Self.lruCounter += 1
+                let cost = Self.estimatedBytes(for: segmentText)
+                Self.segmentCache[segmentText] = (result, Self.lruCounter)
+                Self.estimatedCacheBytes += cost
+                Self.evictIfOverBudget()
+            }
+        }
+    }
+
+    /// Resolves markdown segments for the given text, using the async result for
+    /// large messages that haven't been synchronously cached yet.
+    func resolveSegments(for text: String, isStreaming: Bool) -> [MarkdownSegment] {
+        // Check the synchronous cache first (fast path for all sizes)
+        if let cached = Self.segmentCache[text] {
+            Self.lruCounter += 1
+            Self.segmentCache[text] = (cached.value, Self.lruCounter)
+            return cached.value
+        }
+        // For large text with a cache miss, return async result or plain placeholder
+        if !isStreaming, text.count > Self.asyncParseThreshold {
+            if let async = asyncSegments[text] {
+                return async
+            }
+            // Fast placeholder: single plain-text segment avoids expensive parsing
+            return [.text(text)]
+        }
+        // Small text or streaming: parse synchronously (cheap enough)
+        return Self.cachedSegments(for: text, isStreaming: isStreaming)
     }
 
     /// Cached inline markdown AttributedString to avoid re-parsing on every render.
