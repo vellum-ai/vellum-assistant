@@ -20,8 +20,8 @@ struct DrawerThemeToggle: View {
     var body: some View {
         HStack(spacing: VSpacing.xs) {
             Text("Theme")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
+                .font(VFont.body)
+                .foregroundColor(VColor.textPrimary)
             Spacer()
             HStack(spacing: 2) {
                 ForEach(options, id: \.value) { option in
@@ -31,15 +31,20 @@ struct DrawerThemeToggle: View {
                         AppDelegate.shared?.applyThemePreference()
                     } label: {
                         Image(systemName: option.icon)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(isSelected ? VColor.textPrimary : VColor.textMuted)
-                            .frame(width: 28, height: 22)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(
+                                isSelected
+                                    ? adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
+                                    : VColor.textMuted
+                            )
+                            .frame(width: 30, height: 24)
                             .background(
                                 isSelected
-                                    ? VColor.hoverOverlay.opacity(0.1)
+                                    ? adaptiveColor(light: Color(hex: 0xD3DECF), dark: Forest._800)
                                     : Color.clear
                             )
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .help(option.tooltip)
@@ -47,13 +52,9 @@ struct DrawerThemeToggle: View {
                     .accessibilityValue(isSelected ? "Selected" : "")
                 }
             }
-            .padding(2)
-            .background(VColor.surface)
+            .padding(3)
+            .background(adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Moss._700))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .stroke(VColor.surfaceBorder, lineWidth: 1)
-            )
         }
     }
 }

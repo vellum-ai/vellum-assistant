@@ -53,24 +53,18 @@ struct ThreadActionsDrawer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if presentation.canCopy {
-                DrawerMenuItem(icon: "doc.on.doc", label: "Copy full thread", action: onCopy)
-
-                VColor.surfaceBorder.frame(height: 1)
-                    .padding(.vertical, VSpacing.xs)
+                SidebarPrimaryRow(icon: "doc.on.doc", label: "Copy full thread", action: onCopy)
             }
 
-            DrawerMenuItem(
+            SidebarPrimaryRow(
                 icon: presentation.isPinned ? "pin.slash" : "pin",
                 label: presentation.isPinned ? "Unpin" : "Pin",
                 action: presentation.isPinned ? onUnpin : onPin
             )
 
-            DrawerMenuItem(icon: "pencil", label: "Rename thread", action: onRename)
+            SidebarPrimaryRow(icon: "pencil", label: "Rename thread", action: onRename)
 
-            VColor.surfaceBorder.frame(height: 1)
-                .padding(.vertical, VSpacing.xs)
-
-            DrawerMenuItem(icon: "archivebox", label: "Archive thread", action: onArchive)
+            SidebarPrimaryRow(icon: "archivebox", label: "Archive thread", action: onArchive)
         }
         .padding(.vertical, VSpacing.sm)
         .background(VColor.surfaceSubtle)
