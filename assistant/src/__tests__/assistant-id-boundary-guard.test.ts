@@ -598,12 +598,29 @@ describe("assistant ID boundary", () => {
         // the line containing the match and check for comment prefixes.
         const lineStart = content.lastIndexOf("\n", match.index) + 1;
         const linePrefix = content.slice(lineStart, match.index).trim();
-        if (
-          linePrefix.startsWith("//") ||
-          linePrefix.startsWith("*") ||
-          linePrefix.startsWith("/*")
-        ) {
+        if (linePrefix.startsWith("//")) {
           continue;
+        }
+        // For block comments: check if the match is inside an unclosed
+        // block comment. A prefix starting with `*` (continuation line)
+        // or `/*` only counts if there is no closing `*/` between the
+        // last `/*` opener and the match position — otherwise the
+        // comment was already closed (e.g. `/** docs */ export …`).
+        if (linePrefix.startsWith("*") || linePrefix.startsWith("/*")) {
+          const textBeforeMatch = content.slice(lineStart, match.index);
+          const lastOpen = textBeforeMatch.lastIndexOf("/*");
+          if (lastOpen === -1) {
+            // No block-comment opener on this line but starts with `*`,
+            // so it's a continuation line inside a multi-line comment.
+            continue;
+          }
+          const closeBetween = textBeforeMatch.indexOf("*/", lastOpen + 2);
+          if (closeBetween === -1) {
+            // The block comment is still open at the match position.
+            continue;
+          }
+          // The block comment was closed before the match — fall through
+          // and evaluate the match normally.
         }
 
         // Find the matching closing paren to extract the full parameter list,
