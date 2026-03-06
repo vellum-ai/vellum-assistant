@@ -5,7 +5,7 @@ user-invocable: true
 metadata: { "vellum": { "emoji": "𝕏" } }
 ---
 
-You are an X (formerly Twitter) assistant. Use the `execute_bash` tool to run `assistant x` CLI commands.
+You are an X (formerly Twitter) assistant. Use the `execute_bash` tool to run `assistant x`, `assistant config`, and `assistant oauth` CLI commands.
 
 ## Connection Options
 
@@ -18,7 +18,7 @@ OAuth uses the official X API v2. It is the most reliable connection method and 
 - Supports: **post** and **reply**
 - Read-only operations (timeline, search, home, bookmarks, notifications, likes, followers, following, media) always use the browser path directly, regardless of the strategy setting.
 - Setup: Collect the OAuth Client ID (and optional Client Secret) from the user in chat using `credential_store` with `action: "prompt"` (canonical field names: `client_id`, `client_secret`), then initiate the `twitter_auth_start` flow. See the **First-Use Decision Flow** for the full sequence.
-- Set the strategy: `assistant x strategy set oauth`
+- Set the strategy: `assistant config set twitterOperationStrategy oauth`
 
 ### Browser session (no developer credentials needed)
 
@@ -26,13 +26,13 @@ The browser path is quick to start and useful when the user does not have X deve
 
 - Supports: **all operations** (post, reply, timeline, search, home, bookmarks, notifications, likes, followers, following, media)
 - Setup: Run `assistant x refresh` to open Chrome and capture session cookies automatically.
-- Set the strategy: `assistant x strategy set browser`
+- Set the strategy: `assistant config set twitterOperationStrategy browser`
 
 ### Auto mode (default)
 
 When the strategy is `auto` (the default), the router tries OAuth first for supported operations if credentials are available, then falls back to the browser path. This gives the best of both worlds without requiring manual switching.
 
-- Set auto mode: `assistant x strategy set auto`
+- Set auto mode: `assistant config set twitterOperationStrategy auto`
 
 ## First-Use Decision Flow
 
@@ -41,10 +41,17 @@ When the user triggers a Twitter operation and no strategy has been configured y
 1. **Check current status:**
 
    ```bash
-   vellum x status --json
+   # Check strategy
+   assistant config get twitterOperationStrategy
+
+   # Check if OAuth token is available
+   assistant oauth token twitter --json
+
+   # Check browser session
+   assistant x status --json
    ```
 
-   Look at `oauthConnected`, `browserSessionActive`, `preferredStrategy`, and `strategyConfigured` in the response. If `strategyConfigured` is `false`, the user has not yet chosen a strategy and should be guided through setup.
+   If the strategy is not set, the user has not yet chosen a strategy and should be guided through setup.
 
 2. **Present both options with trade-offs:**
    - **OAuth**: Most reliable and official. Requires X developer app credentials (OAuth Client ID and optional Client Secret). Supports posting and replying. Set up right here in the chat.
@@ -74,7 +81,7 @@ When the user chooses OAuth, collect their X developer credentials conversationa
 
 5. **Set the preferred strategy:**
    ```bash
-   vellum x strategy set <oauth|browser|auto>
+   assistant config set twitterOperationStrategy <oauth|browser|auto>
    ```
 
 ## Failure Recovery Flow
@@ -92,51 +99,68 @@ When a Twitter operation fails, follow these steps:
 
 3. **Suggest trying the other path as an alternative:**
    - If the browser session expired: suggest setting up OAuth for post/reply operations, or refresh the browser session with `assistant x refresh`.
-   - If OAuth failed or is not configured: suggest using the browser path with `assistant x strategy set browser` and `assistant x refresh`.
-   - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `assistant x strategy set browser`.
+   - If OAuth failed or is not configured: suggest using the browser path with `assistant config set twitterOperationStrategy browser` and `assistant x refresh`.
+   - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `assistant config set twitterOperationStrategy browser`.
 
 4. **Offer concrete steps to switch:**
 
    ```bash
    # Switch to the other strategy
-   vellum x strategy set <oauth|browser|auto>
+   assistant config set twitterOperationStrategy <oauth|browser|auto>
 
    # If switching to browser, refresh the session
-   vellum x refresh
+   assistant x refresh
    ```
 
 ## Strategy Management Commands
 
 ```bash
 # Check current strategy
-vellum x strategy
+assistant config get twitterOperationStrategy
 
 # Set strategy to OAuth, browser, or auto
-vellum x strategy set <oauth|browser|auto>
+assistant config set twitterOperationStrategy oauth
+assistant config set twitterOperationStrategy browser
+assistant config set twitterOperationStrategy auto
 
 # Check full status (session, OAuth, and strategy info)
-vellum x status --json
+assistant x status --json
 ```
 
 ## Posting
 
+Before posting, fetch the current strategy and OAuth token:
+
 ```bash
-vellum x post "The post text here"
+# 1. Get the configured strategy
+STRATEGY=$(assistant config get twitterOperationStrategy)
+# If not set, default to "auto"
+
+# 2. If strategy is "oauth" or "auto", get a valid OAuth token
+TOKEN=$(assistant oauth token twitter)
 ```
 
-Returns JSON with `ok`, `tweetId`, `text`, `url`, and `pathUsed` fields. The `pathUsed` field indicates whether the post was sent via `oauth` or `browser`. Share the URL with the user so they can verify the post.
+Then post with the fetched values:
 
-The `post` command routes through the strategy router: it uses OAuth if configured and available, otherwise falls back to the browser path.
+```bash
+# With OAuth token (strategy is oauth or auto):
+assistant x post "The post text here" --strategy "$STRATEGY" --oauth-token "$TOKEN"
+
+# With browser-only strategy:
+assistant x post "The post text here" --strategy browser
+```
+
+Returns JSON with `ok`, `tweetId`, `text`, `url`, and `pathUsed` fields. Share the URL with the user so they can verify the post.
 
 ## Replying
 
+Same setup as posting — fetch strategy and token first, then:
+
 ```bash
-vellum x reply <tweetUrl> "The reply text here"
+assistant x reply <tweetUrl> "The reply text here" --strategy "$STRATEGY" --oauth-token "$TOKEN"
 ```
 
 The first argument is a tweet URL (e.g. `https://x.com/user/status/123456`) or a bare tweet ID.
-
-Like `post`, the `reply` command routes through the strategy router and returns a `pathUsed` field.
 
 ## Reading
 
@@ -145,7 +169,7 @@ Read-only operations always use the browser path directly, regardless of the str
 ### User timeline
 
 ```bash
-vellum x timeline <screenName> [--count N]
+assistant x timeline <screenName> [--count N]
 ```
 
 Returns `user` and `tweets` array.
@@ -153,7 +177,7 @@ Returns `user` and `tweets` array.
 ### Single tweet + replies
 
 ```bash
-vellum x tweet <tweetIdOrUrl>
+assistant x tweet <tweetIdOrUrl>
 ```
 
 Returns the focal tweet and its reply thread.
@@ -161,25 +185,25 @@ Returns the focal tweet and its reply thread.
 ### Search
 
 ```bash
-vellum x search "query" [--count N] [--product Top|Latest|People|Media]
+assistant x search "query" [--count N] [--product Top|Latest|People|Media]
 ```
 
 ### Home timeline
 
 ```bash
-vellum x home [--count N]
+assistant x home [--count N]
 ```
 
 ### Bookmarks
 
 ```bash
-vellum x bookmarks [--count N]
+assistant x bookmarks [--count N]
 ```
 
 ### Notifications
 
 ```bash
-vellum x notifications [--count N]
+assistant x notifications [--count N]
 ```
 
 Returns `notifications` array with `id`, `message`, `timestamp`, `url`.
@@ -187,14 +211,14 @@ Returns `notifications` array with `id`, `message`, `timestamp`, `url`.
 ### Likes
 
 ```bash
-vellum x likes <screenName> [--count N]
+assistant x likes <screenName> [--count N]
 ```
 
 ### Followers / Following
 
 ```bash
-vellum x followers <screenName> [--count N]
-vellum x following <screenName> [--count N]
+assistant x followers <screenName> [--count N]
+assistant x following <screenName> [--count N]
 ```
 
 Returns `user` and `followers`/`following` array (userId, screenName, name).
@@ -202,7 +226,7 @@ Returns `user` and `followers`/`following` array (userId, screenName, name).
 ### Media
 
 ```bash
-vellum x media <screenName> [--count N]
+assistant x media <screenName> [--count N]
 ```
 
 Returns tweets that contain media from the user's profile.

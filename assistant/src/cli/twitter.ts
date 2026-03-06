@@ -24,6 +24,7 @@ import {
   searchTweets,
   SessionExpiredError,
 } from "../twitter/client.js";
+import type { TwitterStrategy } from "../twitter/router.js";
 import { routedPostTweet } from "../twitter/router.js";
 import {
   clearSession,
@@ -435,31 +436,59 @@ Examples:
   tw.command("post")
     .description("Post a tweet")
     .argument("<text>", "Tweet text")
+    .requiredOption(
+      "--strategy <strategy>",
+      "Operation strategy: oauth, browser, or auto",
+    )
+    .option(
+      "--oauth-token <token>",
+      "OAuth access token (required when strategy is oauth or auto)",
+    )
     .addHelpText(
       "after",
       `
 Arguments:
   text   The tweet text to post (max 280 characters)
 
-Posts a new tweet using the routed dual-path system. The path used (oauth or
-browser) depends on the current strategy setting. The response includes the
-tweet ID, URL, and which path was used.
+Posts a new tweet using the routed dual-path system. The --strategy flag
+controls which path is used. The response includes the tweet ID, URL, and
+which path was used.
 
 Examples:
-  $ assistant x post "Hello world"
-  $ assistant x post "Check out this thread on AI agents" --json`,
+  $ assistant x post "Hello world" --strategy browser
+  $ assistant x post "Hello world" --strategy oauth --oauth-token "$TOKEN"
+  $ assistant x post "Hello world" --strategy auto --oauth-token "$TOKEN"`,
     )
-    .action(async (text: string, _opts: unknown, cmd: Command) => {
-      await run(cmd, async () => {
-        const { result, pathUsed } = await routedPostTweet(text);
-        return {
-          tweetId: result.tweetId,
-          text: result.text,
-          url: result.url,
-          pathUsed,
-        };
-      });
-    });
+    .action(
+      async (
+        text: string,
+        opts: { strategy: string; oauthToken?: string },
+        cmd: Command,
+      ) => {
+        await run(cmd, async () => {
+          const strategy = opts.strategy as TwitterStrategy;
+          if (
+            strategy !== "oauth" &&
+            strategy !== "browser" &&
+            strategy !== "auto"
+          ) {
+            throw new Error(
+              `Invalid strategy "${opts.strategy}". Must be oauth, browser, or auto.`,
+            );
+          }
+          const { result, pathUsed } = await routedPostTweet(text, {
+            strategy,
+            oauthToken: opts.oauthToken,
+          });
+          return {
+            tweetId: result.tweetId,
+            text: result.text,
+            url: result.url,
+            pathUsed,
+          };
+        });
+      },
+    );
 
   // =========================================================================
   // reply — reply to a tweet
@@ -468,6 +497,14 @@ Examples:
     .description("Reply to a tweet")
     .argument("<tweetUrl>", "Tweet URL or tweet ID")
     .argument("<text>", "Reply text")
+    .requiredOption(
+      "--strategy <strategy>",
+      "Operation strategy: oauth, browser, or auto",
+    )
+    .option(
+      "--oauth-token <token>",
+      "OAuth access token (required when strategy is oauth or auto)",
+    )
     .addHelpText(
       "after",
       `
@@ -477,15 +514,30 @@ Arguments:
 
 Posts a reply to the specified tweet. Accepts either a full tweet URL or a bare
 numeric tweet ID. The tweet ID is extracted from the last numeric segment of the
-URL. Uses the routed dual-path system based on the current strategy.
+URL. The --strategy flag controls which path is used.
 
 Examples:
-  $ assistant x reply https://x.com/elonmusk/status/1234567890 "Great point!"
-  $ assistant x reply 1234567890 "Interesting thread"`,
+  $ assistant x reply https://x.com/elonmusk/status/1234567890 "Great point!" --strategy browser
+  $ assistant x reply 1234567890 "Interesting thread" --strategy oauth --oauth-token "$TOKEN"`,
     )
     .action(
-      async (tweetUrl: string, text: string, _opts: unknown, cmd: Command) => {
+      async (
+        tweetUrl: string,
+        text: string,
+        opts: { strategy: string; oauthToken?: string },
+        cmd: Command,
+      ) => {
         await run(cmd, async () => {
+          const strategy = opts.strategy as TwitterStrategy;
+          if (
+            strategy !== "oauth" &&
+            strategy !== "browser" &&
+            strategy !== "auto"
+          ) {
+            throw new Error(
+              `Invalid strategy "${opts.strategy}". Must be oauth, browser, or auto.`,
+            );
+          }
           // Extract tweet ID: either a bare numeric ID or the last numeric segment of a URL
           const idMatch = tweetUrl.match(/(\d+)\s*$/);
           if (!idMatch) {
@@ -494,6 +546,8 @@ Examples:
           const inReplyToTweetId = idMatch[1];
           const { result, pathUsed } = await routedPostTweet(text, {
             inReplyToTweetId,
+            strategy,
+            oauthToken: opts.oauthToken,
           });
           return {
             tweetId: result.tweetId,
