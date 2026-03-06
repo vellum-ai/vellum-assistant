@@ -14,19 +14,12 @@ struct AppSharePanelView: View {
 
     @State private var services: [NSSharingService] = []
     @State private var hoveredServiceIndex: Int?
-    @State private var showChannelPicker = false
-    @State private var isSendingToSlack = false
-    @State private var slackError: String?
     @State private var formattedFileSize: String = ""
 
     @available(macOS, deprecated: 13.0)
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if showChannelPicker {
-                channelPickerView
-            } else {
-                servicesListView
-            }
+            servicesListView
         }
         .frame(width: 240)
         .onDisappear {
@@ -64,17 +57,13 @@ struct AppSharePanelView: View {
             // Services list
             ScrollView {
                 VStack(spacing: 0) {
-                    // Slack row — only enabled when appId is available
-                    if appId != nil {
-                        serviceRow(
-                            icon: NSWorkspace.shared.icon(forFile: "/Applications/Slack.app"),
-                            title: "Slack",
-                            index: -2
-                        ) {
-                            handleSlackShare()
-                        }
-                    } else {
-                        disabledSlackRow
+                    // Download and share — saves to Downloads and reveals in Finder
+                    serviceRow(
+                        icon: VIcon.arrowDownToLine.nsImage,
+                        title: "Download and Share",
+                        index: -3
+                    ) {
+                        saveToDownloads()
                     }
 
                     // System sharing services
@@ -107,63 +96,6 @@ struct AppSharePanelView: View {
                 .padding(.vertical, VSpacing.xs)
             }
             .frame(maxHeight: 300)
-        }
-    }
-
-    // MARK: - Channel Picker
-
-    private var channelPickerView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if isSendingToSlack {
-                VStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Sending...")
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(width: 240)
-                .padding(.vertical, VSpacing.xxl)
-            } else if let error = slackError {
-                VStack(spacing: VSpacing.sm) {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.error)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, VSpacing.md)
-
-                    HStack(spacing: VSpacing.md) {
-                        Button("Back") {
-                            slackError = nil
-                            showChannelPicker = false
-                        }
-                        .buttonStyle(.plain)
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textSecondary)
-
-                        Button("Retry") {
-                            slackError = nil
-                        }
-                        .buttonStyle(.plain)
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.accent)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .frame(width: 240)
-                .padding(.vertical, VSpacing.xxl)
-            } else {
-                SlackChannelPickerView(
-                    gatewayBaseURL: gatewayBaseURL,
-                    onSelect: { channel in
-                        shareToChannel(channel)
-                    },
-                    onCancel: {
-                        showChannelPicker = false
-                    }
-                )
-            }
         }
     }
 
@@ -241,32 +173,6 @@ struct AppSharePanelView: View {
         }
     }
 
-    // MARK: - Disabled Slack Row
-
-    private var disabledSlackRow: some View {
-        HStack(spacing: VSpacing.sm) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: "/Applications/Slack.app"))
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 18, height: 18)
-                .opacity(0.5)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Slack")
-                    .font(VFont.body)
-                    .foregroundColor(VColor.textMuted)
-
-                Text("Unavailable for this app")
-                    .font(VFont.small)
-                    .foregroundColor(VColor.textMuted)
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.sm)
-    }
-
     // MARK: - Helpers
 
     /// Queries available sharing services. The API was deprecated in macOS 13 in favor of
@@ -319,56 +225,27 @@ struct AppSharePanelView: View {
         return total
     }
 
-    private func handleSlackShare() {
-        showChannelPicker = true
-    }
+    private func saveToDownloads() {
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+        let destURL = downloads.appendingPathComponent(fileURL.lastPathComponent)
 
-    private func shareToChannel(_ channel: SlackChannel) {
-        guard !isSendingToSlack, let appId else { return }
-        isSendingToSlack = true
-        slackError = nil
-
-        Task {
-            do {
-                guard let url = URL(string: "\(gatewayBaseURL)/v1/slack/share") else {
-                    isSendingToSlack = false
-                    slackError = "Invalid gateway URL"
-                    return
-                }
-
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-                if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                }
-
-                let body: [String: String] = ["appId": appId, "channelId": channel.id]
-                request.httpBody = try JSONEncoder().encode(body)
-
-                let (_, response) = try await URLSession.shared.data(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    isSendingToSlack = false
-                    slackError = "Unexpected response"
-                    return
-                }
-
-                guard (200...299).contains(httpResponse.statusCode) else {
-                    isSendingToSlack = false
-                    slackError = "Failed to share (\(httpResponse.statusCode))"
-                    return
-                }
-
-                isSendingToSlack = false
-                onDismiss()
-            } catch is CancellationError {
-                isSendingToSlack = false
-            } catch {
-                isSendingToSlack = false
-                slackError = "Failed to share to Slack"
-            }
+        // If the file already exists, generate a unique name
+        var finalURL = destURL
+        var counter = 1
+        while FileManager.default.fileExists(atPath: finalURL.path) {
+            let stem = destURL.deletingPathExtension().lastPathComponent
+            let ext = destURL.pathExtension
+            finalURL = downloads.appendingPathComponent("\(stem) \(counter).\(ext)")
+            counter += 1
         }
+
+        do {
+            try FileManager.default.copyItem(at: fileURL, to: finalURL)
+            NSWorkspace.shared.activateFileViewerSelecting([finalURL])
+        } catch {
+            // Fallback: just reveal the original file
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+        }
+        onDismiss()
     }
 }

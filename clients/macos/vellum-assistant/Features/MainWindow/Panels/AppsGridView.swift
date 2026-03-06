@@ -10,13 +10,6 @@ struct AppsGridView: View {
     /// Called when the user opens a shared app (needs surface-based navigation).
     var onOpenSharedApp: ((UiSurfaceShowMessage) -> Void)?
 
-    private enum Tab: String, CaseIterable {
-        case recents = "Recents"
-        case all = "All"
-        case shared = "Shared"
-    }
-
-    @State private var selectedTab: Tab = .recents
     @State private var searchText = ""
     @State private var hoveredAppId: String?
     @State private var editingApp: AppListManager.AppItem?
@@ -27,12 +20,9 @@ struct AppsGridView: View {
     @State private var showShareSheet = false
     @State private var isBundling = false
 
-    // Daemon-fetched data for "All" and "Shared" tabs
-    @State private var allLocalApps: [AppItem] = []
+    // Shared apps fetched from daemon
     @State private var sharedApps: [SharedAppItem] = []
-    @State private var isLoadingAll = false
     @State private var isLoadingShared = false
-    @State private var hasFetchedAll = false
     @State private var hasFetchedShared = false
 
     /// Cache of lazily-loaded preview screenshots keyed by app ID.
@@ -48,7 +38,7 @@ struct AppsGridView: View {
 
     var body: some View {
         Group {
-            if appListManager.apps.isEmpty && allLocalApps.isEmpty && sharedApps.isEmpty && selectedTab == .recents {
+            if appListManager.apps.isEmpty && sharedApps.isEmpty {
                 noAppsEmptyState
             } else {
                 VStack(alignment: .leading, spacing: 0) {
@@ -61,30 +51,16 @@ struct AppsGridView: View {
                     }
                     .padding(.bottom, VSpacing.md)
 
-                    VSegmentedControl(
-                        items: Tab.allCases.map { (label: $0.rawValue, tag: $0) },
-                        selection: $selectedTab
-                    )
-                    .padding(.bottom, VSpacing.sm)
-
                     Divider().background(VColor.surfaceBorder)
 
-                    switch selectedTab {
-                    case .recents:
-                        recentsContent
-                    case .all:
-                        allContent
-                    case .shared:
-                        sharedContent
-                    }
+                    mainContent
                 }
                 .padding(VSpacing.xl)
             }
         }
         .background(VColor.backgroundSubtle)
-        .onChange(of: selectedTab) { _, newTab in
-            if newTab == .all && !hasFetchedAll { fetchAllApps() }
-            if newTab == .shared && !hasFetchedShared { fetchSharedApps() }
+        .onAppear {
+            if !hasFetchedShared { fetchSharedApps() }
         }
         .onDisappear {
             for task in previewTasks.values { task.cancel() }
@@ -101,15 +77,16 @@ struct AppsGridView: View {
         }
     }
 
-    // MARK: - Tab Content
+    // MARK: - Main Content
 
-    private var recentsContent: some View {
+    private var mainContent: some View {
         ScrollView {
             VStack(spacing: VSpacing.xxl) {
                 searchBar
 
                 let pinned = filteredPinnedApps
                 let recents = filteredRecentApps
+                let shared = filteredSharedApps
 
                 if !pinned.isEmpty {
                     appSection(title: "Pinned", apps: pinned)
@@ -119,69 +96,16 @@ struct AppsGridView: View {
                     appSection(title: "Recents", apps: recents)
                 }
 
-                if pinned.isEmpty && recents.isEmpty && !searchText.isEmpty {
-                    VEmptyState(
-                        title: "No apps matched",
-                        subtitle: "No apps matched \"\(searchText)\"",
-                        icon: VIcon.search.rawValue
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, VSpacing.xxxl)
-                }
-            }
-            .frame(maxWidth: maxContentWidth)
-            .frame(maxWidth: .infinity)
-            .padding(.top, VSpacing.lg)
-        }
-    }
-
-    private var allContent: some View {
-        ScrollView {
-            VStack(spacing: VSpacing.xxl) {
-                searchBar
-
-                if isLoadingAll {
+                if !shared.isEmpty {
+                    sharedSection(title: "Shared", apps: shared)
+                } else if isLoadingShared {
                     ProgressView()
-                        .controlSize(.regular)
+                        .controlSize(.small)
                         .frame(maxWidth: .infinity)
-                        .padding(.top, VSpacing.xxxl)
-                } else if filteredAllApps.isEmpty && !searchText.isEmpty {
-                    VEmptyState(
-                        title: "No apps matched",
-                        subtitle: "No apps matched \"\(searchText)\"",
-                        icon: VIcon.search.rawValue
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, VSpacing.xxxl)
-                } else if allLocalApps.isEmpty {
-                    VEmptyState(
-                        title: "No apps yet",
-                        subtitle: "Ask the assistant to build something",
-                        icon: "square.grid.2x2"
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, VSpacing.xxxl)
-                } else {
-                    allAppsGrid
+                        .padding(.top, VSpacing.lg)
                 }
-            }
-            .frame(maxWidth: maxContentWidth)
-            .frame(maxWidth: .infinity)
-            .padding(.top, VSpacing.lg)
-        }
-    }
 
-    private var sharedContent: some View {
-        ScrollView {
-            VStack(spacing: VSpacing.xxl) {
-                searchBar
-
-                if isLoadingShared {
-                    ProgressView()
-                        .controlSize(.regular)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, VSpacing.xxxl)
-                } else if filteredSharedApps.isEmpty && !searchText.isEmpty {
+                if pinned.isEmpty && recents.isEmpty && shared.isEmpty && !searchText.isEmpty {
                     VEmptyState(
                         title: "No apps matched",
                         subtitle: "No apps matched \"\(searchText)\"",
@@ -189,16 +113,6 @@ struct AppsGridView: View {
                     )
                     .frame(maxWidth: .infinity)
                     .padding(.top, VSpacing.xxxl)
-                } else if sharedApps.isEmpty {
-                    VEmptyState(
-                        title: "No shared apps",
-                        subtitle: "Apps shared with you will appear here",
-                        icon: "person.2"
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, VSpacing.xxxl)
-                } else {
-                    sharedAppsGrid
                 }
             }
             .frame(maxWidth: maxContentWidth)
@@ -400,159 +314,7 @@ struct AppsGridView: View {
         .accessibilityLabel(app.name)
     }
 
-    // MARK: - Sharing
-
-    private func bundleAndShareLocal(appId: String) {
-        guard !isBundling else { return }
-        isBundling = true
-        sharingAppId = appId
-
-        let previousHandler = daemonClient.onBundleAppResponse
-        daemonClient.onBundleAppResponse = { response in
-            daemonClient.onBundleAppResponse = previousHandler
-            let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
-            MainWindowView.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
-            shareFileURL = url
-            shareAppName = response.manifest.name
-            shareAppIcon = MainWindowView.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
-            isBundling = false
-            showShareSheet = true
-        }
-
-        do {
-            try daemonClient.sendBundleApp(appId: appId)
-        } catch {
-            isBundling = false
-            sharingAppId = nil
-            daemonClient.onBundleAppResponse = previousHandler
-        }
-    }
-
-    // MARK: - Preview Fetching
-
-    private func fetchPreviewIfNeeded(_ app: AppListManager.AppItem) {
-        // Skip if the app already has an inline preview
-        guard app.previewBase64 == nil else { return }
-        // Skip if already cached (including empty-string sentinel) or in-flight
-        guard previewCache[app.id] == nil, previewTasks[app.id] == nil else { return }
-
-        let stream = daemonClient.subscribe()
-        do {
-            try daemonClient.sendAppPreview(appId: app.id)
-        } catch { return }
-
-        let appId = app.id
-        let task = Task { @MainActor in
-            let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000) }
-            defer {
-                timeout.cancel()
-                self.previewTasks.removeValue(forKey: appId)
-            }
-
-            for await message in stream {
-                if Task.isCancelled { break }
-                if case .appPreviewResponse(let response) = message,
-                   response.appId == appId {
-                    self.previewCache[appId] = response.preview ?? ""
-                    return
-                }
-            }
-        }
-
-        Task {
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            if !task.isCancelled { task.cancel() }
-        }
-
-        previewTasks[appId] = task
-    }
-
-    // MARK: - All Apps Grid
-
-    private var allAppsGrid: some View {
-        LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
-            ForEach(filteredAllApps) { app in
-                allAppCard(app)
-            }
-        }
-    }
-
-    private func allAppCard(_ app: AppItem) -> some View {
-        let preview = previewCache[app.id]
-        let resolvedPreview = preview?.isEmpty == true ? nil : preview
-
-        return Button {
-            appListManager.recordAppOpen(
-                id: app.id, name: app.name, icon: app.icon,
-                appType: nil
-            )
-            onOpenApp(app.id)
-        } label: {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Group {
-                    if let nsImage = AppPreviewImageStore.image(appId: app.id, base64: resolvedPreview) {
-                        Color.clear
-                            .aspectRatio(16.0 / 10.0, contentMode: .fit)
-                            .overlay(
-                                Image(nsImage: nsImage)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                            )
-                            .clipped()
-                    } else {
-                        ZStack {
-                            Moss._100
-
-                            if let icon = app.icon {
-                                Text(icon)
-                                    .font(.system(size: 32))
-                            } else {
-                                Image(systemName: VAppIconGenerator.generate(from: app.name, type: nil))
-                                    .font(.system(size: 32, weight: .medium))
-                                    .foregroundColor(VColor.textMuted)
-                            }
-                        }
-                        .aspectRatio(16.0 / 10.0, contentMode: .fit)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.surfaceBorder, lineWidth: 1)
-                )
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(app.name)
-                        .font(VFont.bodyBold)
-                        .foregroundColor(VColor.textPrimary)
-                        .lineLimit(1)
-
-                    Text(Self.formatEpochMs(app.createdAt))
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.textMuted)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, VSpacing.xs)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            hoveredAppId = hovering ? "all-\(app.id)" : nil
-            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-        }
-        .onAppear { fetchPreviewForAllApp(app) }
-    }
-
-    // MARK: - Shared Apps Grid
-
-    private var sharedAppsGrid: some View {
-        LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
-            ForEach(filteredSharedApps) { app in
-                sharedAppCard(app)
-            }
-        }
-    }
+    // MARK: - Shared App Card
 
     private func sharedAppCard(_ app: SharedAppItem) -> some View {
         let preview = app.preview
@@ -650,25 +412,74 @@ struct AppsGridView: View {
         onOpenSharedApp?(surfaceMsg)
     }
 
-    // MARK: - Daemon Data Fetching
+    // MARK: - Sharing
 
-    private func fetchAllApps() {
-        isLoadingAll = true
-        let previousHandler = daemonClient.onAppsListResponse
-        daemonClient.onAppsListResponse = { response in
-            daemonClient.onAppsListResponse = previousHandler
-            self.allLocalApps = response.apps
-            self.isLoadingAll = false
-            self.hasFetchedAll = true
+    private func bundleAndShareLocal(appId: String) {
+        guard !isBundling else { return }
+        isBundling = true
+        sharingAppId = appId
+
+        let previousHandler = daemonClient.onBundleAppResponse
+        daemonClient.onBundleAppResponse = { response in
+            daemonClient.onBundleAppResponse = previousHandler
+            let url = MainWindowView.cleanBundleURL(bundlePath: response.bundlePath, appName: response.manifest.name)
+            MainWindowView.applyFileIcon(to: url, iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+            shareFileURL = url
+            shareAppName = response.manifest.name
+            shareAppIcon = MainWindowView.buildAppIcon(iconBase64: response.iconImageBase64, emojiIcon: response.manifest.icon, appName: response.manifest.name)
+            isBundling = false
+            showShareSheet = true
         }
+
         do {
-            try daemonClient.sendAppsList()
+            try daemonClient.sendBundleApp(appId: appId)
         } catch {
-            isLoadingAll = false
-            hasFetchedAll = true
-            daemonClient.onAppsListResponse = previousHandler
+            isBundling = false
+            sharingAppId = nil
+            daemonClient.onBundleAppResponse = previousHandler
         }
     }
+
+    // MARK: - Preview Fetching
+
+    private func fetchPreviewIfNeeded(_ app: AppListManager.AppItem) {
+        // Skip if the app already has an inline preview
+        guard app.previewBase64 == nil else { return }
+        // Skip if already cached (including empty-string sentinel) or in-flight
+        guard previewCache[app.id] == nil, previewTasks[app.id] == nil else { return }
+
+        let stream = daemonClient.subscribe()
+        do {
+            try daemonClient.sendAppPreview(appId: app.id)
+        } catch { return }
+
+        let appId = app.id
+        let task = Task { @MainActor in
+            let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000) }
+            defer {
+                timeout.cancel()
+                self.previewTasks.removeValue(forKey: appId)
+            }
+
+            for await message in stream {
+                if Task.isCancelled { break }
+                if case .appPreviewResponse(let response) = message,
+                   response.appId == appId {
+                    self.previewCache[appId] = response.preview ?? ""
+                    return
+                }
+            }
+        }
+
+        Task {
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            if !task.isCancelled { task.cancel() }
+        }
+
+        previewTasks[appId] = task
+    }
+
+    // MARK: - Daemon Data Fetching
 
     private func fetchSharedApps() {
         isLoadingShared = true
@@ -688,35 +499,6 @@ struct AppsGridView: View {
         }
     }
 
-    private func fetchPreviewForAllApp(_ app: AppItem) {
-        guard previewCache[app.id] == nil, previewTasks[app.id] == nil else { return }
-
-        let stream = daemonClient.subscribe()
-        do {
-            try daemonClient.sendAppPreview(appId: app.id)
-        } catch { return }
-
-        let appId = app.id
-        let task = Task { @MainActor in
-            defer { self.previewTasks.removeValue(forKey: appId) }
-            for await message in stream {
-                if Task.isCancelled { break }
-                if case .appPreviewResponse(let response) = message,
-                   response.appId == appId {
-                    self.previewCache[appId] = response.preview ?? ""
-                    return
-                }
-            }
-        }
-
-        Task {
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            if !task.isCancelled { task.cancel() }
-        }
-
-        previewTasks[appId] = task
-    }
-
     // MARK: - Sections
 
     private func appSection(title: String, apps: [AppListManager.AppItem]) -> some View {
@@ -729,6 +511,20 @@ struct AppsGridView: View {
                 ForEach(apps) { app in
                     appCard(app)
                         .onAppear { fetchPreviewIfNeeded(app) }
+                }
+            }
+        }
+    }
+
+    private func sharedSection(title: String, apps: [SharedAppItem]) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text(title)
+                .font(VFont.headline)
+                .foregroundColor(VColor.textSecondary)
+
+            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
+                ForEach(apps) { app in
+                    sharedAppCard(app)
                 }
             }
         }
@@ -757,15 +553,6 @@ struct AppsGridView: View {
         return unpinned.filter { matchesSearch($0) }
     }
 
-    /// All daemon-fetched local apps, filtered by search text.
-    private var filteredAllApps: [AppItem] {
-        guard !searchText.isEmpty else { return allLocalApps }
-        return allLocalApps.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            ($0.description?.localizedCaseInsensitiveContains(searchText) ?? false)
-        }
-    }
-
     /// Shared apps filtered by search text.
     private var filteredSharedApps: [SharedAppItem] {
         guard !searchText.isEmpty else { return sharedApps }
@@ -790,11 +577,6 @@ struct AppsGridView: View {
 
     private static func formatDate(_ date: Date) -> String {
         dateFormatter.string(from: date)
-    }
-
-    private static func formatEpochMs(_ epochMs: Int) -> String {
-        let date = Date(timeIntervalSince1970: Double(epochMs) / 1000)
-        return dateFormatter.string(from: date)
     }
 
     private static let isoFormatter: ISO8601DateFormatter = {
