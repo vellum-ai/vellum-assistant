@@ -17,7 +17,7 @@ export function registerCompletionsCommand(program: Command): void {
 Arguments:
   shell   Shell to generate completions for: bash, zsh, or fish
 
-Generates a completion script that enables tab-completion for all vellum
+Generates a completion script that enables tab-completion for common vellum
 commands, subcommands, and flags. The script is written to stdout so you
 can redirect it to a file or eval it directly.
 

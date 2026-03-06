@@ -306,7 +306,7 @@ How it works:
   3. Deduplicates captured requests into unique API endpoints
   4. Saves the API map to disk and prints a summary table
 
-The daemon must be running (the learn session is coordinated through it).
+The assistant must be running (the learn session is coordinated through it).
 
 Examples:
   $ vellum map example.com
