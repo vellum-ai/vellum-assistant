@@ -272,9 +272,9 @@ struct MainWindowView: View {
                     } else {
                         // Thread was archived/deleted — fall back to the first visible thread
                         if let fallback = threadManager.visibleThreads.first {
-                            windowState.selection = .thread(fallback.id)
+                            windowState.applySelectionCorrection(.thread(fallback.id))
                         } else {
-                            windowState.selection = nil
+                            windowState.applySelectionCorrection(nil)
                         }
                     }
                 }
