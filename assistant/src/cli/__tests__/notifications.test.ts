@@ -426,18 +426,45 @@ describe("notifications list", () => {
     }
   });
 
-  test("list rejects invalid source event name filter", async () => {
+  test("list accepts custom (non-registered) source event names", async () => {
+    createEvent({
+      id: `evt-custom-${Date.now()}`,
+      sourceEventName: "custom.my_event",
+      sourceChannel: "assistant_tool",
+      sourceSessionId: "session-custom",
+      attentionHints: {
+        requiresAction: true,
+        urgency: "medium",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      payload: { requestedMessage: "Custom event" },
+    });
+
     const { parsed, exitCode } = await runCommand([
       "list",
       "--source-event-name",
-      "bogus",
+      "custom.my_event",
     ]);
 
-    expect(exitCode).toBe(1);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("bogus");
-    // Should list valid event names from the registry
-    expect(parsed.error).toContain("user.send_notification");
-    expect(parsed.error).toContain("reminder.fired");
+    expect(exitCode).toBe(0);
+    expect(parsed.ok).toBe(true);
+    const events = parsed.events as Array<Record<string, unknown>>;
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    for (const event of events) {
+      expect(event.sourceEventName).toBe("custom.my_event");
+    }
+  });
+
+  test("list returns empty for non-matching custom event name", async () => {
+    const { parsed, exitCode } = await runCommand([
+      "list",
+      "--source-event-name",
+      "nonexistent.event",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.events).toEqual([]);
   });
 });

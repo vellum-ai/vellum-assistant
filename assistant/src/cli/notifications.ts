@@ -332,17 +332,15 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          // Validate --source-event-name
+          // Validate --source-event-name (accept any non-empty string; custom
+          // event names are valid since skills can emit arbitrary names)
           if (
             opts.sourceEventName != null &&
-            !isNotificationSourceEventName(opts.sourceEventName)
+            opts.sourceEventName.trim().length === 0
           ) {
-            const validEvents = NOTIFICATION_SOURCE_EVENT_NAMES.map(
-              (e) => e.id,
-            ).join(", ");
             writeOutput(cmd, {
               ok: false,
-              error: `Invalid source event name "${opts.sourceEventName}". Valid values: ${validEvents}`,
+              error: "Source event name must be a non-empty string",
             });
             process.exitCode = 1;
             return;
