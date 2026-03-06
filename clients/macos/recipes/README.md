@@ -1,49 +1,43 @@
 # Just-in-Time Onboarding Recipes
 
-## The Vision
+## Implemented (Not Yet Wired)
 
-During onboarding, the assistant asks a single question:
+The recipe execution engine is implemented but **not yet invoked from any code path**. The `RecipeExecutor` class (at `ComputerUse/RecipeExecutor.swift`) loads structured markdown recipes, builds a task prompt from the recipe steps, and drives a `ComputerUseSession` to execute the setup end-to-end. It is fully functional but has no call sites — it will be wired into the onboarding flow once the integration picker (see Planned section) is built.
+
+### Available Recipe Files
+
+```
+recipes/
+├── README.md                    # this file
+└── github-app-setup.md          # Register + install GitHub App
+```
+
+### How It Works
+
+1. `RecipeExecutor` dynamically loads a recipe markdown file from the app bundle (source files live in `clients/macos/vellum-assistant/Resources/Recipes/`)
+2. It parses the structured steps and builds a task prompt with context interpolation (assistant name, target repo, etc.)
+3. The prompt is handed to a `ComputerUseSession`, which executes the steps via the standard computer-use pipeline (perceive → infer → verify → execute)
+4. Captured credentials are extracted from session output and returned to the caller (secure storage integration is not yet implemented)
+
+The recipe acts as a **pre-written plan** — the model spends almost zero tokens on planning and almost all tokens on perception + action execution.
+
+---
+
+## Planned
+
+The following features are **not yet implemented** and are listed here for roadmap context only.
+
+### Integration Picker (Not Yet Built)
+
+A future onboarding step that would ask:
 
 > **"Where do you spend most of your time?"**
 >
 > `[ GitHub ]` `[ Gmail ]` `[ Slack ]` `[ Linear ]` `[ Notion ]`
 
-When the user picks one (say, **GitHub**), the assistant responds:
+When shipped, this picker would appear as a step in the onboarding flow and trigger the appropriate recipe automatically.
 
-> "Let me get **{assistant-name}** set up on GitHub.
-> Can I take it from here?"
->
-> `[ Yes — I'll use your mouse and keyboard ]` `[ Back ]`
-
-If yes: the computer-use agent takes over, follows the recipe, and hands control
-back when done. The whole thing takes ~60 seconds. The user watches their
-assistant set itself up in real-time.
-
----
-
-## How It Works
-
-### 1. Recipe Files
-
-Each integration has a recipe in this directory:
-
-```
-recipes/
-├── README.md                    # this file
-├── github-app-setup.md          # Register + install GitHub App
-├── gmail-oauth-setup.md         # (future) Google OAuth consent
-├── slack-app-setup.md           # (future) Slack App + Bot Token
-├── linear-oauth-setup.md        # (future) Linear API key
-└── notion-integration-setup.md  # (future) Notion integration
-```
-
-Recipes are **structured markdown** with:
-- Prerequisites (what must be true)
-- Steps (atomic computer-use actions with LOCATE/ACTION/WAIT/VERIFY/CAPTURE)
-- Error recovery tables
-- Credential output schemas
-
-### 2. Orchestration Flow
+### Planned Orchestration Flow
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -52,7 +46,7 @@ Recipes are **structured markdown** with:
 │  Step 1: Wake up + naming        (existing)             │
 │  Step 2: Permissions             (existing)             │
 │  Step 3: Fn key config           (existing)             │
-│  Step 4: ★ Integration picker ★  (NEW)                  │
+│  Step 4: ★ Integration picker ★  (NOT YET BUILT)        │
 │           │                                             │
 │           ├─ User picks "GitHub"                        │
 │           │                                             │
@@ -76,68 +70,32 @@ Recipes are **structured markdown** with:
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 3. Recipe Executor (New Component)
+> **Note:** The `RecipeExecutor` class is implemented (see above), but Step 4 (the integration picker that triggers it) does not exist yet. See `ComputerUse/RecipeExecutor.swift` for the real implementation.
 
-The Recipe Executor sits between the onboarding flow and `ComputerUseSession`:
+### Future Recipe Files (Not Yet Created)
 
-```swift
-// Conceptual — RecipeExecutor.swift
-@MainActor
-final class RecipeExecutor {
+These recipe files do not exist yet:
 
-    /// Load a recipe from the recipes directory
-    func loadRecipe(_ name: String) -> Recipe { ... }
+- `gmail-oauth-setup.md` — Google OAuth consent
+- `slack-app-setup.md` — Slack App + Bot Token
+- `linear-oauth-setup.md` — Linear API key
+- `notion-integration-setup.md` — Notion integration
 
-    /// Convert recipe steps into a ComputerUseSession task prompt
-    func buildTaskPrompt(recipe: Recipe, context: OnboardingContext) -> String {
-        // Interpolate {assistant-name}, {target-repo}, etc.
-        // Include the full step sequence so the model knows what to do
-        // Include error recovery guidance
-    }
-
-    /// Execute the recipe via computer use
-    func execute(recipe: Recipe, context: OnboardingContext) async -> RecipeResult {
-        let task = buildTaskPrompt(recipe: recipe, context: context)
-        let session = ComputerUseSession(task: task, provider: provider)
-        await session.run()
-        // Parse captured credentials from session output
-        return RecipeResult(credentials: ..., success: ...)
-    }
-}
-```
-
-### 4. Why This Is Fast
-
-The recipe is a **pre-written plan**. Instead of the model figuring out what to do
-from scratch ("set up a GitHub App"), it gets a step-by-step playbook with:
-
-- Exact URLs to navigate to
-- Exact field names to look for
-- Exact values to type
-- Exact verification checks
-
-This means the model spends almost zero tokens on planning and almost all tokens
-on perception + action execution. Expected: **~15-25 steps, ~60 seconds**.
-
-### 5. Why Recipes Beat Documentation
+### Performance Targets
 
 | Approach | User effort | Time | Error rate |
 |----------|------------|------|------------|
 | Send docs link, user does it | High | 10-30 min | High |
 | Walk through step by step (chat) | Medium | 5-15 min | Medium |
-| **Recipe (computer use)** | **Zero** | **~60 sec** | **Low** |
-
-The user literally watches their assistant set itself up. That's the onboarding
-moment that makes people go "oh, this is different."
+| **Recipe (computer use)** | **Zero** | **~60 sec target** | **Low target** |
 
 ---
 
 ## Extending: Adding a New Recipe
 
-1. Create `recipes/{service}-setup.md`
+1. Create `{service}-setup.md` in `clients/macos/vellum-assistant/Resources/Recipes/` (the app bundle resource directory)
 2. Follow the structure in `github-app-setup.md`
-3. Add the service to the integration picker in `OnboardingFlowView`
-4. Register the recipe name in `RecipeExecutor`
+3. `RecipeExecutor` dynamically loads recipes by filename from the bundle — no registration step is needed
 
 ### Recipe Step DSL
 
@@ -161,10 +119,10 @@ These map directly to the 10 tools available in `ComputerUseSession`:
 
 ## Security Considerations
 
-- Private keys are captured from browser downloads and stored in the
-  assistant's secure credential store (Keychain on macOS)
+- Private keys are captured from browser downloads (secure Keychain
+  storage is planned but not yet implemented in `RecipeExecutor`)
 - Recipe execution requires explicit user consent ("I'll use your mouse and keyboard")
 - `ActionVerifier` safety checks remain active during recipe execution
   (no destructive keys, no sensitive data exposure, loop detection)
-- Credentials are never sent to the LLM after capture — they go directly
-  to secure storage via a post-processing step
+- Credentials are never sent to the LLM after capture — they are
+  extracted in a post-processing step (secure storage TBD)
