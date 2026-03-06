@@ -315,6 +315,7 @@ export async function loadConfig(): Promise<GatewayConfig> {
   let twilioPhoneNumber: string | undefined =
     process.env.TWILIO_PHONE_NUMBER || undefined;
   let assistantPhoneNumbers: Record<string, string> | undefined;
+  let assistantEmail: string | undefined;
   try {
     const cfgPath = join(getRootDir(), "workspace", "config.json");
     const raw = readFileSync(cfgPath, "utf-8");
@@ -348,6 +349,9 @@ export async function loadConfig(): Promise<GatewayConfig> {
         }
       }
       assistantPhoneNumbers = normalized;
+    }
+    if (data?.email?.address && typeof data.email.address === "string") {
+      assistantEmail = data.email.address;
     }
   } catch {
     // config file may not exist yet
@@ -500,19 +504,6 @@ export async function loadConfig(): Promise<GatewayConfig> {
   const trustProxy = trustProxyRaw === "true";
 
   const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
-
-  // Assistant email from workspace config file
-  let assistantEmail: string | undefined;
-  try {
-    const cfgPath = join(getRootDir(), "workspace", "config.json");
-    const raw = readFileSync(cfgPath, "utf-8");
-    const data = JSON.parse(raw);
-    if (data?.email?.address && typeof data.email.address === "string") {
-      assistantEmail = data.email.address;
-    }
-  } catch {
-    // config file may not exist yet
-  }
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 
