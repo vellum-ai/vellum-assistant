@@ -93,15 +93,15 @@ export type ProxyResolver = (
  */
 export function resolveAppFilePath(app: AppDefinition, path: string): string {
   if (!isMultifileApp(app)) return path;
-  const normalized = path.replace(/\\/g, "/");
+  const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
   if (
     normalized.startsWith("src/") ||
     normalized.startsWith("dist/") ||
     normalized.startsWith("records/")
   ) {
-    return path;
+    return normalized;
   }
-  return `src/${path}`;
+  return `src/${normalized}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -375,15 +375,18 @@ export function executeAppFileList(
   const app = store.getApp(input.app_id);
 
   if (app && isMultifileApp(app)) {
-    // Annotate dist/ files as build output for clarity
-    const annotated = files.map((f) => {
-      const normalized = f.replace(/\\/g, "/");
-      if (normalized.startsWith("dist/")) {
-        return `${f} [build output]`;
-      }
-      return f;
-    });
-    return { content: JSON.stringify(annotated), isError: false };
+    // Separate build output paths from source paths without mutating the
+    // file path strings — consumers need clean paths for subsequent tool calls.
+    const buildOutputPaths = files.filter((f) =>
+      f.replace(/\\/g, "/").startsWith("dist/"),
+    );
+    return {
+      content: JSON.stringify({
+        files,
+        buildOutput: buildOutputPaths,
+      }),
+      isError: false,
+    };
   }
 
   return { content: JSON.stringify(files), isError: false };

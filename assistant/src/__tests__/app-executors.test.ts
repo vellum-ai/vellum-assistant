@@ -138,6 +138,20 @@ describe("resolveAppFilePath", () => {
     const app = makeLegacyApp({ formatVersion: 1 });
     expect(resolveAppFilePath(app, "index.html")).toBe("index.html");
   });
+
+  test("strips ./ prefix and prepends src/ for multifile app", () => {
+    const app = makeMultifileApp();
+    expect(resolveAppFilePath(app, "./main.tsx")).toBe("src/main.tsx");
+  });
+
+  test("strips ./ prefix for known top-level dir in multifile app", () => {
+    const app = makeMultifileApp();
+    expect(resolveAppFilePath(app, "./src/main.tsx")).toBe("src/main.tsx");
+    expect(resolveAppFilePath(app, "./dist/bundle.js")).toBe("dist/bundle.js");
+    expect(resolveAppFilePath(app, "./records/data.json")).toBe(
+      "records/data.json",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -285,7 +299,7 @@ describe("executeAppFileEdit", () => {
 // ---------------------------------------------------------------------------
 
 describe("executeAppFileList", () => {
-  test("annotates dist/ files as build output for multifile app", () => {
+  test("returns clean file paths and separate buildOutput for multifile app", () => {
     const app = makeMultifileApp();
     const store = mockStore(app, {
       "src/main.tsx": "",
@@ -294,11 +308,21 @@ describe("executeAppFileList", () => {
     });
 
     const result = executeAppFileList({ app_id: app.id }, store);
-    const parsed = JSON.parse(result.content) as string[];
+    const parsed = JSON.parse(result.content) as {
+      files: string[];
+      buildOutput: string[];
+    };
 
-    expect(parsed).toContain("src/main.tsx");
-    expect(parsed).toContain("src/components/Header.tsx");
-    expect(parsed).toContain("dist/index.html [build output]");
+    // File paths must be clean — no annotations appended
+    expect(parsed.files).toContain("src/main.tsx");
+    expect(parsed.files).toContain("src/components/Header.tsx");
+    expect(parsed.files).toContain("dist/index.html");
+    expect(
+      parsed.files.every((f: string) => !f.includes("[build output]")),
+    ).toBe(true);
+
+    // Build output files listed separately
+    expect(parsed.buildOutput).toEqual(["dist/index.html"]);
   });
 
   test("does not annotate files for legacy app", () => {
