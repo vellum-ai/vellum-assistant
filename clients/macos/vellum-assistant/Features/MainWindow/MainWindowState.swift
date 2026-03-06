@@ -1,5 +1,8 @@
 import SwiftUI
 import VellumAssistantShared
+import os
+
+private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MainWindowState")
 
 /// Represents what is currently displayed in the main content area.
 enum ViewSelection: Equatable {
@@ -19,18 +22,19 @@ public final class MainWindowState: ObservableObject {
     /// The single source of truth for what the main content area displays.
     let navigationHistory = NavigationHistory()
 
-    /// Tracks the previous selection for navigation history recording.
-    /// `@Published` property wrappers don't provide a reliable `oldValue`
-    /// in `didSet` — it can equal the new value. We capture it in `willSet`.
-    private var _previousSelection: ViewSelection?
+    /// Tracks the last known selection for navigation history recording.
+    /// Updated at the end of `didSet` to avoid relying on `oldValue` or
+    /// `willSet` with `@Published`, which can behave unreliably.
+    private var _lastKnownSelection: ViewSelection?
 
     @Published var selection: ViewSelection? {
-        willSet {
-            _previousSelection = selection
-        }
         didSet {
-            navigationHistory.recordTransition(from: _previousSelection, to: selection, persistentThreadId: persistentThreadId)
-            _previousSelection = nil
+            let previousSelection = _lastKnownSelection
+            _lastKnownSelection = selection
+
+            log.debug("selection.didSet — previous: \(String(describing: previousSelection)), new: \(String(describing: selection))")
+
+            navigationHistory.recordTransition(from: previousSelection, to: selection, persistentThreadId: persistentThreadId)
             // When navigating to a thread, update the persistent thread tracker.
             // For overlays (app, appEditing, panel) and nil, leave persistentThreadId unchanged.
             if case .thread(let id) = selection {

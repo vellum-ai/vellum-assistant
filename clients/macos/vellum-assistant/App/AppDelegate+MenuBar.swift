@@ -194,10 +194,12 @@ extension AppDelegate {
     @objc public func handleWindowZoomReset() { routeZoomIntent(.windowZoomReset) }
 
     @objc public func handleNavigateBack() {
+        log.debug("handleNavigateBack called — mainWindow: \(self.mainWindow != nil)")
         mainWindow?.windowState.navigateBack()
     }
 
     @objc public func handleNavigateForward() {
+        log.debug("handleNavigateForward called — mainWindow: \(self.mainWindow != nil)")
         mainWindow?.windowState.navigateForward()
     }
 
@@ -206,10 +208,16 @@ extension AppDelegate {
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
         if action == #selector(handleNavigateBack) {
-            return mainWindow?.windowState.navigationHistory.canGoBack ?? false
+            let canGo = mainWindow?.windowState.navigationHistory.canGoBack ?? false
+            let backCount = mainWindow?.windowState.navigationHistory.backStack.count ?? -1
+            let hasWindow = mainWindow != nil
+            log.debug("validateMenuItem Back — canGoBack: \(canGo), backStack.count: \(backCount), hasWindow: \(hasWindow)")
+            return canGo
         }
         if action == #selector(handleNavigateForward) {
-            return mainWindow?.windowState.navigationHistory.canGoForward ?? false
+            let canGo = mainWindow?.windowState.navigationHistory.canGoForward ?? false
+            log.debug("validateMenuItem Forward — canGoForward: \(canGo)")
+            return canGo
         }
         if action == #selector(markAllThreadsSeen) {
             return (mainWindow?.threadManager.unseenVisibleConversationCount ?? 0) > 0
