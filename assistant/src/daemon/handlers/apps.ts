@@ -31,6 +31,7 @@ import {
   getApp,
   getAppPreview,
   getAppsDir,
+  isMultifileApp,
   listApps,
   queryAppRecords,
   updateApp,
@@ -113,11 +114,11 @@ export function handleAppDataRequest(
   }
 }
 
-export function handleAppOpenRequest(
+export async function handleAppOpenRequest(
   msg: { appId: string },
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   try {
     const appId = msg.appId;
     if (!appId) {
@@ -131,13 +132,37 @@ export function handleAppOpenRequest(
     const app = getApp(appId);
     if (app) {
       const surfaceId = `app-open-${uuid()}`;
+      let html = app.htmlDefinition;
+
+      // Multifile apps store source in src/ and compiled output in dist/.
+      // Read dist/index.html instead of the (empty) htmlDefinition.
+      if (isMultifileApp(app)) {
+        const appDir = join(getAppsDir(), appId);
+        const distIndex = join(appDir, "dist", "index.html");
+        if (!existsSync(distIndex)) {
+          // Auto-compile if dist/ is missing (first open or after clean)
+          const result = await compileApp(appDir);
+          if (!result.ok) {
+            log.warn(
+              { appId, errors: result.errors },
+              "Auto-compile failed on app open",
+            );
+          }
+        }
+        if (existsSync(distIndex)) {
+          html = readFileSync(distIndex, "utf-8");
+        } else {
+          html = `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
+        }
+      }
+
       ctx.send(socket, {
         type: "ui_surface_show",
         sessionId: "app-panel",
         surfaceId,
         surfaceType: "dynamic_page",
         title: app.name,
-        data: { html: app.htmlDefinition, appId: app.id },
+        data: { html, appId: app.id },
         display: "panel",
       } as UiSurfaceShow);
       return;

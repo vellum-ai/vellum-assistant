@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 process.title = "vellum-daemon";
+
 import * as Sentry from "@sentry/node";
 
 import { getLogger } from "../util/logger.js";
