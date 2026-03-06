@@ -209,12 +209,19 @@ describe("secure-keys", () => {
       expect(await getSecureKeyAsync("api-key")).toBe("broker-value");
     });
 
-    test("getSecureKeyAsync returns undefined when broker reports not-found (no fallback)", async () => {
+    test("getSecureKeyAsync falls back to encrypted store when broker reports not-found", async () => {
       mockBrokerAvailable = true;
       // Broker has nothing for this key — returns { found: false }.
-      // The new behaviour trusts the broker answer and does NOT fall back.
+      // Keys may exist only in the encrypted store (written while broker
+      // was unavailable or via sync setSecureKey), so we must fall back.
       setSecureKey("api-key", "encrypted-value");
-      expect(await getSecureKeyAsync("api-key")).toBeUndefined();
+      expect(await getSecureKeyAsync("api-key")).toBe("encrypted-value");
+    });
+
+    test("getSecureKeyAsync returns undefined when neither broker nor encrypted store has key", async () => {
+      mockBrokerAvailable = true;
+      // Neither store has the key — should return undefined
+      expect(await getSecureKeyAsync("missing-key")).toBeUndefined();
     });
 
     test("getSecureKeyAsync falls back to encrypted store on broker error", async () => {
