@@ -62,9 +62,9 @@ if not results:
         sf.write("## Performance Baselines\n\nNo performance measurements found in test output.\n")
     sys.exit(1)
 
-print("=== Performance Results ===")
+print("=== Performance Results (CPU Time) ===")
 for name, avg in sorted(results.items()):
-    print(f"  {name}: {avg:.4f}s")
+    print(f"  {name}: {avg:.4f}s (cpu)")
 print()
 
 # Metric version tag stored in baselines.json.  When the metric type changes
@@ -91,13 +91,13 @@ if needs_fresh_baseline:
             json.dump({"_metric": METRIC_VERSION, **results}, f, indent=2)
         print(f"No valid baseline found. Recorded current results as baseline ({baseline_file}).")
         with open(summary_file, "w") as sf:
-            sf.write("## Performance Baselines\n\nBaseline recorded for the first time. Future runs will compare against these values.\n")
+            sf.write("## Performance Baselines (CPU Time)\n\nBaseline recorded for the first time. Future runs will compare against these values.\n")
     else:
         print("WARNING: No valid baseline found and this is a PR run (UPDATE_BASELINE=false).")
         print("Run the workflow on main to establish a baseline before regressions can be detected.")
         print("Skipping regression check for this PR run.")
         with open(summary_file, "w") as sf:
-            sf.write("## Performance Baselines\n\nNo baseline available yet. Run the workflow on `main` to establish baselines.\n")
+            sf.write("## Performance Baselines (CPU Time)\n\nNo baseline available yet. Run the workflow on `main` to establish baselines.\n")
     sys.exit(0)
 
 # Load and compare against stored baseline (metric version already verified).
@@ -136,12 +136,12 @@ for name, actual in sorted(results.items()):
     rows.append(f"| {name} | {baseline:.4f}s | {actual:.4f}s | {dp:+.1f}% | {status} |")
 
 with open(summary_file, "w") as sf:
-    sf.write("## Performance Baselines\n\n")
+    sf.write("## Performance Baselines (CPU Time)\n\n")
     sf.write("| Test | Baseline | Actual | Delta | Status |\n")
     sf.write("|------|----------|--------|-------|--------|\n")
     for row in rows:
         sf.write(row + "\n")
-    sf.write(f"\n**Threshold**: {int(threshold)}%\n")
+    sf.write(f"\n**Metric**: CPU Time &nbsp;|&nbsp; **Threshold**: {int(threshold)}%\n")
 
 if regressions:
     print(f"FAIL: {len(regressions)} regression(s) exceed {threshold:.0f}% threshold: {', '.join(regressions)}")
