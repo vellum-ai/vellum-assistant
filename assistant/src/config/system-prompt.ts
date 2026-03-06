@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { buildCliProgram } from "../cli/program.js";
 import { listCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -19,6 +20,8 @@ import { resolveUserPronouns, resolveUserReference } from "./user-reference.js";
 const log = getLogger("system-prompt");
 
 const PROMPT_FILES = ["SOUL.md", "IDENTITY.md", "USER.md"] as const;
+
+let cachedCliHelp: string | undefined;
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -149,6 +152,7 @@ export function buildSystemPrompt(): string {
   }
   if (getIsContainerized()) parts.push(buildContainerizedSection());
   parts.push(buildConfigSection());
+  parts.push(buildCliReferenceSection());
   parts.push(buildPostToolResponseSection());
   parts.push(buildExternalCommsIdentitySection());
   parts.push(buildChannelAwarenessSection());
@@ -775,6 +779,24 @@ function buildConfigSection(): string {
     "When reading or updating workspace files, always use the sandbox tools (`file_read`, `file_edit`). Never use `host_file_read` or `host_file_edit` for workspace files — those are for host-only resources outside your workspace.",
     "",
     "When updating, read the file first, then make a targeted edit. Include all useful information, but don't bloat the files over time",
+  ].join("\n");
+}
+
+function buildCliReferenceSection(): string {
+  if (cachedCliHelp === undefined) {
+    cachedCliHelp = buildCliProgram().helpInformation().trim();
+  }
+
+  return [
+    "## Vellum CLI",
+    "",
+    "The `vellum` CLI is installed on the user's machine and available via `bash`.",
+    "",
+    "```",
+    cachedCliHelp,
+    "```",
+    "",
+    "Run `vellum <command> --help` for detailed help on any subcommand.",
   ].join("\n");
 }
 
