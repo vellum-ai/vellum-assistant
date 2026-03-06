@@ -233,7 +233,7 @@ final class VoiceModeManagerTests: XCTestCase {
     // MARK: - Permission Keyword Classification
 
     func testClassifyYes() {
-        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("yes"), .approved)
+        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("yes"), .allow)
     }
 
     func testClassifyNo() {
@@ -241,11 +241,11 @@ final class VoiceModeManagerTests: XCTestCase {
     }
 
     func testClassifyYeahSure() {
-        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("yeah sure"), .approved)
+        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("yeah sure"), .allow)
     }
 
     func testClassifyGoAhead() {
-        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("go ahead"), .approved)
+        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("go ahead"), .allow)
     }
 
     func testClassifyNoDontDoIt() {
@@ -262,7 +262,7 @@ final class VoiceModeManagerTests: XCTestCase {
     }
 
     func testClassifyProceed() {
-        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("please proceed"), .approved)
+        XCTAssertEqual(VoiceModeManager.classifyPermissionResponse("please proceed"), .allow)
     }
 
     func testClassifyStopCancel() {
