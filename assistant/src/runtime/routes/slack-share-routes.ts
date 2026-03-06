@@ -66,15 +66,23 @@ export async function handleListSlackChannels(): Promise<Response> {
     return httpError("SERVICE_UNAVAILABLE", "No Slack token configured", 503);
   }
 
-  const resp = await listConversations(
-    token,
-    "public_channel,private_channel,mpim,im",
-    true,
-    200,
-  );
+  // Paginate through all results (follows the pattern in adapter.ts)
+  const allChannels: SlackConversation[] = [];
+  let cursor: string | undefined;
+  do {
+    const resp = await listConversations(
+      token,
+      "public_channel,private_channel,mpim,im",
+      true,
+      200,
+      cursor,
+    );
+    allChannels.push(...resp.channels);
+    cursor = resp.response_metadata?.next_cursor || undefined;
+  } while (cursor);
 
   // Resolve DM display names in parallel, tolerating individual failures.
-  const dmUserIds = resp.channels
+  const dmUserIds = allChannels
     .filter((c) => c.is_im && c.user)
     .map((c) => c.user!);
   const uniqueUserIds = [...new Set(dmUserIds)];
@@ -97,7 +105,7 @@ export async function handleListSlackChannels(): Promise<Response> {
     }
   }
 
-  const channels: NormalizedChannel[] = resp.channels.map((c) => {
+  const channels: NormalizedChannel[] = allChannels.map((c) => {
     const type = classifyConversation(c);
     let name = c.name ?? c.id;
     if (type === "dm" && c.user) {
@@ -141,9 +149,9 @@ export async function handleShareToSlackChannel(
     return httpError("BAD_REQUEST", "Malformed JSON body", 400);
   }
 
-  const appId = body.appId as string | undefined;
-  const channelId = body.channelId as string | undefined;
-  const message = body.message as string | undefined;
+  const appId = body.appId;
+  const channelId = body.channelId;
+  const message = body.message;
 
   if (!appId || !channelId) {
     return httpError(
@@ -151,6 +159,18 @@ export async function handleShareToSlackChannel(
       "Missing required fields: appId, channelId",
       400,
     );
+  }
+
+  if (typeof appId !== "string" || typeof channelId !== "string") {
+    return httpError(
+      "BAD_REQUEST",
+      "Fields appId and channelId must be strings",
+      400,
+    );
+  }
+
+  if (message !== undefined && typeof message !== "string") {
+    return httpError("BAD_REQUEST", "Field message must be a string", 400);
   }
 
   const app = getApp(appId);
