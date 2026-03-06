@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 import VellumAssistantShared
@@ -105,7 +106,22 @@ enum BundleSandbox {
 
         log.info("Wrote metadata to \(metaPath.path)")
 
+        // Persist icon.png alongside metadata if it exists in the extracted bundle
+        let extractedIcon = targetDir.appendingPathComponent("icon.png")
+        if fm.fileExists(atPath: extractedIcon.path) {
+            let iconDest = sharedAppsDirectory.appendingPathComponent("\(uuid)-icon.png")
+            try? fm.copyItem(at: extractedIcon, to: iconDest)
+            log.info("Persisted icon to \(iconDest.path)")
+        }
+
         return (uuid: uuid, directory: targetDir)
+    }
+
+    /// Loads the persisted icon image for a given bundle UUID, if available.
+    static func iconImage(for uuid: String) -> NSImage? {
+        let iconPath = sharedAppsDirectory.appendingPathComponent("\(uuid)-icon.png")
+        guard FileManager.default.fileExists(atPath: iconPath.path) else { return nil }
+        return NSImage(contentsOf: iconPath)
     }
 
     /// Walk the extracted directory and remove any symlinks or hardlinks whose

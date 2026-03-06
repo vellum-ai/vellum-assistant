@@ -70,13 +70,24 @@ extension AppDelegate {
 
         viewModel.onConfirm = { [weak self] in
             guard let self else { return }
-            confirmWindow.close()
-            self.bundleConfirmationWindow = nil
+            viewModel.installState = .installing
             self.unpackAndLoadBundle(
                 filePath: filePath,
                 manifest: response.manifest,
                 signatureResult: response.signatureResult,
-                bundleSizeBytes: response.bundleSizeBytes
+                bundleSizeBytes: response.bundleSizeBytes,
+                onSuccess: {
+                    viewModel.installState = .installed
+                    // Auto-close after brief success feedback
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(500))
+                        confirmWindow.close()
+                        self.bundleConfirmationWindow = nil
+                    }
+                },
+                onError: { errorMessage in
+                    viewModel.installState = .error(errorMessage)
+                }
             )
         }
 
@@ -92,7 +103,9 @@ extension AppDelegate {
         filePath: String,
         manifest: OpenBundleResponseMessage.Manifest,
         signatureResult: OpenBundleResponseMessage.SignatureResult,
-        bundleSizeBytes: Int
+        bundleSizeBytes: Int,
+        onSuccess: (() -> Void)? = nil,
+        onError: ((String) -> Void)? = nil
     ) {
         // Run the unzip on a background thread to avoid blocking the UI.
         Task.detached {
@@ -138,16 +151,21 @@ extension AppDelegate {
                         messageId: nil
                     )
                     self.surfaceManager.showSurface(surfaceMsg)
+                    onSuccess?()
                 }
             } catch {
                 await MainActor.run {
                     log.error("Failed to unpack bundle: \(error.localizedDescription)")
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to open app"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .critical
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
+                    if let onError {
+                        onError(error.localizedDescription)
+                    } else {
+                        let alert = NSAlert()
+                        alert.messageText = "Failed to open app"
+                        alert.informativeText = error.localizedDescription
+                        alert.alertStyle = .critical
+                        alert.addButton(withTitle: "OK")
+                        alert.runModal()
+                    }
                 }
             }
         }
