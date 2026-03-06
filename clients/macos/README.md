@@ -4,7 +4,7 @@ A native macOS menu bar app that controls your Mac via accessibility APIs and CG
 
 ## iOS Target
 
-This repository also includes an iOS app target (`vellum-assistant-ios`) that shares ~45-50% of code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to the daemon through an HTTP gateway with bearer token authentication.
+This repository also includes an iOS app target (`vellum-assistant-ios`) that shares ~45-50% of code with the macOS app through the `VellumAssistantShared` library. The iOS app is a chat-focused client that connects to the assistant through the HTTP gateway with bearer token authentication.
 
 **Status:** Fully functional. Build via Xcode (recommended) or `xcodebuild` from the command line — `swift build` on macOS cannot compile the iOS target due to UIKit dependencies. See [clients/ios/README.md](../ios/README.md) for build instructions.
 
@@ -50,9 +50,9 @@ Requires either:
 
 **3. TestFlight (For beta testing)**
 
-Requires Apple Developer account + App Store Connect setup. Deferred to PR 12-13 (deployment).
+Requires Apple Developer account + App Store Connect setup.
 
-**Daemon Connection Note:** The iOS app connects to the daemon through the HTTP gateway. Pair via QR code (Settings → Connect → Show QR Code on Mac, Scan QR Code on iPhone). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings.
+**Connection Note:** The iOS app connects to the assistant through the HTTP gateway. Pair via QR code (Settings → Connect → Show QR Code on Mac, Scan QR Code on iPhone). All pairings require Mac-side approval. Devices approved with "Always Allow" auto-approve on future pairings.
 
 ## Managed Mode
 
@@ -102,15 +102,23 @@ To install the pre-built macOS app, download the signed and notarized DMG:
 
 The app includes **Sparkle auto-update** — after the initial install, updates are downloaded and applied automatically in the background. You'll be prompted to relaunch when a new version is ready.
 
-> **Note:** You still need the daemon running for the app to function. See the [Daemon](#daemon) section below for setup.
+> **Note (local mode):** You need the daemon running for the app to function in local mode. See the [Local Assistant (Daemon)](#local-assistant-daemon) section below for setup. In managed mode, the assistant runs on the Vellum platform and no local daemon is required.
 
 All releases are available at [github.com/vellum-ai/velly/releases](https://github.com/vellum-ai/velly/releases).
 
 ## Requirements
 
+### Local Mode
 - macOS 14.0 (Sonoma) or later
-- Xcode 15+ (for building)
+- Xcode 15+ (for building from source)
 - Anthropic API key
+- Local daemon running (`vellum wake`)
+
+### Managed Mode
+- macOS 14.0 (Sonoma) or later
+- Xcode 15+ (for building from source)
+- Internet connection (assistant runs on the Vellum platform)
+- No API key or local daemon required
 
 ## Quick Run
 
@@ -229,11 +237,11 @@ To preview the DMG installer layout locally (requires `brew install create-dmg`)
 
 This builds the app (if needed), generates the background image, creates a styled DMG, and opens it in Finder.
 
-## Daemon
+## Local Assistant (Daemon)
 
-The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **daemon**, a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to the daemon via a Unix domain socket at `~/.vellum/vellum.sock`.
+The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to it via a Unix domain socket at `~/.vellum/vellum.sock`.
 
-**You must start the daemon before using the app.** Without it, the app will connect but get no responses.
+**Local mode: You must start the assistant before using the app.** Without it, the app will connect but get no responses. (In managed mode, the assistant runs on the Vellum platform — no local process needed.)
 
 ```bash
 # Recommended: use the vellum CLI (starts daemon + gateway)
@@ -252,7 +260,7 @@ For low-level development, you can also start the daemon directly:
 cd assistant && bun run src/index.ts daemon start
 ```
 
-The app will auto-reconnect if the daemon restarts.
+The app will auto-reconnect if the assistant process restarts.
 
 ## Permissions
 
@@ -267,14 +275,14 @@ Grant these in System Settings → Privacy & Security.
 
 1. Launch the app — an onboarding flow guides you through permissions and setup on first run
 2. The app appears as a sparkles icon in your menu bar
-3. Open Settings (click icon → gear) and enter your Anthropic API key
+3. Open Settings (click icon → gear) and enter your Anthropic API key (local mode only)
 4. Click the menu bar icon or press `⌘⇧G` to open the task input
 5. Type a task (e.g., "Fill in the name field with John Smith") and press Go
 6. Or hold the Fn key to dictate a task via voice
 7. Watch the overlay as vellum-assistant works through the task
 8. Press Escape at any time to cancel
 9. The main window shows a chat interface — type a message to start a conversation
-10. Responses stream in real-time from the daemon
+10. Responses stream in real-time from the assistant
 11. Click the stop button to cancel an in-progress generation
 
 ### Keyboard Shortcuts
@@ -301,7 +309,7 @@ Users can send multiple messages while the assistant is busy. Messages are queue
 - The queue drains at safe tool-loop checkpoints, not just at full completion
 - UI shows queue status: "N messages queued, sending automatically"
 - Message bubbles show status: queued (dimmed) -> processing -> sent
-- The daemon emits `generation_handoff` when it yields to queued work at a checkpoint, followed by `message_dequeued` as each queued message begins processing
+- The assistant emits `generation_handoff` when it yields to queued work at a checkpoint, followed by `message_dequeued` as each queued message begins processing
 
 **Current limitations:** Text-only messages, no conversation history browser.
 
@@ -423,9 +431,9 @@ Logging/
   Session recording   JSON logs to ~/Library/App Support/
 ```
 
-## Remote Daemon
+## Remote Assistant
 
-The app supports connecting to a remote daemon via SSH socket forwarding. Set `VELLUM_DAEMON_SOCKET` to the forwarded socket path. See the [Remote Access](../../README.md#remote-access) section in the root README.
+The app supports connecting to a remote assistant process via SSH socket forwarding. Set `VELLUM_DAEMON_SOCKET` to the forwarded socket path. See the [Remote Access](../../README.md#remote-access) section in the root README.
 
 ### Zero-Copy Blob Transport
 
