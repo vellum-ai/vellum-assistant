@@ -13,6 +13,7 @@ struct AppSharePanelView: View {
     @State private var services: [NSSharingService] = []
     @State private var hoveredServiceIndex: Int?
 
+    @available(macOS, deprecated: 13.0)
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header: app icon, name, file size
