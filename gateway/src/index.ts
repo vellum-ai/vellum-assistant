@@ -910,8 +910,9 @@ async function main() {
           }
         | undefined;
       config.twilioPhoneNumber =
-        (typeof sms?.phoneNumber === "string" ? sms.phoneNumber : undefined) ??
-        config.twilioPhoneNumber;
+        typeof sms?.phoneNumber === "string"
+          ? sms.phoneNumber || undefined
+          : undefined;
       if (
         sms?.assistantPhoneNumbers &&
         typeof sms.assistantPhoneNumbers === "object" &&
@@ -921,6 +922,8 @@ async function main() {
           string,
           string
         >;
+      } else {
+        config.assistantPhoneNumbers = undefined;
       }
     }
 
