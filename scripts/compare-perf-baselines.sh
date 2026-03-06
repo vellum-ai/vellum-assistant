@@ -67,29 +67,41 @@ for name, avg in sorted(results.items()):
     print(f"  {name}: {avg:.4f}s")
 print()
 
-# First run: no baseline file yet.
-# On main push runs, record current results as baseline and pass.
-# On PR runs (update_baseline=false), skip comparison rather than silently
-# establishing a baseline from the PR — that would let regressions slip through.
+# Metric version tag stored in baselines.json.  When the metric type changes
+# (e.g., from wall-clock to CPU time), stored values are invalid and must be
+# re-established — otherwise the comparison exits with false regressions before
+# updating the baseline, creating a stuck state.
+METRIC_VERSION = "cpu-time-v1"
+
+# First run or metric migration: no baseline file, or baseline from a different metric.
+needs_fresh_baseline = False
 if not os.path.exists(baseline_file):
+    needs_fresh_baseline = True
+else:
+    with open(baseline_file) as f:
+        stored = json.load(f)
+    if stored.get("_metric") != METRIC_VERSION:
+        print(f"Baseline metric mismatch (expected '{METRIC_VERSION}', got '{stored.get('_metric', 'none')}'). Re-establishing baseline.")
+        needs_fresh_baseline = True
+
+if needs_fresh_baseline:
     if update_baseline:
         os.makedirs(baseline_dir, exist_ok=True)
         with open(baseline_file, "w") as f:
-            json.dump(results, f, indent=2)
-        print(f"No baseline found. Recorded current results as baseline ({baseline_file}).")
+            json.dump({"_metric": METRIC_VERSION, **results}, f, indent=2)
+        print(f"No valid baseline found. Recorded current results as baseline ({baseline_file}).")
         with open(summary_file, "w") as sf:
             sf.write("## Performance Baselines\n\nBaseline recorded for the first time. Future runs will compare against these values.\n")
     else:
-        print("WARNING: No baseline found and this is a PR run (UPDATE_BASELINE=false).")
+        print("WARNING: No valid baseline found and this is a PR run (UPDATE_BASELINE=false).")
         print("Run the workflow on main to establish a baseline before regressions can be detected.")
         print("Skipping regression check for this PR run.")
         with open(summary_file, "w") as sf:
             sf.write("## Performance Baselines\n\nNo baseline available yet. Run the workflow on `main` to establish baselines.\n")
     sys.exit(0)
 
-# Load and compare against stored baseline.
-with open(baseline_file) as f:
-    baselines = json.load(f)
+# Load and compare against stored baseline (metric version already verified).
+baselines = {k: v for k, v in stored.items() if k != "_metric"}
 
 regressions = []
 print("=== Regression Check (threshold: {}%) ===".format(int(threshold)))
@@ -138,7 +150,7 @@ if regressions:
 # Update baseline only on main-branch pushes to prevent PR runs from
 # ratcheting the baseline downward and masking future regressions.
 if update_baseline:
-    updated = {**baselines, **results}
+    updated = {"_metric": METRIC_VERSION, **baselines, **results}
     with open(baseline_file, "w") as f:
         json.dump(updated, f, indent=2)
     print("PASS: No regressions detected. Baseline updated.")
