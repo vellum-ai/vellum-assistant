@@ -1170,6 +1170,32 @@ export function buildSchema(): Record<string, unknown> {
             "504": { description: "Assistant runtime request timed out" },
           },
         },
+        delete: {
+          summary: "Delete a contact by ID",
+          description:
+            "Authenticated gateway endpoint that deletes a contact by ID via the assistant runtime.",
+          operationId: "contactsDeleteById",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "contactId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "204": { description: "Contact deleted" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "403": { description: "Contact cannot be deleted" },
+            "404": { description: "Contact not found" },
+            "503": { description: "Bearer token not configured" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
       },
       "/v1/contact-channels/{contactChannelId}/verify": {
         post: {
