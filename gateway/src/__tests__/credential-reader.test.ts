@@ -1,41 +1,26 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { createCipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
 
 // ---------------------------------------------------------------------------
-// Mock logger — capture log calls to verify no secrets leak
+// Logger mock — captures all log calls so the secret-leak test can inspect them
 // ---------------------------------------------------------------------------
 
-const logCalls: { level: string; args: unknown[] }[] = [];
+const logCalls: { method: string; args: unknown[] }[] = [];
 
 mock.module("../logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
-      get:
-        (_target, prop) =>
-        (...args: unknown[]) => {
-          logCalls.push({ level: String(prop), args });
-        },
+      get: (_target, prop) => {
+        if (typeof prop !== "string") return undefined;
+        return (...args: unknown[]) => {
+          logCalls.push({ method: prop, args });
+        };
+      },
     }),
-}));
-
-// Mock node:child_process to avoid spawnSync deadlock: spawnSync blocks the
-// event loop, preventing an in-process mock broker from accepting connections.
-let mockSpawnSyncImpl:
-  | ((
-      cmd: string,
-      args: string[],
-      opts: Record<string, unknown>,
-    ) => { stdout: Buffer; status: number })
-  | null = null;
-
-mock.module("node:child_process", () => ({
-  spawnSync: (cmd: string, args: string[], opts: Record<string, unknown>) => {
-    if (mockSpawnSyncImpl) return mockSpawnSyncImpl(cmd, args, opts);
-    return { stdout: Buffer.from(""), status: 1 };
-  },
 }));
 
 import {
@@ -134,16 +119,86 @@ function writeEncryptedStore(entries: Record<string, string>): void {
 }
 
 // ---------------------------------------------------------------------------
-// Broker test helpers
+// Broker test helpers — mock UDS server
 // ---------------------------------------------------------------------------
 
-const BROKER_SOCKET_PLACEHOLDER = "/tmp/mock-broker.sock";
 const TEST_TOKEN = "test-auth-token-abc123";
 
 function writeBrokerToken(token: string): void {
   const tokenDir = join(testDir, ".vellum", "protected");
   mkdirSync(tokenDir, { recursive: true });
   writeFileSync(join(tokenDir, "keychain-broker.token"), token);
+}
+
+/**
+ * Create a mock keychain broker UDS server that responds to key.get requests.
+ * Returns the socket path and a handle to close the server.
+ */
+function createMockBroker(credentials: Record<string, string>): {
+  socketPath: string;
+  server: Server;
+  close: () => void;
+} {
+  const socketPath = join(
+    tmpdir(),
+    `mock-broker-${randomBytes(4).toString("hex")}.sock`,
+  );
+
+  const server = createServer((conn) => {
+    let buf = "";
+    conn.on("data", (chunk) => {
+      buf += chunk.toString();
+      const idx = buf.indexOf("\n");
+      if (idx !== -1) {
+        const line = buf.slice(0, idx);
+        buf = buf.slice(idx + 1);
+        try {
+          const req = JSON.parse(line);
+          if (req.token !== TEST_TOKEN) {
+            conn.write(
+              JSON.stringify({
+                id: req.id,
+                ok: false,
+                error: { code: "UNAUTHORIZED", message: "bad token" },
+              }) + "\n",
+            );
+            return;
+          }
+          if (req.method === "key.get") {
+            const account = req.params?.account;
+            const value = credentials[account];
+            conn.write(
+              JSON.stringify({
+                id: req.id,
+                ok: true,
+                result:
+                  value !== undefined
+                    ? { found: true, value }
+                    : { found: false },
+              }) + "\n",
+            );
+          }
+        } catch {
+          // ignore malformed requests
+        }
+      }
+    });
+  });
+
+  server.listen(socketPath);
+
+  return {
+    socketPath,
+    server,
+    close: () => {
+      server.close();
+      try {
+        unlinkSync(socketPath);
+      } catch {
+        // best-effort
+      }
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +212,6 @@ beforeEach(() => {
   savedBrokerSocket = process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
   delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
   logCalls.length = 0;
-  mockSpawnSyncImpl = null;
 });
 
 afterEach(() => {
@@ -179,28 +233,28 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("readTelegramCredentials", () => {
-  test("returns null when metadata file does not exist", () => {
-    const result = readTelegramCredentials();
+  test("returns null when metadata file does not exist", async () => {
+    const result = await readTelegramCredentials();
     expect(result).toBeNull();
   });
 
-  test("returns null when metadata has no Telegram entries", () => {
+  test("returns null when metadata has no Telegram entries", async () => {
     writeMetadata([{ service: "github", field: "token" }]);
-    const result = readTelegramCredentials();
+    const result = await readTelegramCredentials();
     expect(result).toBeNull();
   });
 
-  test("returns null when metadata exists but secrets are missing from encrypted store", () => {
+  test("returns null when metadata exists but secrets are missing from encrypted store", async () => {
     writeMetadata([
       { service: "telegram", field: "bot_token" },
       { service: "telegram", field: "webhook_secret" },
     ]);
 
-    const result = readTelegramCredentials();
+    const result = await readTelegramCredentials();
     expect(result).toBeNull();
   });
 
-  test("returns credentials from encrypted store", () => {
+  test("returns credentials from encrypted store", async () => {
     writeMetadata([
       { service: "telegram", field: "bot_token" },
       { service: "telegram", field: "webhook_secret" },
@@ -211,36 +265,11 @@ describe("readTelegramCredentials", () => {
       "credential:telegram:webhook_secret": "enc-webhook-secret",
     });
 
-    const result = readTelegramCredentials();
+    const result = await readTelegramCredentials();
     expect(result).toEqual({
       botToken: "enc-bot-token",
       webhookSecret: "enc-webhook-secret",
     });
-  });
-});
-
-describe("log output: no plaintext secrets", () => {
-  test("log messages never contain secret values", () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    writeEncryptedStore({
-      "credential:telegram:bot_token": "SUPER_SECRET_TOKEN_123",
-      "credential:telegram:webhook_secret": "SUPER_SECRET_WEBHOOK_456",
-    });
-
-    const result = readTelegramCredentials();
-
-    // Verify credentials were actually returned
-    expect(result).not.toBeNull();
-    expect(result!.botToken).toBe("SUPER_SECRET_TOKEN_123");
-
-    // Verify no secret values appear in any log output
-    const allLogText = JSON.stringify(logCalls);
-    expect(allLogText).not.toContain("SUPER_SECRET_TOKEN_123");
-    expect(allLogText).not.toContain("SUPER_SECRET_WEBHOOK_456");
   });
 });
 
@@ -249,13 +278,13 @@ describe("log output: no plaintext secrets", () => {
 // ---------------------------------------------------------------------------
 
 describe("readCredential broker integration", () => {
-  test("returns undefined when broker env var is unset", () => {
+  test("returns undefined when broker env var is unset", async () => {
     delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
-    const result = readCredential("credential:test:key");
+    const result = await readCredential("credential:test:key");
     expect(result).toBeUndefined();
   });
 
-  test("falls back to encrypted store when broker is unavailable", () => {
+  test("falls back to encrypted store when broker is unavailable", async () => {
     // No broker socket configured — should fall through to encrypted store
     delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
 
@@ -263,11 +292,11 @@ describe("readCredential broker integration", () => {
       "credential:test:key": "encrypted-value",
     });
 
-    const result = readCredential("credential:test:key");
+    const result = await readCredential("credential:test:key");
     expect(result).toBe("encrypted-value");
   });
 
-  test("falls back to encrypted store when broker socket path is set but no server", () => {
+  test("falls back to encrypted store when broker socket path is set but no server", async () => {
     process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = "/tmp/nonexistent-broker.sock";
     writeBrokerToken(TEST_TOKEN);
 
@@ -275,95 +304,138 @@ describe("readCredential broker integration", () => {
       "credential:test:key": "encrypted-value",
     });
 
-    const result = readCredential("credential:test:key");
+    const result = await readCredential("credential:test:key");
     expect(result).toBe("encrypted-value");
   });
 
-  test("falls back to encrypted store when broker token file is missing", () => {
-    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = BROKER_SOCKET_PLACEHOLDER;
+  test("falls back to encrypted store when broker token file is missing", async () => {
+    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = "/tmp/nonexistent-broker.sock";
     // Don't write a token file
 
     writeEncryptedStore({
       "credential:test:key": "encrypted-value",
     });
 
-    const result = readCredential("credential:test:key");
+    const result = await readCredential("credential:test:key");
     expect(result).toBe("encrypted-value");
   });
 
-  test("reads credential from broker when available", () => {
-    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = BROKER_SOCKET_PLACEHOLDER;
-    writeBrokerToken(TEST_TOKEN);
+  test("reads credential from broker when available", async () => {
+    const broker = createMockBroker({
+      "credential:test:key": "broker-secret-value",
+    });
+    try {
+      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = broker.socketPath;
+      writeBrokerToken(TEST_TOKEN);
 
-    mockSpawnSyncImpl = (cmd, args, opts) => {
-      expect(cmd).toBe("node");
-      // Verify the inline script uses the correct protocol format
-      const script = (args as string[])[1];
-      expect(script).toContain("v: 1");
-      expect(script).toContain('"key.get"');
-      expect(script).toContain("params:");
-      expect(script).toContain("resp.result");
-      const env = opts.env as Record<string, string>;
-      expect(env.BROKER_SOCKET).toBe(BROKER_SOCKET_PLACEHOLDER);
-      expect(env.BROKER_TOKEN).toBe(TEST_TOKEN);
-      expect(env.BROKER_ACCOUNT).toBe("credential:test:key");
-      expect(env.BROKER_REQ_ID).toBeDefined();
-      return { stdout: Buffer.from("broker-secret-value"), status: 0 };
-    };
-
-    const result = readCredential("credential:test:key");
-    expect(result).toBe("broker-secret-value");
+      const result = await readCredential("credential:test:key");
+      expect(result).toBe("broker-secret-value");
+    } finally {
+      broker.close();
+    }
   });
 
-  test("broker result takes priority over encrypted store", () => {
-    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = BROKER_SOCKET_PLACEHOLDER;
-    writeBrokerToken(TEST_TOKEN);
-
-    writeEncryptedStore({
-      "credential:test:key": "encrypted-value",
+  test("broker result takes priority over encrypted store", async () => {
+    const broker = createMockBroker({
+      "credential:test:key": "broker-value",
     });
+    try {
+      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = broker.socketPath;
+      writeBrokerToken(TEST_TOKEN);
 
-    mockSpawnSyncImpl = (cmd, args, opts) => {
-      expect(cmd).toBe("node");
-      const script = (args as string[])[1];
-      expect(script).toContain("v: 1");
-      expect(script).toContain('"key.get"');
-      const env = opts.env as Record<string, string>;
-      expect(env.BROKER_SOCKET).toBe(BROKER_SOCKET_PLACEHOLDER);
-      expect(env.BROKER_TOKEN).toBe(TEST_TOKEN);
-      expect(env.BROKER_ACCOUNT).toBe("credential:test:key");
-      expect(env.BROKER_REQ_ID).toBeDefined();
-      return { stdout: Buffer.from("broker-value"), status: 0 };
-    };
+      writeEncryptedStore({
+        "credential:test:key": "encrypted-value",
+      });
 
-    const result = readCredential("credential:test:key");
-    expect(result).toBe("broker-value");
+      const result = await readCredential("credential:test:key");
+      expect(result).toBe("broker-value");
+    } finally {
+      broker.close();
+    }
   });
 
-  test("falls back to encrypted store when broker returns not found", () => {
-    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = BROKER_SOCKET_PLACEHOLDER;
-    writeBrokerToken(TEST_TOKEN);
+  test("falls back to encrypted store when broker returns not found", async () => {
+    // Broker has no entry for "credential:test:key"
+    const broker = createMockBroker({});
+    try {
+      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = broker.socketPath;
+      writeBrokerToken(TEST_TOKEN);
+
+      writeEncryptedStore({
+        "credential:test:key": "encrypted-value",
+      });
+
+      const result = await readCredential("credential:test:key");
+      expect(result).toBe("encrypted-value");
+    } finally {
+      broker.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: secret values must not leak into log output
+// ---------------------------------------------------------------------------
+
+describe("secret leak prevention", () => {
+  function allLogStrings(): string {
+    return JSON.stringify(logCalls);
+  }
+
+  test("broker read does not leak secret values into logs", async () => {
+    const secretValue = "super-secret-broker-credential-value";
+    const broker = createMockBroker({
+      "credential:leak-test:key": secretValue,
+    });
+    try {
+      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = broker.socketPath;
+      writeBrokerToken(TEST_TOKEN);
+
+      const result = await readCredential("credential:leak-test:key");
+      expect(result).toBe(secretValue);
+
+      const serialized = allLogStrings();
+      expect(serialized).not.toContain(secretValue);
+      // The auth token used for broker handshake should also stay out of logs
+      expect(serialized).not.toContain(TEST_TOKEN);
+    } finally {
+      broker.close();
+    }
+  });
+
+  test("encrypted store read does not leak secret values into logs", async () => {
+    const secretValue = "super-secret-encrypted-credential-value";
+    delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
 
     writeEncryptedStore({
-      "credential:test:key": "encrypted-value",
+      "credential:leak-test:key": secretValue,
     });
 
-    // Mock returns empty stdout, simulating broker responding with
-    // { ok: true, result: { found: false } } — the inline script
-    // only writes to stdout when result.found is true.
-    mockSpawnSyncImpl = (cmd, args, opts) => {
-      expect(cmd).toBe("node");
-      const script = (args as string[])[1];
-      expect(script).toContain("resp.result.found");
-      const env = opts.env as Record<string, string>;
-      expect(env.BROKER_SOCKET).toBe(BROKER_SOCKET_PLACEHOLDER);
-      expect(env.BROKER_TOKEN).toBe(TEST_TOKEN);
-      expect(env.BROKER_ACCOUNT).toBe("credential:test:key");
-      expect(env.BROKER_REQ_ID).toBeDefined();
-      return { stdout: Buffer.from(""), status: 0 };
-    };
+    const result = await readCredential("credential:leak-test:key");
+    expect(result).toBe(secretValue);
 
-    const result = readCredential("credential:test:key");
-    expect(result).toBe("encrypted-value");
+    const serialized = allLogStrings();
+    expect(serialized).not.toContain(secretValue);
+  });
+
+  test("failed encrypted store read does not leak secret values into logs", async () => {
+    const secretValue = "super-secret-telegram-token";
+    delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+
+    writeMetadata([
+      { service: "telegram", field: "bot_token" },
+      { service: "telegram", field: "webhook_secret" },
+    ]);
+    writeEncryptedStore({
+      "credential:telegram:bot_token": secretValue,
+      "credential:telegram:webhook_secret": "webhook-secret-value",
+    });
+
+    const result = await readTelegramCredentials();
+    expect(result).not.toBeNull();
+
+    const serialized = allLogStrings();
+    expect(serialized).not.toContain(secretValue);
+    expect(serialized).not.toContain("webhook-secret-value");
   });
 });

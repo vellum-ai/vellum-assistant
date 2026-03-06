@@ -20,7 +20,7 @@ const { loadConfig } = await import("../config.js");
 const { createTelegramWebhookHandler } =
   await import("../http/routes/telegram-webhook.js");
 
-const config = loadConfig();
+const config = await loadConfig();
 
 const { handler: handleTelegramWebhook } = createTelegramWebhookHandler(config);
 
