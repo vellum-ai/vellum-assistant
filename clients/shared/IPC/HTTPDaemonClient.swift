@@ -170,6 +170,7 @@ public final class HTTPTransport {
         case pendingInteractions(conversationKey: String?)
         case contactsList(limit: Int, role: String?)
         case contactsGet(id: String)
+        case contactsDelete(id: String)
         case contactChannelUpdate(contactChannelId: String)
         case contactChannelVerify(contactChannelId: String)
         case contactsUpsert
@@ -264,6 +265,9 @@ public final class HTTPTransport {
         case .contactsGet(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/contacts/\(encoded)", nil)
+        case .contactsDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/contacts/\(encoded)", nil)
         case .contactChannelUpdate(let contactChannelId):
             let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
             return ("/v1/contact-channels/\(encoded)", nil)
@@ -351,6 +355,9 @@ public final class HTTPTransport {
             }
             return ("\(prefix)/contacts/", q)
         case .contactsGet(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/contacts/\(encoded)/", nil)
+        case .contactsDelete(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/contacts/\(encoded)/", nil)
         case .contactChannelUpdate(let contactChannelId):
@@ -996,6 +1003,12 @@ public final class HTTPTransport {
                 return
             }
             await updateContactChannel(channelId: channelId, status: msg.status, policy: msg.policy, reason: msg.reason)
+        case "delete":
+            guard let contactId = msg.contactId else {
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "contactId is required for delete")))
+                return
+            }
+            await deleteContact(contactId: contactId)
         default:
             onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Unknown action: \(msg.action)")))
         }
@@ -1071,6 +1084,45 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("HTTPTransport: fetch contact error: \(error.localizedDescription)")
+            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
+        }
+    }
+
+    private func deleteContact(contactId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .contactsDelete(id: contactId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        await deleteContact(contactId: contactId, isRetry: true)
+                    }
+                    return
+                }
+                if http.statusCode == 204 {
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true)))
+                    return
+                }
+                if http.statusCode == 404 {
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Contact not found")))
+                    return
+                }
+                if http.statusCode == 403 {
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Permission denied")))
+                    return
+                }
+                log.error("HTTPTransport: delete contact failed (\(http.statusCode))")
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
+            }
+        } catch {
+            log.error("HTTPTransport: delete contact error: \(error.localizedDescription)")
             onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
         }
     }
