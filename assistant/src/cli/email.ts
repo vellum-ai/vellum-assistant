@@ -147,8 +147,7 @@ Persists the provider selection to config. All subsequent email commands
 (setup, inbox, draft, guardrails) will route through the selected provider.
 
 Examples:
-  $ vellum email provider set agentmail
-  $ vellum email provider set resend`,
+  $ vellum email provider set agentmail`,
     )
     .action((name: string, _opts: unknown, cmd: Command) => {
       if (!SUPPORTED_PROVIDERS.includes(name as SupportedProvider)) {
@@ -837,7 +836,7 @@ value unchanged.
   --paused true/false   Enable or disable the outbound pause. When paused,
                         all "approve-send" calls are blocked with exit code 2.
   --daily-cap <n>       Set the maximum number of emails that can be sent per
-                        calendar day. Set to 0 to remove the cap.
+                        calendar day. Set to 0 to disable sending entirely.
 
 Examples:
   $ vellum email guardrails set --paused true
