@@ -16,7 +16,10 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import type { ExtractedCredential, SessionRecording } from "./recording-types.js";
+import type {
+  ExtractedCredential,
+  SessionRecording,
+} from "./recording-types.js";
 import { ConfigError } from "./errors.js";
 import { getDataDir } from "./platform.js";
 
