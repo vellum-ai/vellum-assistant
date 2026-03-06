@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import VellumAssistantShared
 
@@ -18,6 +19,10 @@ public final class MainWindowState: ObservableObject {
 
     /// The single source of truth for what the main content area displays.
     let navigationHistory = NavigationHistory()
+
+    /// Forwards `navigationHistory.objectWillChange` so SwiftUI views
+    /// observing this state also update when back/forward stacks change.
+    private var navigationHistoryCancellable: AnyCancellable?
 
     /// Tracks the last known selection for navigation history recording.
     /// Captured at the start of `didSet` (before any side effects) to avoid
@@ -152,6 +157,8 @@ public final class MainWindowState: ObservableObject {
     init(hasAPIKey: Bool = APIKeyManager.hasAnyKey()) {
         self.hasAPIKey = hasAPIKey
         self.layoutConfig = LayoutConfigStore.load()
+        self.navigationHistoryCancellable = navigationHistory.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     // MARK: - Selection Helpers
