@@ -32,7 +32,7 @@ public final class MainWindowState: ObservableObject {
             let previousSelection = _lastKnownSelection
             _lastKnownSelection = selection
 
-            log.debug("selection.didSet — previous: \(String(describing: previousSelection)), new: \(String(describing: selection))")
+            log.debug("selection.didSet — previous: \(String(describing: previousSelection)), new: \(String(describing: self.selection))")
 
             navigationHistory.recordTransition(from: previousSelection, to: selection, persistentThreadId: persistentThreadId)
             // When navigating to a thread, update the persistent thread tracker.
