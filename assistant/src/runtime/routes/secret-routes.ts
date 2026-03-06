@@ -129,7 +129,14 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
         );
       }
       const deleteResult = deleteSecureKey(name);
-      if (deleteResult !== "deleted") {
+      if (deleteResult === "error") {
+        return httpError(
+          "INTERNAL_ERROR",
+          `Failed to delete API key from secure storage: ${name}`,
+          500,
+        );
+      }
+      if (deleteResult === "not-found") {
         return httpError("NOT_FOUND", `API key not found: ${name}`, 404);
       }
       invalidateConfigCache();
@@ -152,7 +159,14 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
       assertMetadataWritable();
       const key = `credential:${service}:${field}`;
       const deleteResult = deleteSecureKey(key);
-      if (deleteResult !== "deleted") {
+      if (deleteResult === "error") {
+        return httpError(
+          "INTERNAL_ERROR",
+          `Failed to delete credential from secure storage: ${name}`,
+          500,
+        );
+      }
+      if (deleteResult === "not-found") {
         return httpError("NOT_FOUND", `Credential not found: ${name}`, 404);
       }
       deleteCredentialMetadata(service, field);

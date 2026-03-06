@@ -355,6 +355,15 @@ Examples:
         assertMetadataWritable();
 
         const secretResult = deleteSecureKey(storageKey);
+        if (secretResult === "error") {
+          writeOutput(cmd, {
+            ok: false,
+            error: "Failed to delete credential from secure storage",
+          });
+          process.exitCode = 1;
+          return;
+        }
+
         const metadataDeleted = deleteCredentialMetadata(service, field);
 
         if (secretResult !== "deleted" && !metadataDeleted) {
