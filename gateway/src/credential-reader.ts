@@ -181,6 +181,7 @@ socket.on("data", (chunk) => {
       }
     } catch {}
     socket.destroy();
+    process.exit(0);
   }
 });
 socket.on("error", () => process.exit(0));
