@@ -31,6 +31,7 @@ struct AssistantProgressView: View {
     let decidedConfirmations: [ToolConfirmationData]
     var onRehydrate: (() -> Void)?
 
+    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var isExpanded: Bool = false
     @State private var startDate: Date = Date()
     @State private var processingStartDate: Date?
@@ -249,6 +250,7 @@ struct AssistantProgressView: View {
     private var headerRow: some View {
         Button(action: {
             guard hasChevron else { return }
+            suppressAutoScroll?()
             withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
             }
@@ -495,6 +497,7 @@ private struct StepDetailRow: View {
     /// Cached formatted input — computed once on first expand.
     @State private var cachedInputFull: String?
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
 
     /// Lazily resolved full input text.
     private var resolvedInputFull: String {
@@ -523,6 +526,7 @@ private struct StepDetailRow: View {
             // Row header
             Button {
                 guard hasDetails else { return }
+                suppressAutoScroll?()
                 withAnimation(VAnimation.fast) { isDetailExpanded.toggle() }
             } label: {
                 HStack(spacing: VSpacing.sm) {

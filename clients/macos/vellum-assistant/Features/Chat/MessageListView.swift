@@ -6,6 +6,21 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListView")
 
+// MARK: - Scroll Suppression Environment
+
+/// Environment key that child views (e.g. AssistantProgressView) call to
+/// temporarily suppress auto-scroll-to-bottom during content expansion.
+private struct SuppressAutoScrollKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var suppressAutoScroll: (() -> Void)? {
+        get { self[SuppressAutoScrollKey.self] }
+        set { self[SuppressAutoScrollKey.self] = newValue }
+    }
+}
+
 /// Holds the last-known anchor minY without triggering SwiftUI re-renders.
 /// Only `isVisible` is @Published so re-renders happen only when the
 /// visible/invisible boundary is crossed — not on every scroll tick.
@@ -432,6 +447,13 @@ struct MessageListView: View {
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
+            .environment(\.suppressAutoScroll, { [self] in
+                isSuppressingBottomScroll = true
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                    isSuppressingBottomScroll = false
+                }
+            })
             .onHover { hovering in
                 handleThreadContentHover(hovering)
             }
