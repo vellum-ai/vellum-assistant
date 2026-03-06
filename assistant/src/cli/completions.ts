@@ -131,7 +131,7 @@ function generateZshCompletion(
 _vellum() {
     local -a commands
     commands=(
-        'dev:Run daemon in dev mode with auto-restart'
+        'dev:Run assistant in dev mode with auto-restart'
         'sessions:Manage sessions'
         'config:Manage configuration'
         'keys:Manage API keys in secure storage'
@@ -173,7 +173,7 @@ function generateFishCompletion(
   script += `complete -c vellum -f\n`;
 
   const descriptions: Record<string, string> = {
-    dev: "Run daemon in dev mode with auto-restart",
+    dev: "Run assistant in dev mode with auto-restart",
     sessions: "Manage sessions",
     config: "Manage configuration",
     keys: "Manage API keys in secure storage",
