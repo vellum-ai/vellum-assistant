@@ -18,13 +18,12 @@ assistant config get twilio.phoneNumber
 # 2. Store credentials (after collecting via credential_store prompt)
 assistant config set twilio.accountSid "ACxxx"
 assistant credentials set twilio:auth_token "xxx"
-# 3. Get credential ID and Account SID for proxied calls
-assistant credentials inspect twilio:auth_token --json  # -> note credentialId
-assistant config get twilio.accountSid  # -> note Account SID value
-# 4. Search and provision via Twilio API (proxy injects auth automatically)
-#    bash network_mode=proxied credential_ids=["<cred_id>"]
-curl -s "https://api.twilio.com/2010-04-01/Accounts/<SID>/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true"
-curl -s -X POST "https://api.twilio.com/2010-04-01/Accounts/<SID>/IncomingPhoneNumbers.json" -d "PhoneNumber=+1xxx"
+# 3. Get Account SID and Auth Token for Twilio API calls
+TWILIO_SID=$(assistant config get twilio.accountSid)
+TWILIO_TOKEN=$(assistant credentials reveal twilio:auth_token)
+# 4. Search and provision via Twilio API
+curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true"
+curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json" -d "PhoneNumber=+1xxx"
 # 5. Assign locally (saves to config)
 assistant config set twilio.phoneNumber "+1xxx"
 ```
@@ -36,11 +35,11 @@ For voice call setup after Twilio is configured, use `phone-calls` + `call_start
 This skill manages the full Twilio lifecycle:
 
 - **Credential storage** — Auth Token stored securely via `assistant credentials set twilio:auth_token`; Account SID stored in config via `assistant config set twilio.accountSid`
-- **Direct Twilio API access** — Search and purchase numbers via proxied calls to the Twilio REST API (the proxy injects authentication automatically)
+- **Direct Twilio API access** — Search and purchase numbers via the Twilio REST API using credentials retrieved from CLI
 - **Phone number assignment** — Assign an existing Twilio number to the assistant via `assistant config set twilio.phoneNumber`
 - **Status checking** — Verify credentials and assigned number via `assistant credentials inspect twilio:auth_token` + `assistant config get`
 
-Number search and purchase use proxied calls to the Twilio REST API (`bash` with `network_mode: "proxied"`). Local bookkeeping (Account SID, phone number, config updates) uses `assistant config` commands. Auth Token is stored in encrypted credential storage via `assistant credentials`. Status/list retrieval uses `assistant credentials inspect` and `assistant config get`.
+Number search and purchase use direct calls to the Twilio REST API with credentials retrieved via `assistant credentials reveal` and `assistant config get`. Local bookkeeping (Account SID, phone number, config updates) uses `assistant config` commands. Auth Token is stored in encrypted credential storage via `assistant credentials`.
 
 ## Step 1: Check Current Configuration
 
@@ -83,11 +82,7 @@ assistant credentials set twilio:auth_token "<value from credential_store for tw
 
 The Account SID is stored in config (it is not a secret), while the Auth Token is stored in encrypted credential storage.
 
-Both values are required. If credentials are invalid, proxied Twilio API calls (Step 3b) will fail -- tell the user and ask them to re-enter via the secure prompt.
-
-**Note:** Unlike the previous gateway endpoint, this does not validate credentials against the Twilio API before storing. Verify credentials are correct by attempting a proxied Twilio API call (Step 3b) -- if it fails, the credentials are invalid.
-
-**Note:** Injection templates for proxied Twilio API calls are not automatically configured by these CLI commands. If proxied calls fail with auth errors, this is a known gap requiring a future CLI command.
+Both values are required. If credentials are invalid, Twilio API calls (Step 3b) will fail -- tell the user and ask them to re-enter via the secure prompt.
 
 ## Step 3: Get a Phone Number
 
@@ -97,45 +92,31 @@ The assistant needs a phone number to make calls and send SMS. There are two pat
 
 If the user wants to buy a new number through Twilio:
 
-**3a. Get the credential ID and Account SID:**
+**3a. Retrieve credentials for Twilio API calls:**
 
 ```bash
-assistant credentials inspect twilio:auth_token --json
+TWILIO_SID=$(assistant config get twilio.accountSid)
+TWILIO_TOKEN=$(assistant credentials reveal twilio:auth_token)
 ```
 
-Note the `credentialId` field from the response (needed for proxied calls).
-
-Then retrieve the Account SID value (needed for Twilio URL paths):
+**3b. Search for available numbers:**
 
 ```bash
-assistant config get twilio.accountSid
-```
-
-**3b. Search for available numbers (proxied Twilio API):**
-
-```
-bash:
-  network_mode: proxied
-  credential_ids: ["<credential_id from 3a>"]
-  command: |
-    curl -s "https://api.twilio.com/2010-04-01/Accounts/<ACCOUNT_SID>/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true&AreaCode=415"
+curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/AvailablePhoneNumbers/US/Local.json?SmsEnabled=true&VoiceEnabled=true&AreaCode=415"
 ```
 
 - `AreaCode` is optional -- ask the user if they have a preferred area code
 - Replace `US` with a different ISO 3166-1 alpha-2 country code if the user wants a non-US number
-- The proxy automatically injects `Authorization: Basic <credentials>` -- do not include an Authorization header
 
 The response contains an `available_phone_numbers` array. Present the first few options to the user with their `phone_number` and `friendly_name`.
 
-**3c. Purchase the chosen number (proxied Twilio API):**
+**3c. Purchase the chosen number:**
 
-```
-bash:
-  network_mode: proxied
-  credential_ids: ["<credential_id from 3a>"]
-  command: |
-    curl -s -X POST "https://api.twilio.com/2010-04-01/Accounts/<ACCOUNT_SID>/IncomingPhoneNumbers.json" \
-      -d "PhoneNumber=+14155551234"
+```bash
+curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json" \
+  -d "PhoneNumber=+14155551234"
 ```
 
 The response includes the purchased number's `phone_number` and `sid`.
@@ -160,14 +141,11 @@ This stores the phone number in config.
 
 ### Option B: Assign an Existing Number
 
-If the user already has a Twilio phone number, first get the credential ID and Account SID (same as Option A, step 3a), then list available numbers:
+If the user already has a Twilio phone number, first retrieve credentials (same as Option A, step 3a), then list existing numbers:
 
-```
-bash:
-  network_mode: proxied
-  credential_ids: ["<credential_id>"]
-  command: |
-    curl -s "https://api.twilio.com/2010-04-01/Accounts/<ACCOUNT_SID>/IncomingPhoneNumbers.json"
+```bash
+curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" \
+  "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/IncomingPhoneNumbers.json"
 ```
 
 The response includes an `incoming_phone_numbers` array with each number's `phone_number`, `friendly_name`, and `capabilities`. Present these to the user and let them choose.
@@ -320,14 +298,8 @@ Run Step 3 to provision or assign a phone number.
 The following operations were previously handled by gateway API endpoints and
 do not yet have CLI equivalents:
 
-1. **Credential validation** -- Credentials are stored without verifying them
-   against the Twilio API. Verify manually by attempting a proxied API call.
-2. **Injection template registration** -- Proxied Twilio API calls require
-   injection templates to auto-inject HTTP Basic auth. These are not set up
-   by `assistant credentials set`. If proxied calls fail, templates may need
-   to be registered via a future CLI command.
-3. **Webhook auto-configuration** -- Voice, status callback, and SMS webhook
+1. **Webhook auto-configuration** -- Voice, status callback, and SMS webhook
    URLs are not automatically set on the Twilio phone number. Configure
    webhooks manually in the Twilio Console or wait for a future CLI command.
-4. **Stale phone number pruning** -- Stale phone number mappings are not
+2. **Stale phone number pruning** -- Stale phone number mappings are not
    automatically cleaned up.
