@@ -182,7 +182,7 @@ describe("Twitter strategy router", () => {
         };
         expect(e.message).toContain("OAuth is not configured");
         expect(e.message).toContain(
-          "assistant config set twitterOperationStrategy browser",
+          "assistant config set twitter.operationStrategy browser",
         );
         expect(e.pathUsed).toBe("oauth");
         expect(e.suggestAlternative).toBe("browser");

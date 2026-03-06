@@ -44,7 +44,7 @@ export async function routedPostTweet(
     if (!oauthIsAvailable(opts.oauthToken)) {
       throw Object.assign(
         new Error(
-          "OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy: `assistant config set twitterOperationStrategy browser`.",
+          "OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy: `assistant config set twitter.operationStrategy browser`.",
         ),
         {
           pathUsed: "oauth" as const,
