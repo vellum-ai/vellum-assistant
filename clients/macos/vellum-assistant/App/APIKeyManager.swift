@@ -1,4 +1,5 @@
 import Foundation
+import VellumAssistantShared
 
 extension Notification.Name {
     static let apiKeyManagerDidChange = Notification.Name("APIKeyManager.didChange")
@@ -48,6 +49,27 @@ enum APIKeyManager {
     static func deleteKey(for provider: String) {
         UserDefaults.standard.removeObject(forKey: udPrefix + provider)
         notifyKeyDidChange()
+    }
+
+    /// Push an API key to the daemon's encrypted store via its HTTP endpoint.
+    /// Fire-and-forget — failures are silently ignored (the reconnect sync
+    /// will retry). Call this from onboarding or any path that saves a key
+    /// outside of SettingsStore.
+    static func syncKeyToDaemon(provider: String, value: String) {
+        let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
+            .flatMap(Int.init) ?? 7821
+        guard let token = ActorTokenManager.getToken(), !token.isEmpty else { return }
+        guard let url = URL(string: "http://localhost:\(port)/v1/secrets") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 5
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String] = ["type": "api_key", "name": provider, "value": value]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        Task.detached {
+            _ = try? await URLSession.shared.data(for: request)
+        }
     }
 
     private static func notifyKeyDidChange() {
