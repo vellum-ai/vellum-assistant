@@ -43,7 +43,7 @@ async function main() {
   }
 
   if (!commandName || commandName === "--help" || commandName === "-h") {
-    console.log("Usage: assistant <command> [options]");
+    console.log("Usage: vellum <command> [options]");
     console.log("");
     console.log("Commands:");
     console.log("  client   Connect to a hatched assistant");

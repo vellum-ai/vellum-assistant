@@ -59,15 +59,15 @@ When a release includes relevant updates, the assistant materializes release not
 
 ### Lifecycle management (recommended)
 
-Use the `assistant` CLI to manage assistant and gateway processes:
+Use the `vellum` CLI to manage assistant and gateway processes:
 
 ```bash
-assistant wake    # start assistant + gateway from current checkout
-assistant ps      # list assistants and per-assistant process status
-assistant sleep   # stop assistant + gateway (directory-agnostic)
+vellum wake    # start assistant + gateway from current checkout
+vellum ps      # list assistants and per-assistant process status
+vellum sleep   # stop assistant + gateway (directory-agnostic)
 ```
 
-> **Note:** `assistant wake` requires a hatched assistant. Run `assistant hatch` first, or launch the macOS app which handles hatching automatically.
+> **Note:** `vellum wake` requires a hatched assistant. Run `vellum hatch` first, or launch the macOS app which handles hatching automatically.
 
 ### Development: raw bun commands
 
@@ -83,9 +83,9 @@ bun run src/index.ts dev            # dev mode (auto-restart on file changes)
 
 | Command                                       | Description                                      |
 | --------------------------------------------- | ------------------------------------------------ |
-| `assistant wake`                              | Start assistant + gateway from current checkout  |
-| `assistant sleep`                             | Stop assistant + gateway processes               |
-| `assistant ps`                                | List assistants and per-assistant process status |
+| `vellum wake`                                 | Start assistant + gateway from current checkout  |
+| `vellum sleep`                                | Stop assistant + gateway processes               |
+| `vellum ps`                                   | List assistants and per-assistant process status |
 | `assistant`                                   | Launch interactive CLI session                   |
 | `assistant dev`                               | Run assistant with auto-restart on file changes  |
 | `assistant sessions list\|new\|export\|clear` | Manage conversation sessions                     |
