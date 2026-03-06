@@ -417,29 +417,6 @@ describe("notification broadcaster", () => {
 
   // ── Destination binding context ────────────────────────────────────
 
-  test("SMS delivery carries destination binding context into pairing", async () => {
-    const smsAdapter = new MockAdapter("sms");
-    const broadcaster = new NotificationBroadcaster([smsAdapter]);
-
-    const signal = makeSignal();
-    const decision = makeDecision({
-      selectedChannels: ["sms"],
-      renderedCopy: {
-        sms: { title: "SMS Alert", body: "Something happened" },
-      },
-    });
-
-    await broadcaster.broadcastDecision(signal, decision);
-
-    const smsCall = pairingCalls.find((c) => c.channel === "sms");
-    expect(smsCall).toBeDefined();
-    expect(smsCall!.options?.bindingContext).toEqual({
-      sourceChannel: "sms",
-      externalChatId: "ext-chat-sms",
-      externalUserId: "ext-user-sms",
-    });
-  });
-
   test("Telegram delivery carries destination binding context into pairing", async () => {
     const telegramAdapter = new MockAdapter("telegram");
     const broadcaster = new NotificationBroadcaster([telegramAdapter]);

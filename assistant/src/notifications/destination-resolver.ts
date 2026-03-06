@@ -7,7 +7,7 @@
  *   broadcast mechanism to connected desktop/mobile clients. The
  *   guardianPrincipalId is included in metadata so downstream adapters
  *   can scope guardian-sensitive notifications to bound guardian devices.
- * - Binding-based channels (telegram, sms): require a chat/delivery ID
+ * - Binding-based channels (telegram, slack): require a chat/delivery ID
  *   sourced from the guardian contact's channel record.
  */
 
@@ -62,19 +62,18 @@ export function resolveDestinations(
         );
         break;
       }
-      case "telegram":
-      case "sms": {
-        const guardianResult = findGuardianForChannel(channel);
+      case "telegram": {
+        const guardianResult = findGuardianForChannel("telegram");
         if (guardianResult && guardianResult.channel.externalChatId) {
           const externalChatId = guardianResult.channel.externalChatId;
-          result.set(channel as NotificationChannel, {
-            channel: channel as NotificationChannel,
+          result.set("telegram", {
+            channel: "telegram",
             endpoint: externalChatId,
             metadata: {
               externalUserId: guardianResult.channel.externalUserId,
             },
             bindingContext: {
-              sourceChannel: channel as NotificationChannel,
+              sourceChannel: "telegram",
               externalChatId,
               externalUserId:
                 guardianResult.channel.externalUserId ?? undefined,
@@ -83,7 +82,7 @@ export function resolveDestinations(
         }
         log.debug(
           {
-            channel,
+            channel: "telegram",
             source: "contacts",
             hasEndpoint: !!guardianResult?.channel.externalChatId,
           },

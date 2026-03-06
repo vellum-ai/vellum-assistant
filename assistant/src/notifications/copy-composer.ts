@@ -391,7 +391,7 @@ function applyChannelDefaults(
 ): RenderedChannelCopy {
   const copy: RenderedChannelCopy = { ...baseCopy };
 
-  if (channel === "telegram" || channel === "sms") {
+  if (channel === "telegram") {
     copy.deliveryText = buildChatSurfaceFallbackDeliveryText(baseCopy, signal);
   }
 
