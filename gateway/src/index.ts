@@ -408,14 +408,14 @@ function main() {
         contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
     },
     {
-      path: /^\/v1\/contacts\/([^/]+)$/,
+      path: /^\/v1\/contacts\/(?!invites$|merge$)([^/]+)$/,
       method: "DELETE",
       auth: "edge",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleDeleteContact(req, params[0]),
     },
     {
-      path: /^\/v1\/contacts\/([^/]+)$/,
+      path: /^\/v1\/contacts\/(?!invites$|merge$)([^/]+)$/,
       method: "GET",
       auth: "edge",
       handler: (req, params) =>
