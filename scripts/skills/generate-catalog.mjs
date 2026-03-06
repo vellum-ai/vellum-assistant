@@ -135,15 +135,9 @@ function buildEntry(skillName) {
     description: frontmatter.description || "",
   };
 
-  // Extract emoji from top-level field or metadata.emoji (legacy)
-  if (frontmatter.emoji) {
-    entry.emoji = frontmatter.emoji;
-  } else if (
-    frontmatter.metadata &&
-    typeof frontmatter.metadata === "object" &&
-    frontmatter.metadata.emoji
-  ) {
-    entry.emoji = frontmatter.metadata.emoji;
+  // Extract metadata (per agentskills.io spec, metadata is an arbitrary key-value map)
+  if (frontmatter.metadata && typeof frontmatter.metadata === "object") {
+    entry.metadata = frontmatter.metadata;
   }
 
   // Extract compatibility
