@@ -894,17 +894,23 @@ struct DynamicWorkspaceWrapper: View {
                                 VIconButton(label: "Share", icon: "square.and.arrow.up", iconOnly: true, variant: .outlined, size: 28, tooltip: "Share") {
                                     showShareDrawer.toggle()
                                 }
-                                .popover(isPresented: $showShareDrawer, arrowEdge: .bottom) {
-                                    ShareDrawer(
-                                        onShare: {
-                                            showShareDrawer = false
-                                            onBundleAndShare(appId)
-                                        },
-                                        onPublish: {
-                                            showShareDrawer = false
-                                            onPublishPage(data.html, data.preview?.title, data.appId)
-                                        }
-                                    )
+                                .overlay(alignment: .topTrailing) {
+                                    if showShareDrawer {
+                                        ShareDrawer(
+                                            onShare: {
+                                                showShareDrawer = false
+                                                onBundleAndShare(appId)
+                                            },
+                                            onPublish: {
+                                                showShareDrawer = false
+                                                onPublishPage(data.html, data.preview?.title, data.appId)
+                                            }
+                                        )
+                                        .offset(y: 34)
+                                        .fixedSize()
+                                        .zIndex(10)
+                                        .transition(.opacity)
+                                    }
                                 }
                                 .overlay {
                                     AppSharePanel(
@@ -1022,6 +1028,13 @@ struct DynamicWorkspaceWrapper: View {
                 }
             }
         }
+        .overlay {
+            if showShareDrawer {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { showShareDrawer = false }
+            }
+        }
     }
 }
 
@@ -1097,6 +1110,13 @@ private struct ShareDrawer: View {
         }
         .padding(.vertical, VSpacing.xs)
         .frame(width: 180)
+        .background(VColor.surfaceSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
     }
 }
 
