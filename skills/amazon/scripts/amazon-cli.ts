@@ -1,5 +1,5 @@
 /**
- * CLI command group: `vellum amazon`
+ * Amazon CLI command group.
  *
  * Shop on Amazon and Amazon Fresh via the command line.
  * All commands output JSON to stdout. Use --json for machine-readable output.

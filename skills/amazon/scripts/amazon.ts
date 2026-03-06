@@ -5,9 +5,9 @@
  * Invoked via the launcher script at ~/.vellum/bin/amazon,
  * which is created when the amazon skill is installed.
  *
- * registerAmazonCommand() creates a nested `amazon` subcommand
- * (designed for `vellum amazon <sub>`). We extract that subcommand
- * and use it as the root so `amazon status` works directly.
+ * registerAmazonCommand() creates a nested `amazon` subcommand.
+ * We extract that subcommand and use it as the root so
+ * `bun run scripts/amazon.ts status` works directly.
  */
 
 import { Command } from "commander";

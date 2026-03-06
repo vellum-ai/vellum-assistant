@@ -321,7 +321,7 @@ export async function addToCart(opts: {
                       __error: true,
                       __message: 'Add-to-cart failed: ASIN ' + ${JSON.stringify(
                         opts.asin,
-                      )} + ' was not found in the Fresh cart after adding. The item may be unavailable or the session cookies may be stale. Try running vellum amazon refresh.'
+                      )} + ' was not found in the Fresh cart after adding. The item may be unavailable or the session cookies may be stale. Try refreshing your session.'
                     });
                   }
                   items = allFreshItems.map(function(item) {
