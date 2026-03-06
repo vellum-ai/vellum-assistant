@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import {
+  getAssistantContactMetadata,
   getContact,
   listContacts,
   mergeContacts,
@@ -43,9 +44,11 @@ export function registerContactsCommand(program: Command): void {
           const role = opts.role as ContactRole | undefined;
           const limit = opts.limit ? Number(opts.limit) : undefined;
 
+          const effectiveLimit = limit ?? 50;
+
           const results = opts.query
-            ? searchContacts({ query: opts.query, role, limit })
-            : listContacts(limit ?? 50, role);
+            ? searchContacts({ query: opts.query, role, limit: effectiveLimit })
+            : listContacts(effectiveLimit, role);
 
           writeOutput(cmd, { ok: true, contacts: results });
         } catch (err) {
@@ -68,7 +71,15 @@ export function registerContactsCommand(program: Command): void {
           process.exitCode = 1;
           return;
         }
-        writeOutput(cmd, { ok: true, contact });
+        const assistantMeta =
+          contact.contactType === "assistant"
+            ? getAssistantContactMetadata(contact.id)
+            : undefined;
+        writeOutput(cmd, {
+          ok: true,
+          contact,
+          assistantMetadata: assistantMeta ?? undefined,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         writeOutput(cmd, { ok: false, error: message });
