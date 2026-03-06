@@ -259,9 +259,9 @@ function initiateGuardianVoiceCall(
 // Start outbound
 // ---------------------------------------------------------------------------
 
-export function startOutbound(
+export async function startOutbound(
   params: StartOutboundParams,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = params.channel;
   const originConversationId = params.originConversationId;
@@ -275,7 +275,7 @@ export function startOutbound(
       originConversationId,
     );
   } else if (channel === "telegram") {
-    return startOutboundTelegram(
+    return await startOutboundTelegram(
       params.destination,
       assistantId,
       channel,
@@ -397,13 +397,13 @@ function startOutboundSms(
   };
 }
 
-function startOutboundTelegram(
+async function startOutboundTelegram(
   destination: string | undefined,
   assistantId: string,
   channel: ChannelId,
   rebind?: boolean,
   originConversationId?: string,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   if (!destination) {
     return {
       success: false,
@@ -495,6 +495,9 @@ function startOutboundTelegram(
   }
 
   // Telegram handle/username: create a pending_bootstrap session with deep-link
+  const { ensureTelegramBotUsernameResolved } =
+    await import("./channel-invite-transports/telegram.js");
+  await ensureTelegramBotUsernameResolved();
   const botUsername = getTelegramBotUsername();
   if (!botUsername) {
     return {

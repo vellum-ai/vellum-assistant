@@ -625,6 +625,9 @@ export async function handleVerifyContactChannel(
     }
 
     // Telegram handle only (no chat ID): bootstrap flow
+    const { ensureTelegramBotUsernameResolved } =
+      await import("../channel-invite-transports/telegram.js");
+    await ensureTelegramBotUsernameResolved();
     const botUsername = getTelegramBotUsername();
     if (!botUsername) {
       return httpError(

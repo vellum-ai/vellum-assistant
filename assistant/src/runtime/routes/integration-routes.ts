@@ -235,7 +235,7 @@ export async function handleStartOutbound(req: Request): Promise<Response> {
     );
   }
 
-  const result = startOutbound({
+  const result = await startOutbound({
     channel: body.channel,
     destination: body.destination,
     rebind: body.rebind,
