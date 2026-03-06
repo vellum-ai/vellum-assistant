@@ -34,4 +34,4 @@ Thread grouping is handled by the LLM-powered decision engine, not by any parame
 ## Important
 
 - Do **NOT** use AppleScript `display notification` or other OS-level notification commands for assistant-managed alerts. Always use `send_notification`.
-- For sending rich content (digests, summaries, reports) to a specific chat, email, or SMS destination, use the messaging skill's `messaging_send` instead. The decision engine rewrites `send_notification` content into short alerts, which strips rich formatting.
+- For sending rich content (digests, summaries, reports) to a specific chat or email destination, use the messaging skill's `messaging_send` instead. The decision engine rewrites `send_notification` content into short alerts, which strips rich formatting.

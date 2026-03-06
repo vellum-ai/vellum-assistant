@@ -1,6 +1,6 @@
 # Vellum Gateway
 
-Standalone service that serves as the public ingress boundary for all external webhooks and callbacks. It owns Telegram integration end-to-end, routes Twilio voice and SMS webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime.
+Standalone service that serves as the public ingress boundary for all external webhooks and callbacks. It owns Telegram integration end-to-end, routes Twilio voice webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ Client → gateway/ (Bearer auth) → Assistant Runtime (any path)
 
 The web app is **not** in the Telegram request path. When proxy mode is enabled, non-Telegram requests are forwarded to the assistant runtime with optional bearer token authentication.
 
-For ingress and channel architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/sms-twilio-parity-checklist.md`](docs/sms-twilio-parity-checklist.md).
+For ingress and channel architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Setup
 
@@ -50,16 +50,15 @@ bun run dev
 | `GATEWAY_MAX_ATTACHMENT_BYTES`         | No       | `20971520`                         | Max single attachment size (oversized are skipped)                                                                                                                                                                                                                                                                                                                                 |
 | `GATEWAY_MAX_ATTACHMENT_CONCURRENCY`   | No       | `3`                                | Max concurrent attachment download/upload operations                                                                                                                                                                                                                                                                                                                               |
 | `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS` | No       | `false`                            | Dev-only: skip bearer auth on `/deliver/telegram` when no token is configured                                                                                                                                                                                                                                                                                                      |
-| `TWILIO_ACCOUNT_SID`                   | No       | —                                  | Twilio Account SID for sending outbound SMS via the Messages API                                                                                                                                                                                                                                                                                                                   |
-| `TWILIO_AUTH_TOKEN`                    | No       | —                                  | Twilio Auth Token for HMAC-SHA1 webhook signature validation and outbound SMS                                                                                                                                                                                                                                                                                                      |
-| `TWILIO_PHONE_NUMBER`                  | No       | —                                  | Twilio phone number (E.164) used as the `From` for outbound SMS                                                                                                                                                                                                                                                                                                                    |
-| `GATEWAY_SMS_DELIVER_AUTH_BYPASS`      | No       | `false`                            | Dev-only: skip bearer auth on `/deliver/sms` when no token is configured                                                                                                                                                                                                                                                                                                           |
+| `TWILIO_ACCOUNT_SID`                   | No       | —                                  | Twilio Account SID for webhook signature validation and voice calls                                                                                                                                                                                                                                                                                                                |
+| `TWILIO_AUTH_TOKEN`                    | No       | —                                  | Twilio Auth Token for HMAC-SHA1 webhook signature validation                                                                                                                                                                                                                                                                                                                       |
+| `TWILIO_PHONE_NUMBER`                  | No       | —                                  | Twilio phone number (E.164) used as the `From` for outbound voice calls                                                                                                                                                                                                                                                                                                            |
 
 ## Routing
 
 v1 uses deterministic settings-based routing (no database):
 
-1. **phone_number match** (SMS only) — reverse lookup of the inbound `To` number against `assistantPhoneNumbers` (a `Record<string, string>` mapping assistant IDs to E.164 phone numbers, propagated from the assistant config file). This allows each assistant to have its own dedicated phone number, and inbound SMS is routed to the correct assistant based on which number received the message.
+1. **phone_number match** (voice only) — reverse lookup of the inbound `To` number against `assistantPhoneNumbers` (a `Record<string, string>` mapping assistant IDs to E.164 phone numbers, propagated from the assistant config file). This allows each assistant to have its own dedicated phone number, and inbound calls are routed to the correct assistant based on which number was dialed.
 2. **conversation_id match** — explicit `conversation:<conversation_id>` entry in routing JSON
 3. **actor_id match** — explicit `actor:<actor_id>` entry in routing JSON
 4. **Unmapped policy** — `reject` (drop with message) or `default` (forward to `GATEWAY_DEFAULT_ASSISTANT_ID`)
@@ -104,7 +103,7 @@ The `/webhooks/twilio/voice` endpoint handles both outbound and inbound voice ca
 
 ### Inbound voice routing
 
-When the voice webhook is called without a `callSessionId` query parameter, the gateway treats it as an inbound call and resolves the assistant using the same routing chain as SMS:
+When the voice webhook is called without a `callSessionId` query parameter, the gateway treats it as an inbound call and resolves the assistant using the standard routing chain:
 
 1. **`resolveAssistantByPhoneNumber(config, To)`** — Reverse lookup of the inbound `To` number against `assistantPhoneNumbers`. If the dialed number matches an assistant's configured phone number, that assistant handles the call.
 2. **Fallback to `resolveAssistant(From, From)`** — If no phone number match is found, the standard routing chain is used: `conversation_id` match, `actor_id` match, then the unmapped policy.
@@ -121,35 +120,6 @@ Caller → Twilio → Gateway /webhooks/twilio/voice (no callSessionId)
   → Twilio opens WebSocket → Gateway /webhooks/twilio/relay → Runtime /v1/calls/relay
   → RelayConnection detects inbound (`initiatedFromConversationId == null`), optional guardian verification gate, then receptionist-style LLM greeting
 ```
-
-## SMS Ingress (Twilio)
-
-The `/webhooks/twilio/sms` endpoint receives inbound SMS messages from Twilio. On each request:
-
-1. **Signature validation** — The `X-Twilio-Signature` header is validated using HMAC-SHA1 with the `TWILIO_AUTH_TOKEN`. When behind a tunnel or reverse proxy, the gateway reconstructs the canonical request URL from `INGRESS_PUBLIC_BASE_URL` for validation.
-2. **MessageSid dedup** — Each `MessageSid` is tracked in an in-memory dedup cache. Duplicate webhook deliveries (Twilio retries) are silently accepted without re-forwarding.
-3. **MMS detection** — The gateway treats a message as MMS when any of the following conditions are met: `NumMedia > 0`, any `MediaUrl<N>` key has a non-empty value, or any `MediaContentType<N>` key has a non-empty value. This catches media attachments even when Twilio omits `NumMedia`. The gateway replies with an unsupported notice ("MMS is not supported yet") and does not forward the payload to the runtime.
-4. **`/new` command** — When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resolves routing first. If routing is rejected, the gateway sends a rejection notice SMS to the sender (matching Telegram rejection semantics) and does not forward the message. If routing succeeds, the gateway resets the conversation via the runtime API and sends a confirmation SMS. The message is never forwarded to the runtime.
-5. **Normalization** — The form-encoded Twilio payload is normalized into a `GatewayInboundEvent` with `sourceChannel: "sms"`. The sender's phone number (`From`) is used as both `conversationExternalId` and `actorExternalId`.
-6. **Routing** — Phone-number-based routing is checked first: the `To` number is looked up in `assistantPhoneNumbers` to find the target assistant. If no match, the standard routing chain (conversation_id -> actor_id -> default/reject) is used.
-7. **Forwarding** — The event is forwarded to the runtime via `POST /channels/inbound` with SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
-
-SMS is text-only in v1 — MMS payloads are explicitly rejected with a user-facing notice.
-
-## SMS Deliver Endpoint Security
-
-The `/deliver/sms` endpoint requires the same fail-closed bearer auth as `/deliver/telegram`:
-
-| Condition                                                           | Result                     |
-| ------------------------------------------------------------------- | -------------------------- |
-| Bearer token configured + valid `Authorization` header              | Request allowed            |
-| Bearer token configured + missing/invalid `Authorization` header    | 401 Unauthorized           |
-| No bearer token configured + `GATEWAY_SMS_DELIVER_AUTH_BYPASS=true` | Request allowed (dev-only) |
-| No bearer token configured + bypass not set                         | 503 Service Not Configured |
-
-The endpoint also requires `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_PHONE_NUMBER` to be configured. If any are missing, requests return `503 SMS integration not configured`.
-
-Outbound SMS is sent via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number. The request body accepts either `{ to, text }` or `{ chatId, text }` — `chatId` is an alias for `to`, allowing the runtime channel callback (which sends `{ chatId, text }`) to work without translation. When both `to` and `chatId` are provided, `to` takes precedence.
 
 ## Callback Query Handling
 
@@ -203,36 +173,34 @@ This can be sent as an action-only payload (without `text` or `attachments`) whe
 
 The gateway serves as the single public ingress point for all external callbacks. The following routes are handled directly by the gateway before any proxy forwarding:
 
-| Route                                       | Method          | Description                                                                                                                                                                             |
-| ------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/webhooks/telegram`                        | POST            | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`)                                                                                                                          |
-| `/deliver/telegram`                         | POST            | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats                                                                                  |
-| `/webhooks/twilio/voice`                    | POST            | Twilio voice webhook (validated via HMAC-SHA1 signature)                                                                                                                                |
-| `/webhooks/twilio/status`                   | POST            | Twilio status callback (validated via HMAC-SHA1 signature)                                                                                                                              |
-| `/webhooks/twilio/connect-action`           | POST            | Twilio connect-action callback (validated via HMAC-SHA1 signature)                                                                                                                      |
-| `/webhooks/twilio/relay`                    | WS              | Twilio ConversationRelay WebSocket (bidirectional proxy to runtime, requires `callSessionId` query param)                                                                               |
-| `/webhooks/twilio/sms`                      | POST            | Twilio SMS webhook — validates X-Twilio-Signature (HMAC-SHA1), normalizes into `GatewayInboundEvent` with `sourceChannel: "sms"`, deduplicates by `MessageSid`, and forwards to runtime |
-| `/deliver/sms`                              | POST            | Internal endpoint for the assistant runtime to deliver outbound SMS messages via the Twilio Messages API                                                                                |
-| `/webhooks/oauth/callback`                  | GET             | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime                                           |
-| `/v1/integrations/guardian/challenge`       | POST            | Authenticated control-plane proxy for creating guardian verification challenges                                                                                                         |
-| `/v1/integrations/guardian/status`          | GET             | Authenticated control-plane proxy for guardian binding status                                                                                                                           |
-| `/v1/integrations/guardian/outbound/start`  | POST            | Authenticated control-plane proxy for starting outbound guardian verification                                                                                                           |
-| `/v1/integrations/guardian/outbound/resend` | POST            | Authenticated control-plane proxy for resending outbound guardian verification                                                                                                          |
-| `/v1/integrations/guardian/outbound/cancel` | POST            | Authenticated control-plane proxy for cancelling outbound guardian verification                                                                                                         |
-| `/v1/integrations/telegram/config`          | GET/POST/DELETE | Authenticated control-plane proxy for Telegram integration config                                                                                                                       |
-| `/v1/integrations/telegram/commands`        | POST            | Authenticated control-plane proxy for Telegram command registration                                                                                                                     |
-| `/v1/integrations/telegram/setup`           | POST            | Authenticated control-plane proxy for Telegram setup orchestration                                                                                                                      |
-| `/v1/contacts`                              | GET/POST        | Authenticated control-plane proxy for listing/searching and creating/updating contacts                                                                                                  |
-| `/v1/contacts/:id`                          | GET             | Authenticated control-plane proxy for retrieving a contact by ID                                                                                                                        |
-| `/v1/contacts/merge`                        | POST            | Authenticated control-plane proxy for merging two contacts                                                                                                                              |
-| `/v1/contact-channels/:contactChannelId`    | PATCH           | Authenticated control-plane proxy for updating a contact channel's status/policy                                                                                                        |
-| `/v1/contacts/invites`                      | GET/POST        | Authenticated control-plane proxy for listing/creating contact invites                                                                                                                  |
-| `/v1/contacts/invites/:id`                  | DELETE          | Authenticated control-plane proxy for revoking a contact invite                                                                                                                         |
-| `/v1/contacts/invites/redeem`               | POST            | Authenticated control-plane proxy for redeeming a contact invite                                                                                                                        |
-| `/v1/health`                                | GET             | Authenticated runtime health proxy (`/v1/health` on runtime)                                                                                                                            |
-| `/healthz`                                  | GET             | Liveness probe                                                                                                                                                                          |
-| `/readyz`                                   | GET             | Readiness probe                                                                                                                                                                         |
-| `/schema`                                   | GET             | Returns the OpenAPI 3.1 schema for this gateway                                                                                                                                         |
+| Route                                       | Method          | Description                                                                                                                                   |
+| ------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/webhooks/telegram`                        | POST            | Telegram bot webhook (validated via `TELEGRAM_WEBHOOK_SECRET`)                                                                                |
+| `/deliver/telegram`                         | POST            | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats                                        |
+| `/webhooks/twilio/voice`                    | POST            | Twilio voice webhook (validated via HMAC-SHA1 signature)                                                                                      |
+| `/webhooks/twilio/status`                   | POST            | Twilio status callback (validated via HMAC-SHA1 signature)                                                                                    |
+| `/webhooks/twilio/connect-action`           | POST            | Twilio connect-action callback (validated via HMAC-SHA1 signature)                                                                            |
+| `/webhooks/twilio/relay`                    | WS              | Twilio ConversationRelay WebSocket (bidirectional proxy to runtime, requires `callSessionId` query param)                                     |
+| `/webhooks/oauth/callback`                  | GET             | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
+| `/v1/integrations/guardian/challenge`       | POST            | Authenticated control-plane proxy for creating guardian verification challenges                                                               |
+| `/v1/integrations/guardian/status`          | GET             | Authenticated control-plane proxy for guardian binding status                                                                                 |
+| `/v1/integrations/guardian/outbound/start`  | POST            | Authenticated control-plane proxy for starting outbound guardian verification                                                                 |
+| `/v1/integrations/guardian/outbound/resend` | POST            | Authenticated control-plane proxy for resending outbound guardian verification                                                                |
+| `/v1/integrations/guardian/outbound/cancel` | POST            | Authenticated control-plane proxy for cancelling outbound guardian verification                                                               |
+| `/v1/integrations/telegram/config`          | GET/POST/DELETE | Authenticated control-plane proxy for Telegram integration config                                                                             |
+| `/v1/integrations/telegram/commands`        | POST            | Authenticated control-plane proxy for Telegram command registration                                                                           |
+| `/v1/integrations/telegram/setup`           | POST            | Authenticated control-plane proxy for Telegram setup orchestration                                                                            |
+| `/v1/contacts`                              | GET/POST        | Authenticated control-plane proxy for listing/searching and creating/updating contacts                                                        |
+| `/v1/contacts/:id`                          | GET             | Authenticated control-plane proxy for retrieving a contact by ID                                                                              |
+| `/v1/contacts/merge`                        | POST            | Authenticated control-plane proxy for merging two contacts                                                                                    |
+| `/v1/contact-channels/:contactChannelId`    | PATCH           | Authenticated control-plane proxy for updating a contact channel's status/policy                                                              |
+| `/v1/contacts/invites`                      | GET/POST        | Authenticated control-plane proxy for listing/creating contact invites                                                                        |
+| `/v1/contacts/invites/:id`                  | DELETE          | Authenticated control-plane proxy for revoking a contact invite                                                                               |
+| `/v1/contacts/invites/redeem`               | POST            | Authenticated control-plane proxy for redeeming a contact invite                                                                              |
+| `/v1/health`                                | GET             | Authenticated runtime health proxy (`/v1/health` on runtime)                                                                                  |
+| `/healthz`                                  | GET             | Liveness probe                                                                                                                                |
+| `/readyz`                                   | GET             | Readiness probe                                                                                                                               |
+| `/schema`                                   | GET             | Returns the OpenAPI 3.1 schema for this gateway                                                                                               |
 
 #### Backward-Compatibility Paths
 
@@ -283,15 +251,7 @@ The assistant runtime uses this URL to construct all webhook and OAuth callback 
 
 ## Ingress Boundary Guarantees
 
-The gateway is the **sole public ingress point** for all external webhooks, including SMS. The assistant runtime never directly accepts public webhook traffic — all Twilio and Telegram webhook routes on the runtime return `410 GATEWAY_ONLY` when accessed directly.
-
-### SMS Ingress
-
-Inbound SMS follows the same gateway-only pattern as voice and Telegram:
-
-1. **Twilio → Gateway** (`/webhooks/twilio/sms`) — Gateway validates `X-Twilio-Signature` using HMAC-SHA1 with the configured `TWILIO_AUTH_TOKEN`.
-2. **Gateway → Runtime** (`/v1/channels/inbound`) — Gateway forwards the normalized event to the runtime with JWT bearer auth.
-3. **Runtime rejects direct SMS webhooks** — Any direct POST to `/webhooks/twilio/sms` or `/v1/calls/twilio/sms` on the runtime returns `410 GATEWAY_ONLY`.
+The gateway is the **sole public ingress point** for all external webhooks. The assistant runtime never directly accepts public webhook traffic — all Twilio and Telegram webhook routes on the runtime return `410 GATEWAY_ONLY` when accessed directly.
 
 ### Signature URL Tightening
 

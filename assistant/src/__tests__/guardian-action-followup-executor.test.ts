@@ -26,8 +26,9 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Track SMS deliveries and call starts for assertions
-const deliveredSms: Array<{ url: string; chatId: string; text: string }> = [];
+// Track message deliveries and call starts for assertions
+const deliveredMessages: Array<{ url: string; chatId: string; text: string }> =
+  [];
 const startedCalls: Array<{
   phoneNumber: string;
   task: string;
@@ -52,7 +53,7 @@ mock.module("../runtime/gateway-client.js", () => ({
     url: string,
     payload: { chatId: string; text?: string },
   ) => {
-    deliveredSms.push({
+    deliveredMessages.push({
       url,
       chatId: payload.chatId,
       text: payload.text ?? "",
@@ -128,7 +129,7 @@ function resetTables(): void {
   db.run("DELETE FROM call_sessions");
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
-  deliveredSms.length = 0;
+  deliveredMessages.length = 0;
   startedCalls.length = 0;
   conversationCounter = 0;
   mockStartCallResult = {
@@ -249,7 +250,7 @@ describe("guardian-action-followup-executor", () => {
   // ── message_back execution ──────────────────────────────────────────
 
   describe("message_back", () => {
-    test("sends SMS to counterparty and finalizes as completed", async () => {
+    test("sends message to counterparty and finalizes as completed", async () => {
       const { request } = createDispatchingRequest(
         "exec-msg-1",
         "message_back",
@@ -261,11 +262,11 @@ describe("guardian-action-followup-executor", () => {
       expect(result.action).toBe("message_back");
       expect(result.guardianReplyText.length).toBeGreaterThan(0);
 
-      // Verify SMS was sent to the counterparty
-      expect(deliveredSms.length).toBe(1);
-      expect(deliveredSms[0].chatId).toBe("+15550001111");
-      expect(deliveredSms[0].url).toContain("/deliver/sms");
-      expect(deliveredSms[0].text.length).toBeGreaterThan(0);
+      // Verify message was sent to the counterparty
+      expect(deliveredMessages.length).toBe(1);
+      expect(deliveredMessages[0].chatId).toBe("+15550001111");
+      expect(deliveredMessages[0].url).toContain("/deliver/whatsapp");
+      expect(deliveredMessages[0].text.length).toBeGreaterThan(0);
 
       // Verify follow-up state is completed
       const updated = getGuardianActionRequest(request.id);
@@ -410,33 +411,33 @@ describe("guardian-action-followup-executor", () => {
     });
   });
 
-  // ── Outbound SMS content ────────────────────────────────────────────
+  // ── Outbound message content ────────────────────────────────────────
 
-  describe("outbound SMS content", () => {
-    test("SMS text includes the original question", async () => {
+  describe("outbound message content", () => {
+    test("message text includes the original question", async () => {
       const { request } = createDispatchingRequest(
-        "exec-sms-content-1",
+        "exec-msg-content-1",
         "message_back",
       );
 
       await executeFollowupAction(request.id, "message_back");
 
-      expect(deliveredSms.length).toBe(1);
+      expect(deliveredMessages.length).toBe(1);
       // The deterministic fallback for 'outbound_message_copy' includes the question
-      expect(deliveredSms[0].text).toContain("gate code");
+      expect(deliveredMessages[0].text).toContain("gate code");
     });
 
-    test("SMS text includes the guardian late answer", async () => {
+    test("message text includes the guardian late answer", async () => {
       const { request } = createDispatchingRequest(
-        "exec-sms-content-2",
+        "exec-msg-content-2",
         "message_back",
       );
 
       await executeFollowupAction(request.id, "message_back");
 
-      expect(deliveredSms.length).toBe(1);
+      expect(deliveredMessages.length).toBe(1);
       // The fallback must relay the guardian's answer to the caller
-      expect(deliveredSms[0].text).toContain("1234");
+      expect(deliveredMessages[0].text).toContain("1234");
     });
   });
 });

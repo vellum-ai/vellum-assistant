@@ -34,7 +34,6 @@ import {
   createTwilioRelayWebsocketHandler,
   getRelayWebsocketHandlers,
 } from "./http/routes/twilio-relay-websocket.js";
-import { createSmsDeliverHandler } from "./http/routes/sms-deliver.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
@@ -138,7 +137,6 @@ async function main() {
   const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
-  const handleSmsDeliver = createSmsDeliverHandler(config);
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config);
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
@@ -248,11 +246,6 @@ async function main() {
       precondition: requireTelegram,
       auth: "track-failures",
       handler: (req) => handleTelegramDeliver(req),
-    },
-    {
-      path: "/deliver/sms",
-      auth: "track-failures",
-      handler: (req) => handleSmsDeliver(req),
     },
     {
       path: "/deliver/whatsapp",

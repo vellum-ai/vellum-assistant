@@ -631,7 +631,7 @@ describe("injectInboundActorContext", () => {
 
   test("prepends inbound_actor_context block to user message", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: "sms",
+      sourceChannel: "telegram",
       canonicalActorIdentity: "guardian-user-1",
       actorIdentifier: "+15550001111",
       actorDisplayName: "Guardian Name",
@@ -648,7 +648,7 @@ describe("injectInboundActorContext", () => {
     const text = (injected as { type: "text"; text: string }).text;
     expect(text).toContain("<inbound_actor_context>");
     expect(text).toContain("trust_class: guardian");
-    expect(text).toContain("source_channel: sms");
+    expect(text).toContain("source_channel: telegram");
     expect(text).toContain("canonical_actor_identity: guardian-user-1");
     expect(text).toContain("actor_display_name: Guardian Name");
     expect(text).toContain("actor_sender_display_name: Guardian Name");
@@ -735,7 +735,7 @@ describe("injectInboundActorContext", () => {
 
   test("omits member_status and member_policy when not provided", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: "sms",
+      sourceChannel: "telegram",
       canonicalActorIdentity: "user-1",
       trustClass: "unknown",
       denialReason: "no_binding",
@@ -775,14 +775,14 @@ describe("applyRuntimeInjections with inboundActorContext", () => {
   const baseMessages: Message[] = [
     {
       role: "user",
-      content: [{ type: "text", text: "Help me send this over SMS." }],
+      content: [{ type: "text", text: "Help me send this over messaging." }],
     },
   ];
 
   test("injects inbound actor context when provided", () => {
     const result = applyRuntimeInjections(baseMessages, {
       inboundActorContext: {
-        sourceChannel: "sms",
+        sourceChannel: "telegram",
         canonicalActorIdentity: "requester-1",
         actorIdentifier: "+15550002222",
         trustClass: "trusted_contact",

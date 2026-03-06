@@ -40,9 +40,7 @@ mock.module("../notifications/adapters/macos.js", () => ({
   },
 }));
 
-mock.module("../notifications/adapters/sms.js", () => ({
-  SmsAdapter: class {},
-}));
+// Notification adapter mocks (no longer needed for removed channels)
 
 mock.module("../notifications/adapters/telegram.js", () => ({
   TelegramAdapter: class {},

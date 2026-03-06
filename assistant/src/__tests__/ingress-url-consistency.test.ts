@@ -259,65 +259,6 @@ describe("Ingress URL consistency between assistant and gateway", () => {
     expect(gatewayCanonical).toBe(callbackUrl);
   });
 
-  // ── SMS-specific URL consistency ──────────────────────────────────
-
-  test("SMS webhook URL consistency: gateway signature URL matches configured ingress", () => {
-    const publicBase = "https://sms-gateway.example.com";
-    const authToken = "test-sms-auth-token";
-
-    // The gateway registers /webhooks/twilio/sms with Twilio. Twilio signs
-    // inbound SMS requests against the full public URL.
-    const smsWebhookUrl = `${publicBase}/webhooks/twilio/sms`;
-
-    const params = {
-      Body: "hello",
-      From: "+15551234567",
-      To: "+15559876543",
-      MessageSid: "SM123",
-    };
-    const twilioSignature = computeTwilioSignature(
-      smsWebhookUrl,
-      params,
-      authToken,
-    );
-
-    // Gateway receives the request on its local address and reconstructs
-    // the canonical URL using the configured ingress base.
-    const localUrl = "http://127.0.0.1:7830/webhooks/twilio/sms";
-    const canonicalUrl = reconstructGatewayCanonicalUrl(publicBase, localUrl);
-
-    expect(canonicalUrl).toBe(smsWebhookUrl);
-
-    const recomputed = computeTwilioSignature(canonicalUrl, params, authToken);
-    expect(recomputed).toBe(twilioSignature);
-  });
-
-  test("SMS webhook signature fails when ingress URL is not configured (fail-visible)", () => {
-    const publicBase = "https://sms-gateway.example.com";
-    const authToken = "test-sms-auth-token";
-
-    const smsWebhookUrl = `${publicBase}/webhooks/twilio/sms`;
-    const params = { Body: "test", From: "+15550001111", MessageSid: "SM456" };
-    const twilioSignature = computeTwilioSignature(
-      smsWebhookUrl,
-      params,
-      authToken,
-    );
-
-    // Without ingress config, the gateway uses the local URL — signature mismatch.
-    const localUrl = "http://127.0.0.1:7830/webhooks/twilio/sms";
-    const canonicalWithout = reconstructGatewayCanonicalUrl(
-      undefined,
-      localUrl,
-    );
-    const recomputedWithout = computeTwilioSignature(
-      canonicalWithout,
-      params,
-      authToken,
-    );
-    expect(recomputedWithout).not.toBe(twilioSignature);
-  });
-
   test("all Twilio webhook paths share the /webhooks/twilio/ prefix consistently", () => {
     const config: IngressConfig = {
       ingress: { publicBaseUrl: "https://consistent.example.com" },
@@ -331,10 +272,5 @@ describe("Ingress URL consistency between assistant and gateway", () => {
     // Verify they all share the same base and prefix
     expect(voiceUrl).toStartWith(`${base}/webhooks/twilio/`);
     expect(statusUrl).toStartWith(`${base}/webhooks/twilio/`);
-
-    // SMS is currently handled at the gateway level (/webhooks/twilio/sms)
-    // but the path pattern is the same
-    const smsUrl = `${base}/webhooks/twilio/sms`;
-    expect(smsUrl).toStartWith(`${base}/webhooks/twilio/`);
   });
 });

@@ -2,7 +2,7 @@
  * Shared guardian reply router for inbound channel messages.
  *
  * Provides a single entry point (`routeGuardianReply`) for all inbound
- * guardian reply processing across Telegram, SMS, and WhatsApp. Routes
+ * guardian reply processing across Telegram and WhatsApp. Routes
  * through a priority-ordered pipeline:
  *
  *   1. Deterministic callback/ref parsing (button presses with `apr:<requestId>:<action>`)
@@ -57,7 +57,7 @@ const log = getLogger("guardian-reply-router");
 export interface GuardianReplyContext {
   /** The raw message text (trimmed). */
   messageText: string;
-  /** Source channel (telegram, sms, whatsapp, etc.). */
+  /** Source channel (telegram, whatsapp, etc.). */
   channel: string;
   /** Actor identity context for the sender. */
   actor: ActorContext;
@@ -260,7 +260,7 @@ function notConsumed(): GuardianReplyResult {
  * Route an inbound guardian reply through the canonical decision pipeline.
  *
  * This is the single entry point for all inbound guardian reply processing.
- * It handles messages from any channel (Telegram, SMS, WhatsApp) and
+ * It handles messages from any channel (Telegram, WhatsApp, etc.) and
  * routes through priority-ordered matching:
  *
  *   1. Deterministic callback parsing (button presses)

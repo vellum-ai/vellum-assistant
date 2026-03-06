@@ -27,7 +27,7 @@ export function createTwilioVoiceWebhookHandler(config: GatewayConfig) {
 
     // For inbound calls (no callSessionId in the URL), resolve the assistant
     // by the "To" phone number, then fall through to the standard routing
-    // chain (defaultAssistantId / unmapped policy) — mirroring how the SMS
+    // chain (defaultAssistantId / unmapped policy) — mirroring how the voice
     // webhook handles phone-number lookup misses.
     const url = new URL(req.url);
     const hasCallSessionId = !!url.searchParams.get("callSessionId");

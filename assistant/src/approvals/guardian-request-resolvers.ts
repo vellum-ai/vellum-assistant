@@ -110,7 +110,6 @@ export type ResolverResult =
 function resolveDeliverCallbackUrlForChannel(channel: string): string | null {
   switch (channel) {
     case "telegram":
-    case "sms":
     case "whatsapp":
     case "slack":
       return `${getGatewayInternalBaseUrl()}/deliver/${channel}`;

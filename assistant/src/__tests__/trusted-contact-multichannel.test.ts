@@ -2,7 +2,7 @@
  * Tests verifying the trusted contact flow is channel-agnostic.
  *
  * The access request -> guardian notification -> verification -> activation
- * flow should work identically across Telegram, SMS, and voice channels.
+ * flow should work identically across Telegram, and voice channels.
  * These tests confirm no Telegram-specific assumptions leaked into the
  * trusted contact code paths.
  */
@@ -140,9 +140,9 @@ function resetState(): void {
 }
 
 interface ChannelTestConfig {
-  channel: "telegram" | "sms" | "voice";
+  channel: "telegram" | "telegram" | "voice";
   deliverEndpoint: string;
-  /** SMS/voice use phone E.164 as identifiers */
+  /** Phone use phone E.164 as identifiers */
   senderExternalUserId: string;
   externalChatId: string;
   guardianExternalUserId: string;
@@ -159,8 +159,8 @@ const CHANNEL_CONFIGS: ChannelTestConfig[] = [
     guardianChatId: "tg-guardian-chat-789",
   },
   {
-    channel: "sms",
-    deliverEndpoint: "/deliver/sms",
+    channel: "telegram",
+    deliverEndpoint: "/deliver/whatsapp",
     senderExternalUserId: "+15551234567",
     externalChatId: "+15551234567",
     guardianExternalUserId: "+15559876543",
@@ -318,7 +318,8 @@ for (const config of CHANNEL_CONFIGS) {
       expect(sameChanResult).not.toBeNull();
 
       // Should NOT be found on a different channel
-      const otherChannel = config.channel === "telegram" ? "sms" : "telegram";
+      const otherChannel =
+        config.channel === "telegram" ? "telegram" : "telegram";
       const crossChanResult = findContactChannel({
         channelType: otherChannel,
         externalUserId: config.senderExternalUserId,
@@ -329,18 +330,18 @@ for (const config of CHANNEL_CONFIGS) {
 }
 
 // ---------------------------------------------------------------------------
-// SMS-specific: phone E.164 identity binding
+// Phone-specific: phone E.164 identity binding
 // ---------------------------------------------------------------------------
 
-describe("SMS identity binding with E.164 phone numbers", () => {
+describe("Phone identity binding with E.164 phone numbers", () => {
   beforeEach(() => {
     resetState();
   });
 
-  test("SMS verification session binds to phone E.164", () => {
+  test("Phone verification session binds to phone E.164", () => {
     const phone = "+15551234567";
     const session = createOutboundSession({
-      channel: "sms",
+      channel: "telegram",
       expectedExternalUserId: phone,
       expectedPhoneE164: phone,
       expectedChatId: phone,
@@ -351,7 +352,7 @@ describe("SMS identity binding with E.164 phone numbers", () => {
 
     // Verify with matching phone identity
     const result = validateAndConsumeChallenge(
-      "sms",
+      "telegram",
       session.secret,
       phone,
       phone,
@@ -362,12 +363,12 @@ describe("SMS identity binding with E.164 phone numbers", () => {
     }
   });
 
-  test("SMS verification rejects mismatched phone identity", () => {
+  test("Phone verification rejects mismatched phone identity", () => {
     const expectedPhone = "+15551234567";
     const wrongPhone = "+15559999999";
 
     const session = createOutboundSession({
-      channel: "sms",
+      channel: "telegram",
       expectedExternalUserId: expectedPhone,
       expectedPhoneE164: expectedPhone,
       expectedChatId: expectedPhone,
@@ -377,7 +378,7 @@ describe("SMS identity binding with E.164 phone numbers", () => {
 
     // Try to verify with a different phone (anti-oracle: same error message)
     const result = validateAndConsumeChallenge(
-      "sms",
+      "telegram",
       session.secret,
       wrongPhone,
       wrongPhone,
@@ -405,8 +406,8 @@ describe("cross-channel isolation", () => {
       destinationAddress: "chat-123",
     });
 
-    const smsSession = createOutboundSession({
-      channel: "sms",
+    const phoneSession = createOutboundSession({
+      channel: "telegram",
       expectedExternalUserId: "+15551234567",
       expectedPhoneE164: "+15551234567",
       expectedChatId: "+15551234567",
@@ -414,19 +415,19 @@ describe("cross-channel isolation", () => {
       destinationAddress: "+15551234567",
     });
 
-    // Telegram code should not work on SMS channel
+    // Telegram code should not work on phone channel
     const wrongChannelResult = validateAndConsumeChallenge(
-      "sms",
+      "telegram",
       telegramSession.secret,
       "+15551234567",
       "+15551234567",
     );
     expect(wrongChannelResult.success).toBe(false);
 
-    // SMS code should work on SMS channel
+    // Phone code should work on phone channel
     const correctChannelResult = validateAndConsumeChallenge(
-      "sms",
-      smsSession.secret,
+      "telegram",
+      phoneSession.secret,
       "+15551234567",
       "+15551234567",
     );

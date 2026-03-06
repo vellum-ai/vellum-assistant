@@ -4,7 +4,7 @@ description: "Book reservations on OpenTable or Resy with explicit confirmations
 user-invocable: true
 disable-model-invocation: true
 includes: ["browser"]
-metadata: {"vellum": {"emoji": "🍽️"}}
+metadata: { "vellum": { "emoji": "🍽️" } }
 ---
 
 Book restaurant reservations on OpenTable or Resy using browser automation.
@@ -51,13 +51,14 @@ This is the most important step. Reservation sites require authentication before
 4. If already signed in (you see an account menu, the user's name, or other logged-in indicators), skip to the next step.
 5. Fill the email using `browser_fill_credential` (e.g. service: "opentable" or "resy", field: "email"). Target the element by its `element_id` — NEVER type into the browser URL bar.
 6. Click "Continue" / "Sign In" or equivalent submit button.
-7. The site will send a verification code via SMS/email. Use `ui_show` with `surface_type: "form"` and `await_action: true` to ask the user for the code. **Wait for the user to submit the form before proceeding** — do NOT use any previously collected code. Verification codes expire quickly; only the code from the most recent form submission is valid. Type the freshly submitted code into the verification input on the page.
+7. The site will send a verification code via email. Use `ui_show` with `surface_type: "form"` and `await_action: true` to ask the user for the code. **Wait for the user to submit the form before proceeding** — do NOT use any previously collected code. Verification codes expire quickly; only the code from the most recent form submission is valid. Type the freshly submitted code into the verification input on the page.
 8. If the code is rejected, prompt the user again with a fresh `ui_show` form — never retry an old code.
 9. **For password-based login:** If the site presents a password field instead of a verification code, fill the password using `browser_fill_credential` (e.g. service: "opentable" or "resy", field: "password").
 
 ### EVERY snapshot: Dismiss modals FIRST
 
 **Before every other action**, scan the snapshot for **non-functional** modal overlays and dismiss them. Modals block all interactions — clicking behind a modal silently fails.
+
 - **DO NOT dismiss sign-in/login modals** — if you see an email input or sign-in form inside a modal, that IS the sign-in flow. Fill it in, don't close it.
 - Dismiss only blocker modals: cookie banners, regulatory notices, promotional popups.
 - Look for: "Got It", "Accept", "Close", "OK", "Dismiss" buttons on non-login modals.
@@ -87,12 +88,14 @@ This is the most important step. Reservation sites require authentication before
 ### Step 6: First Confirmation — Reservation Details + Policies
 
 Before proceeding to book, show the user a summary:
+
 - Restaurant name
 - Date and time
 - Party size
 - Any special notes
 
 **CRITICAL: Surface cancellation policies and fees prominently.** Look for and extract:
+
 - Cancellation deadlines (e.g., "Cancel by 4 hours before")
 - No-show fees (e.g., "$25 per person no-show fee")
 - Deposit requirements
@@ -105,6 +108,7 @@ Ask the user to confirm they want to proceed.
 ### Step 7: Final Confirmation — Pre-Submit Approval
 
 Immediately before clicking the final "Complete Reservation" / "Confirm" button, ask one more time:
+
 - "Ready to submit this reservation? This action cannot be undone."
 
 Only proceed after explicit user approval.

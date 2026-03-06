@@ -431,10 +431,10 @@ describe("notification deep-link metadata", () => {
       const adapter = new VellumAdapter((msg) => messages.push(msg));
 
       // Simulates the binding-key continuation path: multiple notifications
-      // to the same SMS destination reuse the same bound conversation, and
+      // to the same destination reuse the same bound conversation, and
       // the deep-link metadata should reflect the bound conversation ID
       // rather than creating a new one each time.
-      const boundConvId = "conv-sms-bound-+15551234567";
+      const boundConvId = "conv-phone-bound-+15551234567";
 
       for (const body of ["Alert 1", "Alert 2", "Alert 3"]) {
         await adapter.send(

@@ -89,7 +89,6 @@ const baseConfig: GatewayConfig = {
     "assistant-abc": "+15550001111",
     "assistant-xyz": "+15550002222",
   },
-  smsDeliverAuthBypass: false,
   ingressPublicBaseUrl: undefined,
   unmappedPolicy: "reject",
   whatsappPhoneNumberId: undefined,

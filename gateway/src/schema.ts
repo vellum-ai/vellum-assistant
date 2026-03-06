@@ -7,7 +7,7 @@ export function buildSchema(): Record<string, unknown> {
       title: "Vellum Gateway",
       version: packageJson.version,
       description:
-        "HTTP gateway that bridges external channels (Telegram, SMS, etc.) to the Vellum assistant runtime and provides an authenticated reverse proxy.",
+        "HTTP gateway that bridges external channels (Telegram, WhatsApp, etc.) to the Vellum assistant runtime and provides an authenticated reverse proxy.",
     },
     paths: {
       "/healthz": {
@@ -455,72 +455,6 @@ export function buildSchema(): Record<string, unknown> {
             },
             "502": {
               description: "Failed to forward to runtime",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
-      "/deliver/sms": {
-        post: {
-          summary: "SMS delivery (internal)",
-          description:
-            "Internal endpoint called by the assistant runtime to deliver outbound SMS messages via Twilio. Not intended for external use.",
-          operationId: "smsDeliver",
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { $ref: "#/components/schemas/SmsDeliverRequest" },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "SMS delivered",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/SmsOk" },
-                },
-              },
-            },
-            "400": {
-              description: "Invalid JSON or missing required fields",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "401": {
-              description: "Unauthorized",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "405": {
-              description: "Method not allowed (only POST accepted)",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "502": {
-              description: "Failed to deliver message via Twilio Messages API",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "503": {
-              description: "SMS integration not configured",
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
@@ -1338,7 +1272,7 @@ export function buildSchema(): Record<string, unknown> {
               name: "channel",
               in: "query",
               required: false,
-              schema: { type: "string", enum: ["sms", "voice", "telegram"] },
+              schema: { type: "string", enum: ["voice", "telegram"] },
               description: "Optional guardian channel filter.",
             },
           ],
@@ -1357,7 +1291,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Start outbound guardian verification",
           description:
-            "Authenticated gateway endpoint that starts outbound guardian verification (sms, voice, or telegram).",
+            "Authenticated gateway endpoint that starts outbound guardian verification (voice or telegram).",
           operationId: "guardianOutboundStart",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -2127,50 +2061,6 @@ export function buildSchema(): Record<string, unknown> {
           properties: {
             ok: { type: "boolean" },
           },
-        },
-        SmsOk: {
-          type: "object",
-          required: ["ok"],
-          properties: {
-            ok: { type: "boolean" },
-          },
-        },
-        SmsDeliverRequest: {
-          type: "object",
-          description:
-            "Request to deliver an SMS message via Twilio. Provide either `to` or `chatId` (alias) as the recipient phone number. `text` is optional when `attachments` are present — a fallback text message is sent instead.",
-          properties: {
-            to: {
-              type: "string",
-              description: "Recipient phone number in E.164 format",
-            },
-            chatId: {
-              type: "string",
-              description:
-                "Alias for `to` — recipient phone number in E.164 format. Used by the runtime channel callback payload.",
-            },
-            text: {
-              type: "string",
-              description: "Text content to send",
-              minLength: 1,
-            },
-            assistantId: {
-              type: "string",
-              description:
-                "Optional assistant ID for per-assistant phone number resolution in multi-assistant setups",
-            },
-            attachments: {
-              type: "array",
-              items: { type: "object" },
-              minItems: 1,
-              description:
-                "Media attachments. When text is empty but attachments are present, a fallback text message is sent instead.",
-            },
-          },
-          allOf: [
-            { anyOf: [{ required: ["to"] }, { required: ["chatId"] }] },
-            { anyOf: [{ required: ["text"] }, { required: ["attachments"] }] },
-          ],
         },
         TelegramUpdate: {
           type: "object",

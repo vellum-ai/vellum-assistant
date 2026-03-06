@@ -555,7 +555,7 @@ describe("scheduler RRULE execution", () => {
       routingIntent: "multi_channel",
       routingHints: {
         requestedByUser: true,
-        channelMentions: ["telegram", "sms"],
+        channelMentions: ["telegram", "telegram"],
       },
     });
 
@@ -592,7 +592,7 @@ describe("scheduler RRULE execution", () => {
       routingIntent: "multi_channel",
       routingHints: {
         requestedByUser: true,
-        channelMentions: ["telegram", "sms"],
+        channelMentions: ["telegram", "telegram"],
       },
     });
     expect(getReminder(reminder.id)?.status).toBe("fired");

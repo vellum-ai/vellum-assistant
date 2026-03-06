@@ -2,7 +2,7 @@
  * Store for cross-channel guardian action requests and deliveries.
  *
  * Guardian action requests are created when a voice call's ASK_GUARDIAN
- * marker fires, and deliveries track per-channel dispatch (telegram, sms, mac).
+ * marker fires, and deliveries track per-channel dispatch (telegram, whatsapp, mac).
  * Resolution uses first-response-wins semantics: the first channel to
  * answer resolves the request and all other deliveries are marked answered.
  */
@@ -864,7 +864,7 @@ export function getExpiredDeliveriesByConversation(
 /**
  * Look up deliveries for requests in `awaiting_guardian_choice` follow-up state.
  * Used by inbound message routing to intercept guardian follow-up replies
- * on channel paths (Telegram, SMS).
+ * on channel paths (Telegram, WhatsApp).
  */
 export function getFollowupDeliveriesByDestination(
   channel: string,

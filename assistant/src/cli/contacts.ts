@@ -174,7 +174,7 @@ Examples:
     "after",
     `
 Invites are tokens that grant channel access when redeemed. Each invite is
-tied to a source channel (telegram, voice, sms, email, whatsapp) and can
+tied to a source channel (telegram, voice, email, whatsapp) and can
 optionally have usage limits, expiration, and notes. When redeemed, the
 invite creates a channel membership linking a contact to an external
 identifier on the source channel.
@@ -232,7 +232,7 @@ Examples:
     .description("Create a new invite")
     .requiredOption(
       "--source-channel <channel>",
-      "Source channel (e.g. telegram, voice, sms, email, whatsapp)",
+      "Source channel (e.g. telegram, voice, email, whatsapp)",
     )
     .option("--note <note>", "Optional note")
     .option("--max-uses <n>", "Max redemptions")
@@ -254,7 +254,7 @@ Examples:
       "after",
       `
 Creates a new invite token for the specified source channel. The --source-channel
-flag is required and must be one of: telegram, voice, sms, email, whatsapp.
+flag is required and must be one of: telegram, voice, email, whatsapp.
 
 Optional fields:
   --note                        Free-text note attached to the invite

@@ -139,14 +139,14 @@ describe("slash commands are never intercepted", () => {
 // =====================================================================
 
 describe("channel hint extraction", () => {
-  test("SMS phrases still trigger setup but without SMS channel hint", () => {
+  test("unrecognized channel names trigger setup but without channel hint", () => {
     const result = resolveGuardianVerificationIntent(
-      "set me as guardian for SMS",
+      "set me as guardian for foobar",
     );
     expect(result.kind).toBe("direct_setup");
     if (result.kind === "direct_setup") {
-      // SMS is no longer a supported channel; the intent still matches on
-      // the guardian setup pattern but no channel hint is extracted.
+      // Unrecognized channel names still match on the guardian setup
+      // pattern but no channel hint is extracted.
       expect(result.channelHint).toBeUndefined();
     }
   });

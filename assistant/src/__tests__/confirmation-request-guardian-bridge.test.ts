@@ -253,9 +253,11 @@ describe("bridgeConfirmationRequestToGuardian", () => {
   });
 
   test("skips when no guardian binding exists for channel", () => {
-    const canonicalRequest = makeCanonicalRequest({ sourceChannel: "sms" });
+    const canonicalRequest = makeCanonicalRequest({
+      sourceChannel: "telegram",
+    });
     const trustContext = makeTrustedContactContext({
-      sourceChannel: "sms",
+      sourceChannel: "telegram",
     });
 
     const result = bridgeConfirmationRequestToGuardian({

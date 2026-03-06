@@ -160,7 +160,7 @@ All approval prompt delivery paths use a **fail-closed** policy -- if the prompt
 
 ### Plain-Text Fallback for Non-Rich Channels
 
-Channels that do not support rich inline approval UI (e.g., inline keyboards) receive plain-text instructions embedded in the message body. The `channelSupportsRichApprovalUI()` check determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels, e.g., SMS). The fallback text includes instructions like "Reply yes/no/always" so the user can respond via text.
+Channels that do not support rich inline approval UI (e.g., inline keyboards) receive plain-text instructions embedded in the message body. The `channelSupportsRichApprovalUI()` check determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). The fallback text includes instructions like "Reply yes/no/always" so the user can respond via text.
 
 ### Key modules
 
@@ -191,7 +191,7 @@ Guardian actor-role _classification_ (determining whether a sender is guardian, 
 
 ### Ingress Boundary Guarantees (Gateway-Only Mode)
 
-The runtime operates in **gateway-only mode**: all public-facing webhook paths are blocked at the runtime level. Direct access to Twilio webhook routes (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/twilio/connect-action`, `/webhooks/twilio/sms`) and their legacy equivalents (`/v1/calls/twilio/*`) returns `410 GATEWAY_ONLY`. This ensures external webhook traffic (including SMS) can only reach the runtime through the gateway, which performs signature validation before forwarding.
+The runtime operates in **gateway-only mode**: all public-facing webhook paths are blocked at the runtime level. Direct access to Twilio webhook routes (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/twilio/connect-action`) and their legacy equivalents (`/v1/calls/twilio/*`) returns `410 GATEWAY_ONLY`. This ensures external webhook traffic can only reach the runtime through the gateway, which performs signature validation before forwarding.
 
 Internal forwarding routes (`/v1/internal/twilio/*`) are unaffected — these accept pre-validated payloads from the gateway over the private network.
 
@@ -204,49 +204,43 @@ The `/channels/inbound` endpoint requires a JWT with the `svc_gateway` principal
 
 ## Twilio Setup Primitive
 
-Twilio is the shared telephony provider for both voice calls and SMS messaging. Configuration is managed through HTTP control-plane endpoints exposed by the runtime and proxied by the gateway. The `twilio-setup` skill provides a guided conversational flow for credential storage, phone number provisioning, and webhook configuration.
+Twilio is the telephony provider for voice calls. Configuration is managed through HTTP control-plane endpoints exposed by the runtime and proxied by the gateway. The `twilio-setup` skill provides a guided conversational flow for credential storage, phone number provisioning, and webhook configuration.
 
 ### Twilio HTTP Control-Plane Endpoints
 
-The runtime exposes a RESTful HTTP API for Twilio configuration, credential management, phone number operations, and SMS compliance:
+The runtime exposes a RESTful HTTP API for Twilio configuration, credential management, and phone number operations:
 
-| Method | Path                                                   | Description                                                                                                                                                     |
-| ------ | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/v1/integrations/twilio/config`                       | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned)                                                                               |
-| POST   | `/v1/integrations/twilio/credentials`                  | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file)                                                                   |
-| DELETE | `/v1/integrations/twilio/credentials`                  | Removes stored credentials. Preserves the phone number in both config and secure key so re-entering credentials resumes working without reassigning the number. |
-| GET    | `/v1/integrations/twilio/numbers`                      | Lists all incoming phone numbers on the Twilio account with their capabilities (voice, SMS)                                                                     |
-| POST   | `/v1/integrations/twilio/numbers/provision`            | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available.                        |
-| POST   | `/v1/integrations/twilio/numbers/assign`               | Assigns an existing Twilio phone number (E.164) and auto-configures webhooks when ingress is available                                                          |
-| POST   | `/v1/integrations/twilio/numbers/release`              | Releases a phone number from the Twilio account and clears local references                                                                                     |
-| GET    | `/v1/integrations/twilio/sms/compliance`               | Returns SMS compliance posture: number type (toll-free vs 10DLC) and toll-free verification status                                                              |
-| POST   | `/v1/integrations/twilio/sms/compliance/tollfree`      | Submits a new toll-free verification request                                                                                                                    |
-| PATCH  | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` | Updates an existing toll-free verification by SID                                                                                                               |
-| DELETE | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` | Deletes a toll-free verification by SID                                                                                                                         |
-| POST   | `/v1/integrations/twilio/sms/test`                     | Sends a test SMS and polls for delivery status                                                                                                                  |
-| POST   | `/v1/integrations/twilio/sms/doctor`                   | Runs comprehensive SMS health diagnostics                                                                                                                       |
+| Method | Path                                        | Description                                                                                                                                                     |
+| ------ | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/integrations/twilio/config`            | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned)                                                                               |
+| POST   | `/v1/integrations/twilio/credentials`       | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file)                                                                   |
+| DELETE | `/v1/integrations/twilio/credentials`       | Removes stored credentials. Preserves the phone number in both config and secure key so re-entering credentials resumes working without reassigning the number. |
+| GET    | `/v1/integrations/twilio/numbers`           | Lists all incoming phone numbers on the Twilio account with their capabilities (voice)                                                                          |
+| POST   | `/v1/integrations/twilio/numbers/provision` | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available.                        |
+| POST   | `/v1/integrations/twilio/numbers/assign`    | Assigns an existing Twilio phone number (E.164) and auto-configures webhooks when ingress is available                                                          |
+| POST   | `/v1/integrations/twilio/numbers/release`   | Releases a phone number from the Twilio account and clears local references                                                                                     |
 
 All endpoints are JWT-authenticated (require a valid JWT with appropriate scopes). Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/integrations/twilio/*` routes.
 
 ### Ingress Webhook Reconciliation
 
-When the public ingress URL is changed via the Settings UI (`ingress_config` set action), the assistant automatically reconciles Twilio webhooks in addition to triggering a Telegram webhook reconcile on the gateway. If all of the following conditions are met, the assistant pushes updated webhook URLs (voice, status callback, SMS) to Twilio:
+When the public ingress URL is changed via the Settings UI (`ingress_config` set action), the assistant automatically reconciles Twilio webhooks in addition to triggering a Telegram webhook reconcile on the gateway. If all of the following conditions are met, the assistant pushes updated webhook URLs (voice, status callback) to Twilio:
 
 1. Ingress is being **enabled** (not disabled)
 2. Twilio **credentials** are configured (Account SID + Auth Token in secure storage)
-3. A phone number is **assigned** (persisted in `sms.phoneNumber` config)
+3. A phone number is **assigned** (persisted in `twilio.phoneNumber` config)
 
 This reconciliation is **best-effort and fire-and-forget** -- failures are logged but do not block the ingress config save or produce an error response. This ensures that changing a tunnel URL (e.g., restarting ngrok) automatically updates Twilio's webhook routing without requiring manual re-assignment of the phone number.
 
 ### Single-Number-Per-Assistant Model
 
-Each assistant is assigned a single Twilio phone number that is shared between voice calls and SMS. The number is stored in the assistant's config at `sms.phoneNumber` (legacy global field) and used as the `From` for outbound SMS via the gateway's `/deliver/sms` endpoint. The same credentials (Account SID, Auth Token) are used for both voice and SMS operations.
+Each assistant is assigned a single Twilio phone number used for voice calls. The number is stored in the assistant's config at `twilio.phoneNumber` and used as the `From` for outbound voice calls.
 
 #### Assistant-Scoped Phone Numbers
 
-When `assistantId` is provided in the Twilio control-plane request, the provision and assign endpoints persist the phone number into a per-assistant mapping at `sms.assistantPhoneNumbers` (a `Record<string, string>` keyed by assistant ID). The legacy `sms.phoneNumber` field is always updated for backward compatibility.
+When `assistantId` is provided in the Twilio control-plane request, the provision and assign endpoints persist the phone number into a per-assistant mapping at `twilio.assistantPhoneNumbers` (a `Record<string, string>` keyed by assistant ID). The `twilio.phoneNumber` field is always updated as well.
 
-The config endpoint (`GET /v1/integrations/twilio/config`), when called with `assistantId`, resolves the phone number by checking `sms.assistantPhoneNumbers[assistantId]` first, falling back to `sms.phoneNumber`. This allows multiple assistants to have distinct phone numbers while preserving existing behavior for single-assistant setups.
+The config endpoint (`GET /v1/integrations/twilio/config`), when called with `assistantId`, resolves the phone number by checking `twilio.assistantPhoneNumbers[assistantId]` first, falling back to `twilio.phoneNumber`. This allows multiple assistants to have distinct phone numbers while preserving existing behavior for single-assistant setups.
 
 The per-assistant mapping is propagated to the gateway via the config file watcher, enabling phone-number-based routing at the gateway boundary (see Gateway README).
 
@@ -255,7 +249,7 @@ The per-assistant mapping is propagated to the gateway via the config file watch
 At runtime, `getTwilioConfig()` resolves the phone number using this priority chain:
 
 1. **`TWILIO_PHONE_NUMBER` env var** — highest priority, explicit override for dev/CI.
-2. **`sms.phoneNumber` in config** — the primary source of truth, written by `provision_number` and `assign_number`.
+2. **`twilio.phoneNumber` in config** — the primary source of truth, written by `provision_number` and `assign_number`.
 3. **`credential:twilio:phone_number` secure key** — backward-compatible fallback for setups that predate the config-first model.
 
 If no number is found after all three sources, an error is thrown.
@@ -266,7 +260,7 @@ Guardian bindings, verification challenges, and approval requests are all scoped
 
 ### Channel-Aware Guardian Challenges
 
-The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"sms"` -> `"SMS"`), so challenge prompts reference the correct channel name.
+The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`), so challenge prompts reference the correct channel name.
 
 ### Operator Notes
 
@@ -276,7 +270,7 @@ The channel guardian service generates verification challenge instructions with 
 
 ### Vellum Guardian Identity (Actor Tokens)
 
-The vellum channel (macOS, iOS, CLI) uses JWTs to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram, SMS) use `actorExternalId` for guardian identity.
+The vellum channel (macOS, iOS, CLI) uses JWTs to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram) use `actorExternalId` for guardian identity.
 
 - **Bootstrap**: After hatch, the macOS client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint fresh credentials.
 - **iOS pairing**: The pairing response includes `accessToken` and `refreshToken` credentials automatically when a vellum guardian binding exists.
@@ -293,7 +287,7 @@ This section documents the end-to-end flow from guardian verification through in
 Guardian verification establishes a cryptographic trust binding between a human identity and an `(assistantId, channel)` pair. The flow is:
 
 1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
-2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram or SMS).
+2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram).
 3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided code, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
 4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `actorExternalId` and `chatId` (DB columns: `externalUserId`, `chatId`). The verifier receives a confirmation message.
 
@@ -318,7 +312,7 @@ When a member's policy is `escalate`:
 1. The handler looks up the guardian binding for the `(assistantId, channel)` pair. If no binding exists, the message is denied with `escalate_no_guardian` (fail-closed).
 2. The raw message payload is stored so it can be recovered on approval.
 3. A `channel_guardian_approval_request` is created with a 30-minute TTL.
-4. The guardian is notified via the canonical notification pipeline (`emitNotificationSignal`), which routes the escalation alert to all configured channels (Telegram/SMS push, desktop notification).
+4. The guardian is notified via the canonical notification pipeline (`emitNotificationSignal`), which routes the escalation alert to all configured channels (Telegram push, desktop notification).
 5. On **approve**, the stored payload is replayed through the agent pipeline and the assistant's response is delivered to the external user. On **deny**, a refusal message is sent.
 
 ### How the Systems Connect
@@ -346,7 +340,7 @@ Guardian verification and ingress contact management are complementary but indep
 
 Guardian verification can also be initiated through normal desktop chat. When the user asks the assistant to set up guardian verification, the conversational routing layer loads the `guardian-verify-setup` skill, which guides the flow:
 
-1. Confirm which channel to verify (SMS, voice, or Telegram).
+1. Confirm which channel to verify (voice or Telegram).
 2. Collect the destination (phone number or Telegram handle/chat ID).
 3. Call the outbound HTTP endpoints to start, resend, or cancel verification.
 4. Guide the user through the verification lifecycle conversationally.
@@ -365,7 +359,7 @@ These endpoints share the same business logic as the IPC-based verification flow
 
 ## Channel Readiness
 
-Channel readiness is exposed via HTTP control-plane endpoints that provide a unified way to check whether a channel (SMS, Telegram, etc.) is fully configured and operational. Local checks (credential presence, phone number assignment, ingress config) run synchronously; remote checks (API reachability) run by default and are cached with a 5-minute TTL. Remote checks can be disabled by passing `includeRemote=false`.
+Channel readiness is exposed via HTTP control-plane endpoints that provide a unified way to check whether a channel (Telegram, etc.) is fully configured and operational. Local checks (credential presence, phone number assignment, ingress config) run synchronously; remote checks (API reachability) run by default and are cached with a 5-minute TTL. Remote checks can be disabled by passing `includeRemote=false`.
 
 ### Channel Readiness HTTP Endpoints
 
@@ -378,7 +372,6 @@ All endpoints are bearer-authenticated. Skills and clients should call the gatew
 
 ### Built-in Channel Probes
 
-- **SMS**: Checks Twilio credentials, phone number assignment, and public ingress URL.
 - **Voice**: Checks Twilio credentials, phone number assignment, and public ingress URL.
 - **Telegram**: Checks bot token, webhook secret, and public ingress URL.
 - **Email**: Checks AgentMail API key, invite policy, public ingress URL, and verifies an inbox address is available (remote check).
@@ -395,7 +388,7 @@ All endpoints are bearer-authenticated. Skills and clients should call the gatew
 
 ## Ingress Membership + Escalation
 
-Secure cross-user messaging allows external users (non-guardians) to interact with the assistant through channels (Telegram, SMS) under the owner's control. Access is governed by an invite-based membership system with per-member policy enforcement.
+Secure cross-user messaging allows external users (non-guardians) to interact with the assistant through channels (Telegram) under the owner's control. Access is governed by an invite-based membership system with per-member policy enforcement.
 
 ### Ingress Membership
 
@@ -419,7 +412,7 @@ The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) 
 The invite redemption system uses a three-layer architecture:
 
 - **Core redemption engine** (`invite-redemption-service.ts`) — Channel-agnostic business logic that validates tokens, enforces expiry/use-count/channel-match constraints, handles member reactivation, and returns a discriminated-union `InviteRedemptionOutcome`. Deterministic reply templates (`invite-redemption-templates.ts`) map each outcome to a user-facing message without passing through the LLM.
-- **Channel transport adapters** (`channel-invite-transport.ts` + `channel-invite-transports/`) — A registry of per-channel adapters that know how to build shareable links (`buildShareLink`) and extract inbound tokens (`extractInboundToken`). Adapters are implemented for Telegram, SMS, Voice, Email, WhatsApp, and Slack.
+- **Channel transport adapters** (`channel-invite-transport.ts` + `channel-invite-transports/`) — A registry of per-channel adapters that know how to build shareable links (`buildShareLink`) and extract inbound tokens (`extractInboundToken`). Adapters are implemented for Telegram, Voice, Email, WhatsApp, and Slack.
 - **Conversational orchestration** (`guardian-invite-intent.ts`) — Pattern-based intent detection that intercepts guardian invite management requests (create, list, revoke) in the session pipeline and forces immediate entry into the `contacts` skill, bypassing the normal agent loop.
 
 Redemption auto-creates a **member** record with an access policy:
@@ -432,7 +425,7 @@ Non-members (senders with no invite redemption) are denied by default. Contacts 
 
 ### Escalation Flow
 
-When a member's policy is `escalate`, inbound messages create a `channel_guardian_approval_request` and the guardian is notified through the canonical notification pipeline (`emitNotificationSignal`). The pipeline routes the escalation alert to all configured channels (Telegram/SMS push, desktop notification).
+When a member's policy is `escalate`, inbound messages create a `channel_guardian_approval_request` and the guardian is notified through the canonical notification pipeline (`emitNotificationSignal`). The pipeline routes the escalation alert to all configured channels (Telegram push, desktop notification).
 
 On **approve**: the original message payload is recovered from the channel delivery store and processed through the agent pipeline. The assistant's reply is delivered back to the external user via the gateway. On **deny**: a refusal message is sent to the external user.
 

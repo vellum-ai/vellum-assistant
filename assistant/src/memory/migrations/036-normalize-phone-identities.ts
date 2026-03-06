@@ -11,7 +11,7 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
  *
  * Strategy:
  *   - Tables with a `channel` column: only process rows where the channel
- *     is phone-like (sms, voice, whatsapp).
+ *     is phone-like (voice, whatsapp).
  *   - The `expected_phone_e164` column is always a phone number regardless
  *     of channel, so it is normalized unconditionally.
  *
@@ -33,7 +33,7 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     .get(checkpointKey);
   if (checkpoint) return;
 
-  const PHONE_CHANNELS = ["sms", "voice", "whatsapp"];
+  const PHONE_CHANNELS = ["voice", "whatsapp"];
 
   /**
    * Unique key scope definition for collision detection.

@@ -5,7 +5,7 @@
  * timestamp:
  * 1. Expires the request and all its deliveries in the store
  * 2. Expires the associated pending question so the call-side timeout fires
- * 3. Sends expiry notices to external delivery destinations (telegram, sms)
+ * 3. Sends expiry notices to external delivery destinations (telegram, whatsapp)
  * 4. Adds an expiry message to mac guardian thread conversations
  */
 
@@ -32,7 +32,7 @@ let sweepInProgress = false;
 /**
  * Send expiry notices to all delivery destinations for a guardian action
  * request. Handles both vellum/mac thread messages and external channel
- * replies (telegram, sms).
+ * replies (telegram, whatsapp).
  *
  * Deliveries must be captured *before* their status is changed to 'expired'
  * so the sent/pending filter still matches.

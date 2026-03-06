@@ -405,22 +405,22 @@ describe("pairDeliveryWithConversation", () => {
       source: "user",
       title: "User Thread",
     };
-    mockBindings["notification:sms:+15551234567"] = {
+    mockBindings["notification:whatsapp:+15551234567"] = {
       conversationId: "conv-user-owned",
-      sourceChannel: "notification:sms",
+      sourceChannel: "notification:whatsapp",
       externalChatId: "+15551234567",
     };
 
     const signal = makeSignal();
     const copy = makeCopy();
     const bindingContext: DestinationBindingContext = {
-      sourceChannel: "sms" as NotificationChannel,
+      sourceChannel: "telegram" as NotificationChannel,
       externalChatId: "+15551234567",
     };
 
     const result = await pairDeliveryWithConversation(
       signal,
-      "sms" as NotificationChannel,
+      "telegram" as NotificationChannel,
       copy,
       { bindingContext },
     );
@@ -436,7 +436,7 @@ describe("pairDeliveryWithConversation", () => {
       unknown
     >;
     expect(upsertArgs.conversationId).toBe("conv-001");
-    expect(upsertArgs.sourceChannel).toBe("notification:sms");
+    expect(upsertArgs.sourceChannel).toBe("notification:whatsapp");
   });
 
   test("falls back to new conversation when bound conversation no longer exists", async () => {
@@ -546,13 +546,13 @@ describe("pairDeliveryWithConversation", () => {
       conversationId: "conv-gone",
     };
     const bindingContext: DestinationBindingContext = {
-      sourceChannel: "sms" as NotificationChannel,
+      sourceChannel: "telegram" as NotificationChannel,
       externalChatId: "+15559876543",
     };
 
     const result = await pairDeliveryWithConversation(
       signal,
-      "sms" as NotificationChannel,
+      "telegram" as NotificationChannel,
       copy,
       { threadAction, bindingContext },
     );
@@ -567,7 +567,7 @@ describe("pairDeliveryWithConversation", () => {
       unknown
     >;
     expect(upsertArgs.conversationId).toBe("conv-001");
-    expect(upsertArgs.sourceChannel).toBe("notification:sms");
+    expect(upsertArgs.sourceChannel).toBe("notification:whatsapp");
     expect(upsertArgs.externalChatId).toBe("+15559876543");
   });
 

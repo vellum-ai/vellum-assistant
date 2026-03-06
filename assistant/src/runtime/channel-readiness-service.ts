@@ -19,10 +19,10 @@ export const REMOTE_TTL_MS = 5 * 60 * 1000;
 function resolveTwilioPhoneNumber(): string {
   try {
     const raw = loadRawConfig();
-    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
+    const twilioConfig = (raw?.twilio ?? {}) as Record<string, unknown>;
     return (
       getTwilioPhoneNumberEnv() ||
-      (smsConfig.phoneNumber as string) ||
+      (twilioConfig.phoneNumber as string) ||
       getSecureKey("credential:twilio:phone_number") ||
       ""
     );

@@ -428,7 +428,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects guardian endpoint despite malformed percent-encoding elsewhere in command", () => {
       const result = isGuardianControlPlaneInvocation("bash", {
         command:
-          'curl -H "X: %ZZ" http://localhost:3000/v1/integrations%2Fguardian%2Foutbound%2Fstart -d \'{"channel":"sms"}\'',
+          'curl -H "X: %ZZ" http://localhost:3000/v1/integrations%2Fguardian%2Foutbound%2Fstart -d \'{"channel":"telegram"}\'',
       });
       expect(result).toBe(true);
     });

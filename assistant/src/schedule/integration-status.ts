@@ -1,4 +1,3 @@
-import { hasTwilioCredentials } from "../calls/twilio-rest.js";
 import { getSecureKey } from "../security/secure-keys.js";
 
 interface IntegrationProbe {
@@ -26,11 +25,6 @@ const INTEGRATION_PROBES: IntegrationProbe[] = [
     category: "messaging",
     isConnected: () =>
       !!getSecureKey("credential:integration:slack:access_token"),
-  },
-  {
-    name: "SMS",
-    category: "messaging",
-    isConnected: () => hasTwilioCredentials(),
   },
   {
     name: "Telegram",

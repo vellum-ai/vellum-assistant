@@ -10,7 +10,7 @@ import {
   mintEdgeRelayToken,
 } from "../runtime/auth/token-service.js";
 
-type GuardianChannel = "telegram" | "voice" | "sms";
+type GuardianChannel = "telegram" | "voice";
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -217,7 +217,7 @@ Integration categories:
 
 Examples:
   $ assistant integrations telegram config
-  $ assistant integrations guardian status --channel sms`,
+  $ assistant integrations guardian status --channel voice`,
   );
 
   const telegram = integrations
@@ -276,22 +276,21 @@ Examples:
   guardian
     .command("status")
     .description("Get guardian status for a channel")
-    .option("--channel <channel>", "Channel: telegram|voice|sms", "telegram")
+    .option("--channel <channel>", "Channel: telegram|voice", "telegram")
     .addHelpText(
       "after",
       `
 Returns the guardian verification state for the specified channel. Requires
 the assistant to be running.
 
-The --channel flag accepts: telegram, voice, sms. Defaults to telegram if
+The --channel flag accepts: telegram, voice. Defaults to telegram if
 not specified. The response includes whether guardian verification is active
 and the current verification state for that channel.
 
 Examples:
   $ assistant integrations guardian status
   $ assistant integrations guardian status --channel telegram
-  $ assistant integrations guardian status --channel voice
-  $ assistant integrations guardian status --channel sms --json`,
+  $ assistant integrations guardian status --channel voice --json`,
     )
     .action(async (opts: { channel?: GuardianChannel }, cmd: Command) => {
       const channel = opts.channel ?? "telegram";

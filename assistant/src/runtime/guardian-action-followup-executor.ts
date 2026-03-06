@@ -5,8 +5,8 @@
  * `call_back` or `message_back` and transitions the follow-up state to
  * `dispatching`, this module executes the actual action:
  *
- *   - **message_back**: Generates outbound SMS text and sends it to the
- *     counterparty phone number via the gateway's /deliver/sms endpoint.
+ *   - **message_back**: Generates outbound text and sends it to the
+ *     counterparty phone number via the gateway's /deliver/whatsapp endpoint.
  *   - **call_back**: Starts an outbound call to the counterparty with
  *     context about the guardian's answer.
  *
@@ -15,7 +15,7 @@
  * reply text for the guardian's confirmation message.
  *
  * This module is channel-agnostic: both inbound-message-handler (Telegram,
- * SMS channels) and session-process (mac/IPC channel) use it.
+ * WhatsApp channels) and session-process (mac/IPC channel) use it.
  */
 
 import { startCall } from "../calls/call-domain.js";
@@ -106,8 +106,8 @@ export function resolveCounterparty(
 // ---------------------------------------------------------------------------
 
 /**
- * Send an SMS to the counterparty with the guardian's answer context.
- * Uses the gateway's /deliver/sms endpoint (same path as the SMS notification adapter).
+ * Send a text message to the counterparty with the guardian's answer context.
+ * Uses the gateway's /deliver/whatsapp endpoint.
  */
 async function executeMessageBack(
   request: GuardianActionRequest,
@@ -115,7 +115,7 @@ async function executeMessageBack(
   generator?: GuardianActionCopyGenerator,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    // Generate the outbound SMS text using the composer
+    // Generate the outbound message text using the composer
     const messageText = await composeGuardianActionMessageGenerative(
       {
         scenario: "outbound_message_copy",
@@ -128,7 +128,7 @@ async function executeMessageBack(
     );
 
     const gatewayBase = getGatewayInternalBaseUrl();
-    const deliverUrl = `${gatewayBase}/deliver/sms`;
+    const deliverUrl = `${gatewayBase}/deliver/whatsapp`;
     const bearerToken = mintDaemonDeliveryToken();
 
     await deliverChannelReply(
@@ -143,7 +143,7 @@ async function executeMessageBack(
 
     log.info(
       { requestId: request.id, counterpartyPhone: counterparty.phoneNumber },
-      "Follow-up message_back SMS sent successfully",
+      "Follow-up message_back sent successfully",
     );
 
     return { ok: true };
@@ -155,7 +155,7 @@ async function executeMessageBack(
         requestId: request.id,
         counterpartyPhone: counterparty.phoneNumber,
       },
-      "Failed to send follow-up message_back SMS",
+      "Failed to send follow-up message_back",
     );
     return { ok: false, error: message };
   }
