@@ -173,6 +173,6 @@ The iOS app depends only on `VellumAssistantShared`. It must **not** import `Vel
 | "This QR code is outdated" | Scanned a v2/v3 QR code | Update Vellum on your Mac and generate a new QR code |
 | Auth timeout / immediate disconnect | Missing or wrong bearer token | Re-scan QR code to obtain a fresh token |
 | "Failed to save API Key" | Keychain unavailable (simulator) | Expected — key saved to UserDefaults instead |
-| Old version still showing in simulator | Cached build | `xcrun simctl uninstall <UDID> ai.vellum.assistant.ios` then reinstall |
+| Old version still showing in simulator | Cached build | `xcrun simctl uninstall <UDID> ai.vocify-inc.vellum-assistant-ios` then reinstall |
 
 </details>
