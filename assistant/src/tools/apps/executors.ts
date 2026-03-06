@@ -10,8 +10,11 @@
 
 import { setHomeBaseAppLink } from "../../home-base/app-link-store.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
-import type { AppDefinition } from "../../memory/app-store.js";
-import type { EditEngineResult } from "../../memory/app-store.js";
+import type {
+  AppDefinition,
+  EditEngineResult,
+} from "../../memory/app-store.js";
+import { isMultifileApp } from "../../memory/app-store.js";
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -77,6 +80,28 @@ export type ProxyResolver = (
   toolName: string,
   input: Record<string, unknown>,
 ) => Promise<ExecutorResult>;
+
+// ---------------------------------------------------------------------------
+// Path resolution — multifile apps default to src/ for file operations
+// ---------------------------------------------------------------------------
+
+/**
+ * For multifile (formatVersion 2) apps, prepend `src/` to paths that don't
+ * already target a known top-level directory (src/, dist/, records/).
+ * Legacy apps pass through unchanged.
+ */
+export function resolveAppFilePath(app: AppDefinition, path: string): string {
+  if (!isMultifileApp(app)) return path;
+  const normalized = path.replace(/\\/g, "/");
+  if (
+    normalized.startsWith("src/") ||
+    normalized.startsWith("dist/") ||
+    normalized.startsWith("records/")
+  ) {
+    return path;
+  }
+  return `src/${path}`;
+}
 
 // ---------------------------------------------------------------------------
 // app_create
@@ -306,6 +331,20 @@ export function executeAppFileList(
   store: AppStoreReader,
 ): ExecutorResult {
   const files = store.listAppFiles(input.app_id);
+  const app = store.getApp(input.app_id);
+
+  if (app && isMultifileApp(app)) {
+    // Annotate dist/ files as build output for clarity
+    const annotated = files.map((f) => {
+      const normalized = f.replace(/\\/g, "/");
+      if (normalized.startsWith("dist/")) {
+        return `${f} [build output]`;
+      }
+      return f;
+    });
+    return { content: JSON.stringify(annotated), isError: false };
+  }
+
   return { content: JSON.stringify(files), isError: false };
 }
 
@@ -327,7 +366,9 @@ export function executeAppFileRead(
   const offset = input.offset ?? 1;
   const limit = input.limit;
 
-  const raw = store.readAppFile(input.app_id, input.path);
+  const app = store.getApp(input.app_id);
+  const resolvedPath = app ? resolveAppFilePath(app, input.path) : input.path;
+  const raw = store.readAppFile(input.app_id, resolvedPath);
   const allLines = raw.split("\n");
   const startIndex = Math.max(0, offset - 1);
   const sliced =
@@ -369,10 +410,13 @@ export function executeAppFileEdit(
     };
   }
 
+  const app = store.getApp(input.app_id);
+  const resolvedPath = app ? resolveAppFilePath(app, input.path) : input.path;
+
   const replaceAll = input.replace_all ?? false;
   const result = store.editAppFile(
     input.app_id,
-    input.path,
+    resolvedPath,
     input.old_string,
     input.new_string,
     replaceAll,
@@ -407,9 +451,10 @@ export function executeAppFileWrite(
     };
   }
 
-  store.writeAppFile(input.app_id, input.path, input.content);
+  const resolvedPath = resolveAppFilePath(app, input.path);
+  store.writeAppFile(input.app_id, resolvedPath, input.content);
   return {
-    content: JSON.stringify({ written: true, path: input.path }),
+    content: JSON.stringify({ written: true, path: resolvedPath }),
     isError: false,
     status: input.status,
   };
