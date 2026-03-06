@@ -167,8 +167,14 @@ struct AppsGridView: View {
                 )
                 .overlay(alignment: .topTrailing) {
                     ZStack {
-                        VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary), size: 24) {}
-                            .allowsHitTesting(false)
+                        if isBundling && sharingAppId == app.id {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 24, height: 24)
+                        } else {
+                            VIconButton(label: "App actions", icon: "ellipsis", iconOnly: true, variant: .filled(VColor.buttonPrimary), size: 24) {}
+                                .allowsHitTesting(false)
+                        }
                         Menu {
                             Button {
                                 if app.isPinned {
@@ -213,8 +219,8 @@ struct AppsGridView: View {
                     .padding(VSpacing.sm)
                     .contentShape(Rectangle())
                     .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
+                    .opacity(isHovered || (isBundling && sharingAppId == app.id) ? 1 : 0)
+                    .allowsHitTesting(isHovered || (isBundling && sharingAppId == app.id))
                     .animation(VAnimation.fast, value: isHovered)
                     .overlay {
                         AppSharePanel(
