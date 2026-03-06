@@ -45,6 +45,7 @@ import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-c
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
+import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
@@ -151,6 +152,7 @@ async function main() {
   const contactsControlPlaneProxy =
     createContactsControlPlaneProxyHandler(config);
   const twilioControlPlaneProxy = createTwilioControlPlaneProxyHandler(config);
+  const slackControlPlaneProxy = createSlackControlPlaneProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
@@ -589,6 +591,20 @@ async function main() {
       method: "POST",
       auth: "edge",
       handler: (req) => twilioControlPlaneProxy.handleSmsDoctor(req),
+    },
+
+    // ── Slack control plane ──
+    {
+      path: "/v1/slack/channels",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => slackControlPlaneProxy.handleListSlackChannels(req),
+    },
+    {
+      path: "/v1/slack/share",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => slackControlPlaneProxy.handleShareToSlack(req),
     },
 
     // ── Channel readiness ──
