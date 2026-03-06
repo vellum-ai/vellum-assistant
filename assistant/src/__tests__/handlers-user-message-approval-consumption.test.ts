@@ -1,5 +1,5 @@
 import * as net from "node:net";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -47,13 +47,102 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   routeGuardianReply: routeGuardianReplyMock,
 }));
 
+// Bun's module mocks are global within the worker, so keep this mock
+// transparent when this file is not actively exercising it.
+const realCanonicalGuardianStore =
+  await import("../memory/canonical-guardian-store.js");
+(
+  globalThis as Record<string, unknown>
+).__approvalConsumptionUseMockCanonicalStore = false;
+
 mock.module("../memory/canonical-guardian-store.js", () => ({
-  createCanonicalGuardianRequest: createCanonicalGuardianRequestMock,
-  generateCanonicalRequestCode: generateCanonicalRequestCodeMock,
-  listPendingCanonicalGuardianRequestsByDestinationConversation:
-    listPendingByDestinationMock,
-  listCanonicalGuardianRequests: listCanonicalMock,
-  resolveCanonicalGuardianRequest: resolveCanonicalGuardianRequestMock,
+  createCanonicalGuardianRequest: (
+    ...args: Parameters<
+      typeof realCanonicalGuardianStore.createCanonicalGuardianRequest
+    >
+  ) =>
+    (globalThis as Record<string, unknown>)
+      .__approvalConsumptionUseMockCanonicalStore
+      ? (
+          createCanonicalGuardianRequestMock as unknown as (
+            ...mockArgs: Parameters<
+              typeof realCanonicalGuardianStore.createCanonicalGuardianRequest
+            >
+          ) => ReturnType<
+            typeof realCanonicalGuardianStore.createCanonicalGuardianRequest
+          >
+        )(...args)
+      : realCanonicalGuardianStore.createCanonicalGuardianRequest(...args),
+  generateCanonicalRequestCode: (
+    ...args: Parameters<
+      typeof realCanonicalGuardianStore.generateCanonicalRequestCode
+    >
+  ) =>
+    (globalThis as Record<string, unknown>)
+      .__approvalConsumptionUseMockCanonicalStore
+      ? (
+          generateCanonicalRequestCodeMock as unknown as (
+            ...mockArgs: Parameters<
+              typeof realCanonicalGuardianStore.generateCanonicalRequestCode
+            >
+          ) => ReturnType<
+            typeof realCanonicalGuardianStore.generateCanonicalRequestCode
+          >
+        )(...args)
+      : realCanonicalGuardianStore.generateCanonicalRequestCode(...args),
+  listPendingCanonicalGuardianRequestsByDestinationConversation: (
+    ...args: Parameters<
+      typeof realCanonicalGuardianStore.listPendingCanonicalGuardianRequestsByDestinationConversation
+    >
+  ) =>
+    (globalThis as Record<string, unknown>)
+      .__approvalConsumptionUseMockCanonicalStore
+      ? (
+          listPendingByDestinationMock as unknown as (
+            ...mockArgs: Parameters<
+              typeof realCanonicalGuardianStore.listPendingCanonicalGuardianRequestsByDestinationConversation
+            >
+          ) => ReturnType<
+            typeof realCanonicalGuardianStore.listPendingCanonicalGuardianRequestsByDestinationConversation
+          >
+        )(...args)
+      : realCanonicalGuardianStore.listPendingCanonicalGuardianRequestsByDestinationConversation(
+          ...args,
+        ),
+  listCanonicalGuardianRequests: (
+    ...args: Parameters<
+      typeof realCanonicalGuardianStore.listCanonicalGuardianRequests
+    >
+  ) =>
+    (globalThis as Record<string, unknown>)
+      .__approvalConsumptionUseMockCanonicalStore
+      ? (
+          listCanonicalMock as unknown as (
+            ...mockArgs: Parameters<
+              typeof realCanonicalGuardianStore.listCanonicalGuardianRequests
+            >
+          ) => ReturnType<
+            typeof realCanonicalGuardianStore.listCanonicalGuardianRequests
+          >
+        )(...args)
+      : realCanonicalGuardianStore.listCanonicalGuardianRequests(...args),
+  resolveCanonicalGuardianRequest: (
+    ...args: Parameters<
+      typeof realCanonicalGuardianStore.resolveCanonicalGuardianRequest
+    >
+  ) =>
+    (globalThis as Record<string, unknown>)
+      .__approvalConsumptionUseMockCanonicalStore
+      ? (
+          resolveCanonicalGuardianRequestMock as unknown as (
+            ...mockArgs: Parameters<
+              typeof realCanonicalGuardianStore.resolveCanonicalGuardianRequest
+            >
+          ) => ReturnType<
+            typeof realCanonicalGuardianStore.resolveCanonicalGuardianRequest
+          >
+        )(...args)
+      : realCanonicalGuardianStore.resolveCanonicalGuardianRequest(...args),
 }));
 
 mock.module("../runtime/pending-interactions.js", () => ({
@@ -98,7 +187,10 @@ mock.module("../runtime/local-actor-identity.js", () => ({
   }),
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -214,6 +306,9 @@ function makeSession(overrides: Partial<TestSession> = {}): TestSession {
 
 describe("handleUserMessage pending-confirmation reply interception", () => {
   beforeEach(() => {
+    (
+      globalThis as Record<string, unknown>
+    ).__approvalConsumptionUseMockCanonicalStore = true;
     routeGuardianReplyMock.mockClear();
     createCanonicalGuardianRequestMock.mockClear();
     generateCanonicalRequestCodeMock.mockClear();
@@ -225,6 +320,12 @@ describe("handleUserMessage pending-confirmation reply interception", () => {
     resolveMock.mockClear();
     addMessageMock.mockClear();
     getConfigMock.mockClear();
+  });
+
+  afterAll(() => {
+    (
+      globalThis as Record<string, unknown>
+    ).__approvalConsumptionUseMockCanonicalStore = false;
   });
 
   test("consumes decision replies before auto-deny", async () => {

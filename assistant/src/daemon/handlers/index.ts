@@ -16,7 +16,7 @@ import { appHandlers } from "./apps.js";
 import { avatarHandlers } from "./avatar.js";
 import { browserHandlers } from "./browser.js";
 import { computerUseHandlers } from "./computer-use.js";
-import { configHandlers } from "./config.js";
+import { configHandlers } from "./config-dispatch.js";
 import { inboxInviteHandlers } from "./config-inbox.js";
 import { contactsHandlers } from "./contacts.js";
 import { diagnosticsHandlers } from "./diagnostics.js";

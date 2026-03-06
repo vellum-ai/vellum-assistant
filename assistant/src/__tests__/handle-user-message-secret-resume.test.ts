@@ -40,9 +40,32 @@ mock.module("../config/loader.js", () => {
     applyNestedDefaults: (c: unknown) => c,
     getNestedValue: () => undefined,
     setNestedValue: () => {},
+    syncConfigToLockfile: () => {},
     API_KEY_PROVIDERS: [],
   };
 });
+
+const noopLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+  trace: () => {},
+  fatal: () => {},
+  child: () => noopLogger,
+};
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
+mock.module("../util/logger.js", () => ({
+  ...realLogger,
+  getLogger: () => noopLogger,
+  getCliLogger: () => noopLogger,
+  isDebug: () => false,
+  truncateForLog: (v: string) => v,
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
+}));
 
 const { handleUserMessage } = await import("../daemon/handlers/sessions.js");
 

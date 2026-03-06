@@ -1,19 +1,20 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { CuObservation } from "../daemon/ipc-protocol.js";
 import type { Provider } from "../providers/types.js";
 
 let capturedWorkingDir: string | undefined;
 
+const noopLogger = new Proxy({} as Record<string, unknown>, {
+  get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
+});
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-  getCliLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  ...realLogger,
+  getLogger: () => noopLogger,
+  getCliLogger: () => noopLogger,
   isDebug: () => false,
   truncateForLog: (value: string, maxLen = 500) =>
     value.length > maxLen ? value.slice(0, maxLen) + "..." : value,
@@ -21,7 +22,10 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => "/tmp",
   getDataDir: () => "/tmp/data",
   getIpcBlobDir: () => "/tmp/data/ipc-blobs",
@@ -41,6 +45,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => "/tmp/test.log",
   getHistoryPath: () => "/tmp/data/history",
   getHooksDir: () => "/tmp/hooks",
+  readSessionToken: () => null,
   removeSocketFile: () => {},
   ensureDataDir: () => {},
   migrateToDataLayout: () => {},
@@ -54,63 +59,90 @@ mock.module("../util/platform.js", () => ({
   writeLockfile: () => {},
 }));
 
-mock.module("../tools/executor.js", () => ({
-  ToolExecutor: class {
-    constructor(..._args: unknown[]) {}
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    ui: {},
+    daemon: { standaloneRecording: false },
+    provider: "mock-provider",
+    model: "mock-model",
+    permissions: { mode: "workspace" },
+    apiKeys: {},
+    sandbox: { enabled: false, backend: "native" },
+    timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
+    skills: { load: { extraDirs: [] } },
+    secretDetection: {
+      enabled: false,
+      allowOneTimeSend: false,
+      customPatterns: [],
+      entropyThreshold: 3.5,
+    },
+    contextWindow: {
+      enabled: true,
+      maxInputTokens: 180000,
+      targetInputTokens: 110000,
+      compactThreshold: 0.8,
+      preserveRecentUserTurns: 8,
+      summaryMaxTokens: 1200,
+      chunkTokens: 12000,
+    },
+    assistantFeatureFlagValues: {},
+  }),
+  loadConfig: () => ({}),
+  loadRawConfig: () => ({}),
+  saveConfig: () => {},
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+  applyNestedDefaults: (config: unknown) => config,
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  syncConfigToLockfile: () => {},
+  API_KEY_PROVIDERS: [],
+}));
 
-    async execute(
+const { ToolExecutor } = await import("../tools/executor.js");
+const { ComputerUseSession } =
+  await import("../daemon/computer-use-session.js");
+
+const originalExecute = ToolExecutor.prototype.execute;
+
+describe("ComputerUseSession working directory", () => {
+  beforeEach(() => {
+    capturedWorkingDir = undefined;
+    ToolExecutor.prototype.execute = async function (
       _name: string,
       _input: Record<string, unknown>,
       context: { workingDir: string },
     ) {
       capturedWorkingDir = context.workingDir;
       return { content: "ok", isError: false };
-    }
-  },
-}));
+    } as typeof ToolExecutor.prototype.execute;
+  });
 
-mock.module("../agent/loop.js", () => ({
-  AgentLoop: class {
-    private readonly runTool: (
-      name: string,
-      input: Record<string, unknown>,
-    ) => Promise<unknown>;
-
-    constructor(
-      _provider: unknown,
-      _systemPrompt: unknown,
-      _options: unknown,
-      _toolDefs: unknown,
-      toolExecutor: (
-        name: string,
-        input: Record<string, unknown>,
-      ) => Promise<unknown>,
-    ) {
-      this.runTool = toolExecutor;
-    }
-
-    async run(
-      _messages: unknown,
-      _onEvent: unknown,
-      _signal?: AbortSignal,
-    ): Promise<void> {
-      await this.runTool("computer_use_click", { element_id: 1 });
-    }
-  },
-}));
-
-const { ComputerUseSession } =
-  await import("../daemon/computer-use-session.js");
-
-describe("ComputerUseSession working directory", () => {
-  beforeEach(() => {
-    capturedWorkingDir = undefined;
+  afterEach(() => {
+    ToolExecutor.prototype.execute = originalExecute;
   });
 
   test("uses sandbox working directory for tool execution context", async () => {
+    let providerCalls = 0;
     const provider: Provider = {
       name: "mock-provider",
       async sendMessage() {
+        const calls = providerCalls++;
+        if (calls === 0) {
+          return {
+            content: [
+              {
+                type: "tool_use",
+                id: "toolu_1",
+                name: "computer_use_click",
+                input: { element_id: 1 },
+              },
+            ],
+            model: "mock-model",
+            usage: { inputTokens: 1, outputTokens: 1 },
+            stopReason: "tool_use",
+          };
+        }
         return {
           content: [{ type: "text", text: "unused" }],
           model: "mock-model",

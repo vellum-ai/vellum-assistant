@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { buildCliProgram } from "../cli/program.js";
+import { CLI_HELP_REFERENCE } from "../cli/reference.js";
 import { listCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -789,7 +789,7 @@ function buildConfigSection(): string {
 
 export function buildCliReferenceSection(): string {
   if (cachedCliHelp === undefined) {
-    cachedCliHelp = buildCliProgram().helpInformation().trim();
+    cachedCliHelp = CLI_HELP_REFERENCE.trim();
   }
 
   return [

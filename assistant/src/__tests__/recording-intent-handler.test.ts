@@ -21,7 +21,10 @@ const noopLogger = {
   child: () => noopLogger,
 };
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => noopLogger,
   isDebug: () => false,
   truncateForLog: (v: string) => v,

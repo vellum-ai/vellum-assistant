@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "permsim-handler-test-"));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => testDir,
   getDataDir: () => join(testDir, "data"),
   getWorkspaceSkillsDir: () => join(testDir, "skills"),
@@ -21,7 +24,10 @@ mock.module("../util/platform.js", () => ({
   getIpcBlobDir: () => join(testDir, "ipc-blobs"),
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => ({
     info: () => {},
     warn: () => {},

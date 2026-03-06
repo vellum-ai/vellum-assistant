@@ -6,37 +6,46 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "trust-rule-metadata-test-"));
+const resolveTestDir = () => process.env.BASE_DATA_DIR ?? testDir;
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceSkillsDir: () => join(testDir, "skills"),
+  ...realPlatform,
+  getRootDir: () => resolveTestDir(),
+  getDataDir: () => join(resolveTestDir(), "data"),
+  getWorkspaceSkillsDir: () => join(resolveTestDir(), "skills"),
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
-  getSocketPath: () => join(testDir, "test.sock"),
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
+  getSocketPath: () => join(resolveTestDir(), "test.sock"),
+  getPidPath: () => join(resolveTestDir(), "test.pid"),
+  getDbPath: () => join(resolveTestDir(), "test.db"),
+  getLogPath: () => join(resolveTestDir(), "test.log"),
   ensureDataDir: () => {},
-  getIpcBlobDir: () => join(testDir, "ipc-blobs"),
+  getIpcBlobDir: () => join(resolveTestDir(), "ipc-blobs"),
 }));
 
+const noopLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+  trace: () => {},
+  fatal: () => {},
+  child: () => noopLogger,
+};
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    info: () => {},
-    warn: () => {},
-    error: () => {},
-    debug: () => {},
-    trace: () => {},
-    fatal: () => {},
-    child: () => ({
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    }),
-  }),
+  ...realLogger,
+  getLogger: () => noopLogger,
+  getCliLogger: () => noopLogger,
+  isDebug: () => false,
+  truncateForLog: (value: string) => value,
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
 }));
 
 const testConfig: Record<string, any> = {

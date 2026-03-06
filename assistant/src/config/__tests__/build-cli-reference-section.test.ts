@@ -22,8 +22,7 @@ describe("buildCliReferenceSection", () => {
 
   test("includes CLI help text with command listings", () => {
     const result = buildCliReferenceSection();
-    // The help text is generated from buildCliProgram().helpInformation()
-    // which lists available commands. Check for at least one known command.
+    // The reference is a side-effect-free snapshot of the top-level CLI help.
     expect(result).toContain("Usage:");
     expect(result).toContain("Commands:");
   });

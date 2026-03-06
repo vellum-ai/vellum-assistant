@@ -12,35 +12,63 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const TEST_DIR = join(tmpdir(), `vellum-skills-test-${crypto.randomUUID()}`);
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
+  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
+  getSandboxWorkingDir: () => TEST_DIR,
+  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
   ensureDataDir: () => {},
   getSocketPath: () => join(TEST_DIR, "vellum.sock"),
   getPidPath: () => join(TEST_DIR, "vellum.pid"),
   getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
+  getHistoryPath: () => join(TEST_DIR, "history"),
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
+  getClipboardCommand: () => null,
   getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),
   getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
+  getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
+  getHooksDir: () => join(TEST_DIR, "hooks"),
   getWorkspaceDir: () => TEST_DIR,
   getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
   migrateToDataLayout: () => {},
   migrateToWorkspaceLayout: () => {},
+  migratePath: () => {},
+  readSessionToken: () => null,
+  removeSocketFile: () => {},
+  normalizeAssistantId: (id: string) => id,
   readLockfile: () => null,
   writeLockfile: () => {},
 }));
 
+const noopLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+  trace: () => {},
+  fatal: () => {},
+  child: () => noopLogger,
+};
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  ...realLogger,
+  getLogger: () => noopLogger,
+  getCliLogger: () => noopLogger,
   isDebug: () => false,
   truncateForLog: (v: string) => v,
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
 }));
 
 const { loadSkillCatalog, loadSkillBySelector, resolveSkillSelector } =

@@ -17,7 +17,10 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 const testDir = mkdtempSync(join(tmpdir(), "tc-approval-notifier-test-"));
 
 // ── Platform mock ──
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getDataDir: () => testDir,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -34,7 +37,10 @@ mock.module("../util/platform.js", () => ({
 }));
 
 // ── Logger mock ──
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -130,9 +136,11 @@ mock.module("../config/env.js", () => ({
 }));
 
 // ── User reference mock ──
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realUserReference = require("../config/user-reference.js");
 mock.module("../config/user-reference.js", () => ({
+  ...realUserReference,
   resolveUserReference: () => "my human",
-  DEFAULT_USER_REFERENCE: "my human",
   resolveGuardianName: (guardianDisplayName?: string | null): string => {
     // Mirror the real implementation: USER.md name > guardianDisplayName > default
     const userRef = "my human"; // In tests, resolveUserReference() returns this
