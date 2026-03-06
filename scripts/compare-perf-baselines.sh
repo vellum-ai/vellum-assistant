@@ -47,6 +47,24 @@ pattern = re.compile(
     r"\s+measured \[CPU Time, s\] average:\s+([0-9.]+)"
 )
 
+# Human-readable descriptions for each performance test.
+DESCRIPTIONS = {
+    "testAnchorVisibilityTrackerRapidUpdateStress": "Scroll anchor rapid updates",
+    "testAttributedStringCacheHitPerformance": "Attributed string cache hit",
+    "testFullRenderPipelinePerformance": "Full markdown render pipeline",
+    "testGroupedSegmentsPerformance": "Grouped message segments",
+    "testLargeConversationMarkdownPipelineThroughput": "Large conversation markdown",
+    "testLargeTreeCompleteReplacement": "AX tree full replacement",
+    "testLargeTreeIdentical": "AX tree identical diff",
+    "testMarkdownParsePerformance": "Markdown parse (small)",
+    "testMarkdownParsePerformanceLargeInput": "Markdown parse (large)",
+    "testMediumTreeManyChanges": "AX tree medium many changes",
+    "testSmallTreeSmallDiff": "AX tree small diff",
+}
+
+def label(name):
+    return DESCRIPTIONS.get(name, name)
+
 results = {}
 with open(results_log) as f:
     for line in f:
@@ -68,7 +86,7 @@ if not results:
 
 print("=== Performance Results (CPU Time) ===")
 for name, avg in sorted(results.items()):
-    print(f"  {name}: {avg:.4f}s (cpu)")
+    print(f"  {label(name)}: {avg:.4f}s")
 print()
 
 # Metric version tag stored in baselines.json.  When the metric type changes
@@ -111,7 +129,7 @@ regressions = []
 print("=== Regression Check (threshold: {}%, min delta: {:.3f}s) ===".format(int(threshold), min_abs_delta))
 for name, actual in sorted(results.items()):
     if name not in baselines:
-        print(f"  NEW      {name}: {actual:.4f}s (no prior baseline)")
+        print(f"  NEW      {label(name)}: {actual:.4f}s (no prior baseline)")
         continue
     baseline  = baselines[name]
     abs_delta = actual - baseline
@@ -123,7 +141,7 @@ for name, actual in sorted(results.items()):
     # This prevents tiny sub-millisecond noise from triggering +inf% regressions.
     is_regressed = delta_pct > threshold and abs_delta > min_abs_delta
     status    = "REGRESSED" if is_regressed else "ok       "
-    print(f"  {status} {name}: baseline={baseline:.4f}s actual={actual:.4f}s delta={delta_pct:+.1f}% (abs={abs_delta:+.4f}s)")
+    print(f"  {status} {label(name)}: baseline={baseline:.4f}s actual={actual:.4f}s delta={delta_pct:+.1f}% (abs={abs_delta:+.4f}s)")
     if is_regressed:
         regressions.append(name)
 
@@ -133,7 +151,7 @@ print()
 rows = []
 for name, actual in sorted(results.items()):
     if name not in baselines:
-        rows.append(f"| {name} | — | {actual:.4f}s | — | — | 🆕 NEW |")
+        rows.append(f"| {label(name)} | — | {actual:.4f}s | — | — | 🆕 NEW |")
         continue
     baseline = baselines[name]
     ad = actual - baseline
@@ -143,7 +161,7 @@ for name, actual in sorted(results.items()):
         dp = (actual - baseline) / baseline * 100
     is_reg = dp > threshold and ad > min_abs_delta
     status = "❌ REGRESSED" if is_reg else "✅ ok"
-    rows.append(f"| {name} | {baseline:.4f}s | {actual:.4f}s | {dp:+.1f}% | {ad:+.4f}s | {status} |")
+    rows.append(f"| {label(name)} | {baseline:.4f}s | {actual:.4f}s | {dp:+.1f}% | {ad:+.4f}s | {status} |")
 
 with open(summary_file, "w") as sf:
     sf.write("## Performance Baselines (CPU Time)\n\n")
