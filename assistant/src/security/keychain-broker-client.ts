@@ -80,10 +80,11 @@ function getSocketPath(): string | undefined {
 
 export function createBrokerClient(): KeychainBrokerClient {
   let socket: Socket | null = null;
-  let connecting = false;
+  /** Promise that resolves when the in-flight connect() completes. */
+  let connectPromise: Promise<Socket> | null = null;
   let permanentlyUnavailable = false;
-  /** Undefined means "not yet read"; null means "read but missing". */
-  let cachedToken: string | undefined | null;
+  /** Cached token string, or undefined if not yet successfully read. */
+  let cachedToken: string | undefined;
   let hasTriedReconnect = false;
 
   /** Buffer for incoming data — responses are newline-delimited JSON. */
@@ -106,16 +107,21 @@ export function createBrokerClient(): KeychainBrokerClient {
   }
 
   function getToken(): string | null {
-    if (cachedToken === undefined) {
-      cachedToken = readToken();
-    }
-    return cachedToken;
+    if (cachedToken !== undefined) return cachedToken;
+    const token = readToken();
+    // Only cache non-null results so we re-attempt on next call if the
+    // token file hasn't appeared yet (startup race).
+    if (token) cachedToken = token;
+    return token;
   }
 
   /** Re-read the token from disk (handles app restart with new token). */
   function refreshToken(): string | null {
-    cachedToken = readToken();
-    return cachedToken;
+    const token = readToken();
+    // Update the cache: set to the new value if found, clear if not so
+    // subsequent getToken() calls will re-read from disk.
+    cachedToken = token ?? undefined;
+    return token;
   }
 
   // -------------------------------------------------------------------------
@@ -171,25 +177,21 @@ export function createBrokerClient(): KeychainBrokerClient {
         return;
       }
 
-      connecting = true;
       const sock = createConnection({ path: socketPath });
 
       sock.on("connect", () => {
-        connecting = false;
         socket = sock;
         hasTriedReconnect = false;
         resolve(sock);
       });
 
       sock.on("error", (err) => {
-        connecting = false;
         log.warn({ err }, "Keychain broker socket error");
         cleanupSocket();
         reject(err);
       });
 
       sock.on("close", () => {
-        connecting = false;
         cleanupSocket();
       });
 
@@ -200,16 +202,28 @@ export function createBrokerClient(): KeychainBrokerClient {
   async function ensureConnected(): Promise<Socket | null> {
     if (permanentlyUnavailable) return null;
     if (socket && !socket.destroyed) return socket;
-    if (connecting) return null;
 
+    // If a connect() is already in flight, wait for it instead of returning
+    // null — this prevents concurrent callers from silently failing.
+    if (connectPromise) {
+      try {
+        return await connectPromise;
+      } catch {
+        return null;
+      }
+    }
+
+    connectPromise = connect();
     try {
-      return await connect();
+      const sock = await connectPromise;
+      return sock;
     } catch {
       // First connection failed — try once more
       if (!hasTriedReconnect) {
         hasTriedReconnect = true;
+        connectPromise = connect();
         try {
-          return await connect();
+          return await connectPromise;
         } catch {
           // Reconnect also failed — mark unavailable
           log.warn(
@@ -217,10 +231,14 @@ export function createBrokerClient(): KeychainBrokerClient {
           );
           permanentlyUnavailable = true;
           return null;
+        } finally {
+          connectPromise = null;
         }
       }
       permanentlyUnavailable = true;
       return null;
+    } finally {
+      connectPromise = null;
     }
   }
 
