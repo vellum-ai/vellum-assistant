@@ -16,7 +16,6 @@ import { findGuardianForChannel } from "../contacts/contact-store.js";
 import { getLogger } from "../util/logger.js";
 import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
 import { SlackAdapter } from "./adapters/slack.js";
-import { SmsAdapter } from "./adapters/sms.js";
 import { TelegramAdapter } from "./adapters/telegram.js";
 import {
   NotificationBroadcaster,
@@ -62,11 +61,7 @@ export function registerBroadcastFn(fn: BroadcastFn): void {
 
 function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
-    const adapters = [
-      new TelegramAdapter(),
-      new SmsAdapter(),
-      new SlackAdapter(),
-    ];
+    const adapters = [new TelegramAdapter(), new SlackAdapter()];
     if (registeredBroadcastFn) {
       adapters.unshift(new VellumAdapter(registeredBroadcastFn));
     }
@@ -113,8 +108,7 @@ function getConnectedChannels(): NotificationChannel[] {
         // available when the daemon is running).
         channels.push(channel);
         break;
-      case "telegram":
-      case "sms": {
+      case "telegram": {
         // A binding-based channel is connected when the guardian has an
         // active channel entry with a valid delivery endpoint. The
         // externalChatId check ensures we don't report a channel as
