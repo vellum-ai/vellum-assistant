@@ -169,6 +169,7 @@ export function updateCallSession(
       | "initiatedFromConversationId"
     >
   >,
+  opts?: { beforeLeaseSync?: () => void },
 ): void {
   const db = getDb();
   const shouldSyncActiveLease =
@@ -202,6 +203,8 @@ export function updateCallSession(
     .set({ ...updates, updatedAt: Date.now() })
     .where(eq(callSessions.id, id))
     .run();
+
+  opts?.beforeLeaseSync?.();
 
   if (shouldSyncActiveLease) {
     syncActiveCallLeaseFromSession(getCallSession(id));
