@@ -323,6 +323,7 @@ export async function handleMemoryRecall(
   args: Record<string, unknown>,
   config: AssistantConfig,
   scopeId?: string,
+  conversationId?: string,
 ): Promise<ToolExecutionResult> {
   const query = args.query;
   if (typeof query !== "string" || query.trim().length === 0) {
@@ -380,6 +381,7 @@ export async function handleMemoryRecall(
       queryVector,
       provider,
       model,
+      conversationId,
       scopeId,
       scopePolicyOverride,
     });

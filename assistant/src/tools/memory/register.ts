@@ -124,7 +124,12 @@ class MemoryRecallTool implements Tool {
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     const config = getConfig();
-    return handleMemoryRecall(input, config, context.memoryScopeId);
+    return handleMemoryRecall(
+      input,
+      config,
+      context.memoryScopeId,
+      context.conversationId,
+    );
   }
 }
 
