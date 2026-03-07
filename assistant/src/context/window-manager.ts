@@ -93,32 +93,11 @@ export class ContextWindowManager {
   private readonly config: ContextWindowConfig;
   readonly onBeforeCompact?: ContextWindowManagerOptions["onBeforeCompact"];
 
-  constructor(options: ContextWindowManagerOptions);
-  /** @deprecated Use the options-object constructor instead. */
-  constructor(
-    provider: Provider,
-    systemPrompt: string,
-    config: ContextWindowConfig,
-  );
-  constructor(
-    providerOrOptions: Provider | ContextWindowManagerOptions,
-    systemPrompt?: string,
-    config?: ContextWindowConfig,
-  ) {
-    if (
-      typeof providerOrOptions === "object" &&
-      "provider" in providerOrOptions &&
-      "config" in providerOrOptions
-    ) {
-      this.provider = providerOrOptions.provider;
-      this.systemPrompt = providerOrOptions.systemPrompt;
-      this.config = providerOrOptions.config;
-      this.onBeforeCompact = providerOrOptions.onBeforeCompact;
-    } else {
-      this.provider = providerOrOptions as Provider;
-      this.systemPrompt = systemPrompt!;
-      this.config = config!;
-    }
+  constructor(options: ContextWindowManagerOptions) {
+    this.provider = options.provider;
+    this.systemPrompt = options.systemPrompt;
+    this.config = options.config;
+    this.onBeforeCompact = options.onBeforeCompact;
   }
 
   async maybeCompact(
