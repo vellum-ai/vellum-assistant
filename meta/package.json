@@ -10,7 +10,8 @@
   },
   "files": [
     "bin",
-    "Dockerfile"
+    "Dockerfile",
+    "Dockerfile.dockerignore"
   ],
   "dependencies": {
     "@vellumai/assistant": "0.4.42",

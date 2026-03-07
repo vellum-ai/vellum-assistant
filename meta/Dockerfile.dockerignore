@@ -1,0 +1,7 @@
+# Build context for the production Dockerfile needs node_modules with
+# pre-built @vellumai packages and the vellum meta package.
+**
+!node_modules/vellum/
+!node_modules/vellum/**
+!node_modules/@vellumai/
+!node_modules/@vellumai/**
