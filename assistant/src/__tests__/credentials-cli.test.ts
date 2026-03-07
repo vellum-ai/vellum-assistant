@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
@@ -793,6 +793,52 @@ describe("assistant credentials CLI", () => {
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
       expect(parsed.error).toContain("not found");
+    });
+  });
+
+  // =========================================================================
+  // instance-scoped BASE_DATA_DIR
+  // =========================================================================
+
+  describe("instance-scoped BASE_DATA_DIR", () => {
+    let savedBaseDataDir: string | undefined;
+
+    beforeEach(() => {
+      savedBaseDataDir = process.env.BASE_DATA_DIR;
+    });
+
+    afterEach(() => {
+      if (savedBaseDataDir === undefined) {
+        delete process.env.BASE_DATA_DIR;
+      } else {
+        process.env.BASE_DATA_DIR = savedBaseDataDir;
+      }
+    });
+
+    test("credential reveal reads from instance-scoped store when BASE_DATA_DIR is set", async () => {
+      // Point BASE_DATA_DIR to a temp directory (simulating instance-scoped dir)
+      const tmpDir = (await import("node:os")).tmpdir();
+      const instanceDir = (await import("node:path")).join(
+        tmpDir,
+        `vellum-test-instance-${Date.now()}`,
+      );
+      process.env.BASE_DATA_DIR = instanceDir;
+
+      // Seed a credential in the mock store
+      seedCredential("twilio", "auth_token", "instance_secret_abc123");
+
+      // Run `credentials reveal twilio:auth_token`
+      const result = await runCli(["reveal", "twilio:auth_token", "--json"]);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.value).toBe("instance_secret_abc123");
+
+      // Verify the correct key was looked up in the secure store
+      expect(secureKeyStore.has("credential:twilio:auth_token")).toBe(true);
+      expect(secureKeyStore.get("credential:twilio:auth_token")).toBe(
+        "instance_secret_abc123",
+      );
     });
   });
 
