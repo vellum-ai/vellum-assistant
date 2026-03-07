@@ -889,7 +889,7 @@ export async function relayInstruction(
 
 export type StartGuardianVerificationCallInput = {
   phoneNumber: string;
-  guardianVerificationSessionId: string;
+  verificationSessionId: string;
   assistantId?: string;
   /** Origin conversation ID so completion/failure pointers can route back. */
   originConversationId?: string;
@@ -903,14 +903,13 @@ export type StartGuardianVerificationCallResult =
  * Initiate an outbound call to the guardian's phone for verification.
  *
  * Creates a minimal call session with a voice channel binding and
- * passes `guardianVerificationSessionId` as a custom parameter so the
+ * passes `verificationSessionId` as a custom parameter so the
  * relay server can detect this is a guardian verification call.
  */
 export async function startGuardianVerificationCall(
   input: StartGuardianVerificationCallInput,
 ): Promise<StartGuardianVerificationCallResult> {
-  const { phoneNumber, guardianVerificationSessionId, originConversationId } =
-    input;
+  const { phoneNumber, verificationSessionId, originConversationId } = input;
 
   if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {
     return {
@@ -941,13 +940,13 @@ export async function startGuardianVerificationCall(
     // Create a minimal conversation so the call session has a valid FK,
     // and bind it to the voice channel so it never appears as an unbound
     // desktop thread.
-    const convKey = `guardian-verify:${guardianVerificationSessionId}`;
+    const convKey = `guardian-verify:${verificationSessionId}`;
     const { conversationId } = getOrCreateConversation(convKey);
 
     upsertBinding({
       conversationId,
       sourceChannel: "voice",
-      externalChatId: `guardian-verify:${guardianVerificationSessionId}`,
+      externalChatId: `guardian-verify:${verificationSessionId}`,
     });
 
     const session = createCallSession({
@@ -956,7 +955,7 @@ export async function startGuardianVerificationCall(
       fromNumber: identityResult.fromNumber,
       toNumber: phoneNumber,
       callMode: "guardian_verification",
-      guardianVerificationSessionId,
+      verificationSessionId,
       initiatedFromConversationId: originConversationId,
     });
     sessionId = session.id;
@@ -981,7 +980,7 @@ export async function startGuardianVerificationCall(
       webhookUrl,
       statusCallbackUrl,
       customParams: {
-        guardianVerificationSessionId,
+        verificationSessionId,
       },
     });
 
@@ -991,7 +990,7 @@ export async function startGuardianVerificationCall(
       {
         callSessionId: session.id,
         callSid,
-        guardianVerificationSessionId,
+        verificationSessionId,
         to: phoneNumber,
       },
       "Guardian verification call initiated",
@@ -1001,7 +1000,7 @@ export async function startGuardianVerificationCall(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error(
-      { err, phoneNumber, guardianVerificationSessionId },
+      { err, phoneNumber, verificationSessionId },
       "Failed to initiate guardian verification call",
     );
 

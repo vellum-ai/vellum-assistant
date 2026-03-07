@@ -36,7 +36,7 @@ const parseCallSession = createRowMapper<
   task: "task",
   status: { from: "status", transform: cast<CallSession["status"]>() },
   callMode: { from: "callMode", transform: cast<CallSession["callMode"]>() },
-  guardianVerificationSessionId: "guardianVerificationSessionId",
+  verificationSessionId: "verificationSessionId",
   callerIdentityMode: "callerIdentityMode",
   callerIdentitySource: "callerIdentitySource",
   initiatedFromConversationId: "initiatedFromConversationId",
@@ -80,7 +80,7 @@ export function createCallSession(opts: {
   toNumber: string;
   task?: string;
   callMode?: string;
-  guardianVerificationSessionId?: string;
+  verificationSessionId?: string;
   callerIdentityMode?: string;
   callerIdentitySource?: string;
   initiatedFromConversationId?: string;
@@ -97,7 +97,7 @@ export function createCallSession(opts: {
     task: opts.task ?? null,
     status: "initiated" as const,
     callMode: (opts.callMode ?? null) as CallSession["callMode"],
-    guardianVerificationSessionId: opts.guardianVerificationSessionId ?? null,
+    verificationSessionId: opts.verificationSessionId ?? null,
     callerIdentityMode: opts.callerIdentityMode ?? null,
     callerIdentitySource: opts.callerIdentitySource ?? null,
     initiatedFromConversationId: opts.initiatedFromConversationId ?? null,

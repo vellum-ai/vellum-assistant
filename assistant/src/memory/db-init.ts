@@ -64,6 +64,7 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
+  migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
   migrateSchemaIndexesAndColumns,
   migrateUsageDashboardIndexes,
@@ -311,6 +312,9 @@ export function initializeDb(): void {
 
   // 45. Rename channel_guardian_verification_challenges → channel_verification_sessions
   migrateRenameVerificationTable(database);
+
+  // 46. Rename guardian_verification_session_id → verification_session_id in call_sessions
+  migrateRenameVerificationSessionIdColumn(database);
 
   validateMigrationState(database);
 

@@ -49,13 +49,13 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 // Call domain mock — outbound voice verification calls are fire-and-forget.
 const voiceCallInitCalls: Array<{
   phoneNumber: string;
-  guardianVerificationSessionId: string;
+  verificationSessionId: string;
   assistantId?: string;
 }> = [];
 mock.module("../calls/call-domain.js", () => ({
   startGuardianVerificationCall: async (input: {
     phoneNumber: string;
-    guardianVerificationSessionId: string;
+    verificationSessionId: string;
     assistantId?: string;
   }) => {
     voiceCallInitCalls.push(input);
@@ -3530,9 +3530,7 @@ describe("outbound voice verification", () => {
     expect(voiceCallInitCalls.length).toBeGreaterThanOrEqual(1);
     const lastCall = voiceCallInitCalls[voiceCallInitCalls.length - 1];
     expect(lastCall.phoneNumber).toBe("+15551234567");
-    expect(lastCall.guardianVerificationSessionId).toBe(
-      resp!.verificationSessionId!,
-    );
+    expect(lastCall.verificationSessionId).toBe(resp!.verificationSessionId!);
   });
 
   test("start_outbound for voice rejects unparseable phone number", async () => {

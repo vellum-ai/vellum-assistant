@@ -143,7 +143,7 @@ describe("startGuardianVerificationCall — voice binding", () => {
     const sessionId = "gv-session-001";
     const result = await startGuardianVerificationCall({
       phoneNumber: "+15559999999",
-      guardianVerificationSessionId: sessionId,
+      verificationSessionId: sessionId,
     });
 
     expect(result.ok).toBe(true);
@@ -167,7 +167,7 @@ describe("startGuardianVerificationCall — voice binding", () => {
 
     const result = await startGuardianVerificationCall({
       phoneNumber: "+15559999999",
-      guardianVerificationSessionId: "gv-session-preflight-fail",
+      verificationSessionId: "gv-session-preflight-fail",
     });
 
     expect(result.ok).toBe(false);

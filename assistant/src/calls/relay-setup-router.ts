@@ -101,21 +101,16 @@ export function routeSetup(ctx: SetupContext): {
 
   // ── Outbound guardian verification (persisted mode) ──────────────
   const persistedMode = ctx.session?.callMode;
-  const persistedGvSessionId = ctx.session?.guardianVerificationSessionId;
-  const customParamGvSessionId =
-    ctx.customParameters?.guardianVerificationSessionId;
-  const guardianVerificationSessionId =
-    persistedGvSessionId ?? customParamGvSessionId;
+  const persistedVsId = ctx.session?.verificationSessionId;
+  const customParamVsId = ctx.customParameters?.verificationSessionId;
+  const verificationSessionId = persistedVsId ?? customParamVsId;
 
-  if (
-    persistedMode === "guardian_verification" &&
-    guardianVerificationSessionId
-  ) {
+  if (persistedMode === "guardian_verification" && verificationSessionId) {
     return {
       outcome: {
         action: "outbound_guardian_verification",
         assistantId,
-        sessionId: guardianVerificationSessionId,
+        sessionId: verificationSessionId,
         toNumber: ctx.to,
       },
       resolved,
@@ -123,11 +118,11 @@ export function routeSetup(ctx: SetupContext): {
   }
 
   // Secondary signal: custom parameter without persisted mode (pre-migration)
-  if (!persistedMode && customParamGvSessionId) {
+  if (!persistedMode && customParamVsId) {
     log.warn(
       {
         callSessionId: ctx.callSessionId,
-        guardianVerificationSessionId: customParamGvSessionId,
+        verificationSessionId: customParamVsId,
       },
       "Guardian verification detected via setup custom parameter (no persisted call_mode) — entering verification path",
     );
@@ -135,7 +130,7 @@ export function routeSetup(ctx: SetupContext): {
       outcome: {
         action: "outbound_guardian_verification",
         assistantId,
-        sessionId: customParamGvSessionId,
+        sessionId: customParamVsId,
         toNumber: ctx.to,
       },
       resolved,

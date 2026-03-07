@@ -198,7 +198,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     return buildVoiceWebhookTwiml(
       session.id,
       session.task,
-      session.guardianVerificationSessionId,
+      session.verificationSessionId,
     );
   }
 
@@ -226,7 +226,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   return buildVoiceWebhookTwiml(
     callSessionId,
     session.task,
-    session.guardianVerificationSessionId,
+    session.verificationSessionId,
   );
 }
 
@@ -235,7 +235,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
  * Resolves voice quality profile, relay URL, and welcome greeting,
  * then returns a Response with the generated TwiML.
  *
- * When `guardianVerificationSessionId` is provided, it is included as a
+ * When `verificationSessionId` is provided, it is included as a
  * `<Parameter>` in the TwiML for observability and compatibility with
  * the Twilio setup payload. The persisted call session mode is the
  * primary signal for deterministic flow selection in the relay server.
@@ -243,7 +243,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
 function buildVoiceWebhookTwiml(
   callSessionId: string,
   task: string | null,
-  guardianVerificationSessionId?: string | null,
+  verificationSessionId?: string | null,
 ): Response {
   const profile = resolveVoiceQualityProfile(loadConfig());
 
@@ -267,13 +267,11 @@ function buildVoiceWebhookTwiml(
 
   const relayToken = mintEdgeRelayToken();
 
-  // Propagate guardianVerificationSessionId as a TwiML <Parameter> for
+  // Propagate verificationSessionId as a TwiML <Parameter> for
   // observability. This is not the sole source of truth; the relay
   // server reads the persisted call_mode from the call session first.
   const customParameters: Record<string, string> | undefined =
-    guardianVerificationSessionId
-      ? { guardianVerificationSessionId }
-      : undefined;
+    verificationSessionId ? { verificationSessionId } : undefined;
 
   const twiml = generateTwiML(
     callSessionId,
