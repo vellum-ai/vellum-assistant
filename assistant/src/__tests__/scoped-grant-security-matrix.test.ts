@@ -360,7 +360,7 @@ describe("security matrix: cross-scope invariants", () => {
         toolName: "bash",
         inputDigest: digest,
         consumingRequestId: "c-chan",
-        executionChannel: "voice",
+        executionChannel: "telegram",
         conversationId: "conv-123",
         callSessionId: "call-456",
         requesterExternalUserId: "user-alice",
