@@ -217,11 +217,12 @@ export async function hatchDocker(
       ? ["vellum", "hatch", species, ...(watch ? ["--watch"] : []), "--keep-alive"]
       : [];
 
-  if (detached) {
-    runArgs.push("-d");
-    console.log("🚀 Starting Docker container...");
-    await exec("docker", [...runArgs, imageTag, ...containerCmd], { cwd: repoRoot });
+  // Always start the container detached so it keeps running after the CLI exits.
+  runArgs.push("-d");
+  console.log("🚀 Starting Docker container...");
+  await exec("docker", [...runArgs, imageTag, ...containerCmd], { cwd: repoRoot });
 
+  if (detached) {
     console.log("\n✅ Docker assistant hatched!\n");
     console.log("Instance details:");
     console.log(`  Name: ${instanceName}`);
@@ -230,30 +231,27 @@ export async function hatchDocker(
     console.log("");
     console.log(`Stop with: docker stop ${instanceName}`);
   } else {
-    console.log("🚀 Starting Docker container (attached)...");
     console.log(`  Container: ${instanceName}`);
     console.log(`  Runtime: ${runtimeUrl}`);
-    console.log("  Press Ctrl+C to stop\n");
+    console.log("");
 
-    // Run attached with piped stdio so we can prefix container output with
-    // [docker] to distinguish inner hatch logs from the outer CLI output.
+    // Tail container logs until the inner hatch completes, then exit and
+    // leave the container running in the background.
     await new Promise<void>((resolve, reject) => {
-      const child = nodeSpawn("docker", [...runArgs, imageTag, ...containerCmd], {
-        cwd: repoRoot,
+      const child = nodeSpawn("docker", ["logs", "-f", instanceName], {
         stdio: ["ignore", "pipe", "pipe"],
       });
 
-      let innerHatchComplete = false;
-
       const handleLine = (line: string): void => {
-        if (!innerHatchComplete && line.includes("Local assistant hatched!")) {
-          innerHatchComplete = true;
+        if (line.includes("Local assistant hatched!")) {
           process.nextTick(() => {
             console.log("");
             console.log(`\u2705 Docker container is up and running!`);
             console.log(`   Name: ${instanceName}`);
             console.log(`   Runtime: ${runtimeUrl}`);
             console.log("");
+            child.kill();
+            resolve();
           });
         }
       };
@@ -267,8 +265,8 @@ export async function hatchDocker(
       child.stderr?.on("end", () => stderrPrefixer.flush());
 
       child.on("close", (code) => {
-        // Treat expected signal exit codes as clean exits so that Ctrl+C
-        // (SIGINT→130, SIGKILL→137, SIGTERM→143) doesn't produce errors.
+        // The log tail may exit if the container stops before the sentinel
+        // is seen, or we killed it after detecting the sentinel.
         if (code === 0 || code === null || code === 130 || code === 137 || code === 143) {
           resolve();
         } else {
@@ -276,6 +274,11 @@ export async function hatchDocker(
         }
       });
       child.on("error", reject);
+
+      process.on("SIGINT", () => {
+        child.kill();
+        resolve();
+      });
     });
   }
 }
