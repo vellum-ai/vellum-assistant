@@ -169,6 +169,7 @@ export function backfillEntityRelationsJob(
   const batch = db
     .select({
       id: messages.id,
+      conversationId: messages.conversationId,
       role: messages.role,
       createdAt: messages.createdAt,
       metadata: messages.metadata,
@@ -180,6 +181,7 @@ export function backfillEntityRelationsJob(
     .all();
   if (batch.length === 0) return;
 
+  const scopeCache = new Map<string, string>();
   let queuedExtractEntityJobs = 0;
   let skippedUntrusted = 0;
   for (const message of batch) {
@@ -190,7 +192,12 @@ export function backfillEntityRelationsJob(
       skippedUntrusted += 1;
       continue;
     }
-    enqueueMemoryJob("extract_entities", { messageId: message.id });
+    let scopeId = scopeCache.get(message.conversationId);
+    if (scopeId === undefined) {
+      scopeId = getConversationMemoryScopeId(message.conversationId);
+      scopeCache.set(message.conversationId, scopeId);
+    }
+    enqueueMemoryJob("extract_entities", { messageId: message.id, scopeId });
     queuedExtractEntityJobs += 1;
   }
 
