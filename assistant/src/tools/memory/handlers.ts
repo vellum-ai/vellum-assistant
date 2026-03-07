@@ -330,7 +330,7 @@ export async function handleMemoryRecall(
       scopePolicyOverride,
     });
 
-    if (collected.semanticSearchFailed) {
+    if (collected.semanticSearchFailed || collected.semanticUnavailable) {
       degraded = true;
     }
 
