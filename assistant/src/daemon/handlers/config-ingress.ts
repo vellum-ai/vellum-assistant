@@ -49,18 +49,20 @@ export function computeGatewayTarget(): string {
   return getGatewayInternalBaseUrl();
 }
 
-/**
- * Best-effort call to the gateway's internal reconcile endpoint so that
- * Telegram webhook registration is updated immediately when the ingress
- * URL changes, without requiring a gateway restart.
- */
-export function triggerGatewayReconcile(
+function triggerGatewayInternalReconcile(
+  endpointPath: string,
   ingressPublicBaseUrl: string | undefined,
+  messages: {
+    success: string;
+    nonOk: string;
+    unavailable: string;
+    unavailableLogLevel: "debug" | "warn";
+  },
 ): void {
   const gatewayBase = computeGatewayTarget();
   const token = mintDaemonDeliveryToken();
 
-  const url = `${gatewayBase}/internal/telegram/reconcile`;
+  const url = `${gatewayBase}${endpointPath}`;
   const body = JSON.stringify({
     ingressPublicBaseUrl: ingressPublicBaseUrl ?? "",
   });
@@ -76,20 +78,60 @@ export function triggerGatewayReconcile(
   })
     .then((res) => {
       if (res.ok) {
-        log.info("Gateway Telegram webhook reconcile triggered successfully");
+        log.info(messages.success);
       } else {
-        log.warn(
-          { status: res.status },
-          "Gateway Telegram webhook reconcile returned non-OK status",
-        );
+        log.warn({ status: res.status }, messages.nonOk);
       }
     })
     .catch((err) => {
-      log.debug(
-        { err },
-        "Gateway Telegram webhook reconcile failed (gateway may not be running)",
-      );
+      if (messages.unavailableLogLevel === "warn") {
+        log.warn({ err }, messages.unavailable);
+      } else {
+        log.debug({ err }, messages.unavailable);
+      }
     });
+}
+
+/**
+ * Best-effort call to the gateway's internal reconcile endpoint so that
+ * Telegram webhook registration is updated immediately when the ingress
+ * URL changes, without requiring a gateway restart.
+ */
+export function triggerGatewayReconcile(
+  ingressPublicBaseUrl: string | undefined,
+): void {
+  triggerGatewayInternalReconcile(
+    "/internal/telegram/reconcile",
+    ingressPublicBaseUrl,
+    {
+      success: "Gateway Telegram webhook reconcile triggered successfully",
+      nonOk: "Gateway Telegram webhook reconcile returned non-OK status",
+      unavailable:
+        "Gateway Telegram webhook reconcile failed (gateway may not be running)",
+      unavailableLogLevel: "debug",
+    },
+  );
+}
+
+/**
+ * Best-effort call to the gateway's internal reconcile endpoint so that
+ * Twilio validation state is refreshed immediately after ingress or
+ * credential changes, without requiring a gateway restart.
+ */
+export function triggerGatewayTwilioReconcile(
+  ingressPublicBaseUrl: string | undefined,
+): void {
+  triggerGatewayInternalReconcile(
+    "/internal/twilio/reconcile",
+    ingressPublicBaseUrl,
+    {
+      success: "Gateway Twilio state reconcile triggered successfully",
+      nonOk: "Gateway Twilio state reconcile returned non-OK status",
+      unavailable:
+        "Gateway Twilio state reconcile failed (gateway may not be running)",
+      unavailableLogLevel: "warn",
+    },
+  );
 }
 
 /**
@@ -253,6 +295,7 @@ export async function handleIngressConfig(
       }
 
       triggerGatewayReconcile(effectiveUrl);
+      triggerGatewayTwilioReconcile(effectiveUrl);
 
       // Best-effort Twilio webhook reconciliation: when ingress is being
       // enabled/updated and Twilio numbers are assigned with valid credentials,
