@@ -316,16 +316,13 @@ mock.module("../memory/conversation-crud.js", () => ({
     return "default";
   },
   getMessages: () => [],
+  getDisplayMetaForConversations: () => new Map(),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
   getLatestConversation: () => conversation,
   listConversations: () => [conversation],
   countConversations: () => 1,
-}));
-
-mock.module("../memory/conversation-store.js", () => ({
-  getDisplayMetaForConversations: () => new Map(),
 }));
 
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({

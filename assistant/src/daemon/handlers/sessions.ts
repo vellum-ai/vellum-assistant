@@ -16,19 +16,17 @@ import {
 } from "../../memory/canonical-guardian-store.js";
 import { getAttentionStateByConversationIds } from "../../memory/conversation-attention-store.js";
 import {
+  batchSetDisplayOrders,
   clearAll,
   createConversation,
   getConversation,
+  getDisplayMetaForConversations,
   updateConversationTitle,
 } from "../../memory/conversation-crud.js";
 import {
   countConversations,
   listConversations,
 } from "../../memory/conversation-queries.js";
-import {
-  batchSetDisplayOrders,
-  getDisplayMetaForConversations,
-} from "../../memory/conversation-store.js";
 import {
   GENERATING_TITLE,
   queueGenerateConversationTitle,
