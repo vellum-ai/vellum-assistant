@@ -112,26 +112,23 @@ struct ComposerFocusBridge: NSViewRepresentable {
                 // handles slash-menu, ghost-text, and pending-confirmation.
                 let isReturn = event.keyCode == 36 || event.keyCode == 76
                 if isReturn {
-                    switch ComposerReturnKeyRouting.resolve(
+                    let action = ComposerReturnKeyRouting.resolve(
                         cmdEnterToSend: self.parent.cmdEnterToSend,
                         modifiers: modifiers
+                    )
+                    let textView = (event.window?.firstResponder as? NSTextView)
+                        ?? (NSApp.keyWindow?.firstResponder as? NSTextView)
+
+                    // Still consume newline routes when the field editor is
+                    // missing so SwiftUI cannot accidentally treat them as send.
+                    if ComposerReturnKeyRouting.performBridgeAction(
+                        action,
+                        textView: textView,
+                        onSend: self.parent.onSend
                     ) {
-                    case .bridgeSend:
-                        self.parent.onSend()
                         return nil
-                    case .bridgeInsertNewline:
-                        // Insert newline via the field editor. If the text view
-                        // can't be found, still consume the event to prevent
-                        // .onSubmit from firing (which would send the message).
-                        let textView = (event.window?.firstResponder as? NSTextView)
-                            ?? (NSApp.keyWindow?.firstResponder as? NSTextView)
-                        if let textView {
-                            textView.insertText("\n", replacementRange: textView.selectedRange())
-                        }
-                        return nil
-                    case .deferToSubmit:
-                        return event
                     }
+                    return event
                 }
 
                 // Let zoom shortcuts propagate instead of being consumed
