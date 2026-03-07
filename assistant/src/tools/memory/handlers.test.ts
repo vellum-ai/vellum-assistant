@@ -398,9 +398,10 @@ describe("handleMemoryRecall", () => {
     expect(result.isError).toBe(false);
     const parsed = parseResult(result.content);
     // Not degraded because embeddings are optional
+    expect(parsed.degraded).toBe(false);
     expect(parsed.sources.semantic).toBe(0);
-    // Still returns results from non-semantic sources
-    expect(parsed.resultCount).toBeGreaterThanOrEqual(0);
+    // Still returns results from non-semantic sources (direct item search)
+    expect(parsed.resultCount).toBeGreaterThan(0);
   });
 
   test("returns lexical results in degraded mode", async () => {
@@ -425,9 +426,8 @@ describe("handleMemoryRecall", () => {
 
     expect(result.isError).toBe(false);
     const parsed = parseResult(result.content);
-    // Lexical search should still find items even without embeddings
-    expect(parsed.sources.lexical).toBeGreaterThanOrEqual(0);
-    expect(parsed.resultCount).toBeGreaterThanOrEqual(0);
+    // Direct item search should still find items even without embeddings
+    expect(parsed.resultCount).toBeGreaterThan(0);
   });
 
   // ── Scope filtering ───────────────────────────────────────────────
@@ -469,10 +469,9 @@ describe("handleMemoryRecall", () => {
 
     // When scope is "conversation", fallbackToDefault is false,
     // so only items from conv-scope-a should appear
-    if (parsed.resultCount > 0) {
-      // Verify the text contains the scoped item, not the default one
-      expect(parsed.text).toContain("scoped to conversation A");
-    }
+    expect(parsed.resultCount).toBeGreaterThan(0);
+    expect(parsed.text).toContain("scoped to conversation A");
+    expect(parsed.text).not.toContain("default scope");
   });
 
   test("default scope includes fallback to default scope", async () => {
@@ -500,9 +499,8 @@ describe("handleMemoryRecall", () => {
     expect(result.isError).toBe(false);
     const parsed = parseResult(result.content);
     // Default scope items should be accessible
-    if (parsed.resultCount > 0) {
-      expect(parsed.text).toContain("global knowledge");
-    }
+    expect(parsed.resultCount).toBeGreaterThan(0);
+    expect(parsed.text).toContain("global knowledge");
   });
 
   // ── Error handling ────────────────────────────────────────────────
