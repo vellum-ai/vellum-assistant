@@ -134,9 +134,7 @@ export async function sweepFailedEvents(
       | undefined;
     const assistantId =
       typeof payload.assistantId === "string" ? payload.assistantId : undefined;
-    // Backward-compat: events persisted before the guardianCtx → trustCtx
-    // rename still carry the old key name.
-    const rawTrustCtx = payload.trustCtx ?? payload.guardianCtx;
+    const rawTrustCtx = payload.trustCtx;
     const parsedTrustContext = parseTrustRuntimeContext(rawTrustCtx);
 
     // If the stored payload had guardian context data but it couldn't be parsed
