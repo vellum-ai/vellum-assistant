@@ -19,7 +19,7 @@ You are helping your user set up channel verification for a messaging channel (v
 
 Ask the user which channel they want to verify:
 
-- **voice** -- verify a phone number for voice calls
+- **phone** -- verify a phone number for voice calls
 - **telegram** -- verify a Telegram account
 - **slack** -- verify a Slack account
 
@@ -46,7 +46,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/channel-verification-sessions" \
   -d '{"channel": "<channel>", "destination": "<destination>"}'
 ```
 
-Replace `<channel>` with `voice`, `telegram`, or `slack`, and `<destination>` with the phone number, Telegram destination, or Slack user ID.
+Replace `<channel>` with `phone`, `telegram`, or `slack`, and `<destination>` with the phone number, Telegram destination, or Slack user ID.
 
 ### On success (`success: true`)
 
@@ -69,7 +69,7 @@ Handle each error code:
 | `invalid_destination` | Tell the user the format is invalid. For phone: suggest E.164 format (+15551234567). For Telegram: explain that group chat IDs (negative numbers) are not supported. For Slack: explain that the value must be a Slack member ID (e.g. U01ABCDEF). |
 | `already_bound`       | Tell the user a guardian is already bound for this channel. Ask if they want to replace it. If yes, re-run the start request with `"rebind": true` added to the JSON body.                                                                         |
 | `rate_limited`        | Tell the user they have sent too many verification attempts to this destination. Ask them to wait and try again later.                                                                                                                             |
-| `unsupported_channel` | Tell the user the channel is not supported. Only voice, telegram, and slack are valid.                                                                                                                                                             |
+| `unsupported_channel` | Tell the user the channel is not supported. Only phone, telegram, and slack are valid.                                                                                                                                                             |
 | `no_bot_username`     | Telegram bot is not configured. Load and run the `telegram-setup` skill first.                                                                                                                                                                     |
 
 ## Step 4: Handle Resend
@@ -124,7 +124,7 @@ For **voice** verification only: after telling the user their code and instructi
 2. Check the binding status via Vellum CLI:
 
 ```bash
-assistant integrations guardian status --channel voice --json
+assistant integrations guardian status --channel phone --json
 ```
 
 3. If the response shows `bound: true`: immediately send a proactive success message in the current chat — "Voice verification complete! Your phone number is now the trusted guardian." Stop polling.
@@ -199,7 +199,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/channel-verification-sessions/rev
   -d '{"channel": "<channel>"}'
 ```
 
-Replace `<channel>` with the channel to unbind from (e.g. `voice`, `telegram`, `slack`).
+Replace `<channel>` with the channel to unbind from (e.g. `phone`, `telegram`, `slack`).
 
 ### On success (`success: true`)
 
