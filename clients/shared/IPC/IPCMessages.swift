@@ -2108,6 +2108,31 @@ extension IPCConversationSeenSignal {
     }
 }
 
+extension IPCConversationUnreadSignal {
+    public init(
+        conversationId: String,
+        sourceChannel: String,
+        signalType: String,
+        confidence: String,
+        source: String,
+        evidenceText: String? = nil,
+        observedAt: Int? = nil,
+        metadata: [String: AnyCodable]? = nil
+    ) {
+        self.init(
+            type: "conversation_unread_signal",
+            conversationId: conversationId,
+            sourceChannel: sourceChannel,
+            signalType: signalType,
+            confidence: confidence,
+            source: source,
+            evidenceText: evidenceText,
+            observedAt: observedAt,
+            metadata: metadata
+        )
+    }
+}
+
 /// Sent by the client to request subagent detail (events) for a completed subagent.
 public struct SubagentDetailRequestMessage: Encodable, Sendable {
     public let type: String = "subagent_detail_request"

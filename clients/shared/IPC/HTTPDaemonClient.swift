@@ -161,6 +161,7 @@ public final class HTTPTransport {
         case guardianActionsPending(conversationId: String)
         case guardianActionsDecision
         case conversationsSeen
+        case conversationsUnread
         case identity
         case featureFlags
         case featureFlagUpdate(key: String)
@@ -235,6 +236,8 @@ public final class HTTPTransport {
             return ("/v1/guardian-actions/decision", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
+        case .conversationsUnread:
+            return ("/v1/conversations/unread", nil)
         case .identity:
             return ("/v1/identity", nil)
         case .featureFlags:
@@ -327,6 +330,8 @@ public final class HTTPTransport {
             return ("\(prefix)/guardian-actions/decision/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
+        case .conversationsUnread:
+            return ("\(prefix)/conversations/unread/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
         case .featureFlags:
@@ -650,6 +655,8 @@ public final class HTTPTransport {
             Task { await self.fetchHistory(sessionId: msg.sessionId) }
         } else if let msg = message as? IPCConversationSeenSignal {
             Task { await self.sendConversationSeen(msg) }
+        } else if let msg = message as? IPCConversationUnreadSignal {
+            Task { await self.sendConversationUnread(msg) }
         } else if let msg = message as? GuardianActionsPendingRequestMessage {
             Task { await self.fetchGuardianActionsPending(conversationId: msg.conversationId) }
         } else if let msg = message as? GuardianActionDecisionMessage {
@@ -981,6 +988,50 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("Conversation seen signal error: \(error.localizedDescription)")
+        }
+    }
+
+    private func sendConversationUnread(_ signal: IPCConversationUnreadSignal, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationsUnread) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "conversationId": signal.conversationId,
+            "sourceChannel": signal.sourceChannel,
+            "signalType": signal.signalType,
+            "confidence": signal.confidence,
+            "source": signal.source
+        ]
+        if let evidenceText = signal.evidenceText {
+            body["evidenceText"] = evidenceText
+        }
+        if let observedAt = signal.observedAt {
+            body["observedAt"] = observedAt
+        }
+        if let metadata = signal.metadata {
+            body["metadata"] = metadata
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        await sendConversationUnread(signal, isRetry: true)
+                    }
+                } else if http.statusCode != 200 {
+                    log.error("Conversation unread signal failed (\(http.statusCode))")
+                }
+            }
+        } catch {
+            log.error("Conversation unread signal error: \(error.localizedDescription)")
         }
     }
 
