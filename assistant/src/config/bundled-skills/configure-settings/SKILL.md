@@ -13,7 +13,8 @@ When a user asks for setup/status of a specific capability, prefer domain comman
 
 ```bash
 assistant integrations voice config --json
-assistant integrations ingress config --json
+assistant config get ingress.publicBaseUrl
+assistant config get ingress.enabled
 assistant integrations twilio config --json
 assistant email status --json
 ```
