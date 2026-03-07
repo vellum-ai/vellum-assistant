@@ -161,7 +161,7 @@ describe("channel-reply-delivery", () => {
 
   it("falls back to rendered.text when no non-empty textSegments exist", async () => {
     await deliverRenderedReplyViaCallback({
-      callbackUrl: "http://gateway/deliver/sms",
+      callbackUrl: "http://gateway/deliver/telegram",
       chatId: "chat-2",
       textSegments: [" ", ""],
       fallbackText: "Fallback text",
