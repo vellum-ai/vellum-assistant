@@ -97,12 +97,6 @@ final class ChromeAccessibilityHelper {
         }
     }
 
-    /// Convenience: restart with just accessibility flag (backward compat).
-    @MainActor
-    static func restartChromeWithAccessibility(app: NSRunningApplication) async -> Bool {
-        return await restartChromeWithFlags(app: app, flags: ["--force-renderer-accessibility"])
-    }
-
     /// Find a running Chromium browser, preferring Google Chrome.
     static func findRunningChrome() -> NSRunningApplication? {
         // Check Google Chrome first since the UI references "Chrome" specifically,
