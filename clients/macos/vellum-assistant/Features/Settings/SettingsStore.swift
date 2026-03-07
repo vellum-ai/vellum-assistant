@@ -480,12 +480,20 @@ public final class SettingsStore: ObservableObject {
         // Wire up ingress config IPC response
         daemonClient?.onIngressConfigResponse = { [weak self] response in
             guard let self else { return }
-            // Prefer the lockfile's runtimeUrl for remote assistants: the daemon
-            // reports its own loopback address which is not reachable from the client.
-            let resolvedUrl = LockfilePaths.resolveGatewayUrl(
-                connectedAssistantId: UserDefaults.standard.string(forKey: "connectedAssistantId")
-            )
-            self.localGatewayTarget = resolvedUrl
+            // For remote assistants, prefer the lockfile's runtimeUrl because the
+            // daemon reports its own loopback address which is not reachable from
+            // the client. For local assistants, use the daemon's authoritative value
+            // since it reflects the daemon's actual runtime environment.
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+                ?? LockfileAssistant.loadLatest()
+            if let assistant, assistant.isRemote {
+                self.localGatewayTarget = LockfilePaths.resolveGatewayUrl(
+                    connectedAssistantId: connectedId
+                )
+            } else {
+                self.localGatewayTarget = response.localGatewayTarget
+            }
             if response.success {
                 if let pending = self.pendingIngressEnabled, response.enabled != pending {
                     // A set operation is in-flight and this response disagrees
