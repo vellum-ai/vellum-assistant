@@ -26,7 +26,7 @@ Commands:
   integrations [options]   Read integration status through the gateway API
   contacts [options]       Manage and query the contact graph
   channels [options]       Query channel status
-  channel-verification-sessions
+  channel-verification-sessions [options]
                            Manage channel verification sessions
   amazon [options]         Shop on Amazon and Amazon Fresh. Requires a session
                            imported from a Ride Shotgun recording.
@@ -35,6 +35,8 @@ Commands:
                            completions bash >> ~/.bashrc)
   notifications [options]  Send and inspect notifications through the unified
                            notification router
+  oauth [options]          Manage OAuth tokens for connected integrations
+  skills                   Browse and install skills from the Vellum catalog
   x|twitter [options]      Post on X and manage connections. Supports OAuth
                            (official API) and browser session paths.
   map [options] <domain>   Auto-navigate a domain and produce a deduplicated API
