@@ -59,11 +59,11 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Identity lifecycle:**
 
-1. **Bootstrap (loopback-only, macOS/CLI)** — On first launch, the client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`.
+1. **Bootstrap (loopback-only, macOS/CLI)** — On first launch, the client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`.
 
 2. **iOS pairing** — iOS devices obtain JWTs through the QR pairing flow. The pairing response includes `accessToken` and `refreshToken` credentials.
 
-3. **Refresh** — `POST /v1/integrations/guardian/vellum/refresh` accepts `{ refreshToken }` and returns a new access/refresh token pair. Single-use rotation with replay detection and family-based revocation.
+3. **Refresh** — `POST /v1/guardian/refresh` accepts `{ refreshToken }` and returns a new access/refresh token pair. Single-use rotation with replay detection and family-based revocation.
 
 4. **IPC identity** — Local IPC connections use `resolveLocalIpcGuardianContext()` for deterministic identity without tokens.
 
@@ -85,8 +85,8 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/auth/subject.ts`                     | Subject string parser (`parseSub`)                                                            |
 | `src/runtime/auth/middleware.ts`                  | JWT bearer auth middleware (`authenticateRequest`)                                            |
 | `src/runtime/auth/route-policy.ts`                | Route-level scope/principal enforcement                                                       |
-| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` (initial JWT issuance)                      |
-| `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/integrations/guardian/vellum/refresh` (token rotation)                              |
+| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/guardian/init` (initial JWT issuance)                                               |
+| `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/guardian/refresh` (token rotation)                                                  |
 | `src/runtime/routes/pairing-routes.ts`            | JWT credential issuance in pairing flow                                                       |
 | `src/runtime/local-actor-identity.ts`             | `resolveLocalIpcGuardianContext` — deterministic IPC identity                                 |
 | `src/memory/channel-guardian-store.ts`            | Guardian binding types and re-exports                                                         |

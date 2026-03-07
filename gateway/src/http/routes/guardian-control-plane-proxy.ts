@@ -127,20 +127,12 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
       );
     },
 
-    async handleGuardianVellumBootstrap(req: Request): Promise<Response> {
-      return proxyToRuntime(
-        req,
-        "/v1/integrations/guardian/vellum/bootstrap",
-        "",
-      );
+    async handleGuardianInit(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/guardian/init", "");
     },
 
     async handleGuardianRefresh(req: Request): Promise<Response> {
-      return proxyToRuntime(
-        req,
-        "/v1/integrations/guardian/vellum/refresh",
-        "",
-      );
+      return proxyToRuntime(req, "/v1/guardian/refresh", "");
     },
   };
 }

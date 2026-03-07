@@ -460,16 +460,10 @@ export class RuntimeHttpServer {
     // needs to work when the access token is expired. Bootstrap has its
     // own loopback IP validation; refresh is secured by the refresh token
     // in the request body (32 random bytes, hash-only storage).
-    if (
-      path === "/v1/integrations/guardian/vellum/bootstrap" &&
-      req.method === "POST"
-    ) {
+    if (path === "/v1/guardian/init" && req.method === "POST") {
       return await handleGuardianBootstrap(req, server);
     }
-    if (
-      path === "/v1/integrations/guardian/vellum/refresh" &&
-      req.method === "POST"
-    ) {
+    if (path === "/v1/guardian/refresh" && req.method === "POST") {
       return await handleGuardianRefresh(req);
     }
 

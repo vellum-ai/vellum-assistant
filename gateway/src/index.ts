@@ -429,11 +429,10 @@ async function main() {
 
     // ── Guardian control plane ──
     {
-      path: "/v1/integrations/guardian/vellum/bootstrap",
+      path: "/v1/guardian/init",
       method: "POST",
       auth: "edge",
-      handler: (req) =>
-        guardianControlPlaneProxy.handleGuardianVellumBootstrap(req),
+      handler: (req) => guardianControlPlaneProxy.handleGuardianInit(req),
     },
     {
       path: "/v1/integrations/guardian/sessions",
@@ -476,7 +475,7 @@ async function main() {
     // expires. Signature, audience, and policy epoch are still verified
     // — only the expiration check is relaxed.
     {
-      path: "/v1/integrations/guardian/vellum/refresh",
+      path: "/v1/guardian/refresh",
       method: "POST",
       auth: "custom",
       handler: (req, _params, getClientIp) => {

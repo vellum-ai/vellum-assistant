@@ -1,5 +1,5 @@
 /**
- * POST /v1/integrations/guardian/vellum/refresh
+ * POST /v1/guardian/refresh
  *
  * Rotates the refresh token and mints a new access token + refresh token pair.
  * This endpoint is the runtime handler proxied through the gateway.
@@ -13,7 +13,7 @@ import type { RouteDefinition } from "../http-router.js";
 const log = getLogger("guardian-refresh");
 
 /**
- * Handle POST /v1/integrations/guardian/vellum/refresh
+ * Handle POST /v1/guardian/refresh
  *
  * Body: { platform: 'ios' | 'macos', deviceId: string, refreshToken: string }
  * Returns: { guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter }
@@ -86,7 +86,7 @@ export async function handleGuardianRefresh(req: Request): Promise<Response> {
 export function guardianRefreshRouteDefinitions(): RouteDefinition[] {
   return [
     {
-      endpoint: "integrations/guardian/vellum/refresh",
+      endpoint: "guardian/refresh",
       method: "POST",
       handler: async ({ req }) => handleGuardianRefresh(req),
     },

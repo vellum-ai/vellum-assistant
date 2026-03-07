@@ -2363,7 +2363,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Actor Token Bootstrap
 
-    /// Response from `POST /v1/integrations/guardian/vellum/bootstrap`.
+    /// Response from `POST /v1/guardian/init`.
     /// Accepts both `accessToken` (new) and `actorToken` (legacy) field names.
     public struct GuardianBootstrapResponse: Decodable {
         public let guardianPrincipalId: String
@@ -2418,7 +2418,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         var request: URLRequest
 
         if let httpTransport {
-            guard let url = URL(string: "\(httpTransport.baseURL)/v1/integrations/guardian/vellum/bootstrap") else {
+            guard let url = URL(string: "\(httpTransport.baseURL)/v1/guardian/init") else {
                 log.error("Invalid bootstrap URL")
                 return false
             }
@@ -2430,7 +2430,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
             request = r
-        } else if var r = buildLocalRequest(target: .daemon, path: "v1/integrations/guardian/vellum/bootstrap", method: "POST", timeout: 15) {
+        } else if var r = buildLocalRequest(target: .daemon, path: "v1/guardian/init", method: "POST", timeout: 15) {
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request = r
         } else {

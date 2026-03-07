@@ -1339,12 +1339,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/guardian/vellum/bootstrap": {
+      "/v1/guardian/init": {
         post: {
-          summary: "Bootstrap Vellum guardian",
+          summary: "Initialize guardian",
           description:
-            "Authenticated gateway endpoint that bootstraps the Vellum guardian identity and binds it to the assistant runtime.",
-          operationId: "guardianVellumBootstrap",
+            "Authenticated gateway endpoint that initializes the guardian identity and binds it to the assistant runtime.",
+          operationId: "guardianInit",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1355,7 +1355,7 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Guardian bootstrapped" },
+            "200": { description: "Guardian initialized" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
@@ -1393,12 +1393,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/guardian/vellum/refresh": {
+      "/v1/guardian/refresh": {
         post: {
           summary: "Refresh guardian access token",
           description:
             "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed).",
-          operationId: "guardianVellumRefresh",
+          operationId: "guardianRefresh",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
