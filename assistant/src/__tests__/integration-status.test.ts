@@ -80,8 +80,8 @@ describe("integration-status", () => {
       mockTwilioAccountSid = "sid";
 
       const summary = getIntegrationSummary();
-      const sms = summary.find((s: { name: string }) => s.name === "Twilio");
-      expect(sms?.connected).toBe(false);
+      const twilio = summary.find((s: { name: string }) => s.name === "Twilio");
+      expect(twilio?.connected).toBe(false);
     });
 
     test("Telegram disconnected when only bot_token is set (missing webhook_secret)", () => {

@@ -87,9 +87,9 @@ describe("getPointerFallbackMessage", () => {
     const msg = getPointerFallbackMessage({
       scenario: "guardian_verification_succeeded",
       phoneNumber: "+15559876543",
-      channel: "sms",
+      channel: "voice",
     });
-    expect(msg).toContain("Guardian verification (sms)");
+    expect(msg).toContain("Guardian verification (voice)");
   });
 
   test("guardian_verification_failed without reason", () => {
@@ -161,10 +161,10 @@ describe("buildPointerInstruction", () => {
     const ctx: CallPointerMessageContext = {
       scenario: "guardian_verification_succeeded",
       phoneNumber: "+15559876543",
-      channel: "sms",
+      channel: "voice",
     };
     const instruction = buildPointerInstruction(ctx);
-    expect(instruction).toContain("Channel: sms");
+    expect(instruction).toContain("Channel: voice");
   });
 
   test("omits optional fields when not provided", () => {

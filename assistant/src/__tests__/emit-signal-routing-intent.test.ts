@@ -40,10 +40,6 @@ mock.module("../notifications/adapters/macos.js", () => ({
   },
 }));
 
-mock.module("../notifications/adapters/sms.js", () => ({
-  SmsAdapter: class {},
-}));
-
 mock.module("../notifications/adapters/telegram.js", () => ({
   TelegramAdapter: class {},
 }));

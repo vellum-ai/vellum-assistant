@@ -15,7 +15,7 @@ let twilioNumbers = [
   {
     phoneNumber: "+15550001111",
     friendlyName: "Primary number",
-    capabilities: { voice: true, sms: true },
+    capabilities: { voice: true },
   },
 ];
 let twilioListError: Error | undefined;
@@ -171,7 +171,7 @@ describe("assistant integrations CLI", () => {
       {
         phoneNumber: "+15550001111",
         friendlyName: "Primary number",
-        capabilities: { voice: true, sms: true },
+        capabilities: { voice: true },
       },
     ];
     twilioListError = undefined;
@@ -351,7 +351,7 @@ describe("assistant integrations CLI", () => {
       {
         phoneNumber: "+15550002222",
         friendlyName: "Support line",
-        capabilities: { voice: true, sms: true },
+        capabilities: { voice: true },
       },
     ];
 
@@ -371,7 +371,7 @@ describe("assistant integrations CLI", () => {
         {
           phoneNumber: "+15550002222",
           friendlyName: "Support line",
-          capabilities: { voice: true, sms: true },
+          capabilities: { voice: true },
         },
       ],
     });

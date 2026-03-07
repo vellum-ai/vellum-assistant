@@ -775,7 +775,7 @@ describe("applyRuntimeInjections with inboundActorContext", () => {
   const baseMessages: Message[] = [
     {
       role: "user",
-      content: [{ type: "text", text: "Help me send this over SMS." }],
+      content: [{ type: "text", text: "Help me send this message." }],
     },
   ];
 
