@@ -36,8 +36,6 @@ import {
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
-import * as conversationStore from "../memory/conversation-store.js";
-import { flushMemoryForMessages } from "../memory/flush.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -47,7 +45,6 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
-import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import type {
   AssistantActivityState,
@@ -105,12 +102,9 @@ import {
   buildToolDefinitions,
   createResolveToolsCallback,
   createToolExecutor,
-  resolveTrustClass,
 } from "./session-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./session-workspace.js";
 import { TraceEmitter } from "./trace-emitter.js";
-
-const log = getLogger("session");
 
 export interface SessionMemoryPolicy {
   scopeId: string;
@@ -362,79 +356,6 @@ export class Session {
       provider,
       systemPrompt,
       config: config.contextWindow,
-      onBeforeCompact: async (messages, _boundary, signal) => {
-        const cfg = getConfig();
-        const memoryEnabled = cfg.memory?.enabled !== false;
-        const trustClass = resolveTrustClass(this.trustContext);
-        if (!memoryEnabled || trustClass !== "guardian") return;
-
-        const flushConfig = cfg.memory?.extraction?.preCompactionFlush;
-        if (flushConfig?.enabled === false) return;
-
-        const maxMessages = flushConfig?.maxMessages ?? 50;
-        const timeoutMs = flushConfig?.timeoutMs ?? 30000;
-
-        // Dedicated abort controller that fires on timeout OR when the
-        // outer signal aborts, ensuring the flush stops promptly in both
-        // cases and the timeout timer is always cleaned up.
-        const flushController = new AbortController();
-        const timeoutId = setTimeout(() => flushController.abort(), timeoutMs);
-        signal?.addEventListener("abort", () => flushController.abort(), {
-          once: true,
-        });
-
-        try {
-          // Resolve DB message rows so flush has real message IDs for
-          // deduplication and extraction. Flush all uncompacted rows rather
-          // than slicing by in-memory count, because repairHistory() can merge
-          // consecutive same-role messages making the in-memory count smaller
-          // than the DB row count. Over-fetching is safe — isAlreadyExtracted
-          // deduplicates.
-          const dbMessages = conversationStore.getMessages(this.conversationId);
-          const compactedCount = this.contextCompactedMessageCount;
-          let flushMessages = dbMessages
-            .slice(compactedCount)
-            .map((row) => ({ id: row.id, role: row.role }));
-
-          // Take the most recent N messages — older messages are more likely
-          // to have been extracted already.
-          if (flushMessages.length > maxMessages) {
-            flushMessages = flushMessages.slice(-maxMessages);
-          }
-
-          const result = await flushMemoryForMessages({
-            messages: flushMessages,
-            conversationId: this.conversationId,
-            scopeId: this.memoryPolicy.scopeId,
-            extractFromAssistant:
-              getConfig().memory.extraction.extractFromAssistant,
-            abortSignal: flushController.signal,
-          });
-
-          log.info(
-            {
-              flushed: result.flushed,
-              total: flushMessages.length,
-              conversationId: this.conversationId,
-            },
-            `Pre-compaction memory flush: extracted ${result.flushed} items from ${flushMessages.length} messages`,
-          );
-        } catch (err) {
-          if (flushController.signal.aborted) {
-            log.warn(
-              { timeoutMs, conversationId: this.conversationId },
-              "Pre-compaction memory flush timed out, proceeding with compaction",
-            );
-            return;
-          }
-          log.warn(
-            { err, conversationId: this.conversationId },
-            "Pre-compaction memory flush failed, proceeding with compaction",
-          );
-        } finally {
-          clearTimeout(timeoutId);
-        }
-      },
     });
 
     void getHookManager().trigger("session-start", {
