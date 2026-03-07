@@ -1,5 +1,4 @@
 import { getLogger } from "../util/logger.js";
-import type { DrizzleDb } from "./db.js";
 import { extractAndUpsertMemoryItemsForMessage } from "./items-extractor.js";
 import { rawGet } from "./raw-query.js";
 
@@ -14,7 +13,6 @@ export interface FlushMemoryOptions {
   messages: FlushMessage[];
   conversationId: string;
   scopeId: string;
-  db: DrizzleDb;
   abortSignal?: AbortSignal;
 }
 
