@@ -427,6 +427,13 @@ export async function runAgentLoopImpl(
 
     const isFirstMessage = ctx.messages.length === 1;
 
+    ctx.emitActivityState(
+      "thinking",
+      "thinking_delta",
+      "assistant_turn",
+      reqId,
+      "Compacting context...",
+    );
     const compacted = await ctx.contextWindowManager.maybeCompact(
       ctx.messages,
       abortController.signal,
@@ -670,6 +677,13 @@ export async function runAgentLoopImpl(
         !reducerState.exhausted
       ) {
         preflightAttempts++;
+        ctx.emitActivityState(
+          "thinking",
+          "thinking_delta",
+          "assistant_turn",
+          reqId,
+          "Compacting context...",
+        );
         const step = await reduceContextOverflow(
           ctx.messages,
           {
@@ -860,6 +874,13 @@ export async function runAgentLoopImpl(
           "Context too large — applying next reducer tier",
         );
 
+        ctx.emitActivityState(
+          "thinking",
+          "thinking_delta",
+          "assistant_turn",
+          reqId,
+          "Compacting context...",
+        );
         const step = await reduceContextOverflow(
           ctx.messages,
           {
@@ -1045,6 +1066,13 @@ export async function runAgentLoopImpl(
           }
         } else if (action === "auto_compress_latest_turn") {
           // Non-interactive — auto-compress without asking
+          ctx.emitActivityState(
+            "thinking",
+            "thinking_delta",
+            "assistant_turn",
+            reqId,
+            "Compacting context...",
+          );
           const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
             ctx.messages,
             abortController.signal,
