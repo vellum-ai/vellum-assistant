@@ -462,7 +462,21 @@ struct ThreadListView: View {
                 VIconView(.messageCircle, size: 12)
                     .foregroundStyle(.secondary)
                 Text(thread.title)
+                    .fontWeight(
+                        store.isConnectedMode && thread.hasUnseenLatestAssistantMessage
+                            ? .semibold
+                            : .regular
+                    )
                     .lineLimit(1)
+                if store.isConnectedMode && thread.isPinned {
+                    VIconView(.pin, size: 10)
+                        .foregroundColor(VColor.accent)
+                        .accessibilityLabel("Pinned")
+                }
+                if store.isConnectedMode && thread.hasUnseenLatestAssistantMessage {
+                    VBadge(style: .dot, color: VColor.accent)
+                        .accessibilityLabel("Unread")
+                }
                 Spacer()
                 Text(relativeDate(thread.lastActivityAt))
                     .font(.caption2)
