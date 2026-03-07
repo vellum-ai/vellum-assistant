@@ -97,38 +97,25 @@ public struct DaemonConfig {
     /// Defaults to `.defaultLocal` which preserves existing behavior.
     public let transportMetadata: TransportMetadata
 
+    /// Instance directory for multi-instance support (e.g. `~/.vellum/instances/alice`).
+    /// When set, token resolution uses this directory instead of the lockfile's latest entry.
+    public let instanceDir: String?
+
     /// Feature-flag bearer token for authenticating PATCH /v1/feature-flags/:flagKey requests.
     /// On macOS this is read from `~/.vellum/feature-flag-token`.
     /// On iOS this is received during QR pairing and stored in the Keychain.
     public let featureFlagToken: String?
 
     #if os(macOS)
-    /// Socket path, for backwards compatibility.
-    /// Returns the socket path if using socket transport, otherwise the default path.
-    public var socketPath: String {
-        switch transport {
-        case .socket(let path):
-            return path
-        case .http, .tcp:
-            return resolveSocketPath()
-        }
-    }
-
-    /// Convenience initializer for socket transport (backwards compatible).
-    public init(socketPath: String) {
-        self.transport = .socket(path: socketPath)
-        self.transportMetadata = .defaultLocal
-        self.featureFlagToken = readFeatureFlagToken()
-    }
-
     public static var `default`: DaemonConfig {
         return DaemonConfig(transport: .socket(path: resolveSocketPath()))
     }
     #endif
 
-    public init(transport: Transport, transportMetadata: TransportMetadata = .defaultLocal, featureFlagToken: String? = nil) {
+    public init(transport: Transport, transportMetadata: TransportMetadata = .defaultLocal, instanceDir: String? = nil, featureFlagToken: String? = nil) {
         self.transport = transport
         self.transportMetadata = transportMetadata
+        self.instanceDir = instanceDir
         #if os(macOS)
         self.featureFlagToken = featureFlagToken ?? readFeatureFlagToken()
         #else

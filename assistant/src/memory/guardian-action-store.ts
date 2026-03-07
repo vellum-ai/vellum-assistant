@@ -2,7 +2,7 @@
  * Store for cross-channel guardian action requests and deliveries.
  *
  * Guardian action requests are created when a voice call's ASK_GUARDIAN
- * marker fires, and deliveries track per-channel dispatch (telegram, sms, mac).
+ * marker fires, and deliveries track per-channel dispatch (telegram, mac).
  * Resolution uses first-response-wins semantics: the first channel to
  * answer resolves the request and all other deliveries are marked answered.
  */
@@ -10,7 +10,6 @@
 import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { getDb, rawChanges } from "./db.js";
 import { guardianActionDeliveries, guardianActionRequests } from "./schema.js";
@@ -49,7 +48,6 @@ export type FollowupAction = "call_back" | "message_back" | "decline";
 
 export interface GuardianActionRequest {
   id: string;
-  assistantId: string;
   kind: string;
   sourceChannel: string;
   sourceConversationId: string;
@@ -101,7 +99,6 @@ function rowToRequest(
 ): GuardianActionRequest {
   return {
     id: row.id,
-    assistantId: row.assistantId,
     kind: row.kind,
     sourceChannel: row.sourceChannel,
     sourceConversationId: row.sourceConversationId,
@@ -165,7 +162,6 @@ function generateRequestCode(): string {
  * legacy guardian action rows continue to compile.
  */
 export function createGuardianActionRequest(params: {
-  assistantId?: string;
   kind: string;
   sourceChannel: string;
   sourceConversationId: string;
@@ -182,7 +178,6 @@ export function createGuardianActionRequest(params: {
 
   const row = {
     id,
-    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     kind: params.kind,
     sourceChannel: params.sourceChannel,
     sourceConversationId: params.sourceConversationId,
@@ -306,11 +301,10 @@ export function resolveGuardianActionRequest(
 
 /**
  * Expire a guardian action request and all its deliveries.
- * When reason is not provided, defaults to 'sweep_timeout' for backward compatibility.
  */
 export function expireGuardianActionRequest(
   id: string,
-  reason?: ExpiredReason,
+  reason: ExpiredReason,
 ): void {
   const db = getDb();
   const now = Date.now();
@@ -318,7 +312,7 @@ export function expireGuardianActionRequest(
   db.update(guardianActionRequests)
     .set({
       status: "expired",
-      expiredReason: reason ?? "sweep_timeout",
+      expiredReason: reason,
       updatedAt: now,
     })
     .where(
@@ -693,14 +687,12 @@ export function createGuardianActionDelivery(params: {
  * Used by inbound message routing to match incoming answers to deliveries.
  */
 export function getPendingDeliveriesByDestination(
-  assistantId: string,
   channel: string,
   chatId: string,
 ): GuardianActionDelivery[] {
   try {
     const db = getDb();
 
-    // Join deliveries with requests to filter by assistantId
     const rows = db
       .select({
         delivery: guardianActionDeliveries,
@@ -712,7 +704,6 @@ export function getPendingDeliveriesByDestination(
       )
       .where(
         and(
-          eq(guardianActionRequests.assistantId, assistantId),
           eq(guardianActionRequests.status, "pending"),
           eq(guardianActionDeliveries.destinationChannel, channel),
           eq(guardianActionDeliveries.destinationChatId, chatId),
@@ -784,7 +775,6 @@ export function getPendingDeliveriesByConversation(
  * Used by inbound message routing to match late guardian answers to expired requests.
  */
 export function getExpiredDeliveriesByDestination(
-  assistantId: string,
   channel: string,
   chatId: string,
 ): GuardianActionDelivery[] {
@@ -802,7 +792,6 @@ export function getExpiredDeliveriesByDestination(
       )
       .where(
         and(
-          eq(guardianActionRequests.assistantId, assistantId),
           eq(guardianActionRequests.status, "expired"),
           eq(guardianActionRequests.followupState, "none"),
           eq(guardianActionDeliveries.destinationChannel, channel),
@@ -874,10 +863,9 @@ export function getExpiredDeliveriesByConversation(
 /**
  * Look up deliveries for requests in `awaiting_guardian_choice` follow-up state.
  * Used by inbound message routing to intercept guardian follow-up replies
- * on channel paths (Telegram, SMS).
+ * on channel paths (Telegram, WhatsApp).
  */
 export function getFollowupDeliveriesByDestination(
-  assistantId: string,
   channel: string,
   chatId: string,
 ): GuardianActionDelivery[] {
@@ -895,7 +883,6 @@ export function getFollowupDeliveriesByDestination(
       )
       .where(
         and(
-          eq(guardianActionRequests.assistantId, assistantId),
           eq(guardianActionRequests.status, "expired"),
           eq(guardianActionRequests.followupState, "awaiting_guardian_choice"),
           eq(guardianActionDeliveries.destinationChannel, channel),

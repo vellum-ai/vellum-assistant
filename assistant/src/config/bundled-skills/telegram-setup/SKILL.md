@@ -74,7 +74,7 @@ Load the **guardian-verify-setup** skill to handle the verification flow:
 The guardian-verify-setup skill manages the full outbound verification flow for Telegram, including:
 
 - Collecting the user's Telegram chat ID or @handle as the destination
-- Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/outbound/start` with `channel: "telegram"`
+- Starting the outbound verification session via the gateway endpoint `POST /v1/channel-verification-sessions` with `channel: "telegram"` and the user's destination
 - Handling the bootstrap deep-link flow when the user provides an @handle (the response includes a `telegramBootstrapUrl` that the user must click before receiving the code)
 - Guiding the user to send the verification code back in the Telegram bot chat
 - Checking guardian status to confirm the binding was created
@@ -100,7 +100,7 @@ If routing is misconfigured, inbound Telegram messages will be rejected and the 
 Before reporting success, confirm the guardian binding was actually created. Check guardian binding status via Vellum CLI:
 
 ```bash
-vellum integrations guardian status --channel telegram --json
+assistant integrations guardian status --channel telegram --json
 ```
 
 If the binding is absent and the user said they completed the verification:
@@ -119,7 +119,7 @@ Summarize what was done:
 - Guardian identity: {verified | not configured}
 - Guardian verification status: {verified via outbound flow | skipped}
 - Routing configuration validated
-- To re-check guardian status later, use: `vellum integrations guardian status --channel telegram --json`
+- To re-check guardian status later, use: `assistant integrations guardian status --channel telegram --json`
 
 The gateway automatically detects credentials from the vault, reconciles the Telegram webhook registration, and begins accepting Telegram webhooks shortly. In single-assistant mode, routing is automatically configured — no manual environment variable configuration or webhook registration is needed. If the webhook secret changes later, the gateway's credential watcher will automatically re-register the webhook. If the ingress URL changes (e.g., tunnel restart), the assistant triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.
 

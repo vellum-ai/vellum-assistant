@@ -46,15 +46,15 @@ struct PermissionRowView: View {
     }
 
     private var statusIcon: some View {
-        Image(systemName: statusIconName)
+        VIconView(statusVIcon, size: 14)
             .foregroundColor(statusColor)
     }
 
-    private var statusIconName: String {
+    private var statusVIcon: VIcon {
         switch status {
-        case .granted: return "checkmark.circle.fill"
-        case .denied: return "xmark.circle.fill"
-        case .notDetermined: return "questionmark.circle.fill"
+        case .granted: return .circleCheck
+        case .denied: return .circleX
+        case .notDetermined: return .info
         }
     }
 

@@ -50,19 +50,10 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
     }
 }
 
-// Backward-compatible init (no pinnedContent)
-public extension VSidePanel where PinnedContent == EmptyView {
-    init(title: String, titleFont: Font = VFont.panelTitle, uppercased: Bool = false, onClose: (() -> Void)? = nil,
-         @ViewBuilder content: @escaping () -> Content) {
-        self.init(title: title, titleFont: titleFont, uppercased: uppercased, onClose: onClose,
-                  pinnedContent: { EmptyView() }, content: content)
-    }
-}
-
 #Preview("VSidePanel") {
     ZStack {
         VColor.background.ignoresSafeArea()
-        VSidePanel(title: "Inspector", onClose: {}) {
+        VSidePanel(title: "Inspector", onClose: {}, pinnedContent: { EmptyView() }) {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("Panel content here")
                     .font(VFont.body)

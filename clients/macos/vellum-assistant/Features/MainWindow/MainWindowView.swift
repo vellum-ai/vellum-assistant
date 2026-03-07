@@ -12,13 +12,17 @@ struct MainWindowView: View {
     /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
     /// itself uses `@ObservedObject` and is only instantiated when shown.
     let traceStore: TraceStore
+    let usageDashboardStore: UsageDashboardStore
     @ObservedObject var windowState: MainWindowState
     @State private var selectedThreadId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
-    @State private var copyThread = CopyThreadState()
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
     @State private var jitPermissionManager = JITPermissionManager()
+    @State var showThreadActionsDrawer = false
+    /// Frame of the thread title button in the coordinate space of coreLayoutView,
+    /// used to position the actions drawer directly below it.
+    @State private var threadTitleFrame: CGRect = .zero
     /// Stores the thread ID the user was on before entering temporary chat,
     /// so we can restore it when they exit instead of jumping to visibleThreads.first
     /// (which may be a pinned thread unrelated to what they were doing).
@@ -31,6 +35,7 @@ struct MainWindowView: View {
     let sidebarCollapsedWidth: CGFloat = 52
     @AppStorage("sidePanelWidth") var sidePanelWidth: Double = 400
     @AppStorage("appPanelWidth") var appPanelWidth: Double = -1
+    @AppStorage("appChatDockWidth") var appChatDockWidth: Double = -1
     let daemonClient: DaemonClient
     let surfaceManager: SurfaceManager
     let ambientAgent: AmbientAgent
@@ -45,21 +50,19 @@ struct MainWindowView: View {
     let onSendWakeUp: (() -> Void)?
 
     @State var showThreadSwitcher = false
-    /// Cancellable task for the delayed hover trigger on the collapsed thread section.
-    @State var threadSwitcherHoverTask: Task<Void, Never>?
-    /// Cancellable task that dismisses the thread switcher popover after leaving the hover area.
-    @State var threadSwitcherDismissTask: Task<Void, Never>?
+    @State var threadSwitcherTriggerFrame: CGRect = .zero
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
 
-    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
+    init(threadManager: ThreadManager, appListManager: AppListManager, zoomManager: ZoomManager, conversationZoomManager: ConversationZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, daemonClient: DaemonClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, onSendWakeUp: (() -> Void)? = nil) {
         self.threadManager = threadManager
         self.appListManager = appListManager
         self.zoomManager = zoomManager
         self.conversationZoomManager = conversationZoomManager
         self.traceStore = traceStore
+        self.usageDashboardStore = usageDashboardStore
         self.daemonClient = daemonClient
         self.surfaceManager = surfaceManager
         self.ambientAgent = ambientAgent
@@ -83,12 +86,6 @@ struct MainWindowView: View {
     /// if Apple changes the traffic light spacing. Dynamic measurement would be better
     /// but requires complex window geometry inspection.
     let trafficLightPadding: CGFloat = 78
-
-    /// When a generated surface is expanded into the workspace, hide the
-    /// global sidebar toggle so workspace controls own the top-left slot.
-    private var isGeneratedWorkspaceOpen: Bool {
-        windowState.isDynamicExpanded && windowState.activePanel == .generated
-    }
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
     /// When true, the client shows a chat-only interface — no Home Base dashboard.
@@ -146,23 +143,22 @@ struct MainWindowView: View {
         return threadManager.activeThreadId!
     }
 
-    /// Whether the chat bubble toggle is active (chat is open).
-    private var isChatBubbleActive: Bool {
-        switch windowState.selection {
-        case .appEditing:
-            return true
-        case .panel(let panelType) where panelType != .documentEditor:
-            return isAppChatOpen
-        default:
-            return false
-        }
+    func enterAppEditing(appId: String) {
+        let threadId = resolveThreadId()
+        threadManager.selectThread(id: threadId)
+        windowState.setAppEditing(appId: appId, threadId: threadId)
     }
 
+    func exitAppEditing(appId: String) {
+        windowState.selection = .app(appId)
+    }
 
     /// Resolve display names for thread export.
     private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
-        // Assistant name: IdentityInfo → UserDefaults → fallback
-        let assistantName = IdentityInfo.load()?.name ?? "Assistant"
+        let assistantName = AssistantDisplayName.resolve(
+            IdentityInfo.load()?.name,
+            fallback: AssistantDisplayName.placeholder
+        )
 
         // User name: stored profile → system name → fallback
         let userName: String = {
@@ -180,6 +176,42 @@ struct MainWindowView: View {
             assistantName: assistantName,
             userName: userName
         )
+    }
+
+    func copyActiveThreadToClipboard() {
+        let messages = threadManager.activeViewModel?.messages ?? []
+        let title = threadManager.activeThread?.title
+        let names = resolveParticipantNames()
+        let markdown = ChatTranscriptFormatter.threadMarkdown(
+            messages: messages,
+            threadTitle: title,
+            participantNames: names
+        )
+        guard !markdown.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(markdown, forType: .string)
+        windowState.showToast(message: "Thread copied to clipboard", style: .success)
+    }
+
+    private var threadHeaderPresentation: ThreadHeaderPresentation {
+        ThreadHeaderPresentation(
+            activeThread: threadManager.activeThread,
+            activeViewModel: threadManager.activeViewModel,
+            isConversationVisible: windowState.isConversationVisible
+        )
+    }
+
+    func dismissThreadDrawer() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            showThreadActionsDrawer = false
+        }
+    }
+
+    func startRenameActiveThread() {
+        guard let id = threadManager.activeThreadId,
+              let thread = threadManager.activeThread else { return }
+        sidebar.renamingThreadId = id
+        sidebar.renameText = thread.title
     }
 
     var body: some View {
@@ -205,6 +237,10 @@ struct MainWindowView: View {
                 if let oldId, oldId != newId, voiceModeManager.state != .off {
                     voiceModeManager.deactivate()
                 }
+                // Dismiss thread actions drawer on thread switch
+                if showThreadActionsDrawer {
+                    showThreadActionsDrawer = false
+                }
             }
             .onChange(of: windowState.selection) { oldSelection, newSelection in
                 // When selection transitions to .thread, ensure ThreadManager is synced
@@ -217,9 +253,9 @@ struct MainWindowView: View {
                     } else {
                         // Thread was archived/deleted — fall back to the first visible thread
                         if let fallback = threadManager.visibleThreads.first {
-                            windowState.selection = .thread(fallback.id)
+                            windowState.applySelectionCorrection(.thread(fallback.id))
                         } else {
-                            windowState.selection = nil
+                            windowState.applySelectionCorrection(nil)
                         }
                     }
                 }
@@ -307,7 +343,19 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VIconButton(label: "Sidebar", icon: "sidebar.left", iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
+                VIconButton(label: "Back", icon: VIcon.chevronLeft.rawValue, iconOnly: true, tooltip: "Back (\u{2318}[)") {
+                    windowState.navigateBack()
+                }
+                .disabled(!windowState.navigationHistory.canGoBack)
+                .opacity(windowState.navigationHistory.canGoBack ? 1 : 0.35)
+
+                VIconButton(label: "Forward", icon: VIcon.chevronRight.rawValue, iconOnly: true, tooltip: "Forward (\u{2318}])") {
+                    windowState.navigateForward()
+                }
+                .disabled(!windowState.navigationHistory.canGoForward)
+                .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
+
+                VIconButton(label: "Sidebar", icon: VIcon.panelLeft.rawValue, iconOnly: true, tooltip: sidebarExpanded ? "Collapse sidebar" : "Expand sidebar") {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
                     }
@@ -317,8 +365,7 @@ struct MainWindowView: View {
                     AppDelegate.shared?.toggleCommandPalette()
                 } label: {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 12, weight: .medium))
+                        VIconView(.search, size: 13)
                             .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
                         VShortcutTag("\u{2318}K")
                     }
@@ -328,41 +375,43 @@ struct MainWindowView: View {
                 .help("Search (\u{2318}K)")
             }
             Spacer()
+            if windowState.isConversationVisible {
+                ThreadTitleActionsControl(
+                    presentation: threadHeaderPresentation,
+                    onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                    onPin: {
+                        guard let id = threadManager.activeThreadId else { return }
+                        threadManager.pinThread(id: id)
+                        dismissThreadDrawer()
+                    },
+                    onUnpin: {
+                        guard let id = threadManager.activeThreadId else { return }
+                        threadManager.unpinThread(id: id)
+                        dismissThreadDrawer()
+                    },
+                    onArchive: {
+                        guard let id = threadManager.activeThreadId else { return }
+                        threadManager.archiveThread(id: id)
+                        dismissThreadDrawer()
+                    },
+                    onRename: { startRenameActiveThread(); dismissThreadDrawer() },
+                    showDrawer: $showThreadActionsDrawer
+                )
+                .background(GeometryReader { proxy in
+                    Color.clear.onAppear {
+                        threadTitleFrame = proxy.frame(in: .named("coreLayout"))
+                    }
+                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
+                        threadTitleFrame = newFrame
+                    }
+                })
+            }
+            Spacer()
             PTTKeyIndicator {
                 settingsStore.pendingSettingsTab = .voice
                 windowState.selection = .panel(.settings)
             }
-            if windowState.isShowingChat || isChatBubbleActive {
-                // Copy Thread button — only visible when there's content to copy
-                if threadManager.activeViewModel?.messages.contains(where: {
-                    !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                }) == true {
-                    VIconButton(
-                        label: "Copy thread",
-                        icon: copyThread.showConfirmation ? "checkmark" : "list.clipboard",
-                        isActive: copyThread.showConfirmation,
-                        iconOnly: true,
-                        tooltip: copyThread.showConfirmation ? "Copied!" : "Copy thread"
-                    ) {
-                        let messages = threadManager.activeViewModel?.messages ?? []
-                        let title = threadManager.activeThread?.title
-                        let names = resolveParticipantNames()
-                        let markdown = ChatTranscriptFormatter.threadMarkdown(
-                            messages: messages,
-                            threadTitle: title,
-                            participantNames: names
-                        )
-                        guard !markdown.isEmpty else { return }
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(markdown, forType: .string)
-                        copyThread.cancel()
-                        copyThread.showConfirmation = true
-                        let timer = DispatchWorkItem { [copyThread] in copyThread.showConfirmation = false }
-                        copyThread.confirmationTimer = timer
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
-                    }
-                }
-
+            if windowState.isConversationVisible {
                 // Voice mode toggle
                 VIconButton(
                     label: "Voice Mode",
@@ -419,6 +468,7 @@ struct MainWindowView: View {
                     }
                     .padding(16)
                 }
+                .coordinateSpace(name: "coreLayout")
                 .overlay {
                     // Click-outside-to-dismiss background for preferences drawer
                     if sidebar.showPreferencesDrawer {
@@ -431,17 +481,55 @@ struct MainWindowView: View {
                             }
                     }
                 }
+                .overlay {
+                    // Click-outside-to-dismiss background for thread actions drawer
+                    if showThreadActionsDrawer {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { dismissThreadDrawer() }
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if showThreadActionsDrawer {
+                        let presentation = threadHeaderPresentation
+                        ThreadActionsDrawer(
+                            presentation: presentation,
+                            onCopy: { copyActiveThreadToClipboard(); dismissThreadDrawer() },
+                            onPin: {
+                                guard let id = threadManager.activeThreadId else { return }
+                                threadManager.pinThread(id: id)
+                                dismissThreadDrawer()
+                            },
+                            onUnpin: {
+                                guard let id = threadManager.activeThreadId else { return }
+                                threadManager.unpinThread(id: id)
+                                dismissThreadDrawer()
+                            },
+                            onArchive: {
+                                guard let id = threadManager.activeThreadId else { return }
+                                threadManager.archiveThread(id: id)
+                                dismissThreadDrawer()
+                            },
+                            onRename: { startRenameActiveThread(); dismissThreadDrawer() }
+                        )
+                        .offset(x: threadTitleFrame.minX, y: threadTitleFrame.maxY)
+                        .zIndex(10)
+                    }
+                }
                 .overlay(alignment: .bottomLeading) {
                     // Preferences drawer rendered at top level so it floats above all content
                     if sidebar.showPreferencesDrawer {
                         let drawerWidth = sidebarExpandedWidth - VSpacing.sm * 2
-                        let drawerX = sidebarExpanded
-                            ? 16 + VSpacing.sm
-                            : 16 + sidebarCollapsedWidth - VSpacing.xs
+                        let sidebarWidth = sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth
+                        let drawerX = 16 + sidebarWidth - VSpacing.xs
                         DrawerMenuView(
                             onSettings: {
                                 sidebar.showPreferencesDrawer = false
                                 windowState.selection = .panel(.settings)
+                            },
+                            onUsage: {
+                                sidebar.showPreferencesDrawer = false
+                                windowState.selection = .panel(.usageDashboard)
                             },
                             onDebug: {
                                 sidebar.showPreferencesDrawer = false
@@ -458,6 +546,41 @@ struct MainWindowView: View {
                         .transition(.opacity)
                     }
                 }
+                .overlay {
+                    if showThreadSwitcher {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                showThreadSwitcher = false
+                            }
+                    }
+                }
+                .overlay(alignment: .topLeading) {
+                    if showThreadSwitcher {
+                        ThreadSwitcherDrawer(
+                            regularThreads: regularThreads,
+                            activeThreadId: threadManager.activeThreadId,
+                            threadManager: threadManager,
+                            windowState: windowState,
+                            sidebar: sidebar,
+                            selectThread: { selectThread($0) },
+                            onDismiss: { showThreadSwitcher = false }
+                        )
+                        .frame(width: sidebarExpandedWidth - VSpacing.sm * 2)
+                        .offset(
+                            x: 16 + sidebarCollapsedWidth - VSpacing.xs,
+                            y: threadSwitcherTriggerFrame.minY
+                        )
+                        .zIndex(10)
+                        .transition(.opacity)
+                        .onChange(of: threadManager.activeThreadId) { _, _ in
+                            showThreadSwitcher = false
+                        }
+                        .onChange(of: sidebarExpanded) { _, expanded in
+                            if expanded { showThreadSwitcher = false }
+                        }
+                    }
+                }
             }
             .ignoresSafeArea(edges: .top)
             .background(VColor.background.ignoresSafeArea())
@@ -472,7 +595,8 @@ struct MainWindowView: View {
             if zoomManager.showZoomIndicator {
                 ZoomIndicatorView(percentage: zoomManager.zoomPercentage)
                     .transition(.move(edge: .top).combined(with: .opacity))
-                    .padding(.top, VSpacing.xxl + VSpacing.xl)
+                    .padding(.top, 40)
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
             }
         }
         .animation(VAnimation.fast, value: zoomManager.showZoomIndicator)
@@ -508,7 +632,6 @@ struct MainWindowView: View {
             daemonClient.startSSE()
         }
         .onDisappear {
-            copyThread.cancel()
             sharing.errorDismissTask?.cancel()
             sharing.errorDismissTask = nil
             sharing.credentialPollTimer?.invalidate()
@@ -600,14 +723,9 @@ struct MainWindowView: View {
                 try? daemonClient.sendAppOpen(appId: reopenId)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .pinAppToHomebase)) { notification in
-            guard let appId = notification.userInfo?["appId"] as? String,
-                  let name = notification.userInfo?["name"] as? String else { return }
-            let icon = notification.userInfo?["icon"] as? String
-            let appType = notification.userInfo?["appType"] as? String
-            let description = notification.userInfo?["description"] as? String
-            appListManager.recordAppOpen(id: appId, name: name, icon: icon, appType: appType, description: description)
-            appListManager.pinApp(id: appId)
+        .onReceive(NotificationCenter.default.publisher(for: .shareAppCloud)) { notification in
+            guard let appId = notification.userInfo?["appId"] as? String else { return }
+            bundleAndShare(appId: appId)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openDocumentEditor)) { notification in
             guard let surfaceId = notification.userInfo?["documentSurfaceId"] as? String else { return }

@@ -42,10 +42,13 @@ export function lexicalSearch(
   limit: number,
   excludedMessageIds: string[] = [],
   scopeIds?: string[],
+  expandedQuery?: string,
 ): Candidate[] {
   const trimmed = query.trim();
   if (trimmed.length === 0 || limit <= 0) return [];
-  const matchQuery = buildFtsMatchQuery(trimmed);
+  // When an expanded query is provided (e.g. from query expansion in degraded
+  // mode), use it instead of building one from the raw conversational query.
+  const matchQuery = expandedQuery ?? buildFtsMatchQuery(trimmed);
   if (!matchQuery) return [];
   const excluded = new Set(excludedMessageIds);
   const scopeClause = scopeIds

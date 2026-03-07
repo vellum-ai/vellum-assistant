@@ -14,11 +14,12 @@ public struct VButton: View {
     public var size: Size = .small
     public var isFullWidth: Bool = false
     public var isDisabled: Bool = false
+    public var accessibilityID: String? = nil
     public let action: () -> Void
 
     @State private var isHovered = false
 
-    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, style: Style = .primary, size: Size = .small, isFullWidth: Bool = false, isDisabled: Bool = false, action: @escaping () -> Void) {
+    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, style: Style = .primary, size: Size = .small, isFullWidth: Bool = false, isDisabled: Bool = false, accessibilityID: String? = nil, action: @escaping () -> Void) {
         self.label = label
         self.leftIcon = leftIcon ?? icon
         self.rightIcon = rightIcon
@@ -26,6 +27,7 @@ public struct VButton: View {
         self.size = size
         self.isFullWidth = isFullWidth
         self.isDisabled = isDisabled
+        self.accessibilityID = accessibilityID
         self.action = action
     }
 
@@ -33,8 +35,7 @@ public struct VButton: View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
                 if let leftIcon {
-                    Image(systemName: leftIcon)
-                        .font(.system(size: iconSize, weight: .semibold))
+                    VIconView(.resolve(leftIcon), size: iconSize)
                 }
                 Text(label)
                     .font(labelFont)
@@ -43,8 +44,7 @@ public struct VButton: View {
                     Spacer(minLength: 0)
                 }
                 if let rightIcon {
-                    Image(systemName: rightIcon)
-                        .font(.system(size: iconSize, weight: .semibold))
+                    VIconView(.resolve(rightIcon), size: iconSize)
                 }
             }
         }
@@ -63,15 +63,10 @@ public struct VButton: View {
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1.0)
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")
+        .optionalAccessibilityIdentifier(accessibilityID)
     }
 
-    private var iconSize: CGFloat {
-        switch size {
-        case .small: return 10
-        case .medium: return 12
-        case .large: return 14
-        }
-    }
+    private var iconSize: CGFloat { 13 }
 
     private var labelFont: Font {
         switch size {
@@ -158,9 +153,9 @@ private struct VButtonStyle: ButtonStyle {
             if isHovered { return VColor.buttonPrimaryHover }
             return VColor.buttonPrimary
         case .secondary:
-            if isPressed { return adaptiveColor(light: Color(hex: 0xC3D2C3), dark: Color(hex: 0x4A4A46)) }
-            if isHovered { return adaptiveColor(light: Color(hex: 0xCBD8CB), dark: Color(hex: 0x424240)) }
-            return adaptiveColor(light: Color(hex: 0xD4DFD4), dark: Color(hex: 0x3A3A37))
+            if isPressed { return VColor.buttonSecondaryBgPressed }
+            if isHovered { return VColor.buttonSecondaryBgHover }
+            return VColor.buttonSecondaryBg
         case .danger:
             if isPressed { return Color(hex: 0xE0745A) }
             if isHovered { return Color(hex: 0xD4582F) }
@@ -210,6 +205,17 @@ private struct VButtonStyle: ButtonStyle {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func optionalAccessibilityIdentifier(_ identifier: String?) -> some View {
+        if let identifier {
+            self.accessibilityIdentifier(identifier)
+        } else {
+            self
+        }
+    }
+}
+
 #Preview("VButton") {
     ZStack {
         VColor.background.ignoresSafeArea()
@@ -221,11 +227,11 @@ private struct VButtonStyle: ButtonStyle {
             VButton(label: "Ghost", style: .ghost, size: .medium) {}
             VButton(label: "Record", style: .outlined, size: .large) {}
             HStack(spacing: 12) {
-                VButton(label: "Connected", leftIcon: "checkmark.circle.fill", style: .success, size: .medium) {}
+                VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success, size: .medium) {}
                 VButton(label: "Disconnect", style: .danger, size: .medium) {}
             }
             VButton(label: "Connect", style: .primary, size: .medium) {}
-            VButton(label: "With Icon", leftIcon: "plus", style: .primary, size: .small) {}
+            VButton(label: "With Icon", leftIcon: VIcon.plus.rawValue, style: .primary, size: .small) {}
             VButton(label: "Full Width", style: .primary, isFullWidth: true) {}
             VButton(label: "Disabled", style: .primary, isDisabled: true) {}
         }

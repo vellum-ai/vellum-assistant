@@ -52,16 +52,6 @@ export function isUntrustedTrustClass(
 }
 
 /**
- * Reason an actor was denied access during trust resolution.
- *
- * - `'no_binding'`: No guardian binding exists for this (assistant, channel),
- *   so trust cannot be established for any actor.
- * - `'no_identity'`: The inbound message carried no usable identity fields
- *   (e.g. missing external user ID), so the sender could not be identified.
- */
-export type DenialReason = "no_binding" | "no_identity";
-
-/**
  * Fully resolved trust context from the actor trust resolver.
  *
  * This is the intermediate representation between raw inbound identity
@@ -98,8 +88,6 @@ export interface ActorTrustContext {
     channel: ChannelId;
     trustStatus: TrustClass;
   };
-  /** Legacy denial reason for backward-compatible unverified_channel paths. */
-  denialReason?: DenialReason;
 }
 
 /**
@@ -176,15 +164,11 @@ export function resolveActorTrust(
         channel: input.sourceChannel,
         trustStatus: "unknown",
       },
-      denialReason: "no_identity",
     };
   }
 
   // --- Guardian lookup ---
-  const guardianResult = findGuardianForChannel(
-    input.sourceChannel,
-    input.assistantId,
-  );
+  const guardianResult = findGuardianForChannel(input.sourceChannel);
   let guardianBindingMatch: ActorTrustContext["guardianBindingMatch"] = null;
   let guardianPrincipalId: string | undefined;
   let isGuardian = false;
@@ -252,8 +236,6 @@ export function resolveActorTrust(
       ) === canonicalSenderId
     : false;
 
-  // ContactChannel has no username field — the shim always set it to null.
-  const memberUsername = undefined;
   const memberDisplayName =
     memberMatchesSender &&
     typeof memberRecord?.contact.displayName === "string" &&
@@ -263,7 +245,7 @@ export function resolveActorTrust(
   // Prefer member profile metadata over transient sender metadata so guardian-
   // curated contact details are canonical for assistant-facing identity —
   // but only when the member record actually belongs to the current sender.
-  const resolvedUsername = memberUsername ?? senderUsername;
+  const resolvedUsername = senderUsername;
   const resolvedDisplayName = memberDisplayName ?? senderDisplayName;
   const resolvedIdentifier = resolvedUsername
     ? `@${resolvedUsername}`
@@ -283,12 +265,6 @@ export function resolveActorTrust(
     trustClass = "unknown";
   }
 
-  // Denial reason for legacy compatibility
-  let denialReason: DenialReason | undefined;
-  if (!isGuardian && !guardianBindingMatch) {
-    denialReason = "no_binding";
-  }
-
   return {
     canonicalSenderId,
     guardianBindingMatch,
@@ -304,7 +280,6 @@ export function resolveActorTrust(
       channel: input.sourceChannel,
       trustStatus: trustClass,
     },
-    denialReason,
   };
 }
 
@@ -341,6 +316,5 @@ export function toTrustContext(
     requesterMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,
     requesterChatId: conversationExternalId,
-    denialReason: ctx.denialReason,
   };
 }

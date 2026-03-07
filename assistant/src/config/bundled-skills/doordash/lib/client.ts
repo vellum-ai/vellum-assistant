@@ -5,6 +5,7 @@
  */
 
 import {
+  ADD_CART_ITEM_QUERY,
   CREATE_ORDER_FROM_CART_QUERY,
   DETAILED_CART_QUERY,
   DROPOFF_OPTIONS_QUERY,
@@ -17,7 +18,6 @@ import {
   RETAIL_STORE_FEED_QUERY,
   SEARCH_QUERY,
   STORE_PAGE_QUERY,
-  UPDATE_CART_ITEM_QUERY,
 } from "./queries.js";
 import { loadCapturedQueries } from "./query-extractor.js";
 import { type DoorDashSession, loadSession } from "./session.js";
@@ -583,14 +583,13 @@ export async function addToCart(opts: {
   nestedOptions?: string;
   specialInstructions?: string;
 }): Promise<CartSummary> {
-  // Use updateCartItemV2 — DoorDash now uses this for both adding and updating cart items
-  const data = await graphql<{ updateCartItemV2: DDCart }>(
-    "updateCartItem",
-    getQuery("updateCartItem", UPDATE_CART_ITEM_QUERY),
+  // Use addCartItemV2 for adding items to cart (proper mutation for restaurant items)
+  const data = await graphql<{ addCartItemV2: DDCart }>(
+    "addCartItem",
+    getQuery("addCartItem", ADD_CART_ITEM_QUERY),
     {
-      updateCartItemApiParams: {
+      addCartItemInput: {
         cartId: opts.cartId ?? "",
-        cartItemId: "",
         itemId: opts.itemId,
         itemName: opts.itemName,
         itemDescription: opts.itemDescription ?? "",
@@ -612,7 +611,6 @@ export async function addToCart(opts: {
         isAdsItem: false,
         isBundle: false,
         bundleType: "BUNDLE_TYPE_UNSPECIFIED",
-        cartFilter: null,
       },
       fulfillmentContext: {
         shouldUpdateFulfillment: false,
@@ -622,7 +620,7 @@ export async function addToCart(opts: {
       shouldKeepOnlyOneActiveCart: false,
     },
   );
-  return extractCartSummary(data.updateCartItemV2);
+  return extractCartSummary(data.addCartItemV2);
 }
 
 export async function removeFromCart(

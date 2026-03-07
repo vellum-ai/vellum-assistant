@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import { join } from "node:path";
 
-import { getProviderProfile } from "../../../oauth/provider-profiles.js";
 import {
   buildDecisionTrace,
   createProxyServer,
@@ -32,6 +31,7 @@ import { listCredentialMetadata } from "../../credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../credentials/policy-types.js";
 import {
   resolveById,
+  resolveByServiceField,
   type ResolvedCredential,
 } from "../../credentials/resolve.js";
 
@@ -93,23 +93,42 @@ const sessions = new Map<ProxySessionId, ManagedSession>();
 const acquireLocks = new Map<string, Promise<ProxySession>>();
 
 /**
+ * Build the final header value for a matched credential injection template.
+ * Handles optional composition with a second credential and value transforms.
+ * Returns null if any referenced credential cannot be resolved.
+ */
+function buildInjectedValue(
+  tpl: CredentialInjectionTemplate,
+  primaryValue: string,
+): string | null {
+  let value = primaryValue;
+
+  if (tpl.composeWith) {
+    const composed = resolveByServiceField(
+      tpl.composeWith.service,
+      tpl.composeWith.field,
+    );
+    if (!composed) return null;
+    const composedValue = getSecureKey(composed.storageKey);
+    if (!composedValue) return null;
+    value = `${value}${tpl.composeWith.separator}${composedValue}`;
+  }
+
+  if (tpl.valueTransform === "base64") {
+    value = Buffer.from(value).toString("base64");
+  }
+
+  return (tpl.valuePrefix ?? "") + value;
+}
+
+/**
  * Resolve injection templates for a credential.
- *
- * Preferred source is credential metadata. For legacy OAuth credentials that
- * predate provider-level template registration, fall back to well-known
- * profile templates when this is an access_token credential.
  */
 function resolveInjectionTemplates(
   resolved: ResolvedCredential | undefined,
 ): CredentialInjectionTemplate[] {
   if (!resolved) return [];
-  if (resolved.injectionTemplates.length > 0)
-    return resolved.injectionTemplates;
-  if (resolved.field !== "access_token") return [];
-
-  const profile = getProviderProfile(resolved.service);
-  if (!profile?.injectionTemplates?.length) return [];
-  return profile.injectionTemplates;
+  return resolved.injectionTemplates;
 }
 
 /** Return a defensive copy so callers cannot mutate internal state. */
@@ -295,8 +314,15 @@ export async function startSession(
             const value = getSecureKey(resolved.storageKey);
             if (!value) return req.headers;
 
-            req.headers[tpl.headerName.toLowerCase()] =
-              (tpl.valuePrefix ?? "") + value;
+            const headerValue = buildInjectedValue(tpl, value);
+            if (!headerValue) {
+              log.warn(
+                { host: req.hostname, credentialId: credId },
+                "MITM rewrite: blocking request — composeWith credential missing",
+              );
+              return null;
+            }
+            req.headers[tpl.headerName.toLowerCase()] = headerValue;
             return req.headers;
           }
 
@@ -377,7 +403,14 @@ export async function startSession(
         if (!value) return {};
 
         if (template.injectionType === "header" && template.headerName) {
-          const headerValue = (template.valuePrefix ?? "") + value;
+          const headerValue = buildInjectedValue(template, value);
+          if (!headerValue) {
+            log.warn(
+              { hostname, credentialId },
+              "Policy: blocking matched request — composeWith credential missing",
+            );
+            return null;
+          }
           return { [template.headerName.toLowerCase()]: headerValue };
         }
         // Query param injection is handled via URL rewriting in the MITM path

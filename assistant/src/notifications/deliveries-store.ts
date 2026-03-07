@@ -18,7 +18,6 @@ import type {
 export interface NotificationDeliveryRow {
   id: string;
   notificationDecisionId: string;
-  assistantId: string;
   channel: string;
   destination: string;
   status: string;
@@ -47,7 +46,6 @@ function rowToDelivery(
   return {
     id: row.id,
     notificationDecisionId: row.notificationDecisionId,
-    assistantId: row.assistantId,
     channel: row.channel,
     destination: row.destination,
     status: row.status,
@@ -74,7 +72,6 @@ function rowToDelivery(
 export interface CreateDeliveryParams {
   id: string;
   notificationDecisionId: string;
-  assistantId: string;
   channel: NotificationChannel;
   destination: string;
   status: NotificationDeliveryStatus;
@@ -102,7 +99,6 @@ export function createDelivery(
   const row = {
     id: params.id,
     notificationDecisionId: params.notificationDecisionId,
-    assistantId: params.assistantId,
     channel: params.channel,
     destination: params.destination,
     status: params.status,

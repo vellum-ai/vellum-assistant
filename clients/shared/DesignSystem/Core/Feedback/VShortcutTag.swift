@@ -23,8 +23,7 @@ public struct VShortcutTag: View {
     private var tagContent: some View {
         HStack(spacing: VSpacing.xs) {
             if let icon {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .medium))
+                VIconView(.resolve(icon), size: 11)
             }
             Text(text)
                 .font(VFont.caption)
@@ -67,7 +66,7 @@ public struct VShortcutTag: View {
         VColor.background.ignoresSafeArea()
         HStack(spacing: 12) {
             VShortcutTag("\u{2318}K")
-            VShortcutTag("fn", icon: "mic.fill")
+            VShortcutTag("fn", icon: VIcon.mic.rawValue)
             VShortcutTag("\u{2318}G")
         }
         .padding()

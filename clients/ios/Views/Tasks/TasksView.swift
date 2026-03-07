@@ -20,7 +20,7 @@ struct TasksView: View {
                         Button {
                             viewModel.fetchItems()
                         } label: {
-                            Image(systemName: "arrow.clockwise")
+                            VIconView(.refreshCw, size: 14)
                         }
                         .accessibilityLabel("Refresh tasks")
                     }
@@ -89,8 +89,7 @@ struct TasksView: View {
 
     private var emptyState: some View {
         VStack(spacing: VSpacing.lg) {
-            Image(systemName: "list.bullet.clipboard")
-                .font(.system(size: 48))
+            VIconView(.clipboardList, size: 48)
                 .foregroundColor(VColor.textMuted)
                 .accessibilityHidden(true)
             Text("No Tasks")
@@ -223,7 +222,7 @@ private struct TaskRow: View {
                     Label {
                         Text(option.label)
                     } icon: {
-                        Image(systemName: option.tier == item.priorityTier ? "checkmark.circle.fill" : "circle.fill")
+                        VIconView(option.tier == item.priorityTier ? .circleCheck : .circle, size: 12)
                     }
                 }
             }
@@ -256,8 +255,7 @@ private struct TaskRow: View {
         } else if isRunning {
             Button(action: onCancel) {
                 HStack(spacing: 4) {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 11))
+                    VIconView(.square, size: 11)
                     Text(isCancelling ? "Stopping…" : "Stop")
                         .font(VFont.caption)
                 }
@@ -274,8 +272,7 @@ private struct TaskRow: View {
         } else if isCompleted && hasOutput {
             Button(action: onViewOutput) {
                 HStack(spacing: 4) {
-                    Image(systemName: "doc.text")
-                        .font(.system(size: 11))
+                    VIconView(.fileText, size: 11)
                     Text("Result")
                         .font(VFont.caption)
                 }
@@ -291,8 +288,7 @@ private struct TaskRow: View {
             VStack(spacing: 2) {
                 Button(action: onRun) {
                     HStack(spacing: 4) {
-                        Image(systemName: runButtonIcon)
-                            .font(.system(size: 11))
+                        VIconView(runButtonIcon, size: 11)
                         Text(runButtonLabel)
                             .font(VFont.caption)
                     }
@@ -320,8 +316,8 @@ private struct TaskRow: View {
         return "Run"
     }
 
-    private var runButtonIcon: String {
-        (isFailed || isTimedOut || isCompleted) ? "arrow.clockwise" : "play.fill"
+    private var runButtonIcon: VIcon {
+        (isFailed || isTimedOut || isCompleted) ? .refreshCw : .play
     }
 
     private var runButtonColor: Color {
@@ -338,8 +334,7 @@ struct TasksDisconnectedView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: VSpacing.lg) {
-                Image(systemName: "list.bullet.clipboard")
-                    .font(.system(size: 48))
+                VIconView(.clipboardList, size: 48)
                     .foregroundColor(VColor.textMuted)
                     .accessibilityHidden(true)
                 Text("Tasks Require Connection")

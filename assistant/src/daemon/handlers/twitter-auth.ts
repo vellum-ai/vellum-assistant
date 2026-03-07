@@ -1,6 +1,10 @@
 import * as net from "node:net";
 
-import { loadConfig, loadRawConfig } from "../../config/loader.js";
+import {
+  getNestedValue,
+  loadConfig,
+  loadRawConfig,
+} from "../../config/loader.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import { getSecureKey } from "../../security/secure-keys.js";
@@ -51,7 +55,8 @@ export async function handleTwitterAuthStart(
   try {
     const raw = loadRawConfig();
     const mode =
-      (raw.twitterIntegrationMode as string | undefined) ?? "local_byo";
+      (getNestedValue(raw, "twitter.integrationMode") as string | undefined) ??
+      "local_byo";
     if (mode !== "local_byo") {
       ctx.send(socket, {
         type: "twitter_auth_result",
@@ -61,10 +66,7 @@ export async function handleTwitterAuthStart(
       return;
     }
 
-    // Read canonical key first, fall back to legacy for backward compatibility
-    const clientId =
-      getSecureKey("credential:integration:twitter:client_id") ??
-      getSecureKey("credential:integration:twitter:oauth_client_id");
+    const clientId = getSecureKey("credential:integration:twitter:client_id");
     if (!clientId) {
       ctx.send(socket, {
         type: "twitter_auth_result",
@@ -76,9 +78,7 @@ export async function handleTwitterAuthStart(
     }
 
     const clientSecret =
-      (getSecureKey("credential:integration:twitter:client_secret") ??
-        getSecureKey("credential:integration:twitter:oauth_client_secret")) ||
-      undefined;
+      getSecureKey("credential:integration:twitter:client_secret") || undefined;
 
     // Fail fast if no public ingress URL is configured — Twitter OAuth
     // callbacks must route through the gateway, never via loopback.
@@ -186,8 +186,10 @@ export function handleTwitterAuthStatus(
     );
     const raw = loadRawConfig();
     const mode =
-      (raw.twitterIntegrationMode as "local_byo" | "managed" | undefined) ??
-      "local_byo";
+      (getNestedValue(raw, "twitter.integrationMode") as
+        | "local_byo"
+        | "managed"
+        | undefined) ?? "local_byo";
     const meta = getCredentialMetadata("integration:twitter", "access_token");
 
     ctx.send(socket, {

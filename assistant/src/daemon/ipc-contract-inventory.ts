@@ -1,9 +1,9 @@
 /**
- * Core logic for extracting the IPC contract inventory from ipc-contract.ts.
+ * Core logic for extracting the IPC contract inventory from ipc-protocol.ts.
  *
  * Parses the TypeScript AST to extract sorted union member lists for
  * ClientMessage and ServerMessage. Interface declarations are resolved
- * from both the barrel file and the domain files in ipc-contract/.
+ * from both the protocol file and the domain files in ipc-contract/.
  */
 
 import * as fs from "fs";
@@ -162,7 +162,7 @@ function parseDomainFiles(barrelDir: string): ts.SourceFile[] {
 export function extractInventory(contractPath?: string): ContractInventory {
   const resolvedPath =
     contractPath ??
-    path.resolve(import.meta.dirname ?? __dirname, "ipc-contract.ts");
+    path.resolve(import.meta.dirname ?? __dirname, "ipc-protocol.ts");
 
   const source = fs.readFileSync(resolvedPath, "utf-8");
   const barrelFile = ts.createSourceFile(

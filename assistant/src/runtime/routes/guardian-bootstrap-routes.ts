@@ -1,5 +1,5 @@
 /**
- * POST /v1/integrations/guardian/vellum/bootstrap
+ * POST /v1/guardian/init
  *
  * Idempotent bootstrap endpoint for the vellum guardian channel.
  * Creates or confirms a guardianPrincipalId and channel='vellum'
@@ -13,7 +13,6 @@ import { createHash } from "node:crypto";
 
 import { v4 as uuid } from "uuid";
 
-import { resolveUserReference } from "../../config/user-reference.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import { createGuardianBinding } from "../../contacts/contacts-write.js";
 import { getLogger } from "../../util/logger.js";
@@ -46,7 +45,7 @@ function ensureGuardianPrincipal(assistantId: string): {
   guardianPrincipalId: string;
   isNew: boolean;
 } {
-  const guardianResult = findGuardianForChannel("vellum", assistantId);
+  const guardianResult = findGuardianForChannel("vellum");
   if (guardianResult && guardianResult.contact.principalId) {
     return {
       guardianPrincipalId: guardianResult.contact.principalId,
@@ -56,19 +55,14 @@ function ensureGuardianPrincipal(assistantId: string): {
 
   // Mint a new principal ID for the vellum channel
   const guardianPrincipalId = `vellum-principal-${uuid()}`;
-  const guardianDisplayName = resolveUserReference();
 
   createGuardianBinding({
-    assistantId,
     channel: "vellum",
     guardianExternalUserId: guardianPrincipalId,
     guardianDeliveryChatId: "local",
     guardianPrincipalId,
     verifiedVia: "bootstrap",
-    metadataJson: JSON.stringify({
-      bootstrappedAt: Date.now(),
-      displayName: guardianDisplayName,
-    }),
+    metadataJson: JSON.stringify({ bootstrappedAt: Date.now() }),
   });
 
   log.info(
@@ -82,7 +76,7 @@ function ensureGuardianPrincipal(assistantId: string): {
 const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
 /**
- * Handle POST /v1/integrations/guardian/vellum/bootstrap
+ * Handle POST /v1/guardian/init
  *
  * Body: { platform: 'macos', deviceId: string }
  * Returns: { guardianPrincipalId, accessToken, isNew }
@@ -120,7 +114,7 @@ export async function handleGuardianBootstrap(
       );
     }
 
-    if (platform !== "macos" && platform !== "cli") {
+    if (platform !== "macos" && platform !== "cli" && platform !== "web") {
       return httpError(
         "BAD_REQUEST",
         "Invalid platform. Bootstrap is macOS/CLI-only; iOS uses QR pairing.",
@@ -128,13 +122,13 @@ export async function handleGuardianBootstrap(
       );
     }
 
-    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-    const { guardianPrincipalId, isNew } = ensureGuardianPrincipal(assistantId);
+    const { guardianPrincipalId, isNew } = ensureGuardianPrincipal(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+    );
     const hashedDeviceId = hashDeviceId(deviceId);
 
     // Mint credential pair (access token + refresh token)
     const credentials = mintCredentialPair({
-      assistantId,
       platform,
       deviceId,
       guardianPrincipalId,
@@ -142,7 +136,7 @@ export async function handleGuardianBootstrap(
     });
 
     log.info(
-      { assistantId, platform, guardianPrincipalId, isNew },
+      { platform, guardianPrincipalId, isNew },
       "Guardian bootstrap completed",
     );
 
@@ -173,7 +167,7 @@ export async function handleGuardianBootstrap(
 export function guardianBootstrapRouteDefinitions(): RouteDefinition[] {
   return [
     {
-      endpoint: "integrations/guardian/vellum/bootstrap",
+      endpoint: "guardian/init",
       method: "POST",
       handler: async ({ req, server }) => handleGuardianBootstrap(req, server),
     },

@@ -175,7 +175,7 @@ struct IdentityView: View {
         let rows = buildCardRows(identity)
 
         return VStack(spacing: 0) {
-            sectionHeader(icon: "person.text.rectangle", title: "ID Card")
+            sectionHeader(icon: .contact, title: "ID Card")
 
             VStack(spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
@@ -231,7 +231,7 @@ struct IdentityView: View {
 
     private var skillsSection: some View {
         VStack(spacing: 0) {
-            sectionHeader(icon: "star.fill", title: "Skills")
+            sectionHeader(icon: .star, title: "Skills")
 
             VStack(spacing: 0) {
                 ForEach(Array(viewModel.skills.enumerated()), id: \.element.id) { index, skill in
@@ -289,9 +289,8 @@ struct IdentityView: View {
                 Spacer()
 
                 if skill.degraded {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                    VIconView(.triangleAlert, size: 12)
                         .foregroundColor(.orange)
-                        .font(.caption)
                         .accessibilityLabel("Degraded")
                 }
             }
@@ -311,7 +310,7 @@ struct IdentityView: View {
 
     private var workspaceFilesSection: some View {
         VStack(spacing: 0) {
-            sectionHeader(icon: "doc.text.fill", title: "Workspace Files")
+            sectionHeader(icon: .fileText, title: "Workspace Files")
 
             VStack(spacing: 0) {
                 ForEach(Array(viewModel.workspaceFiles.enumerated()), id: \.element.id) { index, file in
@@ -335,7 +334,7 @@ struct IdentityView: View {
                 viewingFile = file
             } label: {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: file.name.hasSuffix("/") ? "folder.fill" : "doc.text")
+                    VIconView(file.name.hasSuffix("/") ? .folder : .fileText, size: 16)
                         .foregroundColor(VColor.accent)
                         .frame(width: 24)
                         .accessibilityHidden(true)
@@ -346,9 +345,8 @@ struct IdentityView: View {
 
                     Spacer()
 
-                    Image(systemName: "chevron.right")
+                    VIconView(.chevronRight, size: 12)
                         .foregroundColor(VColor.textMuted)
-                        .font(.caption)
                         .accessibilityHidden(true)
                 }
                 .padding(.horizontal, VSpacing.lg)
@@ -367,9 +365,9 @@ struct IdentityView: View {
 
     // MARK: - Shared Section Header
 
-    private func sectionHeader(icon: String, title: String) -> some View {
+    private func sectionHeader(icon: VIcon, title: String) -> some View {
         HStack {
-            Image(systemName: icon)
+            VIconView(icon, size: 16)
                 .foregroundColor(VColor.accent)
                 .accessibilityHidden(true)
             Text(title)
@@ -414,8 +412,7 @@ struct IdentityView: View {
 
     private var disconnectedState: some View {
         VStack(spacing: VSpacing.lg) {
-            Image(systemName: "desktopcomputer")
-                .font(.system(size: 48))
+            VIconView(.monitor, size: 48)
                 .foregroundColor(VColor.textMuted)
                 .accessibilityHidden(true)
 
@@ -453,8 +450,7 @@ struct IdentityView: View {
 
     private var noIdentityState: some View {
         VStack(spacing: VSpacing.lg) {
-            Image(systemName: "person.crop.circle.badge.questionmark")
-                .font(.system(size: 48))
+            VIconView(.circleUser, size: 48)
                 .foregroundColor(VColor.textMuted)
                 .accessibilityHidden(true)
 

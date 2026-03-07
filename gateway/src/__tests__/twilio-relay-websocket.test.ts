@@ -64,7 +64,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     twilioAuthToken: undefined,
     twilioAccountSid: undefined,
     twilioPhoneNumber: undefined,
-    smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     whatsappPhoneNumberId: undefined,
@@ -230,8 +229,8 @@ describe("createTwilioRelayWebsocketHandler", () => {
     expect(fakeServer.upgrade).not.toHaveBeenCalled();
   });
 
-  test("allows upgrade when no token configured but smsDeliverAuthBypass is true", () => {
-    const config = makeConfig({ smsDeliverAuthBypass: true });
+  test("allows upgrade when no token configured but telegramDeliverAuthBypass is true", () => {
+    const config = makeConfig({ telegramDeliverAuthBypass: true });
     const handler = createTwilioRelayWebsocketHandler(config);
     const req = new Request(
       "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",

@@ -1,9 +1,8 @@
 /**
  * Runtime migration for display_order and is_pinned columns on the
  * conversations table. Extracted into its own module to avoid circular
- * dependencies between conversation-store.ts (which re-exports from
- * conversation-queries.ts) and conversation-queries.ts (which needs
- * the migration to run before ORDER BY display_order).
+ * dependencies between conversation-crud.ts and conversation-queries.ts
+ * (which needs the migration to run before ORDER BY display_order).
  */
 
 import { getLogger } from "../util/logger.js";

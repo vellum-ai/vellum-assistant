@@ -17,8 +17,8 @@ const log = getLogger("notification-preference-summary");
  * Build a compact preference summary for inclusion in the decision engine
  * system prompt. Returns null if no preferences are stored.
  */
-export function getPreferenceSummary(assistantId: string): string | null {
-  const preferences = listPreferences(assistantId);
+export function getPreferenceSummary(): string | null {
+  const preferences = listPreferences();
 
   if (preferences.length === 0) {
     return null;

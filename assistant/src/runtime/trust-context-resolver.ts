@@ -15,7 +15,6 @@ import {
   type ResolveActorTrustInput,
   toTrustContext,
 } from "./actor-trust-resolver.js";
-export type { DenialReason } from "./actor-trust-resolver.js";
 
 /**
  * Resolve route-level trust context from canonical identity state.

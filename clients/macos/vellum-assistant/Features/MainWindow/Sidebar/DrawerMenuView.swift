@@ -3,6 +3,7 @@ import VellumAssistantShared
 
 struct DrawerMenuView: View {
     let onSettings: () -> Void
+    let onUsage: () -> Void
     let onDebug: () -> Void
     let onLogOut: () -> Void
     var body: some View {
@@ -14,17 +15,22 @@ struct DrawerMenuView: View {
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
 
-            DrawerMenuItem(icon: "gearshape", label: String(localized: "Settings"), description: String(localized: "Ask the assistant to help you with any settings you wish to change"), action: onSettings)
+            SidebarPrimaryRow(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
+
+            Text("Ask the assistant to help you with any settings you wish to change")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.bottom, VSpacing.xs)
 
             VColor.surfaceBorder.frame(height: 1)
                 .padding(.vertical, VSpacing.xs)
 
-            DrawerMenuItem(icon: "ladybug", label: "Debug", action: onDebug)
+            SidebarPrimaryRow(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onUsage)
 
-            VColor.surfaceBorder.frame(height: 1)
-                .padding(.vertical, VSpacing.xs)
+            SidebarPrimaryRow(icon: VIcon.bug.rawValue, label: "Debug", action: onDebug)
 
-            DrawerMenuItem(icon: "rectangle.portrait.and.arrow.right", label: String(localized: "Log Out"), action: onLogOut)
+            SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
         }
         .padding(.vertical, VSpacing.sm)
         .background(VColor.surfaceSubtle)

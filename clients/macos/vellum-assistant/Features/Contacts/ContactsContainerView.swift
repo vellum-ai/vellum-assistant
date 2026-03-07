@@ -7,12 +7,14 @@ import VellumAssistantShared
 @MainActor
 struct ContactsContainerView: View {
     var daemonClient: DaemonClient?
+    var store: SettingsStore?
 
     @StateObject private var viewModel: ContactsViewModel
     @State private var selectedContactId: String?
 
-    init(daemonClient: DaemonClient?) {
+    init(daemonClient: DaemonClient?, store: SettingsStore? = nil) {
         self.daemonClient = daemonClient
+        self.store = store
         _viewModel = StateObject(wrappedValue: ContactsViewModel(daemonClient: daemonClient))
     }
 
@@ -32,19 +34,35 @@ struct ContactsContainerView: View {
             Divider()
                 .background(VColor.surfaceBorder)
 
-            // Right pane: detail or placeholder
-            if let contactId = selectedContactId,
-               let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
+            // Right pane: detail, loading, or placeholder
+            if viewModel.isLoading && viewModel.contacts.isEmpty {
+                // Loading state — contacts are being fetched
+                VStack(spacing: VSpacing.md) {
+                    ProgressView()
+                        .controlSize(.regular)
+                    Text("Loading contacts...")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(VColor.background)
+            } else if let contactId = selectedContactId,
+                      let contact = viewModel.contacts.first(where: { $0.id == contactId }) {
                 ContactDetailView(
                     contact: contact,
-                    daemonClient: daemonClient
+                    daemonClient: daemonClient,
+                    store: store,
+                    onDelete: {
+                        selectedContactId = nil
+                        viewModel.loadContacts()
+                    }
                 )
                 .id(contactId)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
+                // True empty state — contacts loaded but none selected
                 VStack(spacing: VSpacing.md) {
-                    Image(systemName: "person.2.fill")
-                        .font(.system(size: 36))
+                    VIconView(.users, size: 36)
                         .foregroundColor(VColor.textMuted)
                     Text("Select a contact")
                         .font(VFont.headline)
@@ -57,6 +75,12 @@ struct ContactsContainerView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(VColor.background)
+            }
+        }
+        .onReceive(viewModel.$contacts) { newContacts in
+            if selectedContactId == nil,
+               let guardian = newContacts.first(where: { $0.role == "guardian" }) {
+                selectedContactId = guardian.id
             }
         }
         .sheet(isPresented: $viewModel.isCreatingContact) {

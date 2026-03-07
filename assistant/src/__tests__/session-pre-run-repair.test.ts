@@ -90,7 +90,7 @@ mock.module("../memory/admin.js", () => ({
 let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockConversation: Record<string, unknown> | null = null;
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -104,10 +104,13 @@ mock.module("../memory/conversation-store.js", () => ({
   getMessages: () => mockDbMessages,
   getConversation: () => mockConversation,
   createConversation: () => ({ id: "conv-1" }),
-  listConversations: () => [],
   addMessage: () => ({ id: "new-msg" }),
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  listConversations: () => [],
 }));
 
 // Mock memory retriever to be no-op

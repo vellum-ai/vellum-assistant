@@ -123,10 +123,47 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
       "Enforce NOT NULL on channel_guardian_bindings.guardian_principal_id after backfill",
   },
   {
-    key: "backfill_contact_interaction_stats",
+    key: "migration_contacts_notes_column_v1",
     version: 17,
     description:
+      "Consolidate relationship/importance/response_expectation/preferred_tone into a single notes TEXT column, then drop the legacy columns",
+  },
+  {
+    key: "backfill_contact_interaction_stats",
+    version: 18,
+    description:
       "Backfill contacts.last_interaction from the max lastSeenAt across each contact's channels",
+  },
+  {
+    key: "migration_drop_assistant_id_columns_v1",
+    version: 19,
+    dependsOn: ["migration_normalize_assistant_id_to_self_v1"],
+    description:
+      "Drop assistant_id columns from all 16 daemon tables after normalization to single-tenant identity",
+  },
+  {
+    key: "migration_backfill_usage_cache_accounting_v1",
+    version: 20,
+    description:
+      "Backfill historical Anthropic llm_usage_events rows from llm_request_logs with cache-aware pricing",
+  },
+  {
+    key: "migration_rename_verification_table_v1",
+    version: 21,
+    description:
+      "Rename channel_guardian_verification_challenges table to channel_verification_sessions and update indexes",
+  },
+  {
+    key: "migration_rename_verification_session_id_column_v1",
+    version: 22,
+    description:
+      "Rename guardian_verification_session_id column in call_sessions to verification_session_id",
+  },
+  {
+    key: "migration_rename_guardian_verification_values_v1",
+    version: 23,
+    description:
+      "Rename persisted guardian_verification call_mode and guardian_voice_verification_* event_type values to drop the guardian_ prefix",
   },
 ];
 

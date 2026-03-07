@@ -16,7 +16,7 @@ This document owns assistant-runtime architecture details. The repo-level archit
 
 - Guardian/non-guardian/unverified classification is centralized in `assistant/src/runtime/trust-context-resolver.ts`.
 - The same resolver is used by:
-  - `/channels/inbound` (Telegram/SMS/WhatsApp path) before run orchestration.
+  - `/channels/inbound` (Telegram/WhatsApp path) before run orchestration.
   - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
 - Runtime channel runs pass this as `trustContext`, and session runtime assembly injects `<inbound_actor_context>` (via `inboundActorContextFromTrustContext()`) into provider-facing prompts.
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
@@ -59,11 +59,11 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Identity lifecycle:**
 
-1. **Bootstrap (loopback-only, macOS/CLI)** — On first launch, the client calls `POST /v1/integrations/guardian/vellum/bootstrap` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`.
+1. **Bootstrap (loopback-only, macOS/CLI)** — On first launch, the client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. The endpoint is loopback-only and mints a JWT access token + refresh token pair. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`.
 
 2. **iOS pairing** — iOS devices obtain JWTs through the QR pairing flow. The pairing response includes `accessToken` and `refreshToken` credentials.
 
-3. **Refresh** — `POST /v1/integrations/guardian/vellum/refresh` accepts `{ refreshToken }` and returns a new access/refresh token pair. Single-use rotation with replay detection and family-based revocation.
+3. **Refresh** — `POST /v1/guardian/refresh` accepts `{ refreshToken }` and returns a new access/refresh token pair. Single-use rotation with replay detection and family-based revocation.
 
 4. **IPC identity** — Local IPC connections use `resolveLocalIpcGuardianContext()` for deterministic identity without tokens.
 
@@ -85,11 +85,11 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/auth/subject.ts`                     | Subject string parser (`parseSub`)                                                            |
 | `src/runtime/auth/middleware.ts`                  | JWT bearer auth middleware (`authenticateRequest`)                                            |
 | `src/runtime/auth/route-policy.ts`                | Route-level scope/principal enforcement                                                       |
-| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/integrations/guardian/vellum/bootstrap` (initial JWT issuance)                      |
-| `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/integrations/guardian/vellum/refresh` (token rotation)                              |
+| `src/runtime/routes/guardian-bootstrap-routes.ts` | `POST /v1/guardian/init` (initial JWT issuance)                                               |
+| `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/guardian/refresh` (token rotation)                                                  |
 | `src/runtime/routes/pairing-routes.ts`            | JWT credential issuance in pairing flow                                                       |
 | `src/runtime/local-actor-identity.ts`             | `resolveLocalIpcGuardianContext` — deterministic IPC identity                                 |
-| `src/memory/channel-guardian-store.ts`            | Guardian binding types and re-exports                                                         |
+| `src/memory/channel-verification-sessions.ts`     | Guardian binding types, verification session management                                       |
 
 ### Channel-Agnostic Scoped Approval Grants
 
@@ -113,7 +113,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 - `approve_always` is downgraded to `approve_once` for guardian-on-behalf requests (guardians cannot permanently allowlist tools for requesters).
 - Scoped grant minting only fires on explicit approve for requests with tool metadata.
 
-**Unified interaction model — buttons first, text fallback:** All guardian approval prompts follow a canonical "buttons first, text fallback" pattern. Structured button UIs are the primary interaction surface, but every prompt also carries deterministic text fallback instructions so guardians can always act even when buttons are unavailable or not used. This applies uniformly across all request kinds (`tool_approval`, `pending_question`, `access_request`) and all channels (macOS desktop, Telegram, SMS, WhatsApp).
+**Unified interaction model — buttons first, text fallback:** All guardian approval prompts follow a canonical "buttons first, text fallback" pattern. Structured button UIs are the primary interaction surface, but every prompt also carries deterministic text fallback instructions so guardians can always act even when buttons are unavailable or not used. This applies uniformly across all request kinds (`tool_approval`, `pending_question`, `access_request`) and all channels (macOS desktop, Telegram, WhatsApp).
 
 **Button-first path (deterministic):**
 
@@ -167,7 +167,7 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 
 ### Canonical Guardian Request System
 
-The canonical guardian request system provides a channel-agnostic, unified domain for all guardian approval and question flows. It replaces the fragmented per-channel storage with a single source of truth that works identically for voice calls, Telegram/SMS/WhatsApp, and desktop UI.
+The canonical guardian request system provides a channel-agnostic, unified domain for all guardian approval and question flows. It replaces the fragmented per-channel storage with a single source of truth that works identically for voice calls, Telegram/WhatsApp, and desktop UI.
 
 **Architecture layers:**
 
@@ -201,48 +201,50 @@ The canonical guardian request system provides a channel-agnostic, unified domai
 | `src/daemon/handlers/guardian-actions.ts`               | IPC handlers for desktop socket clients                                                                       |
 | `src/runtime/routes/canonical-guardian-expiry-sweep.ts` | Canonical request expiry sweep                                                                                |
 
-### Outbound Guardian Verification (HTTP Endpoints)
+### Outbound Channel Verification (HTTP Endpoints)
 
-Guardian verification can be initiated through gateway HTTP endpoints (which forward to runtime handlers) as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through guardian setup via normal conversation.
+Channel verification can be initiated through gateway HTTP endpoints (which forward to runtime handlers) as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through channel verification setup via normal conversation.
 
 **HTTP Endpoints:**
 
-| Endpoint                                    | Method | Description                                                                                         |
-| ------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- |
-| `/v1/integrations/guardian/outbound/start`  | POST   | Start a new outbound verification session. Body: `{ channel, destination?, assistantId?, rebind? }` |
-| `/v1/integrations/guardian/outbound/resend` | POST   | Resend the verification code for an active session. Body: `{ channel, assistantId? }`               |
-| `/v1/integrations/guardian/outbound/cancel` | POST   | Cancel an active outbound verification session. Body: `{ channel, assistantId? }`                   |
+| Endpoint                                   | Method | Description                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/channel-verification-sessions`        | POST   | Create a verification session. If `destination` is provided, starts outbound verification; if `purpose: "trusted_contact"` with `contactChannelId`, starts trusted contact verification; otherwise creates an inbound challenge. Body: `{ channel?, destination?, rebind?, purpose?, contactChannelId? }` |
+| `/v1/channel-verification-sessions/resend` | POST   | Resend the verification code for an active outbound session. Body: `{ channel }`                                                                                                                                                                                                                          |
+| `/v1/channel-verification-sessions`        | DELETE | Cancel all active sessions (inbound + outbound) for a channel. Body: `{ channel }`                                                                                                                                                                                                                        |
+| `/v1/channel-verification-sessions/revoke` | POST   | Cancel all active sessions and revoke the guardian binding. Body: `{ channel? }`                                                                                                                                                                                                                          |
+| `/v1/channel-verification-sessions/status` | GET    | Check guardian binding status. Query: `?channel=<channel>`                                                                                                                                                                                                                                                |
 
 All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`. Skills and user-facing tooling should target the gateway URL (default `http://localhost:7830`), not the runtime port.
 
 **Shared Business Logic:**
 
-The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `guardian-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across SMS, Telegram, and voice channels. It returns `OutboundActionResult` objects that the transport layer (gateway-forwarded HTTP or IPC) maps to its respective response format.
+The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `verification-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across Telegram and voice channels. It returns `OutboundActionResult` objects that the transport layer (gateway-forwarded HTTP or IPC) maps to its respective response format.
 
 **Chat-First Orchestration Flow:**
 
-1. The user asks the assistant (via desktop chat) to set up guardian verification for a channel.
-2. The conversational routing layer detects the guardian-setup intent and loads the `guardian-verify-setup` skill via `skill_load`.
+1. The user asks the assistant (via desktop chat) to set up channel verification.
+2. The conversational routing layer detects the verification-setup intent and loads the `guardian-verify-setup` skill via `skill_load`.
 3. The skill guides the assistant through collecting the channel and destination, then calls the outbound HTTP endpoints using `curl`.
 4. The assistant relays verification status (code sent, resend available, expiry) back to the user conversationally.
-5. On the channel side, the verification code arrives (SMS text, Telegram message, or voice call) and the recipient enters it to complete the binding.
+5. On the channel side, the verification code arrives (Telegram message or voice call) and the recipient enters it to complete the binding.
 
 **Key Source Files:**
 
-| File                                                       | Purpose                                                                            |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `src/runtime/guardian-outbound-actions.ts`                 | Shared business logic for start/resend/cancel outbound verification                |
-| `src/runtime/routes/integration-routes.ts`                 | HTTP route handlers for `/v1/integrations/guardian/outbound/*`                     |
-| `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                              |
-| `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat |
+| File                                                       | Purpose                                                                                                              |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/verification-outbound-actions.ts`             | Shared business logic for start/resend/cancel outbound verification                                                  |
+| `src/runtime/routes/integration-routes.ts`                 | HTTP route handlers for unified verification session API (`/v1/channel-verification-sessions`, `/revoke`, `/status`) |
+| `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                                                                |
+| `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate channel verification via chat                                    |
 
 **Guardian-Only Tool Invocation Gate:**
 
-Guardian verification control-plane endpoints (`/v1/integrations/guardian/*`) are protected by a deterministic gate in the tool executor (`src/tools/executor.ts`). Before any tool invocation proceeds, the executor checks whether the invocation targets a guardian control-plane endpoint and whether the actor role is allowed. The policy uses an allowlist: only `guardian` and `undefined` (desktop/trusted) actor roles can invoke these endpoints. Non-guardian and unverified-channel actors receive a denial message explaining the restriction.
+Channel verification control-plane endpoints (`/v1/channel-verification-sessions/*`) are protected by a deterministic gate in the tool executor (`src/tools/executor.ts`). Before any tool invocation proceeds, the executor checks whether the invocation targets a guardian control-plane endpoint and whether the actor role is allowed. The policy uses an allowlist: only `guardian` and `undefined` (desktop/trusted) actor roles can invoke these endpoints. Non-guardian and unverified-channel actors receive a denial message explaining the restriction.
 
-The policy is implemented in `src/tools/guardian-control-plane-policy.ts`, which inspects tool inputs (bash commands, URLs) for guardian endpoint paths. This is a defense-in-depth measure — even if the LLM attempts to call guardian endpoints on behalf of a non-guardian actor, the tool executor blocks it deterministically.
+The policy is implemented in `src/tools/verification-control-plane-policy.ts`, which inspects tool inputs (bash commands, URLs) for verification endpoint paths. This is a defense-in-depth measure — even if the LLM attempts to call verification endpoints on behalf of a non-guardian actor, the tool executor blocks it deterministically.
 
-The `guardian-verify-setup` skill is the exclusive handler for guardian verification intents in the system prompt. Other skills (e.g., `phone-calls`) hand off to `guardian-verify-setup` rather than orchestrating verification directly.
+The `guardian-verify-setup` skill is the exclusive handler for channel verification intents in the system prompt. Other skills (e.g., `phone-calls`) hand off to `guardian-verify-setup` rather than orchestrating verification directly.
 
 ### Guardian Action Timeout-to-Follow-Up Lifecycle
 
@@ -278,7 +280,7 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
 
 **Generated messaging requirement:** All user-facing copy in the guardian timeout/follow-up path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files (call-controller, inbound-message-handler, session-process) outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
 
-**Callback/message-back branch:** When the conversation engine classifies the guardian's intent as `call_back`, the executor starts an outbound call to the counterparty with context about the guardian's answer. When classified as `message_back`, the executor sends an SMS to the counterparty via the gateway's `/deliver/sms` endpoint. The counterparty phone number is resolved from the original call session by call direction (inbound: `fromNumber`; outbound: `toNumber`).
+**Callback branch:** When the conversation engine classifies the guardian's intent as `call_back`, the executor starts an outbound call to the counterparty with context about the guardian's answer. The counterparty phone number is resolved from the original call session by call direction (inbound: `fromNumber`; outbound: `toNumber`).
 
 **Key source files:**
 
@@ -286,61 +288,24 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/memory/guardian-action-store.ts`                   | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries        |
 | `src/runtime/guardian-action-message-composer.ts`       | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion                         |
-| `src/runtime/guardian-action-conversation-turn.ts`      | Follow-up decision engine: classifies guardian replies into `call_back`, `message_back`, `decline`, or `keep_pending` dispositions using LLM tool calling                                          |
-| `src/runtime/guardian-action-followup-executor.ts`      | Action dispatch: resolves counterparty from call session, executes `message_back` (SMS via gateway) or `call_back` (outbound call via `startCall`), finalizes follow-up state                      |
+| `src/runtime/guardian-action-conversation-turn.ts`      | Follow-up decision engine: classifies guardian replies into `call_back`, `decline`, or `keep_pending` dispositions using LLM tool calling                                                          |
+| `src/runtime/guardian-action-followup-executor.ts`      | Action dispatch: resolves counterparty from call session, executes `call_back` (outbound call via `startCall`), finalizes follow-up state                                                          |
 | `src/daemon/guardian-action-generators.ts`              | Daemon-injected generator factories: `createGuardianActionCopyGenerator` (latency-optimized text rewriting) and `createGuardianFollowUpConversationGenerator` (tool-calling intent classification) |
 | `src/calls/call-controller.ts`                          | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response                                                   |
-| `src/runtime/routes/inbound-message-handler.ts`         | Late reply interception for Telegram/SMS channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                               |
+| `src/runtime/routes/inbound-message-handler.ts`         | Late reply interception for Telegram channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                                   |
 | `src/daemon/session-process.ts`                         | Late reply interception for mac/IPC channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                                 |
 | `src/calls/guardian-action-sweep.ts`                    | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations                                                                                                           |
 | `src/memory/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`)                                                   |
 
-### SMS Channel (Twilio)
-
-The SMS channel provides text-only messaging via Twilio, sharing the same telephony provider as voice calls. It follows the same ingress/egress pattern as Telegram but uses Twilio's HMAC-SHA1 signature validation instead of a secret header.
-
-**Ingress** (`POST /webhooks/twilio/sms`):
-
-1. Twilio delivers an inbound SMS as a form-encoded POST to the gateway.
-2. The gateway validates the `X-Twilio-Signature` header using HMAC-SHA1 with the Twilio Auth Token against the canonical request URL (reconstructed from `INGRESS_PUBLIC_BASE_URL` when behind a tunnel).
-3. `MessageSid` deduplication prevents reprocessing retried webhooks.
-4. **MMS detection**: The gateway treats a message as MMS when any of: `NumMedia > 0`, any `MediaUrl<N>` key has a non-empty value, or any `MediaContentType<N>` key has a non-empty value. This catches media attachments even when Twilio omits `NumMedia`. The gateway replies with an unsupported notice and does not forward the payload. MMS payloads are explicitly rejected rather than silently dropped.
-5. **`/new` command**: When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resolves routing first. If routing is rejected, a rejection notice SMS is sent to the sender (matching Telegram `/new` rejection semantics — "This message could not be routed to an assistant"). If routing succeeds, the gateway calls `resetConversation(...)` on the runtime and sends a confirmation SMS. The message is never forwarded to the runtime.
-6. The payload is normalized into a `GatewayInboundEvent` with `sourceChannel: "sms"` and `conversationExternalId` set to the sender's phone number (E.164).
-7. **Routing** — Phone-number-based routing is checked first: the inbound `To` number is reverse-looked-up in `assistantPhoneNumbers` (a `Record<string, string>` mapping assistant IDs to E.164 numbers, propagated from the assistant config file). If a match is found, that assistant handles the message. Otherwise, the standard routing chain (conversation_id -> actor_id -> default/reject) is used. This allows multiple assistants to have dedicated phone numbers. The resolved route is passed as a `routingOverride` to `handleInbound()` so the already-resolved routing is used directly instead of re-running `resolveAssistant()` inside the handler.
-8. The event is forwarded to the runtime via `POST /channels/inbound`, including SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
-
-**Egress** (`POST /deliver/sms`):
-
-1. The runtime calls the gateway's `/deliver/sms` endpoint with `{ to, text }` or `{ chatId, text }`. The `chatId` field is an alias for `to`, allowing the runtime channel callback (which sends `{ chatId, text }`) to work without translation. When both `to` and `chatId` are provided, `to` takes precedence.
-2. The gateway authenticates the request via bearer token (same fail-closed model as `/deliver/telegram`).
-3. The gateway sends the SMS via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number.
-
-**Setup**: Twilio credentials (Account SID, Auth Token) and phone number are managed via HTTP control-plane endpoints (`/v1/integrations/twilio/*`) exposed by the runtime and proxied by the gateway (see `src/runtime/routes/twilio-routes.ts`). A single phone number is shared across voice and SMS for each assistant. Both `provision` and `assign` endpoints auto-persist the number to config and secure storage, and auto-configure Twilio webhooks (voice URL, status callback, SMS URL) via the Twilio IncomingPhoneNumber API when a public ingress URL is available. When `assistantId` is provided, the number is persisted into the per-assistant mapping at `sms.assistantPhoneNumbers[assistantId]`, and the legacy `sms.phoneNumber` field is only set if it was previously empty/unset (acting as a fallback for single-assistant installs). This prevents multi-assistant assignments from clobbering each other's global outbound number. Without `assistantId`, the legacy field is always updated. Webhook configuration is best-effort — if ingress is not yet set up, the number is still assigned and webhooks can be configured later. Non-fatal webhook failures are surfaced as a `warning` field in the response.
-
-**Phone Number Resolution**: At runtime, `getTwilioConfig()` resolves the phone number using this priority chain: (1) `TWILIO_PHONE_NUMBER` env var — highest priority, explicit override; (2) `sms.phoneNumber` in config — primary source of truth written by `provision_number`/`assign_number`; (3) `credential:twilio:phone_number` secure key — backward-compatible fallback. An error is thrown if no number is found after all sources are checked.
-
-**Credential Clearing Semantics**: `clear_credentials` removes only the authentication credentials (Account SID and Auth Token) from secure storage. The phone number is preserved in both the config file (`sms.phoneNumber`) and the secure key (`credential:twilio:phone_number`) so that re-entering credentials resumes working without needing to reassign the number.
-
-**Webhook Lifecycle**: Twilio webhook URLs are managed through a shared `syncTwilioWebhooks` helper in `config.ts` that computes voice, status-callback, and SMS URLs from the ingress config and pushes them to Twilio. Webhooks are synchronized at three points:
-
-1. **Number provisioning** (`provision_number`) — immediately after purchasing a number.
-2. **Number assignment** (`assign_number`) — when an existing number is assigned to the assistant.
-3. **Ingress URL change** (`ingress_config` set) — when the public ingress URL is updated or enabled, the daemon automatically re-synchronizes Twilio webhooks (fire-and-forget) if credentials and an assigned number are present. This ensures tunnel URL changes (e.g., ngrok restart) propagate without manual re-assignment.
-
-All three paths are best-effort: webhook sync failures do not prevent the primary operation from succeeding.
-
-**Limitations (v1)**: Text-only — MMS payloads are explicitly rejected with a user-facing notice rather than silently dropped.
-
 ### WhatsApp Channel (Meta Cloud API)
 
-The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsApp Business Cloud API. It follows the same ingress/egress pattern as SMS but uses Meta's HMAC-SHA256 signature validation (`X-Hub-Signature-256`) instead of Twilio's HMAC-SHA1.
+The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsApp Business Cloud API. It follows the standard ingress/egress pattern with Meta's HMAC-SHA256 signature validation (`X-Hub-Signature-256`).
 
 **Ingress** (`GET /webhooks/whatsapp` — verification, `POST /webhooks/whatsapp` — messages):
 
 1. **Webhook verification**: Meta sends a `GET` with `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge`. The gateway compares `hub.verify_token` against `WHATSAPP_WEBHOOK_VERIFY_TOKEN` and echoes `hub.challenge` as plain text.
 2. On `POST`, the gateway verifies the `X-Hub-Signature-256` header (HMAC-SHA256 of the raw request body using `WHATSAPP_APP_SECRET`) when the app secret is configured. Fail-closed: requests are rejected when the secret is set but the signature fails.
-3. **Normalization**: Only `type=text` messages from `messages` change fields are forwarded. Delivery receipts, read receipts, and non-text message types (image, audio, video, document, sticker) are silently acknowledged with `{ ok: true }`.
+3. **Normalization**: Text and media messages (image, audio, video, document, sticker) from `messages` change fields are forwarded. Delivery receipts, read receipts, and unsupported message types (contacts, location) are silently acknowledged with `{ ok: true }`. Media attachments are downloaded from the WhatsApp Cloud API, uploaded to the runtime attachment store, and their IDs are passed alongside the message content.
 4. **`/new` command**: When the message body is `/new` (case-insensitive), the gateway resolves routing, resets the conversation, and sends a confirmation message without forwarding to the runtime.
 5. The payload is normalized into a `GatewayInboundEvent` with `sourceChannel: "whatsapp"` and `conversationExternalId` set to the sender's WhatsApp phone number (E.164).
 6. WhatsApp message IDs are deduplicated via `StringDedupCache` (24-hour TTL).
@@ -363,11 +328,9 @@ The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsAp
 
 These can be set via environment variables or stored in the credential vault (keychain / encrypted store) under the `whatsapp` service prefix.
 
-**Limitations (v1)**: Text-only — non-text message types are acknowledged but not forwarded; rich approval UI (inline buttons) is not supported.
+**Limitations (v1)**: Rich approval UI (inline buttons) is not supported. Contacts and location message types are acknowledged but not forwarded.
 
-**Channel Readiness**: The channel readiness HTTP endpoints (`GET /v1/channels/readiness`, `POST /v1/channels/readiness/refresh`) backed by `ChannelReadinessService` in `src/runtime/channel-readiness-service.ts` provide a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress; remote checks query Twilio toll-free verification status for toll-free numbers) and Telegram (bot token, webhook secret, ingress). The GET endpoint returns cached snapshots; the refresh endpoint invalidates the cache first. Unknown channels return `unsupported_channel`. Route handlers live in `src/runtime/routes/channel-readiness-routes.ts`.
-
-**SMS Compliance & Admin**: The Twilio HTTP control-plane endpoints extend beyond credential and number management with compliance and admin routes: `GET /v1/integrations/twilio/sms/compliance` detects toll-free vs local number type and fetches verification status; `POST/PATCH/DELETE /v1/integrations/twilio/sms/compliance/tollfree` manage the Twilio toll-free verification lifecycle; `POST /v1/integrations/twilio/numbers/release` removes a phone number from the Twilio account and clears all local references. All compliance actions validate required fields and Twilio enum values before calling the API.
+**Channel Readiness**: The channel readiness HTTP endpoints (`GET /v1/channels/readiness`, `POST /v1/channels/readiness/refresh`) backed by `ChannelReadinessService` in `src/runtime/channel-readiness-service.ts` provide a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: Telegram (bot token, webhook secret, ingress). The GET endpoint returns cached snapshots; the refresh endpoint invalidates the cache first. Unknown channels return `unsupported_channel`. Route handlers live in `src/runtime/routes/channel-readiness-routes.ts`.
 
 ### Slack Channel (Socket Mode)
 
@@ -413,7 +376,7 @@ Both `GET` and `POST` endpoints report `connected: true` only when both `hasBotT
 
 ### Trusted Contact Access (Channel-Agnostic)
 
-External users who are not the guardian can gain access to the assistant through a guardian-mediated verification flow. The flow is channel-agnostic — it works identically on Telegram, SMS, voice, and any future channel.
+External users who are not the guardian can gain access to the assistant through a guardian-mediated verification flow. The flow is channel-agnostic — it works identically on Telegram, voice, and any future channel.
 
 **Full design doc:** [`docs/trusted-contact-access.md`](docs/trusted-contact-access.md)
 
@@ -422,12 +385,12 @@ External users who are not the guardian can gain access to the assistant through
 1. Unknown user messages the assistant on any channel.
 2. Ingress ACL (`inbound-message-handler.ts`) rejects the message and emits an `ingress.access_request` notification signal to the guardian.
 3. Guardian approves or denies via callback button or conversational intent (routed through `guardian-approval-interception.ts`).
-4. On approval, an identity-bound verification session with a 6-digit code is created (`access-request-decision.ts` → `channel-guardian-service.ts`).
+4. On approval, an identity-bound verification session with a 6-digit code is created (`access-request-decision.ts` → `channel-verification-service.ts`).
 5. Guardian gives the code to the requester out-of-band.
 6. Requester enters the code; identity binding is verified, the challenge is consumed, and an active contact channel is created in the contacts table.
 7. All subsequent messages are accepted through the ingress ACL.
 
-**Channel-agnostic design:** The entire flow operates on abstract `ChannelId` and `actorExternalId`/`conversationExternalId` fields (DB column names `externalUserId`/`externalChatId` are unchanged). Identity binding adapts per channel: Telegram uses chat IDs, SMS/voice use E.164 phone numbers, HTTP API uses caller-provided identity. No channel-specific branching exists in the trusted contact code paths.
+**Channel-agnostic design:** The entire flow operates on abstract `ChannelId` and `actorExternalId`/`conversationExternalId` fields (DB column names `externalUserId`/`externalChatId` are unchanged). Identity binding adapts per channel: Telegram uses chat IDs, voice uses E.164 phone numbers, HTTP API uses caller-provided identity. No channel-specific branching exists in the trusted contact code paths.
 
 **Lifecycle states:** `requested → pending_guardian → verification_pending → active | denied | expired`
 
@@ -441,13 +404,13 @@ External users who are not the guardian can gain access to the assistant through
 
 **HTTP API (for management):**
 
-| Endpoint                    | Method | Description                                                      |
-| --------------------------- | ------ | ---------------------------------------------------------------- |
-| `/v1/contacts`              | GET    | List contacts (filterable by role, search by query/channel/etc.) |
-| `/v1/contacts`              | POST   | Create or update a contact                                       |
-| `/v1/contacts/:id`          | GET    | Get a contact by ID                                              |
-| `/v1/contacts/merge`        | POST   | Merge two contacts                                               |
-| `/v1/contacts/channels/:id` | PATCH  | Update a contact channel's status/policy                         |
+| Endpoint                                 | Method | Description                                                      |
+| ---------------------------------------- | ------ | ---------------------------------------------------------------- |
+| `/v1/contacts`                           | GET    | List contacts (filterable by role, search by query/channel/etc.) |
+| `/v1/contacts`                           | POST   | Create or update a contact                                       |
+| `/v1/contacts/:id`                       | GET    | Get a contact by ID                                              |
+| `/v1/contacts/merge`                     | POST   | Merge two contacts                                               |
+| `/v1/contact-channels/:contactChannelId` | PATCH  | Update a contact channel's status/policy                         |
 
 **Key source files:**
 
@@ -456,12 +419,13 @@ External users who are not the guardian can gain access to the assistant through
 | `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, unknown-contact rejection, verification code interception        |
 | `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                             |
 | `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
-| `src/runtime/channel-guardian-service.ts`              | Verification challenge lifecycle, identity binding, rate limiting             |
+| `src/runtime/channel-verification-service.ts`          | Verification session lifecycle, identity binding, rate limiting               |
 | `src/runtime/routes/contact-routes.ts`                 | HTTP API handlers for contact and channel management                          |
 | `src/runtime/routes/invite-routes.ts`                  | HTTP API handlers for invite management                                       |
 | `src/runtime/invite-service.ts`                        | Business logic for invite operations                                          |
 | `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
-| `src/memory/channel-guardian-store.ts`                 | Approval request and verification challenge persistence                       |
+| `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                  |
+| `src/memory/channel-verification-sessions.ts`          | Verification challenge persistence                                            |
 | `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links        |
 
 ### Guardian-Initiated Invite Links
@@ -480,7 +444,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 │  Registry of per-channel adapters:                           │
 │    • buildShareableInvite(token) → { url, displayText }     │
 │    • extractInboundToken(payload) → token | undefined        │
-│  Registered: Telegram  │  Deferred: SMS, Slack, Voice       │
+│  Registered: Telegram  │  Deferred: Slack, Voice             │
 ├─────────────────────────────────────────────────────────────┤
 │  Core Redemption Engine (invite-redemption-service.ts)       │
 │  Channel-agnostic token validation, expiry, use-count,       │
@@ -497,7 +461,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 3. The skill calls the ingress HTTP API to create an invite token, then calls the Telegram transport adapter to build a deep link: `https://t.me/<bot>?start=iv_<token>`.
 4. Guardian shares the link with the invitee out-of-band.
 5. Invitee clicks the link, opening Telegram which sends `/start iv_<token>` to the bot.
-6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getTransport('telegram').extractInboundToken()` to parse the `iv_` token.
+6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getInviteAdapterRegistry().get('telegram').extractInboundToken()` to parse the `iv_` token.
 7. The token is redeemed via `invite-redemption-service.ts`, which validates, activates the contact, and returns a `redeemed` outcome.
 8. A deterministic welcome message is delivered to the invitee (bypasses the LLM pipeline).
 
@@ -511,7 +475,6 @@ A complementary access-granting flow where the guardian proactively creates a sh
 | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Telegram | Shipped  | Bot username resolved from credential metadata or `TELEGRAM_BOT_USERNAME` env                                                                                 |
 | Voice    | Shipped  | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Always-on canonical behavior with personalized friend/guardian name prompts. |
-| SMS      | Deferred | Needs a deep-link strategy compatible with SMS (short URL or web redemption page)                                                                             |
 | Slack    | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing                                                       |
 
 ### Voice Invite Flow (invite_redemption_pending)
@@ -596,13 +559,13 @@ When no invite exists and no pending guardian challenge is active, the relay ent
 1. The relay transitions to `awaiting_name` state and prompts the caller for their name with a timeout.
 2. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian via the notification pipeline.
 3. The relay transitions to `awaiting_guardian_decision` and plays hold music/messaging while polling the canonical request status.
-4. The guardian approves or denies via any channel (Telegram, SMS, desktop). All decisions route through `applyCanonicalGuardianDecision`, which dispatches to the `access_request` resolver in `guardian-request-resolvers.ts`.
+4. The guardian approves or denies via any channel (Telegram, desktop). All decisions route through `applyCanonicalGuardianDecision`, which dispatches to the `access_request` resolver in `guardian-request-resolvers.ts`.
 5. On approval: the resolver directly activates the caller as a trusted contact (sets channel `status: 'active'`, `policy: 'allow'`), the poll detects the approved status, the relay transitions to the normal call flow with the caller's guardian context updated.
 6. On denial or timeout: the caller hears a denial message and the call ends.
 
 **Path 3: Inbound guardian verification (pending challenge)**
 
-When a pending voice guardian challenge exists (`getPendingChallenge`), the caller enters the DTMF/speech verification flow to complete an outbound-initiated guardian binding. This path is for guardian identity verification, not trusted-contact access.
+When a pending voice guardian challenge exists (`getPendingSession`), the caller enters the DTMF/speech verification flow to complete an outbound-initiated guardian binding. This path is for guardian identity verification, not trusted-contact access.
 
 **Canonical decision routing:**
 
@@ -667,13 +630,12 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 2. Defaults registry `defaultEnabled` — from the unified registry (`meta/feature-flags/feature-flag-registry.json`, filtered to `scope: "assistant"`)
 3. `true` — unknown/undeclared flags with no persisted override default to enabled
 
-**Storage:** Flags are persisted in `~/.vellum/workspace/config.json`. New writes go to the `assistantFeatureFlagValues` section (managed by the gateway's `/v1/feature-flags` API — see [`gateway/ARCHITECTURE.md`](../gateway/ARCHITECTURE.md)). The legacy `featureFlags` section is still read for backward compatibility. The daemon's config watcher hot-reloads this file, so flag changes take effect on the next tool resolution or session.
+**Storage:** Flags are persisted in `~/.vellum/workspace/config.json` in the `assistantFeatureFlagValues` section (managed by the gateway's `/v1/feature-flags` API — see [`gateway/ARCHITECTURE.md`](../gateway/ARCHITECTURE.md)). The daemon's config watcher hot-reloads this file, so flag changes take effect on the next tool resolution or session.
 
 **Public API:**
 
 - `isAssistantFeatureFlagEnabled(key, config)` — full resolver with the canonical key
-- `isAssistantSkillEnabled(skillId, config)` — convenience wrapper that constructs `feature_flags.<skillId>.enabled` and delegates
-- `isSkillFeatureEnabled(skillId, config)` — deprecated legacy wrapper in `config/skill-state.ts`
+- `skillFlagKey(skillId)` — derives the canonical flag key for a skill, respecting overrides (in `config/skill-state.ts`)
 
 **Skill-gating guarantee:** For skills that are explicitly mapped to declared assistant flags, when the flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at five independent points:
 
@@ -685,24 +647,23 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
 
-All five enforcement points use `isAssistantSkillEnabled()` from `config/assistant-feature-flags.ts` for consistency.
+All five enforcement points use `isAssistantFeatureFlagEnabled(skillFlagKey(skillId), config)` for consistency.
 
 **Migration path:** The legacy `skills.<id>.enabled` key format is no longer supported. All code must use the canonical `feature_flags.<id>.enabled` format. Guard tests enforce canonical key usage and declaration coverage for literal key references in the unified registry.
 
 **Key source files:**
 
-| File                                            | Purpose                                                                                                                                  |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `isAssistantSkillEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader |
-| `src/config/skill-state.ts`                     | `isSkillFeatureEnabled()` (deprecated wrapper) — delegates to canonical resolver; `resolveSkillStates()` — enforcement point 1           |
-| `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                                            |
-| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                        |
-| `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                                              |
-| `src/config/schema.ts`                          | `featureFlags` and `assistantFeatureFlagValues` field definitions in `AssistantConfig` (Zod schema)                                      |
-| `src/config/types.ts`                           | Type definitions for `FeatureFlags` (legacy) and `AssistantFeatureFlagValues` (canonical)                                                |
-| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses                                                              |
-| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                       |
-| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                                      |
+| File                                            | Purpose                                                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader        |
+| `src/config/skill-state.ts`                     | `skillFlagKey()` — derives canonical flag key for skills; `resolveSkillStates()` — enforcement point 1             |
+| `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                      |
+| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                  |
+| `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                        |
+| `src/config/schema.ts`                          | `assistantFeatureFlagValues` field definition in `AssistantConfig` (Zod schema)                                    |
+| `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses                                        |
+| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
+| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                |
 
 ---
 
@@ -764,7 +725,7 @@ graph LR
     end
 
     subgraph "~/.vellum/workspace/ (Workspace Files)"
-        CONFIG["config files<br/>Hot-reloaded by daemon<br/>(includes featureFlags)"]
+        CONFIG["config files<br/>Hot-reloaded by daemon<br/>(includes assistantFeatureFlagValues)"]
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
         APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>prebuilt Home Base seeded here"]
@@ -824,12 +785,12 @@ graph TB
 
 ## IPC Contract — Source of Truth and Code Generation
 
-The TypeScript file `assistant/src/daemon/ipc-contract.ts` is the **single source of truth** for all IPC message types. Swift client models are auto-generated from it.
+The TypeScript file `assistant/src/daemon/ipc-protocol.ts` is the **single source of truth** for all IPC message types. Swift client models are auto-generated from it.
 
 ```mermaid
 graph LR
     subgraph "Source of Truth"
-        CONTRACT["ipc-contract.ts<br/>───────────────<br/>All message interfaces<br/>ClientMessage union<br/>ServerMessage union"]
+        CONTRACT["ipc-protocol.ts<br/>───────────────<br/>All message interfaces<br/>ClientMessage union<br/>ServerMessage union<br/>Serialization / parsing"]
     end
 
     subgraph "Generation Pipeline"
@@ -1408,19 +1369,19 @@ Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKIL
 
 ### Bundled Skill Retrieval Contract (CLI-First)
 
-Config/status retrieval instructions in bundled `SKILL.md` files are CLI-first. Retrieval should flow through canonical `vellum` CLI surfaces (`vellum config get` for generic settings, secure credential surfaces for secrets, and domain reads where available) instead of direct gateway curl snippets or keychain lookups.
+Config/status retrieval instructions in bundled `SKILL.md` files are CLI-first. Retrieval should flow through canonical `vellum` CLI surfaces (`assistant config get` for generic settings, secure credential surfaces for secrets, and domain reads where available) instead of direct gateway curl snippets or keychain lookups.
 
 ```mermaid
 graph LR
     SKILL["SKILL.md retrieval instruction"] --> BASH["bash tool"]
-    BASH --> CLI["vellum config get / secure credential surfaces / domain reads"]
+    BASH --> CLI["assistant config get / secure credential surfaces / domain reads"]
     CLI --> GW["Gateway read route (when needed)"]
     GW --> RT["Runtime handler/config service"]
 ```
 
 Rules enforced by guard tests:
 
-- Retrieval reads use `bash` + canonical CLI surfaces (`vellum config get` and domain read commands where available).
+- Retrieval reads use `bash` + canonical CLI surfaces (`assistant config get` and domain read commands where available).
 - Direct gateway `curl` + manual bearer headers are for control-plane writes/actions, not retrieval reads.
 - Bundled skill docs must not instruct direct keychain lookups (`security find-generic-password`, `secret-tool`) for retrieval.
 - `host_bash` is not used for Vellum CLI retrieval commands unless intentionally allowlisted.
@@ -1464,7 +1425,7 @@ graph TB
     end
 
     subgraph "Per-Turn Projection (session-skill-tools.ts)"
-        DERIVE["deriveActiveSkillIds(history)<br/>scan all messages for markers"]
+        DERIVE["deriveActiveSkills(history)<br/>scan all messages for markers"]
         UNION["Union: context-derived ∪ preactivated"]
         DIFF["Diff vs previous turn"]
         UNREGISTER["unregisterSkillTools(removedId)<br/>tear down stale tools"]
@@ -1536,7 +1497,7 @@ graph TB
 | `assistant/src/config/skills.ts`                    | Skill catalog loading: bundled, managed, workspace, extra directories                      |
 | `assistant/src/config/bundled-skills/`              | Bundled skill directories (browser, gmail, claude-code, computer-use, weather, etc.)       |
 | `assistant/src/skills/tool-manifest.ts`             | `TOOLS.json` parser and validator                                                          |
-| `assistant/src/skills/active-skill-tools.ts`        | `deriveActiveSkillIds()` — scans history for `<loaded_skill>` markers                      |
+| `assistant/src/skills/active-skill-tools.ts`        | `deriveActiveSkills()` — scans history for `<loaded_skill>` markers                        |
 | `assistant/src/skills/include-graph.ts`             | Include graph builder: `indexCatalogById()`, `validateIncludes()`, cycle/missing detection |
 | `assistant/src/daemon/session-skill-tools.ts`       | `projectSkillTools()` — per-turn projection, register/unregister lifecycle                 |
 | `assistant/src/tools/skills/skill-tool-factory.ts`  | `createSkillToolsFromManifest()` — manifest entries to Tool objects                        |
@@ -1549,7 +1510,7 @@ graph TB
 
 ## Permission and Trust Security Model
 
-The permission system controls which tool actions the agent can execute without explicit user approval. It supports three operating modes (`workspace`, `strict`, and `legacy`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
+The permission system controls which tool actions the agent can execute without explicit user approval. It supports two operating modes (`workspace` and `strict`), execution-target-scoped trust rules, and risk-based escalation to provide defense-in-depth against unintended or malicious tool execution.
 
 ### Permission Evaluation Flow
 
@@ -1577,35 +1538,31 @@ graph TB
     RISK_FALLBACK_WS -->|"Low"| AUTO_WS_LOW["decision: allow<br/>Low risk auto-allow"]
     RISK_FALLBACK_WS -->|"Medium"| PROMPT_WS_MED["decision: prompt"]
     RISK_FALLBACK_WS -->|"High"| PROMPT_WS_HIGH["decision: prompt"]
-    NO_MATCH -->|"legacy mode"| RISK_FALLBACK{"Risk level?"}
-    RISK_FALLBACK -->|"Low"| AUTO_LOW["decision: allow<br/>Low risk auto-allow"]
-    RISK_FALLBACK -->|"Medium"| PROMPT_MED["decision: prompt"]
-    RISK_FALLBACK -->|"High"| PROMPT_HIGH2["decision: prompt"]
 ```
 
-### Permission Modes: Workspace, Strict, and Legacy
+### Permission Modes: Workspace and Strict
 
-The `permissions.mode` config option (`workspace`, `strict`, or `legacy`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
+The `permissions.mode` config option (`workspace` or `strict`) controls the default behavior when no trust rule matches a tool invocation. The default is `workspace`.
 
-| Behavior                                           | Workspace mode (default)                      | Strict mode                                   | Legacy mode (deprecated)                      |
-| -------------------------------------------------- | --------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
-| Workspace-scoped ops with no matching rule         | Auto-allowed                                  | Prompted                                      | Auto-allowed (low risk)                       |
-| Non-workspace low-risk tools with no matching rule | Auto-allowed                                  | Prompted                                      | Auto-allowed                                  |
-| Medium-risk tools with no matching rule            | Prompted                                      | Prompted                                      | Prompted                                      |
-| High-risk tools with no matching rule              | Prompted                                      | Prompted                                      | Prompted                                      |
-| `skill_load` with no matching rule                 | Prompted                                      | Prompted                                      | Auto-allowed (low risk)                       |
-| `skill_load` with system default rule              | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
-| `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
-| Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      | Prompted                                      |
-| Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  | Auto-allowed                                  |
-| Allow rules with `allowHighRisk: true`             | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 |
-| Deny rules                                         | Blocked                                       | Blocked                                       | Blocked                                       |
+| Behavior                                           | Workspace mode (default)                      | Strict mode                                   |
+| -------------------------------------------------- | --------------------------------------------- | --------------------------------------------- |
+| Workspace-scoped ops with no matching rule         | Auto-allowed                                  | Prompted                                      |
+| Non-workspace low-risk tools with no matching rule | Auto-allowed                                  | Prompted                                      |
+| Medium-risk tools with no matching rule            | Prompted                                      | Prompted                                      |
+| High-risk tools with no matching rule              | Prompted                                      | Prompted                                      |
+| `skill_load` with no matching rule                 | Prompted                                      | Prompted                                      |
+| `skill_load` with system default rule              | Auto-allowed (`skill_load:*` at priority 100) | Auto-allowed (`skill_load:*` at priority 100) |
+| `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
+| Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      |
+| Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  |
+| Allow rules with `allowHighRisk: true`             | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 |
+| Deny rules                                         | Blocked                                       | Blocked                                       |
 
 **Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
 
 **Strict mode** is designed for security-conscious deployments where every tool action must have an explicit matching rule in the trust store. It eliminates implicit auto-allow for any risk level, ensuring the user has consciously approved each class of tool usage.
 
-**Legacy mode** (deprecated) auto-allows all low-risk tools regardless of scope. It is deprecated and will be removed in a future release. A one-time runtime warning is emitted when legacy mode is active. Users should migrate to `workspace` (default) or `strict`.
+> **Migration note:** Existing config files with `permissions.mode = "legacy"` are automatically migrated to `workspace` during config loading. The `legacy` value is not a supported steady-state mode.
 
 ### Trust Rules (v3 Schema)
 
@@ -1649,7 +1606,7 @@ The `skill_load` tool generates version-aware command candidates for rule matchi
 2. `skill_load:<skill-id>` — matches any-version rules
 3. `skill_load:<raw-selector>` — matches the raw user-provided selector
 
-In strict mode, `skill_load` without a matching rule is always prompted. In legacy mode, it is auto-allowed as a Low-risk tool. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
+In strict mode, `skill_load` without a matching rule is always prompted. The allowlist options presented to the user include both version-specific and any-version patterns. Note: the system default allow rule `skill_load:*` (priority 100) now globally allows all skill loads in both modes (see "System Default Allow Rules" below).
 
 ### Starter Approval Bundle
 
@@ -1684,7 +1641,7 @@ In addition to the opt-in starter bundle, the permission system seeds unconditio
 | `default:allow-browser_extract-global`         | `browser_extract`         | `browser_extract:*`         | (same)                                                                                                   |
 | `default:allow-browser_fill_credential-global` | `browser_fill_credential` | `browser_fill_credential:*` | (same)                                                                                                   |
 
-These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both strict and legacy modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
+These rules are emitted by `getDefaultRuleTemplates()` in `assistant/src/permissions/defaults.ts`. Because they use priority 100 (equal to user rules), they take effect in both workspace and strict modes. The `skill_load` rule means skill activation never prompts; the `browser_*` rules mean the browser skill's tools behave identically to the old core `headless-browser` tool from a permission standpoint.
 
 ### Shell Command Identity and Allowlist Options
 
@@ -1732,7 +1689,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 | `assistant/src/permissions/defaults.ts`       | Default rule templates (system ask rules for host tools, CU, etc.)                                                                                                                  |
 | `assistant/src/skills/version-hash.ts`        | `computeSkillVersionHash()` — deterministic SHA-256 of skill source files                                                                                                           |
 | `assistant/src/skills/path-classifier.ts`     | `isSkillSourcePath()`, `normalizeFilePath()`, skill root detection                                                                                                                  |
-| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict` / `legacy`)                                                                                                  |
+| `assistant/src/config/schema.ts`              | `PermissionsConfigSchema` — `permissions.mode` (`workspace` / `strict`)                                                                                                             |
 | `assistant/src/tools/executor.ts`             | `ToolExecutor` — orchestrates risk classification, permission check, and execution                                                                                                  |
 | `assistant/src/daemon/handlers/config.ts`     | `handleToolPermissionSimulate()` — dry-run simulation handler                                                                                                                       |
 
@@ -2126,7 +2083,7 @@ When the decision engine routes multiple guardian questions to the same conversa
 - **Multiple pending deliveries**: The guardian must prefix their reply with the 6-char hex request code (e.g. `A1B2C3 yes, allow it`). Case-insensitive matching.
 - **No match**: A disambiguation message is sent listing all active request codes.
 
-This invariant is enforced identically on mac/vellum (`session-process.ts`), Telegram, and SMS (`inbound-message-handler.ts`). All disambiguation messages are generated through the guardian action message composer (LLM with deterministic fallback).
+This invariant is enforced identically on mac/vellum (`session-process.ts`) and Telegram (`inbound-message-handler.ts`). All disambiguation messages are generated through the guardian action message composer (LLM with deterministic fallback).
 
 ### Reminder Routing Metadata
 
@@ -2138,9 +2095,8 @@ Notifications are delivered to three channel types:
 
 - **Vellum (always connected)**: Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata` (includes `conversationId` for thread navigation and `messageId` for message-level scroll anchoring).
 - **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
-- **SMS (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/sms` endpoint. Follows the same pattern as Telegram; the `SmsAdapter` sends text-only messages via the Twilio Messages API. The `assistantId` is threaded through the delivery payload for multi-assistant phone number resolution.
 
-Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram, SMS) are included only when an active guardian binding exists for the assistant.
+Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram) are included only when an active guardian binding exists for the assistant.
 
 **Key modules:**
 
@@ -2155,7 +2111,6 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/notifications/thread-candidates.ts`                         | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
 | `assistant/src/notifications/adapters/macos.ts`                            | Vellum adapter — broadcasts `notification_intent` via IPC with deep-link metadata                                                     |
 | `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter — POSTs to gateway `/deliver/telegram`                                                                               |
-| `assistant/src/notifications/adapters/sms.ts`                              | SMS adapter — POSTs to gateway `/deliver/sms` via Twilio Messages API                                                                 |
 | `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints (vellum IPC, Telegram chat ID from guardian binding)                                                   |
 | `assistant/src/notifications/copy-composer.ts`                             | Template-based fallback copy when LLM copy is unavailable                                                                             |
 | `assistant/src/notifications/preference-extractor.ts`                      | Detects preference statements in conversation messages                                                                                |
@@ -2204,7 +2159,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | Call sessions, events, pending questions     | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, cascade on session delete                       |
 | Active call controllers                      | In-memory (CallState)                                             | Map<callSessionId, CallController>  | Manual lifecycle                   | Ephemeral; cleared on call end or destroy                  |
 | Guardian bindings                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                       |
-| Guardian verification challenges             | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired challenges retained            |
+| Channel verification sessions                | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired sessions retained              |
 | Guardian approval requests                   | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                       |
 | Contact invites                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted    |
 | Contacts & channels                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked contacts retained               |
@@ -2251,7 +2206,7 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 **Explicit trust gates:** `trustClass` is a **required** field in `ToolContext` (in `src/tools/types.ts`). Every tool execution must carry a trust classification — the field is not optional. This ensures trust-gated tool policies (guardian control-plane restrictions, host-tool blocking for untrusted actors) cannot be bypassed by omitting the classification.
 
-**Guardian bindings** (in `src/memory/channel-guardian-store.ts`) always carry `guardianPrincipalId: string` as a required, non-null field. A binding without a principal ID is invalid and cannot be created.
+**Guardian bindings** (in `src/memory/channel-verification-sessions.ts`) always carry `guardianPrincipalId: string` as a required, non-null field. A binding without a principal ID is invalid and cannot be created.
 
 **Strict retry sweep parsing:** The channel retry sweep (`src/runtime/channel-retry-sweep.ts`) uses `parseTrustRuntimeContext()` which validates `trustClass` against the canonical three-value set. There is no fallback to a legacy `actorRole` field — stored payloads that lack a valid `trustClass` are rejected deterministically to prevent silent privilege escalation. When `trustCtx` is entirely absent from a stored payload (pre-guardian events), the sweep synthesizes an explicit `trustClass: 'unknown'` context so that replay never proceeds without a trust classification.
 
@@ -2259,10 +2214,10 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 **Key files:**
 
-| File                                         | Purpose                                               |
-| -------------------------------------------- | ----------------------------------------------------- |
-| `src/daemon/session-runtime-assembly.ts`     | `TrustContext` type definition                        |
-| `src/tools/types.ts`                         | `ToolContext.trustClass` (required trust gate)        |
-| `src/runtime/channel-retry-sweep.ts`         | Strict `trustClass` parser for retry sweep            |
-| `src/memory/channel-guardian-store.ts`       | `GuardianBinding` with required `guardianPrincipalId` |
-| `src/__tests__/trust-context-guards.test.ts` | Guard tests enforcing trust-context type invariants   |
+| File                                          | Purpose                                               |
+| --------------------------------------------- | ----------------------------------------------------- |
+| `src/daemon/session-runtime-assembly.ts`      | `TrustContext` type definition                        |
+| `src/tools/types.ts`                          | `ToolContext.trustClass` (required trust gate)        |
+| `src/runtime/channel-retry-sweep.ts`          | Strict `trustClass` parser for retry sweep            |
+| `src/memory/channel-verification-sessions.ts` | `GuardianBinding` with required `guardianPrincipalId` |
+| `src/__tests__/trust-context-guards.test.ts`  | Guard tests enforcing trust-context type invariants   |

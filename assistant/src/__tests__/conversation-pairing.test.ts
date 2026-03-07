@@ -3,8 +3,8 @@
  *
  * Validates that pairDeliveryWithConversation materializes conversations
  * and messages according to the channel's conversation strategy, handles
- * thread reuse decisions, and that errors in pairing never break the
- * notification pipeline.
+ * thread reuse decisions, binding-key reuse for continue_existing channels,
+ * and that errors in pairing never break the notification pipeline.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -51,7 +51,7 @@ const getConversationMock = mock((id: string) => {
   return mockExistingConversations[id] ?? null;
 });
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -70,9 +70,36 @@ mock.module("../memory/conversation-store.js", () => ({
   getConversation: getConversationMock,
 }));
 
+/** Simulated bindings for external-conversation-store mock. */
+let mockBindings: Record<
+  string,
+  { conversationId: string; sourceChannel: string; externalChatId: string }
+> = {};
+
+const getBindingByChannelChatMock = mock(
+  (sourceChannel: string, externalChatId: string) => {
+    const key = `${sourceChannel}:${externalChatId}`;
+    return mockBindings[key] ?? null;
+  },
+);
+
+const upsertOutboundBindingMock = mock(
+  (_input: {
+    conversationId: string;
+    sourceChannel: string;
+    externalChatId: string;
+  }) => {},
+);
+
+mock.module("../memory/external-conversation-store.js", () => ({
+  getBindingByChannelChat: getBindingByChannelChatMock,
+  upsertOutboundBinding: upsertOutboundBindingMock,
+}));
+
 import { pairDeliveryWithConversation } from "../notifications/conversation-pairing.js";
 import type { NotificationSignal } from "../notifications/signal.js";
 import type {
+  DestinationBindingContext,
   NotificationChannel,
   RenderedChannelCopy,
   ThreadAction,
@@ -85,7 +112,6 @@ function makeSignal(
 ): NotificationSignal {
   return {
     signalId: "sig-test",
-    assistantId: "self",
     createdAt: Date.now(),
     sourceChannel: "scheduler",
     sourceSessionId: "sess-1",
@@ -116,11 +142,14 @@ describe("pairDeliveryWithConversation", () => {
     createConversationMock.mockClear();
     addMessageMock.mockClear();
     getConversationMock.mockClear();
+    getBindingByChannelChatMock.mockClear();
+    upsertOutboundBindingMock.mockClear();
     mockConversationId = "conv-001";
     mockMessageId = "msg-001";
     createConversationShouldThrow = false;
     addMessageShouldThrow = false;
     mockExistingConversations = {};
+    mockBindings = {};
   });
 
   // ── start_new_conversation (vellum) ─────────────────────────────────
@@ -264,7 +293,7 @@ describe("pairDeliveryWithConversation", () => {
 
   // ── continue_existing_conversation (telegram) ─────────────────────
 
-  test("creates a conversation for continue_existing_conversation strategy", async () => {
+  test("creates a conversation for continue_existing_conversation without binding context", async () => {
     const signal = makeSignal();
     const copy = makeCopy();
 
@@ -274,8 +303,6 @@ describe("pairDeliveryWithConversation", () => {
       copy,
     );
 
-    // Currently creates a new conversation even for continue_existing_conversation
-    // (true continuation is planned for a future PR)
     expect(result.conversationId).toBe("conv-001");
     expect(result.messageId).toBe("msg-001");
     expect(result.strategy).toBe("continue_existing_conversation");
@@ -286,6 +313,343 @@ describe("pairDeliveryWithConversation", () => {
       unknown
     >;
     expect(callArgs.threadType).toBe("background");
+  });
+
+  // ── Binding-key reuse (continue_existing + bindingContext) ────────
+
+  test("reuses bound conversation when binding context matches an existing notification conversation", async () => {
+    mockExistingConversations["conv-bound"] = {
+      id: "conv-bound",
+      source: "notification",
+      title: "Telegram Thread",
+    };
+    mockBindings["notification:telegram:chat-123"] = {
+      conversationId: "conv-bound",
+      sourceChannel: "notification:telegram",
+      externalChatId: "chat-123",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy({
+      threadSeedMessage: "Second notification to same chat",
+    });
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "telegram" as NotificationChannel,
+      externalChatId: "chat-123",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "telegram" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-bound");
+    expect(result.messageId).toBe("msg-001");
+    expect(result.createdNewConversation).toBe(false);
+    expect(result.threadDecisionFallbackUsed).toBe(false);
+    expect(result.strategy).toBe("continue_existing_conversation");
+    // Should append to existing, not create new
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
+    expect(addMessageMock.mock.calls[0]![0]).toBe("conv-bound");
+    // Should touch the outbound binding
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("reuses pre-namespace binding when namespaced binding is absent", async () => {
+    // Simulate a binding created before the notification: prefix was introduced
+    mockExistingConversations["conv-legacy"] = {
+      id: "conv-legacy",
+      source: "notification",
+      title: "Legacy Telegram Thread",
+    };
+    mockBindings["telegram:chat-legacy"] = {
+      conversationId: "conv-legacy",
+      sourceChannel: "telegram",
+      externalChatId: "chat-legacy",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy({
+      threadSeedMessage: "Delivery to legacy binding",
+    });
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "telegram" as NotificationChannel,
+      externalChatId: "chat-legacy",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "telegram" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-legacy");
+    expect(result.createdNewConversation).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+    // The upsert should write with the new namespaced sourceChannel
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+    const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(upsertArgs.sourceChannel).toBe("notification:telegram");
+  });
+
+  test("falls back to new conversation when bound conversation is stale (wrong source)", async () => {
+    mockExistingConversations["conv-user-owned"] = {
+      id: "conv-user-owned",
+      source: "user",
+      title: "User Thread",
+    };
+    mockBindings["notification:slack:C0123ABCDEF"] = {
+      conversationId: "conv-user-owned",
+      sourceChannel: "notification:slack",
+      externalChatId: "C0123ABCDEF",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "slack" as NotificationChannel,
+      externalChatId: "C0123ABCDEF",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "slack" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.createdNewConversation).toBe(true);
+    expect(result.threadDecisionFallbackUsed).toBe(false);
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+    // Should upsert the binding for the new conversation
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+    const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(upsertArgs.conversationId).toBe("conv-001");
+    expect(upsertArgs.sourceChannel).toBe("notification:slack");
+  });
+
+  test("falls back to new conversation when bound conversation no longer exists", async () => {
+    // Binding exists but conversation was deleted
+    mockBindings["notification:telegram:chat-456"] = {
+      conversationId: "conv-deleted",
+      sourceChannel: "notification:telegram",
+      externalChatId: "chat-456",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "telegram" as NotificationChannel,
+      externalChatId: "chat-456",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "telegram" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.createdNewConversation).toBe(true);
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+    // Should upsert the new conversation binding
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("creates new conversation and upserts binding when no prior binding exists", async () => {
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "slack" as NotificationChannel,
+      externalChatId: "C0123ABCDEF",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "slack" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.createdNewConversation).toBe(true);
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+    // Should upsert so future deliveries reuse this conversation
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+    const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(upsertArgs.conversationId).toBe("conv-001");
+    expect(upsertArgs.sourceChannel).toBe("notification:slack");
+    expect(upsertArgs.externalChatId).toBe("C0123ABCDEF");
+  });
+
+  test("reuse_existing rebinds destination when binding context is present", async () => {
+    mockExistingConversations["conv-explicit"] = {
+      id: "conv-explicit",
+      source: "notification",
+      title: "Explicit Thread",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy({
+      threadSeedMessage: "Follow-up to explicit reuse target",
+    });
+    const threadAction: ThreadAction = {
+      action: "reuse_existing",
+      conversationId: "conv-explicit",
+    };
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "telegram" as NotificationChannel,
+      externalChatId: "chat-rebind",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "telegram" as NotificationChannel,
+      copy,
+      { threadAction, bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-explicit");
+    expect(result.createdNewConversation).toBe(false);
+    // Should rebind the destination to the reused conversation
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+    const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(upsertArgs.conversationId).toBe("conv-explicit");
+    expect(upsertArgs.sourceChannel).toBe("notification:telegram");
+    expect(upsertArgs.externalChatId).toBe("chat-rebind");
+  });
+
+  test("reuse_existing fallback rebinds destination when binding context is present", async () => {
+    // Target does not exist — falls back to new conversation
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const threadAction: ThreadAction = {
+      action: "reuse_existing",
+      conversationId: "conv-gone",
+    };
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "slack" as NotificationChannel,
+      externalChatId: "C9876ZYXWVU",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "slack" as NotificationChannel,
+      copy,
+      { threadAction, bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.createdNewConversation).toBe(true);
+    expect(result.threadDecisionFallbackUsed).toBe(true);
+    // Should bind the new conversation to the destination
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+    const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(upsertArgs.conversationId).toBe("conv-001");
+    expect(upsertArgs.sourceChannel).toBe("notification:slack");
+    expect(upsertArgs.externalChatId).toBe("C9876ZYXWVU");
+  });
+
+  test("explicit reuse_existing takes precedence over binding-key reuse", async () => {
+    // Both a binding and a reuse_existing target exist — reuse_existing wins
+    mockExistingConversations["conv-explicit"] = {
+      id: "conv-explicit",
+      source: "notification",
+      title: "Explicit Thread",
+    };
+    mockExistingConversations["conv-bound"] = {
+      id: "conv-bound",
+      source: "notification",
+      title: "Bound Thread",
+    };
+    mockBindings["notification:telegram:chat-789"] = {
+      conversationId: "conv-bound",
+      sourceChannel: "notification:telegram",
+      externalChatId: "chat-789",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy({
+      threadSeedMessage: "Message for explicit reuse target",
+    });
+    const threadAction: ThreadAction = {
+      action: "reuse_existing",
+      conversationId: "conv-explicit",
+    };
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "telegram" as NotificationChannel,
+      externalChatId: "chat-789",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "telegram" as NotificationChannel,
+      copy,
+      { threadAction, bindingContext },
+    );
+
+    // Should use the explicit target, not the binding
+    expect(result.conversationId).toBe("conv-explicit");
+    expect(result.createdNewConversation).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+    // Binding lookup should not even be attempted since reuse_existing matched first
+    expect(getBindingByChannelChatMock).not.toHaveBeenCalled();
+  });
+
+  test("binding context does not trigger reuse for start_new_conversation channels", async () => {
+    // vellum uses start_new_conversation — binding context should be ignored for reuse
+    mockExistingConversations["conv-bound-vellum"] = {
+      id: "conv-bound-vellum",
+      source: "notification",
+      title: "Vellum Thread",
+    };
+    mockBindings["notification:vellum:device-1"] = {
+      conversationId: "conv-bound-vellum",
+      sourceChannel: "notification:vellum",
+      externalChatId: "device-1",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "vellum" as NotificationChannel,
+      externalChatId: "device-1",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    // Should still create a new conversation — vellum is start_new_conversation
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.createdNewConversation).toBe(true);
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+    // Binding lookup should not be called for non-continue_existing channels
+    expect(getBindingByChannelChatMock).not.toHaveBeenCalled();
   });
 
   // ── not_deliverable (voice) ───────────────────────────────────────

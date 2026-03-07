@@ -63,7 +63,7 @@ final class RecordingSourcePickerWindow: NSObject, NSWindowDelegate {
         newWindow.titleVisibility = .hidden
         newWindow.titlebarAppearsTransparent = true
         newWindow.isMovableByWindowBackground = true
-        newWindow.backgroundColor = NSColor(VColor.background)
+        newWindow.backgroundColor = NSColor(VColor.surface)
         newWindow.isReleasedWhenClosed = false
         newWindow.level = .floating
         newWindow.center()

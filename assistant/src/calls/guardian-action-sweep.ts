@@ -5,16 +5,17 @@
  * timestamp:
  * 1. Expires the request and all its deliveries in the store
  * 2. Expires the associated pending question so the call-side timeout fires
- * 3. Sends expiry notices to external delivery destinations (telegram, sms)
+ * 3. Sends expiry notices to external delivery destinations (telegram)
  * 4. Adds an expiry message to mac guardian thread conversations
  */
 
-import { addMessage } from "../memory/conversation-store.js";
+import { addMessage } from "../memory/conversation-crud.js";
 import {
   expireGuardianActionRequest,
   getDeliveriesByRequestId,
   getExpiredGuardianActionRequests,
 } from "../memory/guardian-action-store.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import { composeGuardianActionMessageGenerative } from "../runtime/guardian-action-message-composer.js";
 import type { GuardianActionCopyGenerator } from "../runtime/http-types.js";
@@ -31,7 +32,7 @@ let sweepInProgress = false;
 /**
  * Send expiry notices to all delivery destinations for a guardian action
  * request. Handles both vellum/mac thread messages and external channel
- * replies (telegram, sms).
+ * replies (telegram, slack).
  *
  * Deliveries must be captured *before* their status is changed to 'expired'
  * so the sent/pending filter still matches.
@@ -132,7 +133,7 @@ export async function sweepExpiredGuardianActions(
 
     await sendGuardianExpiryNotices(
       deliveries,
-      request.assistantId,
+      DAEMON_INTERNAL_ASSISTANT_ID,
       gatewayBaseUrl,
       mintBearerToken,
       guardianActionCopyGenerator,

@@ -32,7 +32,7 @@ struct IntegrationsSection: View {
                                 ProgressView()
                                     .controlSize(.small)
                             } else if integration.connected {
-                                Image(systemName: "checkmark.circle.fill")
+                                VIconView(.circleCheck, size: 16)
                                     .foregroundColor(VColor.success)
                                 Button("Disconnect") {
                                     disconnectIntegration(integration.id)

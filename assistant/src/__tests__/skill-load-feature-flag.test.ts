@@ -12,9 +12,7 @@ const TEST_DIR = join(
   `vellum-skill-load-flag-test-${crypto.randomUUID()}`,
 );
 
-let currentConfig: Record<string, unknown> = {
-  featureFlags: {},
-};
+let currentConfig: Record<string, unknown> = {};
 
 const DECLARED_SKILL_ID = "hatch-new-assistant";
 const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
@@ -46,23 +44,41 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
   removeSocketFile: () => {},
 };
-mock.module("../util/platform.js", () => platformOverrides);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
+mock.module("../util/platform.js", () => ({
+  ...realPlatform,
+  ...platformOverrides,
+}));
 
+const noopLogger = new Proxy({} as Record<string, unknown>, {
+  get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
+});
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  ...realLogger,
+  getLogger: () => noopLogger,
+  getCliLogger: () => noopLogger,
   isDebug: () => false,
+  truncateForLog: (value: string) => value,
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
 }));
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => currentConfig,
+  loadConfig: () => currentConfig,
+  loadRawConfig: () => ({}),
+  saveConfig: () => {},
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  syncConfigToLockfile: () => {},
 }));
 
 await import("../tools/skills/load.js");
@@ -100,7 +116,7 @@ async function executeSkillLoad(
 describe("skill_load feature flag enforcement", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-    currentConfig = { featureFlags: {} };
+    currentConfig = {};
   });
 
   afterEach(() => {

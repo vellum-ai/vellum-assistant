@@ -2,15 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
   _resetEnrichmentService,
@@ -27,7 +19,9 @@ describe("CommitEnrichmentService", () => {
   let testDir: string;
   let gitService: WorkspaceGitService;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
+    _resetGitServiceRegistry();
+    _resetEnrichmentService();
     testDir = join(
       tmpdir(),
       `vellum-enrichment-test-${Date.now()}-${Math.random()
@@ -39,11 +33,6 @@ describe("CommitEnrichmentService", () => {
     await gitService.ensureInitialized();
   });
 
-  beforeEach(() => {
-    _resetGitServiceRegistry();
-    _resetEnrichmentService();
-  });
-
   afterEach(async () => {
     try {
       await getEnrichmentService().shutdown();
@@ -52,22 +41,6 @@ describe("CommitEnrichmentService", () => {
     }
     _resetEnrichmentService();
 
-    // Remove stale index.lock left by async enrichment jobs that ran git
-    // commands concurrently. Without this, the next test's createCommit()
-    // can fail with "Unable to create index.lock: File exists".
-    const lockFile = join(testDir, ".git", "index.lock");
-    if (existsSync(lockFile)) {
-      rmSync(lockFile, { force: true });
-    }
-  });
-
-  afterAll(async () => {
-    try {
-      await getEnrichmentService().shutdown();
-    } catch {
-      /* ignore */
-    }
-    _resetEnrichmentService();
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });
     }
@@ -86,13 +59,6 @@ describe("CommitEnrichmentService", () => {
   }
 
   async function createCommit(): Promise<string> {
-    // Remove stale index.lock left by async enrichment jobs that ran git
-    // commands concurrently in a previous test. Without this, git add -A
-    // can fail with "Unable to create index.lock: File exists".
-    const lockFile = join(testDir, ".git", "index.lock");
-    if (existsSync(lockFile)) {
-      rmSync(lockFile, { force: true });
-    }
     writeFileSync(join(testDir, `file-${Date.now()}.txt`), "content");
     await gitService.commitChanges("test commit");
     return await gitService.getHeadHash();

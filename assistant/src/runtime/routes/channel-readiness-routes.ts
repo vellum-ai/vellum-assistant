@@ -7,6 +7,10 @@
 
 import type { ChannelId } from "../../channels/types.js";
 import { getReadinessService } from "../../daemon/handlers/config-channels.js";
+import {
+  getInviteAdapterRegistry,
+  resolveAdapterHandle,
+} from "../channel-invite-transport.js";
 import type { RouteDefinition } from "../http-router.js";
 
 /**
@@ -17,22 +21,36 @@ import type { RouteDefinition } from "../http-router.js";
 export async function handleGetChannelReadiness(url: URL): Promise<Response> {
   const channel =
     (url.searchParams.get("channel") as ChannelId | null) ?? undefined;
-  const includeRemote = url.searchParams.get("includeRemote") === "true";
+  // Default to including remote checks — they're cached for 5 minutes and
+  // required for accurate readiness (e.g. email inbox existence).
+  const includeRemote = url.searchParams.get("includeRemote") !== "false";
 
   const service = getReadinessService();
   const snapshots = await service.getReadiness(channel, includeRemote);
+  const adapterRegistry = getInviteAdapterRegistry();
+
+  const enriched = await Promise.all(
+    snapshots.map(async (s) => {
+      const adapter = adapterRegistry.get(s.channel);
+      const channelHandle = adapter
+        ? await resolveAdapterHandle(adapter)
+        : undefined;
+      return {
+        channel: s.channel,
+        ready: s.ready,
+        checkedAt: s.checkedAt,
+        stale: s.stale,
+        reasons: s.reasons,
+        localChecks: s.localChecks,
+        remoteChecks: s.remoteChecks,
+        channelHandle,
+      };
+    }),
+  );
 
   return Response.json({
     success: true,
-    snapshots: snapshots.map((s) => ({
-      channel: s.channel,
-      ready: s.ready,
-      checkedAt: s.checkedAt,
-      stale: s.stale,
-      reasons: s.reasons,
-      localChecks: s.localChecks,
-      remoteChecks: s.remoteChecks,
-    })),
+    snapshots: enriched,
   });
 }
 
@@ -60,20 +78,32 @@ export async function handleRefreshChannelReadiness(
 
   const snapshots = await service.getReadiness(
     body.channel,
-    body.includeRemote,
+    body.includeRemote ?? true,
+  );
+  const adapterRegistry = getInviteAdapterRegistry();
+
+  const enriched = await Promise.all(
+    snapshots.map(async (s) => {
+      const adapter = adapterRegistry.get(s.channel);
+      const channelHandle = adapter
+        ? await resolveAdapterHandle(adapter)
+        : undefined;
+      return {
+        channel: s.channel,
+        ready: s.ready,
+        checkedAt: s.checkedAt,
+        stale: s.stale,
+        reasons: s.reasons,
+        localChecks: s.localChecks,
+        remoteChecks: s.remoteChecks,
+        channelHandle,
+      };
+    }),
   );
 
   return Response.json({
     success: true,
-    snapshots: snapshots.map((s) => ({
-      channel: s.channel,
-      ready: s.ready,
-      checkedAt: s.checkedAt,
-      stale: s.stale,
-      reasons: s.reasons,
-      localChecks: s.localChecks,
-      remoteChecks: s.remoteChecks,
-    })),
+    snapshots: enriched,
   });
 }
 

@@ -1,5 +1,11 @@
 // Memory recall and status types.
 
+export interface MemoryRecalledDegradation {
+  semanticUnavailable: boolean;
+  reason: string;
+  fallbackSources: string[];
+}
+
 export interface MemoryRecalledCandidateDebug {
   key: string;
   type: string;
@@ -14,6 +20,7 @@ export interface MemoryRecalled {
   type: "memory_recalled";
   provider: string;
   model: string;
+  degradation?: MemoryRecalledDegradation;
   lexicalHits: number;
   semanticHits: number;
   recencyHits: number;
@@ -35,6 +42,7 @@ export interface MemoryStatus {
   type: "memory_status";
   enabled: boolean;
   degraded: boolean;
+  degradation?: MemoryRecalledDegradation;
   reason?: string;
   provider?: string;
   model?: string;

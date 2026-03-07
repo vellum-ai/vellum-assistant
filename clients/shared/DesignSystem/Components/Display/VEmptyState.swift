@@ -14,9 +14,7 @@ public struct VEmptyState: View {
     public var body: some View {
         VStack(spacing: VSpacing.lg) {
             if let icon = icon {
-                Image(systemName: icon)
-                    .font(.system(size: 48))
-                    .frame(width: 48, height: 48)
+                VIconView(.resolve(icon), size: 48)
                     .foregroundColor(VColor.textMuted)
             }
             Text(title)
@@ -41,7 +39,7 @@ public struct VEmptyState: View {
             VEmptyState(
                 title: "No items yet",
                 subtitle: "Create your first item to get started",
-                icon: "tray"
+                icon: VIcon.inbox.rawValue
             )
             Divider()
             VEmptyState(title: "No results")

@@ -22,7 +22,7 @@ struct PTTKeyIndicator: View {
 
     var body: some View {
         if let keyName = displayName {
-            VShortcutTag(keyName, icon: "mic.fill") {
+            VShortcutTag(keyName, icon: VIcon.mic.rawValue) {
                 onTap()
             }
         }

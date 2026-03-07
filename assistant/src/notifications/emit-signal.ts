@@ -13,11 +13,9 @@ import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import { type BroadcastFn, VellumAdapter } from "./adapters/macos.js";
 import { SlackAdapter } from "./adapters/slack.js";
-import { SmsAdapter } from "./adapters/sms.js";
 import { TelegramAdapter } from "./adapters/telegram.js";
 import {
   NotificationBroadcaster,
@@ -35,6 +33,7 @@ import type {
   AttentionHints,
   NotificationContextPayload,
   NotificationSignal,
+  NotificationSourceChannel,
   RoutingIntent,
 } from "./signal.js";
 import type {
@@ -62,11 +61,7 @@ export function registerBroadcastFn(fn: BroadcastFn): void {
 
 function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
-    const adapters = [
-      new TelegramAdapter(),
-      new SmsAdapter(),
-      new SlackAdapter(),
-    ];
+    const adapters = [new TelegramAdapter(), new SlackAdapter()];
     if (registeredBroadcastFn) {
       adapters.unshift(new VellumAdapter(registeredBroadcastFn));
     }
@@ -100,7 +95,7 @@ function getBroadcaster(): NotificationBroadcaster {
 
 // ── Connected channels resolution ──────────────────────────────────────
 
-function getConnectedChannels(assistantId: string): NotificationChannel[] {
+function getConnectedChannels(): NotificationChannel[] {
   const channels: NotificationChannel[] = [];
 
   // getDeliverableChannels() returns ChannelId[] but every returned channel
@@ -113,14 +108,13 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         // available when the daemon is running).
         channels.push(channel);
         break;
-      case "telegram":
-      case "sms": {
+      case "telegram": {
         // A binding-based channel is connected when the guardian has an
         // active channel entry with a valid delivery endpoint. The
         // externalChatId check ensures we don't report a channel as
         // connected when the contacts record exists but lacks the
         // delivery address the destination-resolver needs.
-        const guardian = findGuardianForChannel(channel, assistantId);
+        const guardian = findGuardianForChannel(channel);
         if (guardian && guardian.channel.externalChatId) {
           channels.push(channel);
         }
@@ -130,7 +124,7 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
         // Slack bindings can originate from shared channels (app_mention).
         // Only consider Slack connected when the stored chat ID is a DM
         // channel (D-prefixed) to prevent leaking notifications.
-        const slackGuardian = findGuardianForChannel("slack", assistantId);
+        const slackGuardian = findGuardianForChannel("slack");
         const chatId = slackGuardian?.channel.externalChatId;
         if (slackGuardian && chatId && chatId.startsWith("D")) {
           channels.push(channel);
@@ -152,12 +146,10 @@ function getConnectedChannels(assistantId: string): NotificationChannel[] {
 export interface EmitSignalParams<TEventName extends string = string> {
   /** Free-form event name, e.g. 'reminder.fired', 'schedule.complete'. */
   sourceEventName: TEventName;
-  /** Source channel that produced the event. */
-  sourceChannel: string;
+  /** Source channel that produced the event — must be a registered channel. */
+  sourceChannel: NotificationSourceChannel;
   /** Session or conversation ID from the source context. */
   sourceSessionId: string;
-  /** Logical assistant ID (defaults to 'self'). */
-  assistantId?: string;
   /** Attention hints for the decision engine. */
   attentionHints: AttentionHints;
   /** Arbitrary context payload passed to the decision engine. */
@@ -205,11 +197,9 @@ export async function emitNotificationSignal<TEventName extends string>(
   params: EmitSignalParams<TEventName>,
 ): Promise<EmitSignalResult> {
   const signalId = uuid();
-  const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
   const signal: NotificationSignal<TEventName> = {
     signalId,
-    assistantId,
     createdAt: Date.now(),
     sourceChannel: params.sourceChannel,
     sourceSessionId: params.sourceSessionId,
@@ -226,7 +216,6 @@ export async function emitNotificationSignal<TEventName extends string>(
     // Step 1: Persist the event
     const eventRow = createEvent({
       id: signalId,
-      assistantId,
       sourceEventName: params.sourceEventName,
       sourceChannel: params.sourceChannel,
       sourceSessionId: params.sourceSessionId,
@@ -250,12 +239,11 @@ export async function emitNotificationSignal<TEventName extends string>(
     }
 
     // Step 2: Evaluate the signal through the decision engine
-    const connectedChannels = getConnectedChannels(assistantId);
+    const connectedChannels = getConnectedChannels();
 
     log.debug(
       {
         channels: connectedChannels,
-        assistantId,
       },
       "connected channels resolved",
     );

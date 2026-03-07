@@ -10,7 +10,10 @@ import type {
   OAuth2FlowResult,
   TokenEndpointAuthMethod,
 } from "../security/oauth2.js";
-import { deleteSecureKey, setSecureKey } from "../security/secure-keys.js";
+import {
+  deleteSecureKeyAsync,
+  setSecureKeyAsync,
+} from "../security/secure-keys.js";
 import {
   deleteCredentialMetadata,
   upsertCredentialMetadata,
@@ -67,7 +70,7 @@ export async function storeOAuth2Tokens(
     wellKnownInjectionTemplates,
   } = params;
 
-  const tokenStored = setSecureKey(
+  const tokenStored = await setSecureKeyAsync(
     `credential:${service}:access_token`,
     tokens.accessToken,
   );
@@ -95,7 +98,7 @@ export async function storeOAuth2Tokens(
   }
 
   // Persist client credentials in keychain for defense in depth
-  const clientIdStored = setSecureKey(
+  const clientIdStored = await setSecureKeyAsync(
     `credential:${service}:client_id`,
     clientId,
   );
@@ -103,7 +106,7 @@ export async function storeOAuth2Tokens(
     throw new Error("Failed to store client_id in secure storage");
   }
   if (clientSecret) {
-    const clientSecretStored = setSecureKey(
+    const clientSecretStored = await setSecureKeyAsync(
       `credential:${service}:client_secret`,
       clientSecret,
     );
@@ -129,7 +132,7 @@ export async function storeOAuth2Tokens(
   });
 
   if (tokens.refreshToken) {
-    const refreshStored = setSecureKey(
+    const refreshStored = await setSecureKeyAsync(
       `credential:${service}:refresh_token`,
       tokens.refreshToken,
     );
@@ -140,7 +143,7 @@ export async function storeOAuth2Tokens(
     // Re-auth grants that omit refresh_token must clear any stale stored
     // token — otherwise withValidToken() will attempt refresh with invalid
     // credentials.
-    deleteSecureKey(`credential:${service}:refresh_token`);
+    await deleteSecureKeyAsync(`credential:${service}:refresh_token`);
     deleteCredentialMetadata(service, "refresh_token");
   }
 

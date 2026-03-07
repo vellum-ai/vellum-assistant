@@ -34,7 +34,7 @@ export const GATEWAY_SUBPATH_MAP: Record<string, string> = {
 
 /**
  * Direct Twilio webhook subpaths that are blocked in gateway_only mode.
- * Includes all public-facing webhook paths (voice, status, connect-action, SMS)
+ * Includes all public-facing webhook paths (voice, status, connect-action, sms)
  * because the runtime must never serve as a direct ingress for external webhooks.
  * Internal forwarding endpoints (gateway->runtime) are unaffected.
  */
@@ -71,10 +71,10 @@ export async function validateTwilioWebhook(
 
   const authToken = TwilioConversationRelayProvider.getAuthToken();
 
-  // Fail-closed: reject if no auth token is configured
   if (!authToken) {
     log.error(
-      "Twilio auth token not configured — rejecting webhook request (fail-closed)",
+      "Twilio auth token not found in config — cannot verify webhook HMAC signature. " +
+        "Rejecting request. Set twilio.authToken via config.",
     );
     return httpError("FORBIDDEN", "Forbidden", 403);
   }

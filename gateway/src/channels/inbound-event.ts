@@ -10,7 +10,7 @@ import type { ChannelId } from "./types.js";
 
 export type InboundChannelId = Extract<
   ChannelId,
-  "telegram" | "sms" | "whatsapp" | "slack"
+  "telegram" | "whatsapp" | "slack"
 >;
 
 interface InboundEventBase<C extends InboundChannelId> {
@@ -25,7 +25,7 @@ interface InboundEventBase<C extends InboundChannelId> {
     callbackQueryId?: string;
     callbackData?: string;
     attachments?: Array<{
-      type: "photo" | "document";
+      type: "photo" | "document" | "image" | "video" | "audio" | "sticker";
       fileId: string;
       fileName?: string;
       mimeType?: string;
@@ -50,12 +50,10 @@ interface InboundEventBase<C extends InboundChannelId> {
 }
 
 export type TelegramInboundEvent = InboundEventBase<"telegram">;
-export type SmsInboundEvent = InboundEventBase<"sms">;
 export type WhatsAppInboundEvent = InboundEventBase<"whatsapp">;
 export type SlackInboundEvent = InboundEventBase<"slack">;
 
 export type GatewayInboundEvent =
   | TelegramInboundEvent
-  | SmsInboundEvent
   | WhatsAppInboundEvent
   | SlackInboundEvent;

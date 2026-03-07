@@ -29,7 +29,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => "test-bearer-token",
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -190,7 +189,6 @@ describe("non-member access request notification", () => {
   test("guardian is notified when a non-member messages and a guardian binding exists", async () => {
     // Set up a guardian binding for this channel
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -236,7 +234,6 @@ describe("non-member access request notification", () => {
 
   test("no duplicate approval requests for repeated messages from same non-member", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -304,13 +301,12 @@ describe("non-member access request notification", () => {
     expect(pending[0].guardianPrincipalId).toBeDefined();
   });
 
-  test("cross-channel fallback: SMS guardian binding resolves for Telegram access request", async () => {
-    // Only an SMS guardian binding exists — no Telegram binding
+  test("cross-channel fallback: voice guardian binding resolves for Telegram access request", async () => {
+    // Only a voice guardian binding exists — no Telegram binding
     createGuardianBinding({
-      assistantId: "self",
-      channel: "sms",
-      guardianExternalUserId: "guardian-sms-user",
-      guardianDeliveryChatId: "guardian-sms-chat",
+      channel: "voice",
+      guardianExternalUserId: "guardian-voice-user",
+      guardianDeliveryChatId: "guardian-voice-chat",
       guardianPrincipalId: "test-principal-id",
       verifiedVia: "test",
     });
@@ -328,9 +324,9 @@ describe("non-member access request notification", () => {
       string,
       unknown
     >;
-    expect(payload.guardianBindingChannel).toBe("sms");
+    expect(payload.guardianBindingChannel).toBe("voice");
 
-    // Canonical request has the SMS guardian's external user ID
+    // Canonical request has the voice guardian's external user ID
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "user-unknown-456",
@@ -338,12 +334,11 @@ describe("non-member access request notification", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    expect(pending[0].guardianExternalUserId).toBe("guardian-sms-user");
+    expect(pending[0].guardianExternalUserId).toBe("guardian-voice-user");
   });
 
   test("no notification when actorExternalId is absent", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-789",
       guardianDeliveryChatId: "guardian-chat-789",
@@ -418,12 +413,11 @@ describe("access-request-helper unit tests", () => {
   });
 
   test("notifyGuardianOfAccessRequest uses cross-channel binding when source-channel binding is missing", () => {
-    // Only SMS binding exists
+    // Only voice binding exists
     createGuardianBinding({
-      assistantId: "self",
-      channel: "sms",
-      guardianExternalUserId: "guardian-sms",
-      guardianDeliveryChatId: "sms-chat",
+      channel: "voice",
+      guardianExternalUserId: "guardian-voice",
+      guardianDeliveryChatId: "voice-chat",
       guardianPrincipalId: "test-principal-id",
       verifiedVia: "test",
     });
@@ -443,20 +437,19 @@ describe("access-request-helper unit tests", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    expect(pending[0].guardianExternalUserId).toBe("guardian-sms");
+    expect(pending[0].guardianExternalUserId).toBe("guardian-voice");
 
     // Signal payload includes fallback channel
     const payload = emitSignalCalls[0].contextPayload as Record<
       string,
       unknown
     >;
-    expect(payload.guardianBindingChannel).toBe("sms");
+    expect(payload.guardianBindingChannel).toBe("voice");
   });
 
   test("notifyGuardianOfAccessRequest prefers source-channel binding over cross-channel fallback", () => {
-    // Both Telegram and SMS bindings exist
+    // Both Telegram and voice bindings exist
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-tg",
       guardianDeliveryChatId: "tg-chat",
@@ -464,11 +457,10 @@ describe("access-request-helper unit tests", () => {
       verifiedVia: "test",
     });
     createGuardianBinding({
-      assistantId: "self",
-      channel: "sms",
-      guardianExternalUserId: "guardian-sms",
-      guardianDeliveryChatId: "sms-chat",
-      guardianPrincipalId: "test-principal-sms",
+      channel: "voice",
+      guardianExternalUserId: "guardian-voice",
+      guardianDeliveryChatId: "voice-chat",
+      guardianPrincipalId: "test-principal-voice",
       verifiedVia: "test",
     });
 
@@ -487,7 +479,7 @@ describe("access-request-helper unit tests", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    // Should use the Telegram binding, not SMS fallback
+    // Should use the Telegram binding, not voice fallback
     expect(pending[0].guardianExternalUserId).toBe("guardian-tg");
 
     const payload = emitSignalCalls[0].contextPayload as Record<

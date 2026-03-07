@@ -21,6 +21,15 @@ struct IdentityPanel: View {
 
     private let panelPadding: CGFloat = VSpacing.xl
 
+    private var assistantDisplayName: String {
+        AssistantDisplayName.resolve(
+            remoteIdentity?.name.nilIfEmpty,
+            identity?.name,
+            lockfileAssistant?.assistantId,
+            fallback: "Unknown"
+        )
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             // Left sidebar: title, avatar, ID card — hidden in fullscreen
@@ -28,7 +37,7 @@ struct IdentityPanel: View {
                 VStack(spacing: 0) {
                     VStack(spacing: 0) {
                         // "I'm [name]!" heading
-                        Text("I'm \(remoteIdentity?.name.nilIfEmpty ?? identity?.name ?? lockfileAssistant?.assistantId ?? "Unknown")!")
+                        Text("I'm \(assistantDisplayName)!")
                             .font(.system(size: 22, weight: .regular, design: .rounded))
                             .foregroundColor(VColor.textPrimary)
                             .multilineTextAlignment(.center)
@@ -182,7 +191,11 @@ struct IdentityPanel: View {
             }
 
             // Given name: remote > local > assistantId
-            let name = remoteIdentity?.name.nilIfEmpty ?? identity?.name ?? lockfileAssistant?.assistantId
+            let name = AssistantDisplayName.firstUserFacing(from: [
+                remoteIdentity?.name.nilIfEmpty,
+                identity?.name,
+                lockfileAssistant?.assistantId,
+            ])
             if let name {
                 idRow(label: "Given name", value: name)
             }
@@ -278,16 +291,14 @@ private struct WorkspaceFileSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack {
-                Image(systemName: "doc.text.fill")
-                    .font(.system(size: 13))
+                VIconView(.fileText, size: 13)
                     .foregroundColor(Amber._400)
                 Text(fileName)
                     .font(VFont.cardTitle)
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
                 Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
+                    VIconView(.x, size: 12)
                         .foregroundColor(VColor.textMuted)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())

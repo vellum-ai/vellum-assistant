@@ -155,8 +155,7 @@ public struct FormSurfaceView: View {
     private var credentialInfoChip: some View {
         Button(action: { showingSecurityInfo.toggle() }) {
             HStack(spacing: VSpacing.xs) {
-                Image(systemName: "lock.shield.fill")
-                    .font(VFont.caption)
+                VIconView(.shield, size: 12)
                 Text("Secured input")
                     .font(VFont.caption)
             }

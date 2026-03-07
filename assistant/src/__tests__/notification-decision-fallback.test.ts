@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../channels/config.js", () => ({
-  getDeliverableChannels: () => ["vellum", "telegram", "sms"],
+  getDeliverableChannels: () => ["vellum", "telegram", "slack"],
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -63,7 +63,6 @@ function makeSignal(
 ): NotificationSignal {
   return {
     signalId: "sig-fallback-guardian-1",
-    assistantId: "self",
     createdAt: Date.now(),
     sourceChannel: "voice",
     sourceSessionId: "call-session-1",
@@ -307,7 +306,6 @@ describe("access-request instruction enforcement", () => {
   ): NotificationSignal {
     return {
       signalId: "sig-access-req-1",
-      assistantId: "self",
       createdAt: Date.now(),
       sourceChannel: "telegram",
       sourceSessionId: "tg-session-1",

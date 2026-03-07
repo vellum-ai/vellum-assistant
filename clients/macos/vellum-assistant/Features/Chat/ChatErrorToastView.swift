@@ -15,8 +15,7 @@ struct ChatErrorBanner: View {
 
     var body: some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(VFont.caption)
+            VIconView(.triangleAlert, size: 14)
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(text)
@@ -61,8 +60,7 @@ struct ChatErrorBanner: View {
             Button {
                 onDismissError()
             } label: {
-                Image(systemName: "xmark")
-                    .font(VFont.caption)
+                VIconView(.x, size: 14)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Dismiss error")
@@ -85,8 +83,7 @@ struct ChatSessionErrorToast: View {
 
     var body: some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: iconName(for: error.category))
-                .font(.system(size: 14, weight: .semibold))
+            VIconView(iconForCategory(error.category), size: 14)
                 .foregroundColor(accentColor(for: error.category))
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
@@ -121,8 +118,7 @@ struct ChatSessionErrorToast: View {
 
             if error.debugDetails != nil {
                 Button(action: onCopyDebugInfo) {
-                    Image(systemName: "doc.on.clipboard")
-                        .font(.system(size: 11, weight: .medium))
+                    VIconView(.clipboard, size: 11)
                         .foregroundColor(VColor.textSecondary)
                 }
                 .buttonStyle(.plain)
@@ -132,8 +128,7 @@ struct ChatSessionErrorToast: View {
             Button {
                 onDismiss()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .medium))
+                VIconView(.x, size: 10)
                     .foregroundColor(VColor.textMuted)
             }
             .buttonStyle(.plain)
@@ -153,29 +148,29 @@ struct ChatSessionErrorToast: View {
 
     // MARK: - Category Helpers
 
-    /// SF Symbol icon appropriate for each error category.
-    private func iconName(for category: SessionErrorCategory) -> String {
+    /// VIcon appropriate for each error category.
+    private func iconForCategory(_ category: SessionErrorCategory) -> VIcon {
         switch category {
         case .providerNetwork:
-            return "wifi.exclamationmark"
+            return .wifiOff
         case .rateLimit:
-            return "clock.badge.exclamationmark"
+            return .clockAlert
         case .providerApi:
-            return "exclamationmark.icloud.fill"
+            return .cloudOff
         case .providerBilling:
-            return "creditcard.trianglebadge.exclamationmark"
+            return .creditCard
         case .contextTooLarge:
-            return "text.badge.xmark"
+            return .fileText
         case .queueFull:
-            return "tray.full.fill"
+            return .inbox
         case .sessionAborted:
-            return "stop.circle.fill"
+            return .circleStop
         case .processingFailed, .regenerateFailed:
-            return "arrow.triangle.2.circlepath"
+            return .refreshCw
         case .authenticationRequired:
-            return "lock.fill"
+            return .lock
         case .unknown:
-            return "exclamationmark.triangle.fill"
+            return .triangleAlert
         }
     }
 

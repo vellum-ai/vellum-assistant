@@ -32,7 +32,10 @@ const testDir = mkdtempSync(join(tmpdir(), "relay-server-test-"));
 
 // ── Platform + logger mocks (must come before any source imports) ────
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getDataDir: () => testDir,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -42,10 +45,12 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => null,
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -61,9 +66,22 @@ mock.module("../daemon/identity-helpers.js", () => ({
 
 // ── User-reference mock (isolate from real USER.md) ──────────────────
 
+let mockUserReference = "my human";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realUserReference = require("../config/user-reference.js");
 mock.module("../config/user-reference.js", () => ({
-  resolveUserReference: () => "my human",
+  ...realUserReference,
+  resolveUserReference: () => mockUserReference,
   resolveUserPronouns: () => null,
+  resolveGuardianName: (guardianDisplayName?: string | null) => {
+    if (mockUserReference !== "my human") {
+      return mockUserReference;
+    }
+    if (guardianDisplayName && guardianDisplayName.trim().length > 0) {
+      return guardianDisplayName.trim();
+    }
+    return "my human";
+  },
 }));
 
 // ── Config mock ─────────────────────────────────────────────────────
@@ -174,24 +192,24 @@ import {
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import {
   createGuardianBinding,
-  upsertMember,
+  upsertContactChannel,
 } from "../contacts/contacts-write.js";
 import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import {
-  createChallenge,
+  createInboundSession,
   createVerificationSession,
-} from "../memory/channel-guardian-store.js";
-import { addMessage, getMessages } from "../memory/conversation-store.js";
+} from "../memory/channel-verification-sessions.js";
+import { addMessage, getMessages } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import { createInvite } from "../memory/invite-store.js";
 import { conversations } from "../memory/schema.js";
 import {
   createOutboundSession,
   getGuardianBinding,
-} from "../runtime/channel-guardian-service.js";
+} from "../runtime/channel-verification-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 
 initializeDb();
@@ -262,7 +280,7 @@ function resetTables() {
     "messages",
     "conversations",
     "assistant_ingress_invites",
-    "channel_guardian_verification_challenges",
+    "channel_verification_sessions",
     "channel_guardian_rate_limits",
     "canonical_guardian_requests",
     "canonical_guardian_deliveries",
@@ -272,12 +290,8 @@ function resetTables() {
   ensuredConvIds = new Set();
 }
 
-function addTrustedVoiceContact(
-  phoneNumber: string,
-  assistantId: string = "self",
-): void {
-  upsertMember({
-    assistantId,
+function addTrustedVoiceContact(phoneNumber: string): void {
+  upsertContactChannel({
     sourceChannel: "voice",
     externalUserId: phoneNumber,
     externalChatId: phoneNumber,
@@ -287,12 +301,10 @@ function addTrustedVoiceContact(
 }
 
 function createVoiceVerificationSession(
-  assistantId: string,
   expectedPhoneE164: string,
   sessionId?: string,
 ): string {
   const { secret } = createOutboundSession({
-    assistantId,
     channel: "voice",
     expectedExternalUserId: expectedPhoneE164,
     expectedChatId: expectedPhoneE164,
@@ -303,12 +315,10 @@ function createVoiceVerificationSession(
 }
 
 function createPendingVoiceGuardianChallenge(
-  assistantId: string,
   secret: string = "123456",
 ): string {
-  createChallenge({
+  createInboundSession({
     id: randomUUID(),
-    assistantId,
     channel: "voice",
     challengeHash: createHash("sha256").update(secret).digest("hex"),
     expiresAt: Date.now() + 10 * 60 * 1000,
@@ -345,6 +355,7 @@ describe("relay-server", () => {
   beforeEach(() => {
     resetTables();
     activeRelayConnections.clear();
+    mockUserReference = "my human";
     mockSendMessage.mockImplementation(createMockProviderResponse(["Hello"]));
     mockConfig.calls.verification.enabled = false;
     mockConfig.calls.verification.maxAttempts = 3;
@@ -1322,12 +1333,11 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
       // no task — inbound call
     });
 
     // Create a pending voice guardian challenge
-    const secret = createPendingVoiceGuardianChallenge("self");
+    const secret = createPendingVoiceGuardianChallenge();
 
     mockSendMessage.mockImplementation(
       createMockProviderResponse(["Hello, how can I help you?"]),
@@ -1345,7 +1355,7 @@ describe("relay-server", () => {
     );
 
     // Should be in verification-pending state
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
 
     // Verify TTS prompt was sent asking for code
@@ -1364,7 +1374,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verification should have succeeded
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding should have been created
@@ -1382,13 +1392,11 @@ describe("relay-server", () => {
     // Verify events recorded
     const guardianEvents = getCallEvents(session.id);
     expect(
-      guardianEvents.some(
-        (e) => e.eventType === "guardian_voice_verification_started",
-      ),
+      guardianEvents.some((e) => e.eventType === "voice_verification_started"),
     ).toBe(true);
     expect(
       guardianEvents.some(
-        (e) => e.eventType === "guardian_voice_verification_succeeded",
+        (e) => e.eventType === "voice_verification_succeeded",
       ),
     ).toBe(true);
 
@@ -1402,10 +1410,9 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
-    const secret = createPendingVoiceGuardianChallenge("self");
+    const secret = createPendingVoiceGuardianChallenge();
 
     mockSendMessage.mockImplementation(
       createMockProviderResponse(["Hello, verified caller!"]),
@@ -1422,7 +1429,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Speak the code as individual digit characters
     const spokenCode = secret.split("").join(" ");
@@ -1438,7 +1445,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verification should have succeeded
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Binding created
@@ -1463,11 +1470,9 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15550001111",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     createGuardianBinding({
-      assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
@@ -1513,18 +1518,16 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15550002222",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     createGuardianBinding({
-      assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550009999",
       guardianDeliveryChatId: "+15550009999",
       guardianPrincipalId: "+15550009999",
       verifiedVia: "test",
     });
-    addTrustedVoiceContact("+15550002222", "self");
+    addTrustedVoiceContact("+15550002222");
 
     mockSendMessage.mockImplementation(
       createMockProviderResponse(["Hello there."]),
@@ -1567,12 +1570,10 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15550001111",
-      assistantId: "self",
       initiatedFromConversationId: "conv-guardian-outbound-voice-origin",
     });
 
     createGuardianBinding({
-      assistantId: "self",
       channel: "voice",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
@@ -1619,12 +1620,10 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15550001111",
-      assistantId: "self",
       initiatedFromConversationId: "conv-guardian-outbound-strict-origin",
     });
 
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "tg-guardian-user",
       guardianDeliveryChatId: "tg-guardian-chat",
@@ -1671,10 +1670,9 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15550003333",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
-    const secret = createPendingVoiceGuardianChallenge("self");
+    const secret = createPendingVoiceGuardianChallenge();
     const spokenCode = secret.split("").join(" ");
 
     const { relay } = createMockWs(session.id);
@@ -1729,10 +1727,9 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
-    createPendingVoiceGuardianChallenge("self");
+    createPendingVoiceGuardianChallenge();
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1745,7 +1742,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter a wrong code via DTMF
     for (const digit of "000000") {
@@ -1753,7 +1750,7 @@ describe("relay-server", () => {
     }
 
     // Should still be in verification-pending state (retry allowed)
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
 
     // Should have sent a retry prompt
@@ -1774,10 +1771,9 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
-    createPendingVoiceGuardianChallenge("self");
+    createPendingVoiceGuardianChallenge();
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1790,7 +1786,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter wrong codes 3 times (max attempts = 3)
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -1818,7 +1814,7 @@ describe("relay-server", () => {
     // Verify events
     const events = getCallEvents(session.id);
     expect(
-      events.some((e) => e.eventType === "guardian_voice_verification_failed"),
+      events.some((e) => e.eventType === "voice_verification_failed"),
     ).toBe(true);
 
     // Let the delayed endSession callback flush
@@ -1840,7 +1836,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
       // no task — inbound call
     });
 
@@ -1849,7 +1844,7 @@ describe("relay-server", () => {
     mockSendMessage.mockImplementation(
       createMockProviderResponse(["Welcome to the line."]),
     );
-    addTrustedVoiceContact("+15559999999", "self");
+    addTrustedVoiceContact("+15559999999");
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1865,7 +1860,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Should NOT be in guardian verification state
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Should have started normal greeting
@@ -1886,10 +1881,9 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15559999999",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
-    createPendingVoiceGuardianChallenge("self");
+    createPendingVoiceGuardianChallenge();
 
     const { ws, relay } = createMockWs(session.id);
 
@@ -1902,7 +1896,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Speak only 3 digits
     await relay.handleMessage(
@@ -1915,7 +1909,7 @@ describe("relay-server", () => {
     );
 
     // Should still be in verification state
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Should have prompted for more digits
     const textMessages = ws.sentMessages
@@ -1941,14 +1935,12 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559999999",
-      assistantId: "self",
-      callMode: "guardian_verification",
-      guardianVerificationSessionId: "gv-session-ptr-success",
+      callMode: "verification",
+      verificationSessionId: "gv-session-ptr-success",
       initiatedFromConversationId: "conv-gv-pointer-success-origin",
     });
 
     const secret = createVoiceVerificationSession(
-      "self",
       "+15559999999",
       "gv-session-ptr-success",
     );
@@ -1962,12 +1954,12 @@ describe("relay-server", () => {
         from: "+15551111111",
         to: "+15559999999",
         customParameters: {
-          guardianVerificationSessionId: "gv-session-ptr-success",
+          verificationSessionId: "gv-session-ptr-success",
         },
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter the correct code via DTMF
     for (const digit of secret) {
@@ -1975,7 +1967,7 @@ describe("relay-server", () => {
     }
 
     // Verification should have succeeded
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
 
     // Origin conversation should have a pointer message
     const originText = getLatestAssistantText("conv-gv-pointer-success-origin");
@@ -1998,17 +1990,12 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559999999",
-      assistantId: "self",
-      callMode: "guardian_verification",
-      guardianVerificationSessionId: "gv-session-ptr-fail",
+      callMode: "verification",
+      verificationSessionId: "gv-session-ptr-fail",
       initiatedFromConversationId: "conv-gv-pointer-fail-origin",
     });
 
-    createVoiceVerificationSession(
-      "self",
-      "+15559999999",
-      "gv-session-ptr-fail",
-    );
+    createVoiceVerificationSession("+15559999999", "gv-session-ptr-fail");
 
     const { relay } = createMockWs(session.id);
 
@@ -2019,12 +2006,12 @@ describe("relay-server", () => {
         from: "+15551111111",
         to: "+15559999999",
         customParameters: {
-          guardianVerificationSessionId: "gv-session-ptr-fail",
+          verificationSessionId: "gv-session-ptr-fail",
         },
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter wrong codes 3 times (max attempts = 3)
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -2060,14 +2047,12 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558887777",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Create a voice invite with friend/guardian names
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      assistantId: "self",
       sourceChannel: "voice",
       maxUses: 1,
       expectedExternalUserId: "+15558887777",
@@ -2135,14 +2120,12 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558886666",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Create a voice invite with friend/guardian names
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      assistantId: "self",
       sourceChannel: "voice",
       maxUses: 1,
       expectedExternalUserId: "+15558886666",
@@ -2217,7 +2200,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558885555",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // No voice invite created for this caller
@@ -2271,7 +2253,6 @@ describe("relay-server", () => {
         provider: "twilio",
         fromNumber: "+15558885556",
         toNumber: "+15551111111",
-        assistantId: "self",
       });
 
       const { ws, relay } = createMockWs(session.id);
@@ -2312,7 +2293,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558884444",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2377,7 +2357,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558883333",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2411,7 +2390,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558882222",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2469,12 +2447,10 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15558881111",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Create a blocked member
-    upsertMember({
-      assistantId: "self",
+    upsertContactChannel({
       sourceChannel: "voice",
       externalUserId: "+15558881111",
       externalChatId: "+15558881111",
@@ -2520,7 +2496,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770001",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -2568,7 +2543,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770002",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Track provider calls to verify no LLM turn is triggered on approval
@@ -2659,7 +2633,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770003",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2743,7 +2716,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770004",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2820,7 +2792,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770005",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -2866,7 +2837,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770010",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -2924,7 +2894,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770011",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     mockSendMessage.mockImplementation(
@@ -2990,7 +2959,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770012",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -3026,7 +2994,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770013",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3097,7 +3064,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770014",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3183,7 +3149,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770015",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3241,7 +3206,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770016",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3290,7 +3254,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770017",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3354,7 +3317,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770020",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { ws, relay } = createMockWs(session.id);
@@ -3457,7 +3419,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770021",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -3515,7 +3476,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770022",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -3584,7 +3544,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770023",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -3662,7 +3621,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770024",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const { relay } = createMockWs(session.id);
@@ -3753,7 +3711,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557770025",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Do NOT add caller as trusted contact
@@ -3840,7 +3797,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559876543",
-      assistantId: "self",
       initiatedFromConversationId: "conv-relay-ptr-complete-origin",
     });
     updateCallSession(session.id, {
@@ -3879,7 +3835,6 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559876543",
-      assistantId: "self",
       initiatedFromConversationId: "conv-relay-ptr-fail-origin",
     });
     updateCallSession(session.id, { status: "in_progress" });
@@ -3916,17 +3871,15 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15553334444",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Create a trusted-contact verification challenge with status 'pending'
-    // so getPendingChallenge finds it during inbound setup, and
-    // verificationPurpose 'trusted_contact' so validateAndConsumeChallenge
+    // so getPendingSession finds it during inbound setup, and
+    // verificationPurpose 'trusted_contact' so validateAndConsumeVerification
     // returns the correct verificationType.
     const tcSecret = "654321";
     createVerificationSession({
       id: randomUUID(),
-      assistantId: "self",
       channel: "voice",
       challengeHash: createHash("sha256").update(tcSecret).digest("hex"),
       expiresAt: Date.now() + 10 * 60 * 1000,
@@ -3951,7 +3904,7 @@ describe("relay-server", () => {
     );
 
     // Should be in verification-pending state
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
 
     // Enter the correct code via DTMF
@@ -3962,7 +3915,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verification should have succeeded — call remains connected
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Deterministic handoff copy should have been sent (not a fresh greeting)
@@ -4000,11 +3953,10 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15552223333",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     // Create a guardian challenge (default verificationPurpose = 'guardian')
-    const secret = createPendingVoiceGuardianChallenge("self");
+    const secret = createPendingVoiceGuardianChallenge();
 
     mockSendMessage.mockImplementation(
       createMockProviderResponse(["Hello, how can I help you?"]),
@@ -4021,7 +3973,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter the correct code
     for (const digit of secret) {
@@ -4031,7 +3983,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Should have transitioned to connected with normal greeting (not handoff copy)
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding should have been created
@@ -4056,13 +4008,11 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15557776666",
       toNumber: "+15551111111",
-      assistantId: "self",
     });
 
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      assistantId: "self",
       sourceChannel: "voice",
       maxUses: 1,
       expectedExternalUserId: "+15557776666",
@@ -4126,6 +4076,133 @@ describe("relay-server", () => {
     expect(
       events.some((e) => e.eventType === "invite_redemption_succeeded"),
     ).toBe(true);
+
+    relay.destroy();
+  });
+
+  // ── resolveGuardianLabel resolution priority ─────────────────────────
+
+  test("guardian label: USER.md name takes precedence over Contact.displayName", async () => {
+    mockUserReference = "Alice";
+
+    // Create a guardian binding with a different displayName
+    createGuardianBinding({
+      channel: "voice",
+      guardianExternalUserId: "+15559990001",
+      guardianDeliveryChatId: "+15559990001",
+      guardianPrincipalId: "+15559990001",
+      verifiedVia: "test",
+      metadataJson: JSON.stringify({ displayName: "Bob" }),
+    });
+
+    ensureConversation("conv-label-user-md");
+    const session = createCallSession({
+      conversationId: "conv-label-user-md",
+      provider: "twilio",
+      fromNumber: "+15559990099",
+      toNumber: "+15551111111",
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_label_user_md",
+        from: "+15559990099",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("awaiting_name");
+
+    // The greeting should use the USER.md name ("Alice"), not Contact.displayName ("Bob")
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    const promptText = textMessages.map((m) => m.token ?? "").join("");
+    expect(promptText).toContain("Alice");
+    expect(promptText).not.toContain("Bob");
+
+    relay.destroy();
+  });
+
+  test("guardian label: Contact.displayName used when USER.md is empty", async () => {
+    mockUserReference = "my human";
+
+    // Create a guardian binding with a displayName
+    createGuardianBinding({
+      channel: "voice",
+      guardianExternalUserId: "+15559990002",
+      guardianDeliveryChatId: "+15559990002",
+      guardianPrincipalId: "+15559990002",
+      verifiedVia: "test",
+      metadataJson: JSON.stringify({ displayName: "Charlie" }),
+    });
+
+    ensureConversation("conv-label-contact");
+    const session = createCallSession({
+      conversationId: "conv-label-contact",
+      provider: "twilio",
+      fromNumber: "+15559990098",
+      toNumber: "+15551111111",
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_label_contact",
+        from: "+15559990098",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("awaiting_name");
+
+    // The greeting should use Contact.displayName ("Charlie")
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    const promptText = textMessages.map((m) => m.token ?? "").join("");
+    expect(promptText).toContain("Charlie");
+
+    relay.destroy();
+  });
+
+  test("guardian label: DEFAULT_USER_REFERENCE used when both USER.md and Contact.displayName are empty", async () => {
+    mockUserReference = "my human";
+
+    // No guardian binding — no Contact.displayName available
+
+    ensureConversation("conv-label-default");
+    const session = createCallSession({
+      conversationId: "conv-label-default",
+      provider: "twilio",
+      fromNumber: "+15559990097",
+      toNumber: "+15551111111",
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_label_default",
+        from: "+15559990097",
+        to: "+15551111111",
+      }),
+    );
+
+    expect(relay.getConnectionState()).toBe("awaiting_name");
+
+    // The greeting should use the default "my human"
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    const promptText = textMessages.map((m) => m.token ?? "").join("");
+    expect(promptText).toContain("my human");
 
     relay.destroy();
   });

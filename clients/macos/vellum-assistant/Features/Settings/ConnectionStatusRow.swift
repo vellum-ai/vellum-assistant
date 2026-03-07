@@ -25,9 +25,8 @@ struct InlineConnectionStatus: View {
         let isSpinning = isRefreshing || spinning
 
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: status.icon)
+            VIconView(SFSymbolMapping.icon(forSFSymbol: status.icon, fallback: .puzzle), size: 11)
                 .foregroundColor(status.color)
-                .font(.system(size: 11))
 
             Text(status.label)
                 .font(VFont.caption)
@@ -81,8 +80,7 @@ struct SpinningRefreshIcon: View {
     @State private var angle: Double = 0
 
     var body: some View {
-        Image(systemName: "arrow.triangle.2.circlepath")
-            .font(.system(size: 11, weight: .medium))
+        VIconView(.refreshCw, size: 11)
             .foregroundColor(isSpinning ? VColor.accent : VColor.textMuted)
             .rotationEffect(.degrees(angle))
             .frame(width: 24, height: 24)

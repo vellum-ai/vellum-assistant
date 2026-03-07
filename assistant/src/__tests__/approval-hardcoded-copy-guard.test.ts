@@ -14,7 +14,7 @@ import { join } from "path";
 const SCANNED_FILES = [
   "runtime/channel-approvals.ts",
   "runtime/routes/channel-routes.ts",
-  "runtime/channel-guardian-service.ts",
+  "runtime/channel-verification-service.ts",
 ];
 
 const BANNED_PATTERNS: { pattern: RegExp; description: string }[] = [

@@ -1,0 +1,47 @@
+# CLI Package — Agent Instructions
+
+## Purpose
+
+The `cli/` package (`@vellumai/cli`) manages the **lifecycle of Vellum assistant instances** — creating, starting, stopping, connecting to, and deleting them. Commands here operate on or across instances and typically require specifying which assistant to target.
+
+This contrasts with `assistant/src/cli/`, where commands are scoped to a **single running assistant** and operate on its local state (config, memory, contacts, etc.).
+
+## When a command belongs here vs `assistant/src/cli/`
+
+| `cli/` (this package)                           | `assistant/src/cli/`                                |
+| ----------------------------------------------- | --------------------------------------------------- |
+| Operates on or across assistant instances       | Operates within a single assistant's workspace      |
+| Manages lifecycle (create, start, stop, delete) | Manages instance-local state (config, memory, etc.) |
+| Requires specifying which assistant to target   | Implicitly scoped to the running assistant          |
+| Works without an assistant process running      | May require or start the daemon                     |
+
+Examples: `hatch`, `wake`, `sleep`, `retire`, `ps`, `ssh` belong here. `config`, `contacts`, `memory` belong in `assistant/src/cli/`.
+
+## Assistant targeting convention
+
+Commands that act on a specific assistant should accept an assistant name or ID as an argument. When none is specified, default to the most recently created local assistant. Use `loadAllAssistants()` and `findAssistantByName()` from `lib/assistant-config` for resolution.
+
+## Conventions
+
+- Commands are standalone exported functions in `src/commands/`.
+- Each command manually parses `process.argv.slice(3)` (no framework — keep it lightweight).
+- Register new commands in the `commands` object in `src/index.ts` and add a help line.
+- User-facing output uses `console.log`/`console.error` directly (no shared logger).
+
+## Help Text Standards
+
+Every command must have high-quality `--help` output optimized for AI/LLM
+consumption. Help text is a primary interface — both humans and AI agents read
+it to understand what a command does and how to use it.
+
+### Requirements
+
+1. **Each command**: Include a concise one-liner description in the help output,
+   followed by an explanation of arguments/options with their formats and
+   constraints.
+
+2. **Include examples**: Show 2-3 concrete invocations with realistic values.
+
+3. **Write for machines**: Be precise about formats, constraints, and side effects.
+   AI agents parse help text to decide which command to run and how. Avoid vague
+   language — say exactly what the command does and where state is stored.

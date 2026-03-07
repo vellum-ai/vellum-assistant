@@ -506,12 +506,12 @@ struct ChatGallerySection: View {
                             input: ["command": AnyCodable("npm install express")],
                             riskLevel: "medium",
                             allowlistOptions: [
-                                ConfirmationRequestMessage.ConfirmationAllowlistOption(
+                                IPCConfirmationRequestAllowlistOption(
                                     label: "exact", description: "This exact command", pattern: "npm install express"
                                 ),
                             ],
                             scopeOptions: [
-                                ConfirmationRequestMessage.ConfirmationScopeOption(
+                                IPCConfirmationRequestScopeOption(
                                     label: "This project", scope: "project"
                                 ),
                             ],

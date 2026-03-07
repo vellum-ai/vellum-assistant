@@ -35,6 +35,7 @@ import {
   migrateAssistantContactMetadata,
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
+  migrateBackfillUsageCacheAccounting,
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
@@ -45,7 +46,9 @@ import {
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
   migrateConversationsThreadTypeIndex,
+  migrateDropAssistantIdColumns,
   migrateDropLegacyMemberGuardianTables,
+  migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
   migrateGuardianActionFollowup,
   migrateGuardianActionSupersession,
@@ -56,11 +59,16 @@ import {
   migrateGuardianPrincipalIdNotNull,
   migrateGuardianVerificationPurpose,
   migrateGuardianVerificationSessions,
+  migrateInviteCodeHashColumn,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
+  migrateRenameGuardianVerificationValues,
+  migrateRenameVerificationSessionIdColumn,
+  migrateRenameVerificationTable,
   migrateSchemaIndexesAndColumns,
+  migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
   recoverCrashedMigrations,
@@ -246,6 +254,9 @@ export function initializeDb(): void {
   // 27. Voice invite display metadata (friend_name, guardian_name) for personalized prompts
   migrateVoiceInviteDisplayMetadata(database);
 
+  // 27b. 6-digit invite code hash column for non-voice channel invite redemption
+  migrateInviteCodeHashColumn(database);
+
   // 28. Actor token records (hash-only actor token persistence)
   createActorTokenRecordsTable(database);
 
@@ -284,6 +295,30 @@ export function initializeDb(): void {
 
   // 39. Backfill contact interaction stats from channel lastSeenAt
   migrateBackfillContactInteractionStats(database);
+
+  // 40. Drop assistant_id columns from all 16 daemon tables
+  migrateDropAssistantIdColumns(database);
+
+  // 41. Indexes on llm_usage_events for usage dashboard time-range and breakdown queries
+  migrateUsageDashboardIndexes(database);
+
+  // 42. (skipped) migrateReorderUsageDashboardIndexes — superseded by 43 which drops
+  // all composite indexes that 42 would create, so running it is wasted work.
+
+  // 43. Drop all composite usage indexes — they don't eliminate temp B-trees for GROUP BY
+  migrateDropUsageCompositeIndexes(database);
+
+  // 44. Backfill historical Anthropic usage rows from request-log truth before dashboard reads
+  migrateBackfillUsageCacheAccounting(database);
+
+  // 45. Rename channel_guardian_verification_challenges → channel_verification_sessions
+  migrateRenameVerificationTable(database);
+
+  // 46. Rename guardian_verification_session_id → verification_session_id in call_sessions
+  migrateRenameVerificationSessionIdColumn(database);
+
+  // 47. Rename persisted guardian_verification call_mode and event_type values
+  migrateRenameGuardianVerificationValues(database);
 
   validateMigrationState(database);
 

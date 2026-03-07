@@ -44,7 +44,6 @@ export interface Contact {
    * identified by channel address instead.
    */
   principalId: string | null;
-  assistantId: string | null;
 }
 
 export type ChannelStatus =
@@ -54,14 +53,6 @@ export type ChannelStatus =
   | "blocked"
   | "unverified";
 export type ChannelPolicy = "allow" | "deny" | "escalate";
-
-/**
- * Legacy aliases — semantic names used by API consumers and the ingress
- * pipeline. MemberStatus omits `"unverified"` because the external API maps
- * that value to `"pending"`.
- */
-export type MemberStatus = "pending" | "active" | "revoked" | "blocked";
-export type MemberPolicy = "allow" | "deny" | "escalate";
 
 export interface ContactChannel {
   id: string;

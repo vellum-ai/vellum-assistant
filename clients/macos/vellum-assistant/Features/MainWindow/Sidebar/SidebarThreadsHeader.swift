@@ -16,25 +16,25 @@ struct SidebarThreadsHeader: View {
             if hasUnseenThreads {
                 VIconButton(
                     label: "Mark all as seen",
-                    icon: "checkmark.circle",
+                    icon: VIcon.circleCheck.rawValue,
                     iconOnly: true,
                     tooltip: "Mark all as seen",
                     action: onMarkAllSeen
                 )
                 .disabled(isLoading)
             }
-            VIconButton(label: "New thread", icon: "plus", iconOnly: true, action: onNewThread)
+            VIconButton(label: "New thread", icon: VIcon.squarePen.rawValue, iconOnly: true, action: onNewThread)
                 .disabled(isLoading)
                 .opacity(isLoading ? 0.4 : 1)
         }
-        .padding(.leading, 20)
+        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
         .padding(.trailing, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.top, SidebarLayoutMetrics.sectionTitleTopGap)
         .contextMenu {
             Button {
                 onMarkAllSeen()
             } label: {
-                Label("Mark All as Seen", systemImage: "checkmark.circle")
+                Label { Text("Mark All as Seen") } icon: { VIconView(.circleCheck, size: 14) }
             }
             .disabled(!hasUnseenThreads)
         }

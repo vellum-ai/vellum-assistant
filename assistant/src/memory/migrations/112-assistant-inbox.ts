@@ -1,5 +1,6 @@
 import type { DrizzleDb } from "../db-connection.js";
 import { migrateBackfillInboxThreadStateFromBindings } from "./014-backfill-inbox-thread-state.js";
+import { tableHasColumn } from "./schema-introspection.js";
 
 /**
  * Assistant inbox tables: ingress invites, ingress members, inbox thread state.
@@ -28,12 +29,21 @@ export function createAssistantInboxTables(database: DrizzleDb): void {
   database.run(
     /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_ingress_invites_token_hash ON assistant_ingress_invites(token_hash)`,
   );
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ingress_invites_channel_status ON assistant_ingress_invites(assistant_id, source_channel, status, expires_at)`,
-  );
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ingress_invites_channel_created ON assistant_ingress_invites(assistant_id, source_channel, created_at)`,
-  );
+  if (tableHasColumn(database, "assistant_ingress_invites", "assistant_id")) {
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ingress_invites_channel_status ON assistant_ingress_invites(assistant_id, source_channel, status, expires_at)`,
+    );
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ingress_invites_channel_created ON assistant_ingress_invites(assistant_id, source_channel, created_at)`,
+    );
+  } else {
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ingress_invites_channel_status ON assistant_ingress_invites(source_channel, status, expires_at)`,
+    );
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_ingress_invites_channel_created ON assistant_ingress_invites(source_channel, created_at)`,
+    );
+  }
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS assistant_ingress_members (
@@ -90,15 +100,29 @@ export function createAssistantInboxTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(
-    /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_thread_state_channel ON assistant_inbox_thread_state(assistant_id, source_channel, external_chat_id)`,
-  );
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_last_msg ON assistant_inbox_thread_state(assistant_id, last_message_at)`,
-  );
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_escalation ON assistant_inbox_thread_state(assistant_id, has_pending_escalation, last_message_at)`,
-  );
+  if (
+    tableHasColumn(database, "assistant_inbox_thread_state", "assistant_id")
+  ) {
+    database.run(
+      /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_thread_state_channel ON assistant_inbox_thread_state(assistant_id, source_channel, external_chat_id)`,
+    );
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_last_msg ON assistant_inbox_thread_state(assistant_id, last_message_at)`,
+    );
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_escalation ON assistant_inbox_thread_state(assistant_id, has_pending_escalation, last_message_at)`,
+    );
+  } else {
+    database.run(
+      /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_thread_state_channel ON assistant_inbox_thread_state(source_channel, external_chat_id)`,
+    );
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_last_msg ON assistant_inbox_thread_state(last_message_at)`,
+    );
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_inbox_thread_state_escalation ON assistant_inbox_thread_state(has_pending_escalation, last_message_at)`,
+    );
+  }
 
   migrateBackfillInboxThreadStateFromBindings(database);
 }

@@ -13,7 +13,6 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../../../config/env.js";
-import { RESEND_COOLDOWN_MS } from "../../../daemon/handlers/config-channels.js";
 import { getLogger } from "../../../util/logger.js";
 import { mintDaemonDeliveryToken } from "../../auth/token-service.js";
 import {
@@ -22,11 +21,12 @@ import {
   resolveBootstrapToken,
   updateSessionDelivery,
   updateSessionStatus,
-} from "../../channel-guardian-service.js";
+} from "../../channel-verification-service.js";
+import { RESEND_COOLDOWN_MS } from "../../verification-outbound-actions.js";
 import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../../guardian-verification-templates.js";
+} from "../../verification-templates.js";
 
 const log = getLogger("runtime-http");
 
@@ -74,11 +74,7 @@ export async function handleBootstrapIntercept(
   }
 
   const bootstrapToken = (commandIntent.payload as string).slice(3);
-  const bootstrapSession = resolveBootstrapToken(
-    canonicalAssistantId,
-    sourceChannel,
-    bootstrapToken,
-  );
+  const bootstrapSession = resolveBootstrapToken(sourceChannel, bootstrapToken);
 
   if (!bootstrapSession || bootstrapSession.status !== "pending_bootstrap") {
     // Not found or expired — fall through to normal /start handling
@@ -94,7 +90,6 @@ export async function handleBootstrapIntercept(
   // Create a new identity-bound outbound session with a fresh secret.
   // The old bootstrap session is auto-revoked by createOutboundSession.
   const newSession = createOutboundSession({
-    assistantId: canonicalAssistantId,
     channel: sourceChannel,
     expectedExternalUserId: rawSenderId,
     expectedChatId: conversationExternalId,
@@ -128,7 +123,7 @@ export async function handleBootstrapIntercept(
     accepted: true,
     duplicate: false,
     eventId,
-    guardianVerification: "bootstrap_bound",
+    verificationOutcome: "bootstrap_bound",
   });
 }
 

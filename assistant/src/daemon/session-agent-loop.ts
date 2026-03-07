@@ -28,12 +28,16 @@ import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles } from "../memory/app-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
 import {
+  addMessage,
+  deleteMessageById,
+  getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
   provenanceFromTrustContext,
-} from "../memory/conversation-store.js";
+  updateConversationContextWindow,
+  updateConversationTitle,
+} from "../memory/conversation-crud.js";
 import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
@@ -117,6 +121,27 @@ import { recordUsage } from "./session-usage.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("session-agent-loop");
+
+/** Title-cased friendly labels for tool names, used in confirmation chips. */
+const TOOL_FRIENDLY_LABEL: Record<string, string> = {
+  bash: "Run Command",
+  web_search: "Web Search",
+  web_fetch: "Web Fetch",
+  file_read: "Read File",
+  file_write: "Write File",
+  file_edit: "Edit File",
+  browser_navigate: "Browser",
+  browser_click: "Browser",
+  browser_type: "Browser",
+  browser_screenshot: "Browser",
+  browser_scroll: "Browser",
+  browser_wait: "Browser",
+  app_create: "Create App",
+  app_update: "Update App",
+  skill_load: "Load Skill",
+  app_file_edit: "Edit App File",
+  app_file_write: "Write App File",
+};
 
 type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
@@ -221,6 +246,18 @@ export interface AgentLoopSessionContext {
         >
       : never,
   ): void;
+
+  /**
+   * Optional callback invoked by the Session when a confirmation state changes.
+   * The agent loop registers this to track requestId → toolUseId mappings
+   * and record confirmation outcomes for persistence.
+   */
+  onConfirmationOutcome?: (
+    requestId: string,
+    state: string,
+    toolName?: string,
+    toolUseId?: string,
+  ) => void;
 
   getWorkspaceGitService?: (workspaceDir: string) => GitServiceInitializer;
   commitTurnChanges?: typeof commitTurnChanges;
@@ -338,18 +375,15 @@ export async function runAgentLoopImpl(
     if (preMessageResult.blocked) {
       if (!options?.skipPreMessageRollback) {
         ctx.messages.pop();
-        conversationStore.deleteMessageById(userMessageId);
+        deleteMessageById(userMessageId);
       }
       // Replace loading placeholder so the thread isn't stuck as "Generating title..."
-      const currentConv = conversationStore.getConversation(ctx.conversationId);
+      const currentConv = getConversation(ctx.conversationId);
       if (
         isReplaceableTitle(currentConv?.title ?? null) &&
         currentConv?.title !== UNTITLED_FALLBACK
       ) {
-        conversationStore.updateConversationTitle(
-          ctx.conversationId,
-          UNTITLED_FALLBACK,
-        );
+        updateConversationTitle(ctx.conversationId, UNTITLED_FALLBACK);
         onEvent({
           type: "session_title_updated",
           sessionId: ctx.conversationId,
@@ -372,9 +406,7 @@ export async function runAgentLoopImpl(
     // Deferred via setTimeout so the main agent loop LLM call enqueues
     // first, avoiding rate-limit slot contention on strict configs.
     if (
-      isReplaceableTitle(
-        conversationStore.getConversation(ctx.conversationId)?.title ?? null,
-      )
+      isReplaceableTitle(getConversation(ctx.conversationId)?.title ?? null)
     ) {
       setTimeout(() => {
         queueGenerateConversationTitle({
@@ -394,6 +426,13 @@ export async function runAgentLoopImpl(
 
     const isFirstMessage = ctx.messages.length === 1;
 
+    ctx.emitActivityState(
+      "thinking",
+      "thinking_delta",
+      "assistant_turn",
+      reqId,
+      "Compacting context",
+    );
     const compacted = await ctx.contextWindowManager.maybeCompact(
       ctx.messages,
       abortController.signal,
@@ -403,7 +442,7 @@ export async function runAgentLoopImpl(
       ctx.messages = compacted.messages;
       ctx.contextCompactedMessageCount += compacted.compactedPersistedMessages;
       ctx.contextCompactedAt = Date.now();
-      conversationStore.updateConversationContextWindow(
+      updateConversationContextWindow(
         ctx.conversationId,
         compacted.summaryText,
         ctx.contextCompactedMessageCount,
@@ -428,10 +467,51 @@ export async function runAgentLoopImpl(
         onEvent,
         "context_compactor",
         reqId,
+        compacted.summaryCacheCreationInputTokens ?? 0,
+        compacted.summaryCacheReadInputTokens ?? 0,
+        collapseRawResponses(compacted.summaryRawResponses),
       );
     }
 
     const state = createEventHandlerState();
+
+    // Register confirmation outcome tracker so the agent loop can link
+    // confirmation decisions to tool_use_ids for persistence.
+    ctx.onConfirmationOutcome = (
+      requestId,
+      confirmationState,
+      toolName,
+      toolUseId,
+    ) => {
+      if (confirmationState === "pending") {
+        // Use the toolUseId passed from the prompter (which knows which tool
+        // requested confirmation) instead of the ambient state.currentToolUseId,
+        // which is unreliable when multiple tools execute in parallel.
+        const resolvedToolUseId = toolUseId ?? state.currentToolUseId;
+        if (resolvedToolUseId) {
+          state.requestIdToToolUseId.set(requestId, resolvedToolUseId);
+        }
+      } else if (
+        confirmationState === "approved" ||
+        confirmationState === "denied" ||
+        confirmationState === "timed_out"
+      ) {
+        const resolvedId =
+          state.requestIdToToolUseId.get(requestId) ?? toolUseId;
+        if (resolvedId) {
+          const name = state.toolUseIdToName.get(resolvedId) ?? toolName ?? "";
+          // Build a friendly label from the tool name
+          const label =
+            TOOL_FRIENDLY_LABEL[name] ??
+            name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+          state.toolConfirmationOutcomes.set(resolvedId, {
+            decision: confirmationState,
+            label,
+          });
+        }
+      }
+    };
+
     let runMessages = ctx.messages;
 
     const memoryResult = await prepareMemoryContext(
@@ -596,6 +676,13 @@ export async function runAgentLoopImpl(
         !reducerState.exhausted
       ) {
         preflightAttempts++;
+        ctx.emitActivityState(
+          "thinking",
+          "thinking_delta",
+          "assistant_turn",
+          reqId,
+          "Compacting context",
+        );
         const step = await reduceContextOverflow(
           ctx.messages,
           {
@@ -618,7 +705,7 @@ export async function runAgentLoopImpl(
           ctx.contextCompactedMessageCount +=
             step.compactionResult.compactedPersistedMessages;
           ctx.contextCompactedAt = Date.now();
-          conversationStore.updateConversationContextWindow(
+          updateConversationContextWindow(
             ctx.conversationId,
             step.compactionResult.summaryText,
             ctx.contextCompactedMessageCount,
@@ -644,6 +731,9 @@ export async function runAgentLoopImpl(
             onEvent,
             "context_compactor",
             reqId,
+            step.compactionResult.summaryCacheCreationInputTokens ?? 0,
+            step.compactionResult.summaryCacheReadInputTokens ?? 0,
+            collapseRawResponses(step.compactionResult.summaryRawResponses),
           );
         }
 
@@ -676,7 +766,7 @@ export async function runAgentLoopImpl(
     let preRunHistoryLength = runMessages.length;
 
     const shouldGenerateTitle = isReplaceableTitle(
-      conversationStore.getConversation(ctx.conversationId)?.title ?? null,
+      getConversation(ctx.conversationId)?.title ?? null,
     );
 
     const deps: EventHandlerDeps = {
@@ -783,6 +873,13 @@ export async function runAgentLoopImpl(
           "Context too large — applying next reducer tier",
         );
 
+        ctx.emitActivityState(
+          "thinking",
+          "thinking_delta",
+          "assistant_turn",
+          reqId,
+          "Compacting context",
+        );
         const step = await reduceContextOverflow(
           ctx.messages,
           {
@@ -805,7 +902,7 @@ export async function runAgentLoopImpl(
           ctx.contextCompactedMessageCount +=
             step.compactionResult.compactedPersistedMessages;
           ctx.contextCompactedAt = Date.now();
-          conversationStore.updateConversationContextWindow(
+          updateConversationContextWindow(
             ctx.conversationId,
             step.compactionResult.summaryText,
             ctx.contextCompactedMessageCount,
@@ -831,6 +928,9 @@ export async function runAgentLoopImpl(
             onEvent,
             "context_compactor",
             reqId,
+            step.compactionResult.summaryCacheCreationInputTokens ?? 0,
+            step.compactionResult.summaryCacheReadInputTokens ?? 0,
+            collapseRawResponses(step.compactionResult.summaryRawResponses),
           );
         }
 
@@ -882,7 +982,7 @@ export async function runAgentLoopImpl(
               ctx.contextCompactedMessageCount +=
                 emergencyCompact.compactedPersistedMessages;
               ctx.contextCompactedAt = Date.now();
-              conversationStore.updateConversationContextWindow(
+              updateConversationContextWindow(
                 ctx.conversationId,
                 emergencyCompact.summaryText,
                 ctx.contextCompactedMessageCount,
@@ -908,6 +1008,9 @@ export async function runAgentLoopImpl(
                 onEvent,
                 "context_compactor",
                 reqId,
+                emergencyCompact.summaryCacheCreationInputTokens ?? 0,
+                emergencyCompact.summaryCacheReadInputTokens ?? 0,
+                collapseRawResponses(emergencyCompact.summaryRawResponses),
               );
             }
 
@@ -945,7 +1048,7 @@ export async function runAgentLoopImpl(
                 capturedTurnInterfaceContext.assistantMessageInterface,
             };
             const denyMessage = createAssistantMessage(denyText);
-            await conversationStore.addMessage(
+            await addMessage(
               ctx.conversationId,
               "assistant",
               JSON.stringify(denyMessage.content),
@@ -962,6 +1065,13 @@ export async function runAgentLoopImpl(
           }
         } else if (action === "auto_compress_latest_turn") {
           // Non-interactive — auto-compress without asking
+          ctx.emitActivityState(
+            "thinking",
+            "thinking_delta",
+            "assistant_turn",
+            reqId,
+            "Compacting context",
+          );
           const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
             ctx.messages,
             abortController.signal,
@@ -977,7 +1087,7 @@ export async function runAgentLoopImpl(
             ctx.contextCompactedMessageCount +=
               emergencyCompact.compactedPersistedMessages;
             ctx.contextCompactedAt = Date.now();
-            conversationStore.updateConversationContextWindow(
+            updateConversationContextWindow(
               ctx.conversationId,
               emergencyCompact.summaryText,
               ctx.contextCompactedMessageCount,
@@ -1003,6 +1113,9 @@ export async function runAgentLoopImpl(
               onEvent,
               "context_compactor",
               reqId,
+              emergencyCompact.summaryCacheCreationInputTokens ?? 0,
+              emergencyCompact.summaryCacheReadInputTokens ?? 0,
+              collapseRawResponses(emergencyCompact.summaryRawResponses),
             );
           }
 
@@ -1097,7 +1210,7 @@ export async function runAgentLoopImpl(
         assistantMessageInterface:
           capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      await conversationStore.addMessage(
+      await addMessage(
         ctx.conversationId,
         "user",
         JSON.stringify(toolResultBlocks),
@@ -1139,7 +1252,7 @@ export async function runAgentLoopImpl(
       const errorAssistantMessage = createAssistantMessage(
         state.providerErrorUserMessage,
       );
-      await conversationStore.addMessage(
+      await addMessage(
         ctx.conversationId,
         "assistant",
         JSON.stringify(errorAssistantMessage.content),
@@ -1173,6 +1286,9 @@ export async function runAgentLoopImpl(
       onEvent,
       "main_agent",
       reqId,
+      state.exchangeCacheCreationInputTokens,
+      state.exchangeCacheReadInputTokens,
+      collapseRawResponses(state.exchangeRawResponses),
     );
 
     void getHookManager().trigger("post-message", {
@@ -1347,6 +1463,7 @@ export async function runAgentLoopImpl(
 
     ctx.abortController = null;
     ctx.processing = false;
+    ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;
@@ -1377,6 +1494,9 @@ function emitUsage(
   onEvent: (msg: ServerMessage) => void,
   actor: UsageActor,
   requestId: string | null = null,
+  cacheCreationInputTokens = 0,
+  cacheReadInputTokens = 0,
+  rawResponse?: unknown,
 ): void {
   recordUsage(
     {
@@ -1390,5 +1510,13 @@ function emitUsage(
     onEvent,
     actor,
     requestId,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+    rawResponse,
   );
+}
+
+function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
+  if (!rawResponses || rawResponses.length === 0) return undefined;
+  return rawResponses.length === 1 ? rawResponses[0] : rawResponses;
 }

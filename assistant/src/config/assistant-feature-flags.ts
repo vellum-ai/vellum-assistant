@@ -127,13 +127,9 @@ export function isAssistantFeatureFlagEnabled(
   const defaults = loadDefaultsRegistry();
   const declared = defaults[key];
 
-  // 1. Check canonical section
-  const newValues = (config as AssistantConfigWithFeatureFlags)
-    .assistantFeatureFlagValues;
-  if (newValues) {
-    const explicit = newValues[key];
-    if (typeof explicit === "boolean") return explicit;
-  }
+  // 1. Check config overrides
+  const explicit = config.assistantFeatureFlagValues?.[key];
+  if (typeof explicit === "boolean") return explicit;
 
   // 2. For declared keys, use the registry default
   if (declared) {
@@ -156,12 +152,4 @@ export function getAssistantFeatureFlagDefaults(): FeatureFlagDefaultsRegistry {
  */
 export function _resetDefaultsCache(): void {
   cachedDefaults = undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Internal type augmentation for the new config field
-// ---------------------------------------------------------------------------
-
-interface AssistantConfigWithFeatureFlags extends AssistantConfig {
-  assistantFeatureFlagValues?: Record<string, boolean>;
 }

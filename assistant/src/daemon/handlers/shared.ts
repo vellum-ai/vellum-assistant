@@ -70,6 +70,14 @@ export interface HistoryToolCall {
   isError?: boolean;
   /** Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot). */
   imageData?: string;
+  /** Unix ms when the tool started executing. */
+  startedAt?: number;
+  /** Unix ms when the tool completed. */
+  completedAt?: number;
+  /** Confirmation decision for this tool call: "approved" | "denied" | "timed_out". */
+  confirmationDecision?: string;
+  /** Friendly label for the confirmation (e.g. "Edit File", "Run Command"). */
+  confirmationLabel?: string;
 }
 
 export interface HistorySurface {
@@ -468,6 +476,15 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
         : {};
       const id = typeof block.id === "string" ? block.id : "";
       const entry: HistoryToolCall = { name, input };
+      // Extract persisted timing/confirmation metadata
+      if (typeof block._startedAt === "number")
+        entry.startedAt = block._startedAt;
+      if (typeof block._completedAt === "number")
+        entry.completedAt = block._completedAt;
+      if (typeof block._confirmationDecision === "string")
+        entry.confirmationDecision = block._confirmationDecision;
+      if (typeof block._confirmationLabel === "string")
+        entry.confirmationLabel = block._confirmationLabel;
       toolCalls.push(entry);
       if (id) pendingToolUses.set(id, entry);
       contentOrder.push(`tool:${toolCalls.length - 1}`);
@@ -545,51 +562,6 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     contentOrder,
     surfaces,
   };
-}
-
-export function mergeToolResults(
-  messages: ParsedHistoryMessage[],
-): ParsedHistoryMessage[] {
-  // Note: We no longer merge consecutive assistant messages at load time since
-  // they are now consolidated when saved. This function only handles legacy
-  // conversations that haven't been consolidated yet, and continues to merge
-  // tool_result blocks into their preceding assistant messages.
-  const result: ParsedHistoryMessage[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-
-    // If this is a user message whose only content is tool_result blocks,
-    // merge those results into the preceding assistant message's toolCalls.
-    // This should rarely happen now since consolidation removes these messages,
-    // but we keep it for backwards compatibility with old data.
-    if (
-      msg.role === "user" &&
-      msg.text.trim() === "" &&
-      msg.toolCalls.length > 0
-    ) {
-      const prev = result.length > 0 ? result[result.length - 1] : null;
-      if (prev && prev.role === "assistant" && prev.toolCalls.length > 0) {
-        for (const resultEntry of msg.toolCalls) {
-          const unresolved = prev.toolCalls.find(
-            (tc) => tc.result === undefined,
-          );
-          if (unresolved) {
-            unresolved.result = resultEntry.result;
-            unresolved.isError = resultEntry.isError;
-            if (resultEntry.imageData)
-              unresolved.imageData = resultEntry.imageData;
-          }
-        }
-        // Only suppress this internal user message if we successfully merged into a preceding assistant message
-        continue;
-      }
-      // If there's no preceding assistant message to merge into, preserve the tool_result message
-      // so the results aren't lost (e.g., cancellation/error/handoff before follow-up assistant turn)
-    }
-
-    result.push({ ...msg, toolCalls: msg.toolCalls.map((tc) => ({ ...tc })) });
-  }
-  return result;
 }
 
 /**

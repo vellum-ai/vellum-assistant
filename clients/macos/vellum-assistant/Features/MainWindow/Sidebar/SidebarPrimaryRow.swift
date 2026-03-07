@@ -9,6 +9,7 @@ struct SidebarPrimaryRow: View {
     let icon: String
     let label: String
     var isActive: Bool = false
+    var trailingIcon: String? = nil
     var isExpanded: Bool = true
     let action: () -> Void
     @State private var isHovered = false
@@ -16,12 +17,11 @@ struct SidebarPrimaryRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: isExpanded ? VSpacing.xs : 0) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
+                VIconView(.resolve(icon), size: 13)
                     .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
-                    .frame(width: 20)
+                    .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
                 Text(label)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -31,11 +31,16 @@ struct SidebarPrimaryRow: View {
                     .allowsHitTesting(false)
                 if isExpanded {
                     Spacer()
+                    if let trailingIcon {
+                        VIconView(.resolve(trailingIcon), size: 10)
+                            .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                    }
                 }
             }
             .padding(.leading, isExpanded ? VSpacing.xs : 0)
             .padding(.trailing, isExpanded ? VSpacing.sm : 0)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .frame(maxWidth: .infinity, alignment: isExpanded ? .leading : .center)
             .background(
                 (isActive ? VColor.navActive : isHovered ? VColor.navHover : .clear)

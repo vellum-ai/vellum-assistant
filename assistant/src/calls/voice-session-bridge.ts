@@ -392,7 +392,6 @@ export async function startVoiceTurn(
               toolName: msg.toolName,
               inputDigest,
               consumingRequestId: msg.requestId,
-              assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
               executionChannel: "voice",
               conversationId: opts.conversationId,
               callSessionId: opts.callSessionId,

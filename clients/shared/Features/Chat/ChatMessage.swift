@@ -34,9 +34,9 @@ public struct ToolConfirmationData: Equatable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let riskLevel: String
-    public let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
-    public let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
-    public let scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption]
+    public let diff: IPCConfirmationRequestDiff?
+    public let allowlistOptions: [IPCConfirmationRequestAllowlistOption]
+    public let scopeOptions: [IPCConfirmationRequestScopeOption]
     public let executionTarget: String?
     /// When false, hide "Always Allow" and trust-rule persistence controls.
     public let persistentDecisionsAllowed: Bool
@@ -46,6 +46,9 @@ public struct ToolConfirmationData: Equatable {
     /// The decision string that was used to approve (e.g. "allow", "allow_10m", "allow_thread", "always_allow").
     /// Set when the state transitions to `.approved`.
     public var approvedDecision: String?
+    /// When set, `toolCategory` returns this instead of deriving from `toolName`.
+    /// Used for confirmation data synthesized from persisted per-tool-call labels.
+    public var _overrideToolCategory: String?
 
     /// Normalized target label shown in confirmation UIs.
     public var normalizedExecutionTarget: String? {
@@ -439,6 +442,7 @@ public struct ToolConfirmationData: Equatable {
 
     /// User-facing tool category label (e.g. "Run Command", "Write File").
     public var toolCategory: String {
+        if let override = _overrideToolCategory { return override }
         switch toolName {
         case "bash", "host_bash":                    return "Run Command"
         case "file_write", "host_file_write":        return "Write File"
@@ -465,26 +469,26 @@ public struct ToolConfirmationData: Equatable {
         }
     }
 
-    /// SF Symbol name for the tool category.
-    public var toolCategoryIcon: String {
+    /// Icon for the tool category.
+    public var toolCategoryIcon: VIcon {
         switch toolName {
-        case "bash", "host_bash":                    return "terminal"
-        case "file_write", "host_file_write":        return "doc.badge.plus"
-        case "file_edit", "host_file_edit":           return "pencil.line"
-        case "file_read", "host_file_read":           return "doc.text"
-        case "web_fetch":                             return "arrow.down.circle"
-        case "web_search":                            return "magnifyingglass"
-        case "credential_store":                      return "lock.shield"
-        case "account_manage":                        return "person.crop.circle"
-        case _ where toolName.hasPrefix("browser_"):  return "globe"
-        case _ where toolName.hasPrefix("schedule_"): return "calendar"
-        case _ where toolName.hasPrefix("watcher_"):  return "eye"
-        case _ where toolName.hasPrefix("memory_"):   return "brain"
-        case "skill_load":                            return "puzzlepiece.extension"
-        case "evaluate_typescript_code":              return "chevron.left.forwardslash.chevron.right"
-        case _ where toolName.hasPrefix("reminder_"):   return "bell"
-        case "document_create", "document_update":    return "doc.richtext"
-        default:                                      return "puzzlepiece.extension"
+        case "bash", "host_bash":                    return .terminal
+        case "file_write", "host_file_write":        return .filePlus
+        case "file_edit", "host_file_edit":           return .pencil
+        case "file_read", "host_file_read":           return .fileText
+        case "web_fetch":                             return .circleArrowDown
+        case "web_search":                            return .search
+        case "credential_store":                      return .shield
+        case "account_manage":                        return .circleUser
+        case _ where toolName.hasPrefix("browser_"):  return .globe
+        case _ where toolName.hasPrefix("schedule_"): return .calendar
+        case _ where toolName.hasPrefix("watcher_"):  return .eye
+        case _ where toolName.hasPrefix("memory_"):   return .brain
+        case "skill_load":                            return .puzzle
+        case "evaluate_typescript_code":              return .fileCode
+        case _ where toolName.hasPrefix("reminder_"):   return .bell
+        case "document_create", "document_update":    return .fileText
+        default:                                      return .puzzle
         }
     }
 
@@ -642,7 +646,7 @@ public struct ToolConfirmationData: Equatable {
         }
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestMessage.ConfirmationDiffInfo? = nil, allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption] = [], scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: IPCConfirmationRequestDiff? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption] = [], scopeOptions: [IPCConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -733,19 +737,19 @@ public struct ClaudeCodeSubStep: Identifiable, Equatable {
         }
     }
 
-    /// SF Symbol name for the sub-tool type.
-    public var toolIcon: String {
+    /// Icon for the sub-tool type.
+    public var toolIcon: VIcon {
         switch toolName.lowercased() {
-        case "read", "file_read":       return "doc.text"
-        case "edit", "file_edit":       return "pencil.line"
-        case "write", "file_write":     return "doc.badge.plus"
-        case "bash":                    return "terminal"
-        case "glob":                    return "folder.badge.magnifyingglass"
-        case "grep":                    return "magnifyingglass"
-        case "websearch", "web_search": return "magnifyingglass"
-        case "webfetch", "web_fetch":   return "arrow.down.circle"
-        case "task":                    return "person.2"
-        default:                        return "puzzlepiece.extension"
+        case "read", "file_read":       return .fileText
+        case "edit", "file_edit":       return .pencil
+        case "write", "file_write":     return .filePlus
+        case "bash":                    return .terminal
+        case "glob":                    return .folderSearch
+        case "grep":                    return .search
+        case "websearch", "web_search": return .search
+        case "webfetch", "web_fetch":   return .circleArrowDown
+        case "task":                    return .users
+        default:                        return .puzzle
         }
     }
 }
@@ -779,6 +783,12 @@ public struct ToolCallData: Identifiable, Equatable {
     public var arrivedBeforeText: Bool
     public var startedAt: Date?
     public var completedAt: Date?
+    /// The tool_use block ID from the daemon, for correlating confirmations to tool calls.
+    public var toolUseId: String?
+    /// Persisted confirmation decision for this tool call (survives app restart / thread switch).
+    public var confirmationDecision: ToolConfirmationState?
+    /// Friendly label for the confirmation (e.g. "Edit File", "Run Command").
+    public var confirmationLabel: String?
     /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
     public var imageData: String?
     /// Human-readable building status from app tool input (e.g. "Adding dark mode styles").
@@ -813,6 +823,10 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.buildingStatus == rhs.buildingStatus
             && lhs.reasonDescription == rhs.reasonDescription
             && lhs.claudeCodeSteps == rhs.claudeCodeSteps
+            && lhs.startedAt == rhs.startedAt
+            && lhs.completedAt == rhs.completedAt
+            && lhs.confirmationDecision == rhs.confirmationDecision
+            && lhs.confirmationLabel == rhs.confirmationLabel
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageData: String? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
@@ -880,23 +894,23 @@ public struct ToolCallData: Identifiable, Equatable {
         }
     }
 
-    /// SF Symbol name appropriate for the tool type.
-    public var toolIcon: String {
+    /// Icon appropriate for the tool type.
+    public var toolIcon: VIcon {
         switch toolName {
-        case "bash", "host_bash":                  return "terminal"
-        case "file_write", "host_file_write":      return "doc.badge.plus"
-        case "file_edit", "host_file_edit":        return "pencil.line"
-        case "file_read", "host_file_read":        return "doc.text"
-        case "glob":                               return "folder.badge.magnifyingglass"
-        case "grep":                               return "magnifyingglass"
-        case "web_fetch":                          return "arrow.down.circle"
-        case "browser_navigate":                   return "globe"
-        case "browser_screenshot":                 return "camera.viewfinder"
-        case "browser_click":                      return "cursorarrow.click"
-        case "browser_type":                       return "keyboard"
-        case "app_create", "app_update":           return "apps.iphone"
-        case "request_system_permission":          return "lock.shield"
-        default:                                   return "puzzlepiece.extension"
+        case "bash", "host_bash":                  return .terminal
+        case "file_write", "host_file_write":      return .filePlus
+        case "file_edit", "host_file_edit":        return .pencil
+        case "file_read", "host_file_read":        return .fileText
+        case "glob":                               return .folderSearch
+        case "grep":                               return .search
+        case "web_fetch":                          return .circleArrowDown
+        case "browser_navigate":                   return .globe
+        case "browser_screenshot":                 return .scan
+        case "browser_click":                      return .mousePointerClick
+        case "browser_type":                       return .keyboard
+        case "app_create", "app_update":           return .smartphone
+        case "request_system_permission":          return .shield
+        default:                                   return .puzzle
         }
     }
 
@@ -940,7 +954,7 @@ public struct ToolCallData: Identifiable, Equatable {
             return inputSummary.isEmpty ? "Searched the web" : "Searched for \"\(truncated(inputSummary, to: 50))\""
         case "memory_save", "memory_update":
             return "Saved a memory"
-        case "memory_search":
+        case "memory_recall":
             return inputSummary.isEmpty ? "Recalled memories" : "Recalled info about \"\(truncated(inputSummary, to: 40))\""
         case "task_run":
             return inputSummary.isEmpty ? "Ran a task" : "Ran \"\(truncated(inputSummary, to: 50))\""
@@ -1636,6 +1650,29 @@ public struct ChatMessage: Identifiable, Equatable {
         self.isError = isError
     }
 
+    /// Synthesize `ToolConfirmationData` entries from persisted per-tool-call confirmation data.
+    /// Returns one entry per unique (toolCategory, state) pair, deduplicated.
+    /// Used as a fallback when live `decidedConfirmation` is nil (e.g. after history restore).
+    public func derivedConfirmationsFromToolCalls() -> [ToolConfirmationData] {
+        var seen = Set<String>()
+        var result: [ToolConfirmationData] = []
+        for tc in toolCalls {
+            guard let decision = tc.confirmationDecision else { continue }
+            let label = tc.confirmationLabel ?? tc.toolName
+            let key = "\(label)|\(decision)"
+            guard seen.insert(key).inserted else { continue }
+            var data = ToolConfirmationData(
+                requestId: "",
+                toolName: tc.toolName,
+                riskLevel: "medium",
+                state: decision
+            )
+            data._overrideToolCategory = tc.confirmationLabel
+            result.append(data)
+        }
+        return result
+    }
+
     /// Release heavyweight data (images, attachment binary data, completed surface
     /// payloads, tool results) to reduce memory pressure on old messages
     /// that are no longer visible.
@@ -1669,25 +1706,5 @@ public struct ChatMessage: Identifiable, Equatable {
             }
         }
         isContentStripped = true
-    }
-
-    /// Build a default content order from the legacy `arrivedBeforeText` flag.
-    public static func buildDefaultContentOrder(
-        textSegmentCount: Int,
-        toolCallCount: Int,
-        arrivedBeforeText: Bool,
-        surfaceCount: Int = 0
-    ) -> [ContentBlockRef] {
-        var order: [ContentBlockRef] = []
-        if arrivedBeforeText {
-            for i in 0..<toolCallCount { order.append(.toolCall(i)) }
-            for i in 0..<textSegmentCount { order.append(.text(i)) }
-            for i in 0..<surfaceCount { order.append(.surface(i)) }
-        } else {
-            for i in 0..<textSegmentCount { order.append(.text(i)) }
-            for i in 0..<toolCallCount { order.append(.toolCall(i)) }
-            for i in 0..<surfaceCount { order.append(.surface(i)) }
-        }
-        return order
     }
 }

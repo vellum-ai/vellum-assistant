@@ -3,15 +3,16 @@ import * as net from "node:net";
 import type { ChannelId } from "../../channels/types.js";
 import { isChannelId, isInterfaceId } from "../../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
-import { getLatestStoredPayload } from "../../memory/channel-delivery-store.js";
-import type { GuardianApprovalRequest } from "../../memory/channel-guardian-store.js";
+import { addMessage, getMessages } from "../../memory/conversation-crud.js";
+import { getLatestStoredPayload } from "../../memory/delivery-crud.js";
+import { getBindingByConversation } from "../../memory/external-conversation-store.js";
 import {
   type ApprovalRequestStatus,
+  type GuardianApprovalRequest,
   listPendingApprovalRequests,
   resolveApprovalRequest,
-} from "../../memory/channel-guardian-store.js";
-import { addMessage, getMessages } from "../../memory/conversation-store.js";
-import { getBindingByConversation } from "../../memory/external-conversation-store.js";
+} from "../../memory/guardian-approvals.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
 import { deliverChannelReply } from "../../runtime/gateway-client.js";
 import {
@@ -31,19 +32,20 @@ import {
   renderHistoryContent,
 } from "./shared.js";
 
-export function handleContactsInvite(
+export async function handleContactsInvite(
   msg: ContactsInviteRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   try {
     switch (msg.action) {
       case "create": {
-        const result = createIngressInvite({
+        const result = await createIngressInvite({
           sourceChannel: msg.sourceChannel,
           note: msg.note,
           maxUses: msg.maxUses,
           expiresInMs: msg.expiresInMs,
+          contactName: msg.contactName,
           friendName: msg.friendName,
           guardianName: msg.guardianName,
         });
@@ -153,7 +155,6 @@ export function handleInboxEscalation(
     switch (msg.action) {
       case "list": {
         const escalations = listPendingApprovalRequests({
-          assistantId: msg.assistantId,
           status: (msg.status as ApprovalRequestStatus) ?? undefined,
         });
         ctx.send(socket, {
@@ -279,7 +280,7 @@ async function executeApprove(
   approval: GuardianApprovalRequest,
   ctx: HandlerContext,
 ): Promise<void> {
-  const { conversationId, assistantId, channel } = approval;
+  const { conversationId, channel } = approval;
 
   // Recover the original message content from the stored payload
   const payload = getLatestStoredPayload(conversationId);
@@ -316,11 +317,11 @@ async function executeApprove(
       });
     }
   }
-  session.setAssistantId(assistantId);
+  session.setAssistantId(DAEMON_INTERNAL_ASSISTANT_ID);
   // The guardian already approved this escalation via the inbox, so we
   // directly set guardian trust. Going through resolveLocalIpcTrustContext
   // would look up the vellum binding's guardian ID and compare it against
-  // a different channel's binding (e.g. telegram/sms), misclassifying the
+  // a different channel's binding (e.g. telegram/voice), misclassifying the
   // actor as 'unknown'.
   session.setTrustContext({
     sourceChannel: sourceChannel ?? "vellum",
@@ -368,7 +369,7 @@ async function executeApprove(
             {
               chatId: externalChatId,
               text: rendered.text,
-              assistantId,
+              assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
             },
             bearerToken,
           );
@@ -388,7 +389,7 @@ async function executeDeny(
   approval: GuardianApprovalRequest,
   reason: string | undefined,
 ): Promise<void> {
-  const { conversationId, assistantId, channel } = approval;
+  const { conversationId, channel } = approval;
 
   const binding = getBindingByConversation(conversationId);
   if (!binding) {
@@ -423,7 +424,7 @@ async function executeDeny(
     {
       chatId: binding.externalChatId,
       text: denialText,
-      assistantId,
+      assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     },
     bearerToken,
   );

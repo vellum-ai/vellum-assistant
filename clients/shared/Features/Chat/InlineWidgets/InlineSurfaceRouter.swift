@@ -1,16 +1,29 @@
+import os
 import SwiftUI
+
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "InlineSurfaceRouter"
+)
 
 /// Routes an `InlineSurfaceData` to the correct inline widget view.
 public struct InlineSurfaceRouter: View {
     public let surface: InlineSurfaceData
     public let onAction: (String, String, [String: AnyCodable]?) -> Void
+    /// Called when a `.stripped` surface appears and needs its data re-fetched.
+    public let onRefetch: ((String, String) -> Void)?
 
     @State private var selectionPayload: [String: AnyCodable]?
     @State private var clickedActionLabel: String?
 
-    public init(surface: InlineSurfaceData, onAction: @escaping (String, String, [String: AnyCodable]?) -> Void) {
+    public init(
+        surface: InlineSurfaceData,
+        onAction: @escaping (String, String, [String: AnyCodable]?) -> Void,
+        onRefetch: ((String, String) -> Void)? = nil
+    ) {
         self.surface = surface
         self.onAction = onAction
+        self.onRefetch = onRefetch
     }
 
     /// Whether the surface content handles its own header/chrome.
@@ -49,7 +62,11 @@ public struct InlineSurfaceRouter: View {
 
     public var body: some View {
         Group {
-        if let completion = surface.completionState {
+        if case .strippedFailed = surface.data {
+            strippedFailedPlaceholder
+        } else if case .stripped = surface.data {
+            strippedPlaceholder
+        } else if let completion = surface.completionState {
             CompletedSurfaceChip(title: surface.title, summary: completion.summary)
         } else if case .confirmation(let data) = surface.data {
             // Confirmations manage their own card chrome — collapse to a chip after user acts
@@ -88,8 +105,7 @@ public struct InlineSurfaceRouter: View {
                         )
                     }
                 } label: {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 10, weight: .semibold))
+                    VIconView(.arrowUpRight, size: 10)
                         .foregroundColor(VColor.textSecondary)
                         .padding(VSpacing.xs)
                         .background(
@@ -108,8 +124,7 @@ public struct InlineSurfaceRouter: View {
                             userInfo: ["documentSurfaceId": data.surfaceId]
                         )
                     } label: {
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10, weight: .semibold))
+                        VIconView(.arrowUpRight, size: 10)
                             .foregroundColor(VColor.textSecondary)
                             .padding(VSpacing.xs)
                             .background(
@@ -134,6 +149,42 @@ public struct InlineSurfaceRouter: View {
                 clickedActionLabel = nil
             }
         }
+    }
+
+    /// Placeholder shown while a stripped surface's data is being re-fetched.
+    @ViewBuilder
+    private var strippedPlaceholder: some View {
+        HStack(spacing: VSpacing.sm) {
+            VLoadingIndicator(size: 14, color: VColor.textSecondary)
+            Text(surface.title ?? "Loading surface…")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: 540, alignment: .leading)
+        .inlineWidgetCard(interactive: false)
+        .onAppear {
+            guard let sessionId = surface.surfaceRef?.sessionId else {
+                log.warning("Surface \(surface.id) has no surfaceRef — cannot refetch")
+                return
+            }
+            onRefetch?(surface.id, sessionId)
+        }
+    }
+
+    /// Placeholder shown when a stripped surface could not be re-fetched after retries.
+    @ViewBuilder
+    private var strippedFailedPlaceholder: some View {
+        HStack(spacing: VSpacing.sm) {
+            VIconView(.triangleAlert, size: 12)
+                .foregroundColor(VColor.textSecondary)
+            Text("Failed to load surface")
+                .font(VFont.caption)
+                .foregroundColor(VColor.textSecondary)
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: 540, alignment: .leading)
+        .inlineWidgetCard(interactive: false)
     }
 
     @ViewBuilder
@@ -165,18 +216,12 @@ public struct InlineSurfaceRouter: View {
                                 )
                             }
                         },
-                        onPinToHomebase: {
+                        onShareApp: {
                             guard let appId = data.appId else { return }
                             NotificationCenter.default.post(
-                                name: Notification.Name("MainWindow.pinAppToHomebase"),
+                                name: Notification.Name("MainWindow.shareAppCloud"),
                                 object: nil,
-                                userInfo: [
-                                    "appId": appId,
-                                    "name": preview.title,
-                                    "icon": preview.icon as Any,
-                                    "appType": data.appType as Any,
-                                    "description": preview.description as Any,
-                                ]
+                                userInfo: ["appId": appId]
                             )
                         }
                     )
@@ -271,8 +316,7 @@ public struct InlineSurfaceRouter: View {
             HStack(spacing: VSpacing.sm) {
                 Spacer()
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(VFont.caption)
+                    VIconView(.circleCheck, size: 12)
                         .foregroundColor(VColor.success)
                     Text(label)
                         .font(VFont.captionMedium)

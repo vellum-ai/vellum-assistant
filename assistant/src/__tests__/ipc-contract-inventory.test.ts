@@ -10,7 +10,7 @@ import {
 
 const CONTRACT_PATH = path.resolve(
   import.meta.dirname,
-  "../daemon/ipc-contract.ts",
+  "../daemon/ipc-protocol.ts",
 );
 const SNAPSHOT_PATH = path.resolve(
   import.meta.dirname,

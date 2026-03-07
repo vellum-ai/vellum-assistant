@@ -1,19 +1,24 @@
 /**
- * Telegram channel invite transport adapter.
+ * Telegram channel invite adapter.
  *
- * Builds `https://t.me/<botUsername>?start=iv_<token>` deep links and
- * extracts invite tokens from `/start iv_<token>` command payloads.
+ * Builds `https://t.me/<botUsername>?start=iv_<token>` deep links,
+ * extracts invite tokens from `/start iv_<token>` command payloads,
+ * and resolves the bot's channel handle for invite instructions.
  *
  * The `iv_` prefix distinguishes invite tokens from `gv_` (guardian
  * verification) tokens that use the same `/start` deep-link mechanism.
  */
 
 import type { ChannelId } from "../../channels/types.js";
-import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
+import { getSecureKey } from "../../security/secure-keys.js";
 import {
-  type ChannelInviteTransport,
-  type InviteSharePayload,
-  registerTransport,
+  getCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
+import { getLogger } from "../../util/logger.js";
+import type {
+  ChannelInviteAdapter,
+  InviteShareLink,
 } from "../channel-invite-transport.js";
 
 // ---------------------------------------------------------------------------
@@ -23,7 +28,7 @@ import {
 /**
  * Resolve the Telegram bot username from credential metadata, falling back
  * to the TELEGRAM_BOT_USERNAME environment variable. Mirrors the resolution
- * strategy used in `guardian-outbound-actions.ts`.
+ * strategy used in `verification-outbound-actions.ts`.
  */
 function getTelegramBotUsername(): string | undefined {
   const meta = getCredentialMetadata("telegram", "bot_token");
@@ -37,6 +42,66 @@ function getTelegramBotUsername(): string | undefined {
   return process.env.TELEGRAM_BOT_USERNAME || undefined;
 }
 
+/**
+ * Ensure the Telegram bot username is resolved and cached in credential
+ * metadata. When the bot token was configured via CLI `credential set`,
+ * `credential_store` tool, or ingress secret redirect, the `getMe` API
+ * call that populates `accountInfo` is skipped — this function fills that
+ * gap so that invite share links can be generated.
+ */
+export async function ensureTelegramBotUsernameResolved(): Promise<void> {
+  const meta = getCredentialMetadata("telegram", "bot_token");
+  if (
+    meta?.accountInfo &&
+    typeof meta.accountInfo === "string" &&
+    meta.accountInfo.trim().length > 0
+  ) {
+    return; // Username already cached
+  }
+
+  const token = getSecureKey("credential:telegram:bot_token");
+  if (!token) return;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+    let res: Response;
+    try {
+      res = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!res.ok) {
+      getLogger("telegram-invite").warn(
+        "Failed to resolve Telegram bot username: HTTP %d",
+        res.status,
+      );
+      return;
+    }
+    const body = (await res.json()) as {
+      ok: boolean;
+      result?: { username?: string };
+    };
+    const username = body.result?.username;
+    if (!username) {
+      getLogger("telegram-invite").warn(
+        "Telegram getMe response did not include a username",
+      );
+      return;
+    }
+    upsertCredentialMetadata("telegram", "bot_token", {
+      accountInfo: username,
+    });
+  } catch (err) {
+    getLogger("telegram-invite").warn(
+      { err },
+      "Failed to resolve Telegram bot username via getMe API",
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Token prefix
 // ---------------------------------------------------------------------------
@@ -44,16 +109,16 @@ function getTelegramBotUsername(): string | undefined {
 const INVITE_TOKEN_PREFIX = "iv_";
 
 // ---------------------------------------------------------------------------
-// Transport implementation
+// Adapter implementation
 // ---------------------------------------------------------------------------
 
-export const telegramInviteTransport: ChannelInviteTransport = {
+export const telegramInviteAdapter: ChannelInviteAdapter = {
   channel: "telegram" as ChannelId,
 
-  buildShareableInvite(params: {
+  buildShareLink(params: {
     rawToken: string;
     sourceChannel: ChannelId;
-  }): InviteSharePayload {
+  }): InviteShareLink {
     const botUsername = getTelegramBotUsername();
     if (!botUsername) {
       throw new Error(
@@ -66,6 +131,12 @@ export const telegramInviteTransport: ChannelInviteTransport = {
       url,
       displayText: `Open in Telegram: ${url}`,
     };
+  },
+
+  resolveChannelHandle(): string | undefined {
+    const botUsername = getTelegramBotUsername();
+    if (!botUsername) return undefined;
+    return `@${botUsername}`;
   },
 
   extractInboundToken(params: {
@@ -103,9 +174,3 @@ export const telegramInviteTransport: ChannelInviteTransport = {
     return undefined;
   },
 };
-
-// ---------------------------------------------------------------------------
-// Auto-register on import
-// ---------------------------------------------------------------------------
-
-registerTransport(telegramInviteTransport);

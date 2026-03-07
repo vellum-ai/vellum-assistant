@@ -207,6 +207,8 @@ public enum VColor {
     // Navigation
     public static let navHover = adaptiveColor(light: Color(hex: 0xE8E6DA), dark: Moss._700)
     public static let navActive = adaptiveColor(light: Color(hex: 0xD4DFD0), dark: Moss._600)
+    public static let segmentSelected = adaptiveColor(light: .white, dark: Moss._600)
+    public static let segmentHover = adaptiveColor(light: Stone._100, dark: Moss._600)
 
     // Interactive states
     public static let ghostHover = adaptiveColor(light: Stone._100, dark: Moss._700)
@@ -223,7 +225,20 @@ public enum VColor {
     public static let buttonPrimary = adaptiveColor(light: Color(hex: 0x537D53), dark: Color(hex: 0x537D53))
     public static let buttonPrimaryHover = adaptiveColor(light: Color(hex: 0x629062), dark: Color(hex: 0x629062))
     public static let buttonPrimaryPressed = adaptiveColor(light: Color(hex: 0x456C47), dark: Color(hex: 0x456C47))
+    public static let buttonSecondaryBg = adaptiveColor(light: Color(hex: 0xD4DFD4), dark: Moss._700)
+    public static let buttonSecondaryBgHover = adaptiveColor(light: Color(hex: 0xCBD8CB), dark: Color(hex: 0x424240))
+    public static let buttonSecondaryBgPressed = adaptiveColor(light: Color(hex: 0xC3D2C3), dark: Moss._600)
     public static let buttonSecondaryBorder = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._500)
     public static let buttonSecondaryText = adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
     public static let buttonTertiaryBackground = adaptiveColor(light: Moss._200, dark: Moss._700)
+
+    // Neutral button — dark fill that works in both light and dark modes
+    public static let buttonNeutral = adaptiveColor(light: Stone._800, dark: Moss._500)
+    public static let buttonNeutralHover = adaptiveColor(light: Stone._700, dark: Moss._400)
+    public static let buttonNeutralPressed = adaptiveColor(light: Stone._900, dark: Moss._600)
+
+    // Danger button
+    public static let buttonDanger = Color(hex: 0xC1421B)
+    public static let buttonDangerHover = Color(hex: 0xD4582F)
+    public static let buttonDangerPressed = Color(hex: 0xE0745A)
 }

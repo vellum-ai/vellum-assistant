@@ -45,9 +45,8 @@ public struct VDropdown<T: Hashable>: View {
                 .font(VFont.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                Image(systemName: "chevron.down")
+                VIconView(.chevronDown, size: 13)
                     .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 13))
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, VSpacing.md)
@@ -69,7 +68,7 @@ public struct VDropdown<T: Hashable>: View {
                         HStack {
                             Text(option.label)
                             if option.value == selection {
-                                Image(systemName: "checkmark")
+                                VIconView(.check, size: 12)
                             }
                         }
                     }

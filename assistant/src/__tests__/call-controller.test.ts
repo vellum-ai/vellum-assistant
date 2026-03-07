@@ -27,7 +27,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => null,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -83,9 +82,6 @@ mock.module("../calls/call-constants.js", () => ({
   getMaxCallDurationMs: () => 12 * 60 * 1000,
   getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
   getSilenceTimeoutMs: () => mockSilenceTimeoutMs,
-  SILENCE_TIMEOUT_MS: 30_000,
-  MAX_CALL_DURATION_MS: 3600 * 1000,
-  USER_CONSULTATION_TIMEOUT_MS: 120 * 1000,
 }));
 
 // ── Voice session bridge mock ────────────────────────────────────────
@@ -167,7 +163,7 @@ import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
 } from "../memory/canonical-guardian-store.js";
-import { getMessages } from "../memory/conversation-store.js";
+import { getMessages } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
@@ -934,7 +930,6 @@ describe("call-controller", () => {
     const initialCtx = {
       sourceChannel: "voice" as const,
       trustClass: "unknown" as const,
-      denialReason: "no_binding" as const,
     };
 
     const upgradedCtx = {

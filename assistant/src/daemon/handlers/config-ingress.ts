@@ -1,6 +1,7 @@
 import * as net from "node:net";
 
 import {
+  getTwilioCredentials,
   hasTwilioCredentials,
   updatePhoneNumberWebhooks,
 } from "../../calls/twilio-rest.js";
@@ -16,13 +17,11 @@ import {
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
 import {
-  getTwilioSmsWebhookUrl,
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
   type IngressConfig,
 } from "../../inbound/public-ingress-urls.js";
 import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
-import { getSecureKey } from "../../security/secure-keys.js";
 import type { IngressConfigRequest } from "../ipc-protocol.js";
 import {
   CONFIG_RELOAD_DEBOUNCE_MS,
@@ -49,6 +48,68 @@ export function computeGatewayTarget(): string {
   return getGatewayInternalBaseUrl();
 }
 
+export interface GatewayInternalReconcileResult {
+  ok: boolean;
+  status?: number;
+  error?: string;
+}
+
+async function triggerGatewayInternalReconcile(
+  endpointPath: string,
+  ingressPublicBaseUrl: string | undefined,
+  messages: {
+    success: string;
+    nonOk: string;
+    unavailable: string;
+    unavailableLogLevel: "debug" | "warn";
+    unavailableErrorPrefix: string;
+  },
+): Promise<GatewayInternalReconcileResult> {
+  const gatewayBase = computeGatewayTarget();
+  const token = mintDaemonDeliveryToken();
+
+  const url = `${gatewayBase}${endpointPath}`;
+  const body = JSON.stringify({
+    ingressPublicBaseUrl: ingressPublicBaseUrl ?? "",
+  });
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body,
+      signal: AbortSignal.timeout(5_000),
+    });
+
+    if (res.ok) {
+      log.info(messages.success);
+      return { ok: true, status: res.status };
+    }
+
+    log.warn({ status: res.status }, messages.nonOk);
+    return {
+      ok: false,
+      status: res.status,
+      error: `${messages.unavailableErrorPrefix} (HTTP ${res.status})`,
+    };
+  } catch (err) {
+    if (messages.unavailableLogLevel === "warn") {
+      log.warn({ err }, messages.unavailable);
+    } else {
+      log.debug({ err }, messages.unavailable);
+    }
+    return {
+      ok: false,
+      error: `${messages.unavailableErrorPrefix}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+}
+
 /**
  * Best-effort call to the gateway's internal reconcile endpoint so that
  * Telegram webhook registration is updated immediately when the ingress
@@ -57,45 +118,46 @@ export function computeGatewayTarget(): string {
 export function triggerGatewayReconcile(
   ingressPublicBaseUrl: string | undefined,
 ): void {
-  const gatewayBase = computeGatewayTarget();
-  const token = mintDaemonDeliveryToken();
-
-  const url = `${gatewayBase}/internal/telegram/reconcile`;
-  const body = JSON.stringify({
-    ingressPublicBaseUrl: ingressPublicBaseUrl ?? "",
-  });
-
-  fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body,
-    signal: AbortSignal.timeout(5_000),
-  })
-    .then((res) => {
-      if (res.ok) {
-        log.info("Gateway Telegram webhook reconcile triggered successfully");
-      } else {
-        log.warn(
-          { status: res.status },
-          "Gateway Telegram webhook reconcile returned non-OK status",
-        );
-      }
-    })
-    .catch((err) => {
-      log.debug(
-        { err },
+  void triggerGatewayInternalReconcile(
+    "/internal/telegram/reconcile",
+    ingressPublicBaseUrl,
+    {
+      success: "Gateway Telegram webhook reconcile triggered successfully",
+      nonOk: "Gateway Telegram webhook reconcile returned non-OK status",
+      unavailable:
         "Gateway Telegram webhook reconcile failed (gateway may not be running)",
-      );
-    });
+      unavailableLogLevel: "debug",
+      unavailableErrorPrefix: "Gateway Telegram webhook reconcile failed",
+    },
+  );
+}
+
+/**
+ * Best-effort call to the gateway's internal reconcile endpoint so that
+ * Twilio validation state is refreshed immediately after ingress or
+ * credential changes, without requiring a gateway restart.
+ */
+export function triggerGatewayTwilioReconcile(
+  ingressPublicBaseUrl: string | undefined,
+): Promise<GatewayInternalReconcileResult> {
+  return triggerGatewayInternalReconcile(
+    "/internal/twilio/reconcile",
+    ingressPublicBaseUrl,
+    {
+      success: "Gateway Twilio state reconcile triggered successfully",
+      nonOk: "Gateway Twilio state reconcile returned non-OK status",
+      unavailable:
+        "Gateway Twilio state reconcile failed (gateway may not be running)",
+      unavailableLogLevel: "warn",
+      unavailableErrorPrefix: "Gateway Twilio state reconcile failed",
+    },
+  );
 }
 
 /**
  * Best-effort Twilio webhook sync helper.
  *
- * Computes the voice, status-callback, and SMS webhook URLs from the current
+ * Computes the voice and status-callback webhook URLs from the current
  * ingress config and pushes them to the Twilio IncomingPhoneNumber API.
  *
  * Returns `{ success, warning }`. When the update fails, `success` is false
@@ -120,15 +182,9 @@ export async function syncTwilioWebhooks(
       "webhooks/twilio/status",
       "twilio_status",
     );
-    const smsUrl = await resolveCallbackUrl(
-      () => getTwilioSmsWebhookUrl(ingressConfig),
-      "webhooks/twilio/sms",
-      "twilio_sms",
-    );
     await updatePhoneNumberWebhooks(accountSid, authToken, phoneNumber, {
       voiceUrl,
       statusCallbackUrl,
-      smsUrl,
     });
     log.info({ phoneNumber }, "Twilio webhooks configured successfully");
     return { success: true };
@@ -153,12 +209,7 @@ export async function handleIngressConfig(
       const raw = loadRawConfig();
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
-      // Backward compatibility: if `enabled` was never explicitly set,
-      // infer from whether a publicBaseUrl is configured so existing users
-      // who predate the toggle aren't silently disabled.
-      const enabled =
-        (ingress.enabled as boolean | undefined) ??
-        (publicBaseUrl ? true : false);
+      const enabled = (ingress.enabled as boolean | undefined) ?? false;
       ctx.send(socket, {
         type: "ingress_config_response",
         enabled,
@@ -253,18 +304,22 @@ export async function handleIngressConfig(
       }
 
       triggerGatewayReconcile(effectiveUrl);
+      void triggerGatewayTwilioReconcile(effectiveUrl);
 
       // Best-effort Twilio webhook reconciliation: when ingress is being
       // enabled/updated and Twilio numbers are assigned with valid credentials,
-      // push the new webhook URLs to Twilio so calls and SMS route correctly.
+      // push the new webhook URLs to Twilio so calls route correctly.
       if (isEnabled && hasTwilioCredentials()) {
         const currentConfig = loadRawConfig();
-        const smsConfig = (currentConfig?.sms ?? {}) as Record<string, unknown>;
+        const twilioConfig = (currentConfig?.twilio ?? {}) as Record<
+          string,
+          unknown
+        >;
         const assignedNumbers = new Set<string>();
-        const legacyNumber = (smsConfig.phoneNumber as string) ?? "";
-        if (legacyNumber) assignedNumbers.add(legacyNumber);
+        const primaryNumber = (twilioConfig.phoneNumber as string) ?? "";
+        if (primaryNumber) assignedNumbers.add(primaryNumber);
 
-        const assistantPhoneNumbers = smsConfig.assistantPhoneNumbers;
+        const assistantPhoneNumbers = twilioConfig.assistantPhoneNumbers;
         if (
           assistantPhoneNumbers &&
           typeof assistantPhoneNumbers === "object" &&
@@ -280,8 +335,8 @@ export async function handleIngressConfig(
         }
 
         if (assignedNumbers.size > 0) {
-          const acctSid = getSecureKey("credential:twilio:account_sid")!;
-          const acctToken = getSecureKey("credential:twilio:auth_token")!;
+          const { accountSid: acctSid, authToken: acctToken } =
+            getTwilioCredentials();
           // Fire-and-forget: webhook sync failure must not block the ingress save.
           // Reconcile every assigned number so assistant-scoped mappings do not
           // retain stale Twilio webhook URLs after ingress URL changes.

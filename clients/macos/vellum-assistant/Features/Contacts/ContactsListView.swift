@@ -30,8 +30,7 @@ struct ContactsListView: View {
 
     private var searchBar: some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12))
+            VIconView(.search, size: 12)
                 .foregroundColor(VColor.textMuted)
             TextField("Search contacts...", text: $viewModel.searchQuery)
                 .textFieldStyle(.plain)
@@ -134,8 +133,7 @@ struct ContactsListView: View {
                     .foregroundColor(VColor.textPrimary)
                 Spacer()
                 Button { viewModel.isCreatingContact = true } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .semibold))
+                    VIconView(.plus, size: 14)
                         .foregroundColor(VColor.accent)
                 }
                 .buttonStyle(.plain)
@@ -209,8 +207,7 @@ struct ContactsListView: View {
         HStack(spacing: VSpacing.sm) {
             let channelTypes = Set(channels.map(\.type))
             ForEach(Array(channelTypes.sorted()), id: \.self) { type in
-                Image(systemName: channelIcon(for: type))
-                    .font(.system(size: 11))
+                VIconView(channelIcon(for: type), size: 11)
                     .foregroundColor(VColor.textMuted)
                     .help(channelLabel(for: type))
             }
@@ -245,8 +242,7 @@ struct ContactsListView: View {
 
     private var emptyState: some View {
         VStack(spacing: VSpacing.md) {
-            Image(systemName: "person.2")
-                .font(.system(size: 32))
+            VIconView(.users, size: 32)
                 .foregroundColor(VColor.textMuted)
             Text("No contacts yet")
                 .font(VFont.headline)
@@ -256,7 +252,7 @@ struct ContactsListView: View {
                 .foregroundColor(VColor.textMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 300)
-            VButton(label: "Add Contact", leftIcon: "plus", style: .primary, size: .medium) {
+            VButton(label: "Add Contact", leftIcon: VIcon.plus.rawValue, style: .primary, size: .medium) {
                 viewModel.isCreatingContact = true
             }
         }
@@ -272,15 +268,15 @@ struct ContactsListView: View {
         return types.sorted().map { channelLabel(for: $0) }.joined(separator: ", ")
     }
 
-    /// Maps channel type to an SF Symbol name.
-    private func channelIcon(for type: String) -> String {
+    /// Maps channel type to a VIcon.
+    private func channelIcon(for type: String) -> VIcon {
         switch type {
-        case "telegram": return "paperplane.fill"
-        case "sms": return "message.fill"
-        case "voice": return "phone.fill"
-        case "email": return "envelope.fill"
-        case "slack": return "number"
-        default: return "bubble.left.fill"
+        case "telegram": return .send
+        case "sms": return .messageSquare
+        case "voice": return .phoneCall
+        case "email": return .mail
+        case "slack": return .hash
+        default: return .messageCircle
         }
     }
 

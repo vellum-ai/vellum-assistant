@@ -80,152 +80,10 @@ extension AppDelegate {
         mainMenu.insertItem(fileMenuItem, at: 1)
     }
 
-    func setupViewMenu() {
-        guard let mainMenu = NSApp.mainMenu else { return }
-        let managedZoomMenuTag = 9_401
-
-        let viewMenu: NSMenu
-        let existingIndex = mainMenu.indexOfItem(withTitle: "View")
-        if existingIndex >= 0,
-           let existingItem = mainMenu.item(at: existingIndex) {
-            if let existingMenu = existingItem.submenu {
-                viewMenu = existingMenu
-            } else {
-                let newMenu = NSMenu(title: "View")
-                existingItem.submenu = newMenu
-                viewMenu = newMenu
-            }
-        } else {
-            let newMenu = NSMenu(title: "View")
-            let viewMenuItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
-            viewMenuItem.submenu = newMenu
-            mainMenu.addItem(viewMenuItem)
-            viewMenu = newMenu
-        }
-
-        // Preserve non-managed items already provided by AppKit/SwiftUI,
-        // while making this setup idempotent across reconfiguration cycles.
-        let preservedItems = viewMenu.items.filter { item in
-            item.tag != managedZoomMenuTag
-        }
-        viewMenu.removeAllItems()
-
-        // Conversation Text Zoom: Cmd +, Cmd -, Cmd 0
-        let convZoomInItem = NSMenuItem(
-            title: "Conversation Zoom In",
-            action: #selector(handleConversationZoomIn),
-            keyEquivalent: "+"
-        )
-        convZoomInItem.keyEquivalentModifierMask = .command
-        convZoomInItem.target = self
-        convZoomInItem.tag = managedZoomMenuTag
-        viewMenu.addItem(convZoomInItem)
-
-        let convZoomOutItem = NSMenuItem(
-            title: "Conversation Zoom Out",
-            action: #selector(handleConversationZoomOut),
-            keyEquivalent: "-"
-        )
-        convZoomOutItem.keyEquivalentModifierMask = .command
-        convZoomOutItem.target = self
-        convZoomOutItem.tag = managedZoomMenuTag
-        viewMenu.addItem(convZoomOutItem)
-
-        let convResetItem = NSMenuItem(
-            title: "Conversation Actual Size",
-            action: #selector(handleConversationZoomReset),
-            keyEquivalent: "0"
-        )
-        convResetItem.keyEquivalentModifierMask = .command
-        convResetItem.target = self
-        convResetItem.tag = managedZoomMenuTag
-        viewMenu.addItem(convResetItem)
-
-        let zoomGroupSeparator = NSMenuItem.separator()
-        zoomGroupSeparator.tag = managedZoomMenuTag
-        viewMenu.addItem(zoomGroupSeparator)
-
-        // Window Zoom: Option+Cmd +, Option+Cmd -, Option+Cmd 0
-        let winZoomInItem = NSMenuItem(
-            title: "Window Zoom In",
-            action: #selector(handleWindowZoomIn),
-            keyEquivalent: "+"
-        )
-        winZoomInItem.keyEquivalentModifierMask = [.command, .option]
-        winZoomInItem.target = self
-        winZoomInItem.tag = managedZoomMenuTag
-        viewMenu.addItem(winZoomInItem)
-
-        let winZoomOutItem = NSMenuItem(
-            title: "Window Zoom Out",
-            action: #selector(handleWindowZoomOut),
-            keyEquivalent: "-"
-        )
-        winZoomOutItem.keyEquivalentModifierMask = [.command, .option]
-        winZoomOutItem.target = self
-        winZoomOutItem.tag = managedZoomMenuTag
-        viewMenu.addItem(winZoomOutItem)
-
-        let winResetItem = NSMenuItem(
-            title: "Window Actual Size",
-            action: #selector(handleWindowZoomReset),
-            keyEquivalent: "0"
-        )
-        winResetItem.keyEquivalentModifierMask = [.command, .option]
-        winResetItem.target = self
-        winResetItem.tag = managedZoomMenuTag
-        viewMenu.addItem(winResetItem)
-
-        if !preservedItems.isEmpty {
-            let preservedSeparator = NSMenuItem.separator()
-            preservedSeparator.tag = managedZoomMenuTag
-            viewMenu.addItem(preservedSeparator)
-            for item in preservedItems {
-                viewMenu.addItem(item)
-            }
-        }
-    }
-
-    // MARK: - Zoom Intent Routing
-
-    func routeZoomIntent(_ intent: VZoomCommandIntent) {
-        switch intent {
-        case .windowZoomIn:
-            zoomManager.zoomIn()
-        case .windowZoomOut:
-            zoomManager.zoomOut()
-        case .windowZoomReset:
-            zoomManager.resetZoom()
-        case .conversationZoomIn:
-            conversationZoomManager.zoomIn()
-        case .conversationZoomOut:
-            conversationZoomManager.zoomOut()
-        case .conversationZoomReset:
-            conversationZoomManager.resetZoom()
-        }
-    }
-
-    @objc public func handleConversationZoomIn() { routeZoomIntent(.conversationZoomIn) }
-    @objc public func handleConversationZoomOut() { routeZoomIntent(.conversationZoomOut) }
-    @objc public func handleConversationZoomReset() { routeZoomIntent(.conversationZoomReset) }
-    @objc public func handleWindowZoomIn() { routeZoomIntent(.windowZoomIn) }
-    @objc public func handleWindowZoomOut() { routeZoomIntent(.windowZoomOut) }
-    @objc public func handleWindowZoomReset() { routeZoomIntent(.windowZoomReset) }
-
     // MARK: - Menu Item Validation
 
-    /// Disables conversation zoom shortcuts when no conversation is visible,
-    /// preventing accidental side effects in non-chat panels.
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let action = menuItem.action else { return true }
-        let conversationZoomSelectors: Set<Selector> = [
-            #selector(handleConversationZoomIn),
-            #selector(handleConversationZoomOut),
-            #selector(handleConversationZoomReset),
-        ]
-        if conversationZoomSelectors.contains(action) {
-            return mainWindow?.windowState.isConversationVisible ?? false
-        }
         if action == #selector(markAllThreadsSeen) {
             return (mainWindow?.threadManager.unseenVisibleConversationCount ?? 0) > 0
         }
@@ -254,7 +112,7 @@ extension AppDelegate {
             ), let img = NSImage(contentsOf: url) {
                 return img
             }
-            return NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Vellum")
+            return VIcon.sparkles.nsImage(size: 18)
                 ?? NSImage()
         }()
 
@@ -349,17 +207,17 @@ extension AppDelegate {
 
         let currentThreadItem = NSMenuItem(title: "Current Thread", action: #selector(openCurrentThread), keyEquivalent: "")
         currentThreadItem.target = self
-        currentThreadItem.image = NSImage(systemSymbolName: "message", accessibilityDescription: nil)
+        currentThreadItem.image = VIcon.messageSquare.nsImage
         menu.addItem(currentThreadItem)
 
         let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
         newChatItem.target = self
-        newChatItem.image = NSImage(systemSymbolName: "plus.message", accessibilityDescription: nil)
+        newChatItem.image = VIcon.messageCirclePlus.nsImage
         menu.addItem(newChatItem)
 
         // My Apps submenu
         let myAppsItem = NSMenuItem(title: "My Apps", action: nil, keyEquivalent: "")
-        myAppsItem.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
+        myAppsItem.image = VIcon.layoutGrid.nsImage
         let appsSubmenu = NSMenu(title: "My Apps")
 
         let recentApps = Array(cachedApps.sorted { $0.createdAt > $1.createdAt }.prefix(5))
@@ -384,7 +242,7 @@ extension AppDelegate {
 
         // Skills submenu
         let skillsItem = NSMenuItem(title: "Skills", action: nil, keyEquivalent: "")
-        skillsItem.image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)
+        skillsItem.image = VIcon.puzzle.nsImage
         let skillsSubmenu = NSMenu(title: "Skills")
 
         let enabledSkills = cachedSkills.filter { $0.state == "enabled" }
@@ -423,14 +281,14 @@ extension AppDelegate {
 
         let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
         settingsItem.target = self
-        settingsItem.image = NSImage(systemSymbolName: "gear", accessibilityDescription: nil)
+        settingsItem.image = VIcon.settings.nsImage
         menu.addItem(settingsItem)
 
         menu.addItem(NSMenuItem.separator())
 
         // Ride Shotgun submenu
         let rideShotgunItem = NSMenuItem(title: "Ride Shotgun", action: nil, keyEquivalent: "")
-        rideShotgunItem.image = NSImage(systemSymbolName: "binoculars", accessibilityDescription: nil)
+        rideShotgunItem.image = VIcon.binoculars.nsImage
         let rideShotgunSubmenu = NSMenu(title: "Ride Shotgun")
 
         let observeItem = NSMenuItem(title: "Observe (3 min)", action: #selector(startRideShotgunObserve), keyEquivalent: "")
@@ -458,7 +316,7 @@ extension AppDelegate {
         let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
         updateItem.target = self
         updateItem.isEnabled = updateManager.canCheckForUpdates
-        updateItem.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+        updateItem.image = VIcon.circleArrowDown.nsImage
         menu.addItem(updateItem)
 
         let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
@@ -474,23 +332,23 @@ extension AppDelegate {
 
         let exportLogsItem = NSMenuItem(title: "Export Logs...", action: #selector(exportAssistantLogs), keyEquivalent: "")
         exportLogsItem.target = self
-        exportLogsItem.image = NSImage(systemSymbolName: "doc.zipper", accessibilityDescription: nil)
+        exportLogsItem.image = VIcon.fileArchive.nsImage
         menu.addItem(exportLogsItem)
 
         let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
         restartItem.target = self
-        restartItem.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+        restartItem.image = VIcon.refreshCw.nsImage
         menu.addItem(restartItem)
 
         menu.addItem(NSMenuItem.separator())
 
         let logoutItem = NSMenuItem(title: "Sign Out", action: #selector(performLogout), keyEquivalent: "")
         logoutItem.target = self
-        logoutItem.image = NSImage(systemSymbolName: "rectangle.portrait.and.arrow.right", accessibilityDescription: nil)
+        logoutItem.image = VIcon.logOut.nsImage
         menu.addItem(logoutItem)
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
+        quitItem.image = VIcon.power.nsImage
         menu.addItem(quitItem)
 
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)

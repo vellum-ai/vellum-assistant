@@ -67,9 +67,9 @@ mock.module("../security/secure-keys.js", () => ({
   deleteSecureKey: (account: string) => {
     if (account in secureKeyStore) {
       delete secureKeyStore[account];
-      return true;
+      return "deleted";
     }
-    return false;
+    return "not-found";
   },
   listSecureKeys: () => Object.keys(secureKeyStore),
   getBackendType: () => "encrypted",
@@ -115,11 +115,12 @@ mock.module("../security/oauth2.js", () => ({
   prepareOAuth2Flow: async () => ({}),
 }));
 
-import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
+import { handleMessage } from "../daemon/handlers/index.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   OAuthConnectStartRequest,
   ServerMessage,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
@@ -300,10 +301,10 @@ describe("OAuth connect handler", () => {
     expect(result.error).toContain("timed out");
   });
 
-  test("oauth_client_id key variant is also checked", async () => {
-    // Store with the oauth_client_id variant
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] =
-      "test-client-id-alt";
+  test("client_id resolved via alias service name", async () => {
+    // Store with the canonical service name (integration:twitter)
+    secureKeyStore["credential:integration:twitter:client_id"] =
+      "test-client-id-canonical";
 
     orchestratorResult = {
       success: true,
@@ -328,8 +329,8 @@ describe("OAuth connect handler", () => {
     expect(result).toBeDefined();
     expect(result.success).toBe(true);
 
-    // Verify the alt key was used
-    expect(lastOrchestratorOptions!.clientId).toBe("test-client-id-alt");
+    // Verify the canonical key was used
+    expect(lastOrchestratorOptions!.clientId).toBe("test-client-id-canonical");
   });
 
   test("openUrl callback sends open_url IPC message", async () => {

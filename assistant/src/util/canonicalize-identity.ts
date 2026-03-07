@@ -5,7 +5,7 @@
  * trust lookups, member matching, and guardian binding comparisons are
  * immune to formatting variance across channels.
  *
- * Phone-like channels (sms, voice, whatsapp) normalize to E.164 using the
+ * Phone-like channels (voice, whatsapp) normalize to E.164 using the
  * existing phone utilities. Non-phone channels (telegram, slack, etc.)
  * pass through the platform-stable ID as-is after whitespace trimming.
  */
@@ -14,11 +14,7 @@ import type { ChannelId } from "../channels/types.js";
 import { normalizePhoneNumber } from "./phone.js";
 
 /** Channels whose raw sender IDs are phone numbers. */
-const PHONE_CHANNELS: ReadonlySet<ChannelId> = new Set([
-  "sms",
-  "voice",
-  "whatsapp",
-]);
+const PHONE_CHANNELS: ReadonlySet<ChannelId> = new Set(["voice", "whatsapp"]);
 
 /**
  * Canonicalize a raw inbound sender identity for the given channel.

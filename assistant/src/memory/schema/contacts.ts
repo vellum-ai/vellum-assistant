@@ -1,6 +1,5 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { conversations } from "./conversations.js";
 
 export const contacts = sqliteTable("contacts", {
@@ -13,7 +12,6 @@ export const contacts = sqliteTable("contacts", {
   updatedAt: integer("updated_at").notNull(),
   role: text("role").notNull().default("contact"), // 'guardian' | 'contact'
   principalId: text("principal_id"), // internal auth principal (nullable)
-  assistantId: text("assistant_id"), // which assistant this guardian is for (nullable, daemon default is DAEMON_INTERNAL_ASSISTANT_ID)
   contactType: text("contact_type").notNull().default("human"), // 'human' | 'assistant'
 });
 
@@ -69,9 +67,6 @@ export const assistantIngressInvites = sqliteTable(
   "assistant_ingress_invites",
   {
     id: text("id").primaryKey(),
-    assistantId: text("assistant_id")
-      .notNull()
-      .default(DAEMON_INTERNAL_ASSISTANT_ID),
     sourceChannel: text("source_channel").notNull(),
     tokenHash: text("token_hash").notNull(),
     createdBySessionId: text("created_by_session_id"),
@@ -87,6 +82,8 @@ export const assistantIngressInvites = sqliteTable(
     expectedExternalUserId: text("expected_external_user_id"),
     voiceCodeHash: text("voice_code_hash"),
     voiceCodeDigits: integer("voice_code_digits"),
+    // 6-digit invite code hash (nullable — voice invites use voiceCodeHash instead)
+    inviteCodeHash: text("invite_code_hash"),
     // Display metadata for personalized voice prompts (nullable — non-voice invites leave these NULL)
     friendName: text("friend_name"),
     guardianName: text("guardian_name"),
@@ -101,9 +98,6 @@ export const assistantInboxThreadState = sqliteTable(
     conversationId: text("conversation_id")
       .primaryKey()
       .references(() => conversations.id, { onDelete: "cascade" }),
-    assistantId: text("assistant_id")
-      .notNull()
-      .default(DAEMON_INTERNAL_ASSISTANT_ID),
     sourceChannel: text("source_channel").notNull(),
     externalChatId: text("external_chat_id").notNull(),
     externalUserId: text("external_user_id"),

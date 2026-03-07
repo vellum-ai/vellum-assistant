@@ -7,7 +7,6 @@ const runDeterministicChecksMock = mock();
 const createEventMock = mock();
 const updateEventDedupeKeyMock = mock();
 const dispatchDecisionMock = mock();
-const activeBindingChannels = new Set<string>(["telegram"]);
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -24,24 +23,14 @@ mock.module("../contacts/contact-store.js", () => ({
   findGuardianForChannel: (_channelType: string, _assistantId: string) => null,
 }));
 
-mock.module("../memory/channel-guardian-store.js", () => ({
-  getActiveBinding: (_assistantId: string, channel: string) =>
-    activeBindingChannels.has(channel)
-      ? {
-          guardianDeliveryChatId: "guardian-chat-123",
-          guardianExternalUserId: "guardian-user-123",
-        }
-      : null,
-}));
+// Note: stale mock for channel-guardian-store.js removed — the barrel was
+// deleted and none of the functions it mocked (getActiveBinding) existed in
+// the barrel.
 
 mock.module("../notifications/adapters/macos.js", () => ({
   VellumAdapter: class {
     constructor(_broadcastFn: unknown) {}
   },
-}));
-
-mock.module("../notifications/adapters/sms.js", () => ({
-  SmsAdapter: class {},
 }));
 
 mock.module("../notifications/adapters/telegram.js", () => ({
@@ -91,8 +80,6 @@ describe("emitNotificationSignal routing intent re-persistence", () => {
     createEventMock.mockReset();
     updateEventDedupeKeyMock.mockReset();
     dispatchDecisionMock.mockReset();
-    activeBindingChannels.clear();
-    activeBindingChannels.add("telegram");
 
     createEventMock.mockReturnValue({ id: "evt-1" });
     runDeterministicChecksMock.mockResolvedValue({ passed: true });
@@ -190,8 +177,6 @@ describe("emitNotificationSignal routing intent re-persistence", () => {
   });
 
   test("excludes unverified binding channels from connected channel candidates", async () => {
-    activeBindingChannels.clear();
-
     const decision = {
       shouldNotify: true,
       selectedChannels: ["vellum"],

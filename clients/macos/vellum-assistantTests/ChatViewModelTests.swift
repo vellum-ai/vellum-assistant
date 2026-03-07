@@ -1770,12 +1770,12 @@ final class ChatViewModelTests: XCTestCase {
             id: "hist-att-1", filename: "chart.png", mimeType: "image/png",
             data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(id: nil, role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
             IPCHistoryResponseMessage(id: nil, role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
-        viewModel.populateFromHistory(historyItems)
+        viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 2)
         XCTAssertEqual(viewModel.messages[1].role, .assistant)
@@ -1789,11 +1789,11 @@ final class ChatViewModelTests: XCTestCase {
             id: "hist-att-2", filename: "report.pdf", mimeType: "application/pdf",
             data: "JVBER", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
-        viewModel.populateFromHistory(historyItems)
+        viewModel.populateFromHistory(historyItems, hasMore: false)
 
         // Attachment-only message (empty text, no tool calls) should NOT be skipped
         XCTAssertEqual(viewModel.messages.count, 1)
@@ -1803,11 +1803,11 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testPopulateFromHistorySkipsEmptyMessagesWithNoAttachments() {
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
-        viewModel.populateFromHistory(historyItems)
+        viewModel.populateFromHistory(historyItems, hasMore: false)
 
         // Empty message with no text, no tool calls, no attachments should be skipped
         XCTAssertEqual(viewModel.messages.count, 0)
@@ -1864,7 +1864,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testPopulateFromHistoryUsesTextSegments() {
         let toolCall = IPCHistoryResponseToolCall(name: "memory_save", input: ["key": AnyCodable("task")], result: "saved", isError: nil, imageData: nil)
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(
                 id: nil,
                 role: "assistant",
@@ -1880,7 +1880,7 @@ final class ChatViewModelTests: XCTestCase {
             ),
         ]
 
-        viewModel.populateFromHistory(historyItems)
+        viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
@@ -1890,7 +1890,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testPopulateFromHistoryFallsBackToLegacy() {
         let toolCall = IPCHistoryResponseToolCall(name: "bash", input: ["command": AnyCodable("ls")], result: "file.txt", isError: nil, imageData: nil)
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(
                 id: nil,
                 role: "assistant",
@@ -1906,12 +1906,65 @@ final class ChatViewModelTests: XCTestCase {
             ),
         ]
 
-        viewModel.populateFromHistory(historyItems)
+        viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
         // Legacy fallback: tools before text
         XCTAssertEqual(msg.contentOrder, [.toolCall(0), .text(0)])
+    }
+
+    // MARK: - Adjacent Text Segment Coalescing
+
+    func testMultipleAssistantDeltasWithNoToolBoundariesRemainOneTextSegment() {
+        // Multiple assistant text deltas without any tool calls between them
+        // should all accumulate into a single text segment.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Hello ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "from ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "the assistant.")))
+        // Flush buffered streaming text so assertions can inspect messages.
+        viewModel.flushStreamingBuffer()
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments, ["Hello from the assistant."])
+        XCTAssertEqual(msg.contentOrder, [.text(0)])
+    }
+
+    func testTextToolTextCreatesSeparateTextSegments() {
+        // Text delta → tool call start (flushes automatically) + result → more text delta
+        // should produce separate text segments with interleaved content order.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Let me check.")))
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(type: "tool_use_start", toolName: "bash", input: ["command": AnyCodable("ls")], sessionId: nil)))
+        viewModel.handleServerMessage(.toolResult(ToolResultMessage(type: "tool_result", toolName: "bash", result: "file.txt", isError: nil, diff: nil, status: nil, sessionId: nil, imageData: nil)))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Here are the files.")))
+        // Flush the second text delta so it lands in messages.
+        viewModel.flushStreamingBuffer()
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        // The data model keeps separate text segments and interleaved contentOrder.
+        XCTAssertEqual(msg.textSegments.count, 2)
+        XCTAssertEqual(msg.textSegments[0], "Let me check.")
+        XCTAssertEqual(msg.textSegments[1], "Here are the files.")
+        XCTAssertEqual(msg.contentOrder, [.text(0), .toolCall(0), .text(1)])
+        // Note: the view layer (ChatBubble.groupContentBlocks) coalesces these text
+        // segments across tool call boundaries so the user can drag-select across them.
+        // Tool calls render as EmptyView and produce no visual gap between text runs.
+    }
+
+    func testStreamingCompletionPreservesFinalJoinedText() {
+        // Streaming deltas followed by message_complete should preserve the
+        // full joined text in the message's .text property.
+        // message_complete calls flushStreamingBuffer() internally.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Part one. ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Part two.")))
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.text, "Part one. Part two.")
+        XCTAssertEqual(msg.textSegments, ["Part one. Part two."])
     }
 
     // MARK: - Retry Button Visibility (Send-Only Errors)

@@ -1,35 +1,21 @@
 #!/usr/bin/env bun
 
-import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-
 import cliPkg from "../package.json";
-import { autonomy } from "./commands/autonomy";
 import { client } from "./commands/client";
-import { config } from "./commands/config";
-import { contacts } from "./commands/contacts";
-import { email } from "./commands/email";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
 import { retire } from "./commands/retire";
-import { skills } from "./commands/skills";
 import { sleep } from "./commands/sleep";
 import { ssh } from "./commands/ssh";
 import { tunnel } from "./commands/tunnel";
+import { use } from "./commands/use";
 import { wake } from "./commands/wake";
 
 const commands = {
-  autonomy,
   client,
-  config,
-  contacts,
-  email,
   hatch,
   login,
   logout,
@@ -37,40 +23,15 @@ const commands = {
   ps,
   recover,
   retire,
-  skills,
   sleep,
   ssh,
   tunnel,
+  use,
   wake,
   whoami,
 } as const;
 
 type CommandName = keyof typeof commands;
-
-function resolveAssistantEntry(): string | undefined {
-  // When installed globally, resolve from node_modules
-  try {
-    const require = createRequire(import.meta.url);
-    const assistantPkgPath =
-      require.resolve("@vellumai/assistant/package.json");
-    return join(dirname(assistantPkgPath), "src", "index.ts");
-  } catch {
-    // For local development, resolve from sibling directory
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    const localPath = join(
-      __dirname,
-      "..",
-      "..",
-      "assistant",
-      "src",
-      "index.ts",
-    );
-    if (existsSync(localPath)) {
-      return localPath;
-    }
-  }
-  return undefined;
-}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -85,11 +46,7 @@ async function main() {
     console.log("Usage: vellum <command> [options]");
     console.log("");
     console.log("Commands:");
-    console.log("  autonomy View and configure autonomy tiers");
     console.log("  client   Connect to a hatched assistant");
-    console.log("  config   Manage configuration");
-    console.log("  contacts Manage the contact graph");
-    console.log("  email    Email operations (status, create inbox)");
     console.log("  hatch    Create a new assistant instance");
     console.log("  login    Log in to the Vellum platform");
     console.log("  logout   Log out of the Vellum platform");
@@ -99,10 +56,10 @@ async function main() {
     );
     console.log("  recover  Restore a previously retired local assistant");
     console.log("  retire   Delete an assistant instance");
-    console.log("  skills   Browse and install skills from the Vellum catalog");
     console.log("  sleep    Stop the assistant process");
     console.log("  ssh      SSH into a remote assistant instance");
     console.log("  tunnel   Create a tunnel for a locally hosted assistant");
+    console.log("  use      Set the active assistant for commands");
     console.log("  wake     Start the assistant and gateway");
     console.log("  whoami   Show current logged-in user");
     process.exit(0);
@@ -111,20 +68,8 @@ async function main() {
   const command = commands[commandName as CommandName];
 
   if (!command) {
-    const assistantEntry = resolveAssistantEntry();
-    if (assistantEntry) {
-      const child = spawn("bun", ["run", assistantEntry, ...args], {
-        stdio: "inherit",
-      });
-      child.on("exit", (code) => {
-        process.exit(code ?? 1);
-      });
-    } else {
-      console.error(`Unknown command: ${commandName}`);
-      console.error("Install the full stack with: bun install -g vellum");
-      process.exit(1);
-    }
-    return;
+    console.error(`Unknown command: ${commandName}`);
+    process.exit(1);
   }
 
   try {

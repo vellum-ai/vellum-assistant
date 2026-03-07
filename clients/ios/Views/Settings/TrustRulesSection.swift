@@ -30,7 +30,7 @@ struct TrustRulesSection: View {
                 Button {
                     showingAddRule = true
                 } label: {
-                    Label("Add Rule", systemImage: "plus")
+                    Label { Text("Add Rule") } icon: { VIconView(.plus, size: 14) }
                 }
             }
         }
@@ -80,7 +80,7 @@ struct TrustRulesSection: View {
                 Button {
                     editingRule = rule
                 } label: {
-                    Image(systemName: "pencil")
+                    VIconView(.pencil, size: 16)
                         .foregroundColor(VColor.textSecondary)
                 }
             }

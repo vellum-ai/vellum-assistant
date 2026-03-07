@@ -14,8 +14,7 @@ struct AvatarCustomizationPanel: View {
                 // Header
                 HStack(alignment: .center, spacing: VSpacing.sm) {
                     Button(action: onClose) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 14, weight: .medium))
+                        VIconView(.chevronLeft, size: 14)
                             .foregroundColor(VColor.textSecondary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
@@ -92,8 +91,7 @@ struct AvatarCustomizationPanel: View {
                     pickImage()
                 } label: {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "photo")
-                            .font(.system(size: 12, weight: .medium))
+                        VIconView(.image, size: 12)
                         Text("Upload Custom Image")
                             .font(VFont.bodyMedium)
                     }

@@ -1,0 +1,4 @@
+0.577.0
+# Pinned Lucide tag for reproducible builds
+# Update this file and re-run clients/scripts/sync-lucide-icons.sh to upgrade
+tag=0.577.0

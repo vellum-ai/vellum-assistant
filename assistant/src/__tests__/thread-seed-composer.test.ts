@@ -25,7 +25,6 @@ function makeSignal(
 ): NotificationSignal {
   return {
     signalId: "sig-seed-001",
-    assistantId: "self",
     createdAt: Date.now(),
     sourceChannel: "scheduler",
     sourceSessionId: "sess-1",
@@ -114,7 +113,9 @@ describe("resolveVerbosity", () => {
   });
 
   test("unknown channel without hints defaults to compact", () => {
-    expect(resolveVerbosity("sms" as NotificationChannel, {})).toBe("compact");
+    expect(resolveVerbosity("voice" as NotificationChannel, {})).toBe(
+      "compact",
+    );
   });
 });
 

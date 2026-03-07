@@ -74,36 +74,36 @@ describe("getPointerFallbackMessage", () => {
     expect(msg).toContain("failed: no answer");
   });
 
-  test("guardian_verification_succeeded defaults to voice channel", () => {
+  test("verification_succeeded defaults to voice channel", () => {
     const msg = getPointerFallbackMessage({
-      scenario: "guardian_verification_succeeded",
+      scenario: "verification_succeeded",
       phoneNumber: "+15559876543",
     });
     expect(msg).toContain("Guardian verification (voice)");
     expect(msg).toContain("succeeded");
   });
 
-  test("guardian_verification_succeeded with custom channel", () => {
+  test("verification_succeeded with custom channel", () => {
     const msg = getPointerFallbackMessage({
-      scenario: "guardian_verification_succeeded",
+      scenario: "verification_succeeded",
       phoneNumber: "+15559876543",
-      channel: "sms",
+      channel: "voice",
     });
-    expect(msg).toContain("Guardian verification (sms)");
+    expect(msg).toContain("Guardian verification (voice)");
   });
 
-  test("guardian_verification_failed without reason", () => {
+  test("verification_failed without reason", () => {
     const msg = getPointerFallbackMessage({
-      scenario: "guardian_verification_failed",
+      scenario: "verification_failed",
       phoneNumber: "+15559876543",
     });
     expect(msg).toContain("Guardian verification");
     expect(msg).toContain("failed");
   });
 
-  test("guardian_verification_failed with reason", () => {
+  test("verification_failed with reason", () => {
     const msg = getPointerFallbackMessage({
-      scenario: "guardian_verification_failed",
+      scenario: "verification_failed",
       phoneNumber: "+15559876543",
       reason: "Max attempts exceeded",
     });
@@ -159,12 +159,12 @@ describe("buildPointerInstruction", () => {
 
   test("includes channel when provided", () => {
     const ctx: CallPointerMessageContext = {
-      scenario: "guardian_verification_succeeded",
+      scenario: "verification_succeeded",
       phoneNumber: "+15559876543",
-      channel: "sms",
+      channel: "voice",
     };
     const instruction = buildPointerInstruction(ctx);
-    expect(instruction).toContain("Channel: sms");
+    expect(instruction).toContain("Channel: voice");
   });
 
   test("omits optional fields when not provided", () => {

@@ -109,9 +109,6 @@ function computeSkillHash(skillDir: string): string | null {
  * Record or verify the content hash of an installed skill.
  * On first install: stores the hash (trust-on-first-use).
  * On subsequent installs: compares with stored hash and warns on mismatch.
- *
- * Hash format migration: v1 (legacy, no prefix) → v2 (prefixed "v2:sha256hex").
- * When stored hash is v1, silently re-record with v2 instead of warning.
  */
 export function verifyAndRecordSkillHash(slug: string): void {
   const skillDir = join(getManagedSkillsDir(), slug);
@@ -133,14 +130,8 @@ export function verifyAndRecordSkillHash(slug: string): void {
         { slug },
         "Integrity manifest entry has non-string sha256 — re-recording hash",
       );
-    } else if (/^[0-9a-f]{64}$/.test(storedHash)) {
-      // Legacy v1 hash: plain hex SHA-256, no version prefix — silently migrate
-      log.info(
-        { slug },
-        "Migrating skill integrity hash from v1 to v2 format (silent re-record)",
-      );
     } else if (!storedHash.startsWith("v2:")) {
-      // Unknown format (not v1 hex, not v2: prefix) — warn about integrity mismatch
+      // Unknown format (not v2: prefix) — warn about integrity mismatch
       log.warn(
         { slug, stored: storedHash, actual: hash },
         "Stored hash has unrecognized format — possible integrity mismatch. Re-recording.",

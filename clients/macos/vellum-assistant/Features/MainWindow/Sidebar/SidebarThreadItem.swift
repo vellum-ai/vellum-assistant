@@ -31,6 +31,11 @@ struct SidebarThreadItem: View {
     private var interactionState: ThreadInteractionState { threadManager.interactionState(for: thread.id) }
     // Reserve trailing space when hovered for archive button overlay.
     private var hasTrailingIcon: Bool { isHovered || sidebar.threadPendingDeletion == thread.id }
+    private var canMarkUnread: Bool {
+        !thread.hasUnseenLatestAssistantMessage &&
+            thread.sessionId != nil &&
+            thread.latestAssistantMessageAt != nil
+    }
 
     var body: some View {
         // Always reserve 20pt leading slot so text never shifts.
@@ -50,8 +55,7 @@ struct SidebarThreadItem: View {
                             }
                         }
                     } label: {
-                        Image(systemName: thread.isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 13, weight: .medium))
+                        VIconView(.pin, size: 13)
                             .foregroundColor(thread.isPinned ? VColor.textMuted : VColor.textSecondary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
@@ -66,26 +70,22 @@ struct SidebarThreadItem: View {
                         VBusyIndicator()
                             .frame(width: 20, height: 20)
                     case .waitingForInput:
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.system(size: 12))
+                        VIconView(.circleAlert, size: 12)
                             .foregroundColor(VColor.warning)
                             .frame(width: 20, height: 20)
                     case .error:
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.system(size: 12))
+                        VIconView(.circleAlert, size: 12)
                             .foregroundColor(VColor.error)
                             .frame(width: 20, height: 20)
                             .transition(.opacity)
                     case .idle:
                         if thread.hasUnseenLatestAssistantMessage {
-                            Circle()
-                                .fill(Color(hex: 0xE86B40))
-                                .frame(width: 6, height: 6)
+                            VBadge(style: .dot, color: VColor.warning)
+                                .accessibilityLabel("Unread")
                                 .frame(width: 20, height: 20)
                                 .transition(.opacity)
                         } else if thread.isPinned {
-                            Image(systemName: "pin.fill")
-                                .font(.system(size: 13, weight: .medium))
+                            VIconView(.pin, size: 13)
                                 .foregroundColor(VColor.textMuted)
                                 .rotationEffect(.degrees(-45))
                                 .frame(width: 20, height: 20)
@@ -97,8 +97,7 @@ struct SidebarThreadItem: View {
                     }
                 }
                 if thread.kind == .private {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 10, weight: .medium))
+                    VIconView(.lock, size: 13)
                         .foregroundColor(VColor.accent.opacity(0.7))
                 }
                 Text(thread.title)
@@ -110,8 +109,9 @@ struct SidebarThreadItem: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
-            .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + 20 + VSpacing.xs) : VSpacing.sm)
-            .padding(.vertical, VSpacing.sm)
+            .padding(.trailing, hasTrailingIcon ? (VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs) : VSpacing.sm)
+            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {
                 if isSelected {
                     VColor.navActive
@@ -148,8 +148,7 @@ struct SidebarThreadItem: View {
                 Button {
                     sidebar.threadPendingDeletion = thread.id
                 } label: {
-                    Image(systemName: "archivebox")
-                        .font(.system(size: 13, weight: .medium))
+                    VIconView(.archive, size: 13)
                         .foregroundColor(VColor.textSecondary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
@@ -170,21 +169,25 @@ struct SidebarThreadItem: View {
                     }
                 }
             } label: {
-                Label(thread.isPinned ? "Unpin" : "Pin to Top", systemImage: thread.isPinned ? "pin.slash" : "pin")
+                Label { Text(thread.isPinned ? "Unpin thread" : "Pin thread") } icon: { VIconView(thread.isPinned ? .pinOff : .pin, size: 14) }
             }
-            if thread.sessionId != nil {
-                Button {
-                    sidebar.renamingThreadId = thread.id
-                    sidebar.renameText = thread.title
-                } label: {
-                    Label("Rename", systemImage: "pencil")
-                }
+            Button {
+                sidebar.renamingThreadId = thread.id
+                sidebar.renameText = thread.title
+            } label: {
+                Label { Text("Rename thread") } icon: { VIconView(.pencil, size: 14) }
             }
             Button {
                 threadManager.archiveThread(id: thread.id)
             } label: {
-                Label("Archive", systemImage: "archivebox")
+                Label { Text("Archive thread") } icon: { VIconView(.archive, size: 14) }
             }
+            Button {
+                threadManager.markConversationUnread(threadId: thread.id)
+            } label: {
+                Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
+            }
+            .disabled(!canMarkUnread)
         }
         .pointerCursor()
         .onHover { hovering in
@@ -198,8 +201,7 @@ struct SidebarThreadItem: View {
         } preview: {
             HStack(spacing: VSpacing.xs) {
                 if thread.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.system(size: 10, weight: .medium))
+                    VIconView(.pin, size: 13)
                         .foregroundColor(VColor.textMuted)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 20, height: 20)

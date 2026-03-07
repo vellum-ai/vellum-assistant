@@ -21,7 +21,10 @@ const noopLogger = {
   child: () => noopLogger,
 };
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => noopLogger,
   isDebug: () => false,
   truncateForLog: (v: string) => v,
@@ -34,7 +37,7 @@ mock.module("../config/loader.js", () => ({
     daemon: { standaloneRecording: true },
     provider: "mock-provider",
     model: "mock-model",
-    permissions: { mode: "legacy" },
+    permissions: { mode: "workspace" },
     apiKeys: {},
     sandbox: { enabled: false },
     timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },
@@ -250,7 +253,7 @@ mock.module("../daemon/handlers/recording.js", () => ({
 
 // ── Mock conversation store ────────────────────────────────────────────────
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -274,10 +277,15 @@ mock.module("../memory/conversation-store.js", () => ({
   getConversation: () => ({ id: "conv-mock" }),
   updateConversationTitle: noop,
   clearAll: noop,
+  deleteConversation: noop,
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
   listConversations: () => [],
   countConversations: () => 0,
   searchConversations: () => [],
-  deleteConversation: noop,
+  getMessagesPaginated: () => ({ messages: [], hasMore: false }),
+  getNextMessage: () => null,
 }));
 
 mock.module("../memory/conversation-title-service.js", () => ({
@@ -331,19 +339,26 @@ mock.module("../daemon/handlers/computer-use.js", () => ({
 
 mock.module("../providers/provider-send-message.js", () => ({
   getConfiguredProvider: () => null,
+  resolveConfiguredProvider: () => null,
   extractText: (_response: unknown) => "",
+  extractAllText: (_response: unknown) => "",
+  extractToolUse: (_response: unknown) => undefined,
   createTimeout: (_ms: number) => ({
     signal: new AbortController().signal,
     cleanup: () => {},
   }),
   userMessage: (text: string) => ({ role: "user", content: text }),
+  userMessageWithImage: (text: string) => ({ role: "user", content: text }),
+  userMessageWithImages: (text: string) => ({ role: "user", content: text }),
 }));
 
 // ── Mock external conversation store ───────────────────────────────────────
 
 mock.module("../memory/external-conversation-store.js", () => ({
+  getBindingByChannelChat: () => null,
   getBindingsForConversations: () => new Map(),
   upsertBinding: () => {},
+  upsertOutboundBinding: () => {},
 }));
 
 // ── Mock subagent manager ──────────────────────────────────────────────────
@@ -816,7 +831,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -848,7 +863,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -883,7 +898,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -914,7 +929,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -948,7 +963,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -979,7 +994,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -1010,7 +1025,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -1045,7 +1060,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -1075,7 +1090,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -1103,7 +1118,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -1128,7 +1143,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",

@@ -7,7 +7,7 @@ import {
   isDeviceApproved,
   refreshDevice,
 } from "../../daemon/approved-devices-store.js";
-import type { ServerMessage } from "../../daemon/ipc-contract.js";
+import type { ServerMessage } from "../../daemon/ipc-protocol.js";
 import { PairingStore } from "../../daemon/pairing-store.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -37,22 +37,22 @@ function mintPairingCredentials(
   platform: string,
 ): PairingCredentials | null {
   try {
-    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
     // Pairing can run before a local client has touched the actor-token
     // bootstrap path. Ensure the vellum guardian principal exists so iOS
     // pairings always have a mint target.
-    const guardianPrincipalId = ensureVellumGuardianBinding(assistantId);
+    const guardianPrincipalId = ensureVellumGuardianBinding(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+    );
     const hashedDeviceId = hashDeviceId(deviceId);
 
     const credentials = mintCredentialPair({
-      assistantId,
       platform,
       deviceId,
       guardianPrincipalId,
       hashedDeviceId,
     });
 
-    log.info({ assistantId, platform }, "Minted credentials during pairing");
+    log.info({ platform }, "Minted credentials during pairing");
     return {
       accessToken: credentials.accessToken,
       accessTokenExpiresAt: credentials.accessTokenExpiresAt,

@@ -40,7 +40,7 @@ public struct VToast: View {
 
     public var body: some View {
         HStack(spacing: VSpacing.md) {
-            Image(systemName: iconName)
+            VIconView(vIcon, size: 14)
                 .foregroundColor(iconColor)
             Text(message)
                 .font(VFont.body)
@@ -59,8 +59,7 @@ public struct VToast: View {
                     }
                     if let onDismiss {
                         Button(action: onDismiss) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 12, weight: .medium))
+                            VIconView(.x, size: 12)
                                 .foregroundColor(VColor.textSecondary)
                                 .frame(width: 24, height: 24)
                         }
@@ -111,12 +110,12 @@ public struct VToast: View {
         }
     }
 
-    private var iconName: String {
+    private var vIcon: VIcon {
         switch style {
-        case .info: return "info.circle.fill"
-        case .success: return "checkmark.circle.fill"
-        case .warning: return "exclamationmark.triangle.fill"
-        case .error: return "xmark.circle.fill"
+        case .info: return .info
+        case .success: return .circleCheck
+        case .warning: return .triangleAlert
+        case .error: return .circleX
         }
     }
 

@@ -16,7 +16,7 @@ import {
   watchSessions,
 } from "../tools/watch/watch-state.js";
 import { getLogger } from "../util/logger.js";
-import type { HandlerContext } from "./handlers.js";
+import type { HandlerContext } from "./handlers/shared.js";
 import type { WatchObservation } from "./ipc-protocol.js";
 
 const log = getLogger("watch-handler");

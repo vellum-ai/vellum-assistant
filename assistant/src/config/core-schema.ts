@@ -2,8 +2,6 @@ import { z } from "zod";
 
 const VALID_SECRET_ACTIONS = ["redact", "warn", "block", "prompt"] as const;
 const VALID_PERMISSIONS_MODES = ["strict", "workspace"] as const;
-const VALID_SMS_PROVIDERS = ["twilio"] as const;
-
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
     .number({ error: "timeouts.shellMaxTimeoutSec must be a number" })
@@ -234,22 +232,22 @@ export const ModelPricingOverrideSchema = z.object({
     ),
 });
 
-export const SmsConfigSchema = z.object({
-  enabled: z.boolean({ error: "sms.enabled must be a boolean" }).default(false),
-  provider: z
-    .enum(VALID_SMS_PROVIDERS, {
-      error: `sms.provider must be one of: ${VALID_SMS_PROVIDERS.join(", ")}`,
-    })
-    .default("twilio"),
-  phoneNumber: z
-    .string({ error: "sms.phoneNumber must be a string" })
+export const TwilioConfigSchema = z.object({
+  accountSid: z
+    .string({ error: "twilio.accountSid must be a string" })
     .default(""),
-  assistantPhoneNumbers: z
-    .record(
-      z.string(),
-      z.string({ error: "sms.assistantPhoneNumbers values must be strings" }),
-    )
-    .optional(),
+  authToken: z
+    .string({ error: "twilio.authToken must be a string" })
+    .default(""),
+  phoneNumber: z
+    .string({ error: "twilio.phoneNumber must be a string" })
+    .default(""),
+});
+
+export const WhatsAppConfigSchema = z.object({
+  phoneNumber: z
+    .string({ error: "whatsapp.phoneNumber must be a string" })
+    .default(""),
 });
 
 export const IngressWebhookConfigSchema = z.object({
@@ -323,16 +321,24 @@ export const IngressConfigSchema = IngressBaseSchema.default(
   IngressBaseSchema.parse({}),
 ).transform((val) => ({
   ...val,
-  // Backward compatibility: if `enabled` was never explicitly set (undefined),
-  // infer it from whether a publicBaseUrl is configured. Existing users who
-  // have a URL but predate the `enabled` field should not have their webhooks
-  // silently disabled on upgrade.
-  //
-  // When publicBaseUrl is empty and enabled is unset, leave enabled as
-  // undefined so getPublicBaseUrl() can still fall through to the
-  // INGRESS_PUBLIC_BASE_URL env-var fallback (env-only setups).
-  enabled: val.enabled ?? (val.publicBaseUrl ? true : undefined),
+  enabled: val.enabled,
 }));
+
+export const VALID_AVATAR_STRATEGIES = [
+  "managed_required",
+  "managed_prefer",
+  "local_only",
+] as const;
+
+export const AvatarConfigSchema = z.object({
+  generationStrategy: z
+    .enum(VALID_AVATAR_STRATEGIES, {
+      error: `avatar.generationStrategy must be one of: ${VALID_AVATAR_STRATEGIES.join(", ")}`,
+    })
+    .default("local_only"),
+});
+
+export type AvatarConfig = z.infer<typeof AvatarConfigSchema>;
 
 export const PlatformConfigSchema = z.object({
   baseUrl: z
@@ -391,7 +397,8 @@ export type ContextOverflowRecoveryConfig = z.infer<
 >;
 export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
-export type SmsConfig = z.infer<typeof SmsConfigSchema>;
+export type TwilioConfig = z.infer<typeof TwilioConfigSchema>;
+export type WhatsAppConfig = z.infer<typeof WhatsAppConfigSchema>;
 export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
 export type IngressRateLimitConfig = z.infer<
   typeof IngressRateLimitConfigSchema

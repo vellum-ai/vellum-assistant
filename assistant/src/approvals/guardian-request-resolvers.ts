@@ -13,17 +13,21 @@
 
 import { answerCall } from "../calls/call-domain.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
-import { upsertMember } from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import {
+  isNotificationSourceChannel,
+  type NotificationSourceChannel,
+} from "../notifications/signal.js";
 import { addRule } from "../permissions/trust-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import type { ApprovalAction } from "../runtime/channel-approval-types.js";
-import { createOutboundSession } from "../runtime/channel-guardian-service.js";
+import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getTool } from "../tools/registry.js";
@@ -106,7 +110,6 @@ export type ResolverResult =
 function resolveDeliverCallbackUrlForChannel(channel: string): string | null {
   switch (channel) {
     case "telegram":
-    case "sms":
     case "whatsapp":
     case "slack":
       return `${getGatewayInternalBaseUrl()}/deliver/${channel}`;
@@ -345,7 +348,11 @@ const accessRequestResolver: GuardianRequestResolver = {
 
   async resolve(ctx: ResolverContext): Promise<ResolverResult> {
     const { request, decision, channelDeliveryContext } = ctx;
-    const channel = request.sourceChannel ?? "unknown";
+    const channel: NotificationSourceChannel = isNotificationSourceChannel(
+      request.sourceChannel,
+    )
+      ? request.sourceChannel
+      : "vellum";
     const requesterExternalUserId = request.requesterExternalUserId ?? "";
     const requesterChatId =
       request.requesterChatId ?? request.requesterExternalUserId ?? "";
@@ -393,7 +400,6 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceEventName: "ingress.trusted_contact.guardian_decision",
           sourceChannel: channel,
           sourceSessionId: request.conversationId ?? "",
-          assistantId,
           attentionHints: {
             requiresAction: false,
             urgency: "medium",
@@ -408,7 +414,6 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceEventName: "ingress.trusted_contact.denied",
           sourceChannel: channel,
           sourceSessionId: request.conversationId ?? "",
-          assistantId,
           attentionHints: {
             requiresAction: false,
             urgency: "low",
@@ -453,8 +458,7 @@ const accessRequestResolver: GuardianRequestResolver = {
     // relay server's in-call wait loop will detect the approved status.
     if (channel === "voice") {
       try {
-        upsertMember({
-          assistantId,
+        upsertContactChannel({
           sourceChannel: "voice",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,
@@ -484,7 +488,6 @@ const accessRequestResolver: GuardianRequestResolver = {
     // Non-voice approvals: mint an identity-bound verification session so the
     // requester can verify their identity.
     const session = createOutboundSession({
-      assistantId,
       channel,
       expectedExternalUserId: requesterExternalUserId,
       expectedChatId: requesterChatId,
@@ -582,7 +585,6 @@ const accessRequestResolver: GuardianRequestResolver = {
           sourceEventName: "ingress.trusted_contact.verification_sent",
           sourceChannel: channel,
           sourceSessionId: request.conversationId ?? "",
-          assistantId,
           attentionHints: {
             requiresAction: false,
             urgency: "low",

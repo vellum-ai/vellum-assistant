@@ -57,7 +57,6 @@ mock.module("../util/platform.js", () => ({
   getHooksDir: () => "",
   getSocketPath: () => "",
   getSessionTokenPath: () => "",
-  getHttpTokenPath: () => "",
   getPlatformTokenPath: () => "",
   getPidPath: () => "",
   getWorkspaceConfigPath: () => "",
@@ -72,15 +71,11 @@ mock.module("../util/platform.js", () => ({
   writeLockfile: () => {},
   readPlatformToken: () => null,
   readSessionToken: () => null,
-  readHttpToken: () => null,
   removeSocketFile: () => {},
   getTCPPort: () => 8765,
   isTCPEnabled: () => false,
   getTCPHost: () => "127.0.0.1",
   isIOSPairingEnabled: () => false,
-  migrateToDataLayout: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 // Mock system-prompt to provide only stripCommentLines without pulling in

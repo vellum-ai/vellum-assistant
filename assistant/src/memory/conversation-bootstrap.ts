@@ -1,4 +1,4 @@
-import { createConversation } from "./conversation-store.js";
+import { createConversation } from "./conversation-crud.js";
 import {
   GENERATING_TITLE,
   queueGenerateConversationTitle,

@@ -9,10 +9,11 @@
 
 import type { ChannelId } from "../channels/types.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertMember } from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getSqlite } from "../memory/db.js";
 import {
   findActiveVoiceInvites,
+  findByInviteCodeHash,
   findByTokenHash,
   hashToken,
   markInviteExpired,
@@ -20,7 +21,6 @@ import {
 } from "../memory/invite-store.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { hashVoiceCode } from "../util/voice-code.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
 // ---------------------------------------------------------------------------
 // Outcome type
@@ -83,7 +83,6 @@ export function redeemInvite(params: {
     externalChatId,
     displayName,
     username,
-    assistantId,
   } = params;
 
   if (!externalUserId && !externalChatId) {
@@ -148,9 +147,9 @@ export function redeemInvite(params: {
   }
 
   // Inactive member reactivation: when the user already has a member record
-  // in a non-active state (revoked/pending), reactivate it via upsertMember
+  // in a non-active state (revoked/pending), reactivate it via upsertContactChannel
   // and consume an invite use atomically. The fresh-member path below also
-  // uses upsertMember to keep contacts in sync.
+  // uses upsertContactChannel to keep contacts in sync.
   if (existingChannel) {
     // Sentinel error used to trigger a transaction rollback when the invite
     // was concurrently revoked/expired between pre-validation and write time.
@@ -174,12 +173,11 @@ export function redeemInvite(params: {
         ? existingContact.displayName
         : displayName;
 
-    let reactivated: ReturnType<typeof upsertMember> | undefined;
+    let reactivated: ReturnType<typeof upsertContactChannel> | undefined;
     try {
       getSqlite()
         .transaction(() => {
-          reactivated = upsertMember({
-            assistantId: assistantId ?? invite.assistantId,
+          reactivated = upsertContactChannel({
             sourceChannel,
             externalUserId,
             externalChatId,
@@ -189,6 +187,8 @@ export function redeemInvite(params: {
             status: "active",
             policy: "allow",
             inviteId: invite.id,
+            verifiedAt: Date.now(),
+            verifiedVia: "invite",
           });
 
           const recorded = recordInviteUse({
@@ -221,12 +221,11 @@ export function redeemInvite(params: {
   // Fresh member creation: upsert into contacts tables and consume an invite
   // use atomically, mirroring the reactivation path above.
   const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
-  let freshResult: ReturnType<typeof upsertMember> | undefined;
+  let freshResult: ReturnType<typeof upsertContactChannel> | undefined;
   try {
     getSqlite()
       .transaction(() => {
-        freshResult = upsertMember({
-          assistantId: assistantId ?? invite.assistantId,
+        freshResult = upsertContactChannel({
           sourceChannel,
           externalUserId,
           externalChatId,
@@ -235,6 +234,8 @@ export function redeemInvite(params: {
           status: "active",
           policy: "allow",
           inviteId: invite.id,
+          verifiedAt: Date.now(),
+          verifiedVia: "invite",
         });
 
         const recorded = recordInviteUse({
@@ -287,11 +288,7 @@ export function redeemVoiceInviteCode(params: {
   sourceChannel: "voice";
   code: string;
 }): VoiceRedemptionOutcome {
-  const {
-    assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
-    callerExternalUserId,
-    code,
-  } = params;
+  const { callerExternalUserId, code } = params;
 
   if (!callerExternalUserId) {
     return { ok: false, reason: "invalid_or_expired" };
@@ -299,7 +296,6 @@ export function redeemVoiceInviteCode(params: {
 
   // Find all active voice invites bound to the caller's phone number
   const candidates = findActiveVoiceInvites({
-    assistantId,
     expectedExternalUserId: callerExternalUserId,
   });
 
@@ -370,8 +366,7 @@ export function redeemVoiceInviteCode(params: {
   try {
     getSqlite()
       .transaction(() => {
-        const writeResult = upsertMember({
-          assistantId: invite.assistantId,
+        const writeResult = upsertContactChannel({
           sourceChannel: "voice",
           externalUserId: callerExternalUserId,
           externalChatId: callerExternalUserId,
@@ -379,6 +374,8 @@ export function redeemVoiceInviteCode(params: {
           status: "active",
           policy: "allow",
           inviteId: invite.id,
+          verifiedAt: Date.now(),
+          verifiedVia: "invite",
         });
         memberId = writeResult!.channel.id;
 
@@ -401,6 +398,199 @@ export function redeemVoiceInviteCode(params: {
     ok: true,
     type: "redeemed",
     memberId: memberId!,
+    inviteId: invite.id,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// redeemInviteByCode
+// ---------------------------------------------------------------------------
+
+/**
+ * Redeem an invite using a 6-digit invite code (channel-agnostic).
+ *
+ * Unlike token-based redemption which uses deep links, code redemption works
+ * by intercepting bare 6-digit messages on channels with codeRedemptionEnabled.
+ * The code is hashed and looked up via `findByInviteCodeHash`.
+ *
+ * Validation: active status, not expired, uses remaining, channel match.
+ * On success: upserts/reactivates a member with status 'active', policy 'allow'.
+ */
+export function redeemInviteByCode(params: {
+  code: string;
+  sourceChannel: string;
+  externalUserId?: string;
+  externalChatId?: string;
+  displayName?: string;
+  username?: string;
+  assistantId?: string;
+}): InviteRedemptionOutcome {
+  const {
+    code,
+    sourceChannel,
+    externalUserId,
+    externalChatId,
+    displayName,
+    username,
+  } = params;
+
+  if (!externalUserId && !externalChatId) {
+    return { ok: false, reason: "missing_identity" };
+  }
+
+  const codeHash = hashVoiceCode(code);
+  const invite = findByInviteCodeHash(codeHash, sourceChannel);
+
+  if (!invite) {
+    return { ok: false, reason: "invalid_token" };
+  }
+
+  if (invite.status !== "active") {
+    const mapped = STORE_ERROR_TO_REASON[`invite_${invite.status}`];
+    if (mapped) return mapped;
+    return { ok: false, reason: "invalid_token" };
+  }
+
+  if (invite.expiresAt <= Date.now()) {
+    markInviteExpired(invite.id);
+    return { ok: false, reason: "expired" };
+  }
+
+  if (invite.useCount >= invite.maxUses) {
+    return { ok: false, reason: "max_uses_reached" };
+  }
+
+  // Code is valid — now safe to check existing membership without leaking
+  // membership status to callers with bogus codes.
+  const canonicalUserId = externalUserId
+    ? (canonicalizeInboundIdentity(
+        sourceChannel as ChannelId,
+        externalUserId,
+      ) ?? externalUserId)
+    : undefined;
+  const contactResult = findContactChannel({
+    channelType: sourceChannel,
+    externalUserId: canonicalUserId,
+    externalChatId: externalChatId,
+  });
+  const existingChannel = contactResult?.channel ?? null;
+  const existingContact = contactResult?.contact ?? null;
+
+  if (existingChannel && existingChannel.status === "active") {
+    return { ok: true, type: "already_member", memberId: existingChannel.id };
+  }
+
+  // Blocked members cannot bypass the guardian's explicit block via invite
+  // codes. Return the same generic failure as an invalid token to avoid
+  // leaking membership status to the caller.
+  if (existingChannel && existingChannel.status === "blocked") {
+    return { ok: false, reason: "invalid_token" };
+  }
+
+  // Inactive member reactivation: reactivate via upsertContactChannel and consume
+  // an invite use atomically.
+  if (existingChannel) {
+    const STALE_INVITE_REACTIVATE = Symbol("stale_invite_reactivate");
+    const canonicalMemberId = existingChannel.externalUserId
+      ? canonicalizeInboundIdentity(
+          sourceChannel as ChannelId,
+          existingChannel.externalUserId,
+        )
+      : null;
+    const canonicalCallerId = externalUserId
+      ? canonicalizeInboundIdentity(sourceChannel as ChannelId, externalUserId)
+      : null;
+    const memberMatchesSender = !!(
+      canonicalMemberId &&
+      canonicalCallerId &&
+      canonicalMemberId === canonicalCallerId
+    );
+    const preservedDisplayName =
+      memberMatchesSender && existingContact?.displayName?.trim().length
+        ? existingContact.displayName
+        : displayName;
+
+    let reactivated: ReturnType<typeof upsertContactChannel> | undefined;
+    try {
+      getSqlite()
+        .transaction(() => {
+          reactivated = upsertContactChannel({
+            sourceChannel,
+            externalUserId,
+            externalChatId,
+            displayName: preservedDisplayName,
+            username,
+            status: "active",
+            policy: "allow",
+            inviteId: invite.id,
+            verifiedAt: Date.now(),
+            verifiedVia: "invite",
+          });
+
+          const recorded = recordInviteUse({
+            inviteId: invite.id,
+            externalUserId,
+            externalChatId,
+          });
+
+          if (!recorded) throw STALE_INVITE_REACTIVATE;
+        })
+        .immediate();
+    } catch (err) {
+      if (err === STALE_INVITE_REACTIVATE) {
+        return { ok: false, reason: "invalid_token" };
+      }
+      throw err;
+    }
+
+    return {
+      ok: true,
+      type: "redeemed",
+      memberId: reactivated!.channel.id,
+      inviteId: invite.id,
+    };
+  }
+
+  // Fresh member creation: upsert into contacts tables and consume an invite
+  // use atomically.
+  const STALE_INVITE_FRESH = Symbol("stale_invite_fresh");
+  let freshResult: ReturnType<typeof upsertContactChannel> | undefined;
+  try {
+    getSqlite()
+      .transaction(() => {
+        freshResult = upsertContactChannel({
+          sourceChannel,
+          externalUserId,
+          externalChatId,
+          displayName,
+          username,
+          status: "active",
+          policy: "allow",
+          inviteId: invite.id,
+          verifiedAt: Date.now(),
+          verifiedVia: "invite",
+        });
+
+        const recorded = recordInviteUse({
+          inviteId: invite.id,
+          externalUserId,
+          externalChatId,
+        });
+
+        if (!recorded) throw STALE_INVITE_FRESH;
+      })
+      .immediate();
+  } catch (err) {
+    if (err === STALE_INVITE_FRESH) {
+      return { ok: false, reason: "invalid_token" };
+    }
+    throw err;
+  }
+
+  return {
+    ok: true,
+    type: "redeemed",
+    memberId: freshResult!.channel.id,
     inviteId: invite.id,
   };
 }

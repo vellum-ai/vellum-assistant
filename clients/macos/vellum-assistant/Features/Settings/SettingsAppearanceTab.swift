@@ -251,7 +251,7 @@ struct SettingsAppearanceTab: View {
                                 domains.removeAll { $0 == domain }
                                 store.setMediaEmbedVideoAllowlistDomains(domains)
                             } label: {
-                                Image(systemName: "trash")
+                                VIconView(.trash, size: 14)
                                     .foregroundColor(VColor.error)
                             }
                             .buttonStyle(.plain)

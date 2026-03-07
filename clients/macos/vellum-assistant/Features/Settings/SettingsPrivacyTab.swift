@@ -6,6 +6,7 @@ import VellumAssistantShared
 @MainActor
 struct SettingsPrivacyTab: View {
     var daemonClient: DaemonClient?
+    @ObservedObject var store: SettingsStore
 
     private static let collectUsageDataKey = "feature_flags.collect-usage-data.enabled"
 
@@ -15,12 +16,10 @@ struct SettingsPrivacyTab: View {
     @State private var loadError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.lg) {
-            diagnosticsSection
-        }
-        .onAppear {
-            Task { await loadPrivacyFlags() }
-        }
+        diagnosticsSection
+            .onAppear {
+                Task { await loadPrivacyFlags() }
+            }
     }
 
     // MARK: - Diagnostics Section
@@ -41,9 +40,8 @@ struct SettingsPrivacyTab: View {
 
             if let error = loadError {
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                    VIconView(.triangleAlert, size: 12)
                         .foregroundColor(VColor.warning)
-                        .font(.system(size: 12))
                     Text(error)
                         .font(VFont.caption)
                         .foregroundColor(VColor.error)
@@ -68,6 +66,28 @@ struct SettingsPrivacyTab: View {
                     }
                 ))
                 .disabled(isLoading || isUpdating || daemonClient == nil)
+            }
+
+            Divider()
+                .foregroundColor(VColor.divider)
+
+            HStack {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("Share performance metrics")
+                        .font(VFont.body)
+                        .foregroundColor(collectUsageData ? VColor.textSecondary : VColor.textMuted)
+                    Text(collectUsageData
+                         ? "Send anonymised performance metrics (hang rate, scroll speed) to help us improve responsiveness. No personal data or message content is included."
+                         : "Requires \"Collect usage data\" to be enabled.")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                Spacer()
+                VToggle(isOn: Binding(
+                    get: { store.sendPerformanceReports },
+                    set: { store.sendPerformanceReports = $0 }
+                ))
+                .disabled(!collectUsageData || isLoading || isUpdating)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -102,6 +122,18 @@ struct SettingsPrivacyTab: View {
             try await daemonClient.setFeatureFlag(key: Self.collectUsageDataKey, enabled: enabled)
             // Clear any previous error so stale failure messages don't persist after a successful save.
             loadError = nil
+            // Apply Sentry state immediately rather than waiting for the next daemon
+            // reconnect to call checkAndApplyPrivacyFlag(). Both paths are serialised
+            // through sentrySerialQueue so they don't race with concurrent MetricKit
+            // captures or manual report sends.
+            // Persist so MetricKitManager can check this flag synchronously
+            // during the startup window before the daemon connects.
+            UserDefaults.standard.set(enabled, forKey: "collectUsageDataEnabled")
+            if enabled {
+                MetricKitManager.startSentry()
+            } else {
+                MetricKitManager.closeSentry()
+            }
         } catch {
             // Revert the optimistic toggle on failure
             collectUsageData = !enabled
@@ -114,7 +146,7 @@ struct SettingsPrivacyTab: View {
 #Preview("SettingsPrivacyTab") {
     ZStack {
         VColor.background.ignoresSafeArea()
-        SettingsPrivacyTab(daemonClient: nil)
+        SettingsPrivacyTab(daemonClient: nil, store: SettingsStore())
             .frame(width: 480)
             .padding()
     }

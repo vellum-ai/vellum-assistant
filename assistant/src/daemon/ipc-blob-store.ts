@@ -11,7 +11,7 @@ import { join, relative, resolve, sep } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getIpcBlobDir } from "../util/platform.js";
-import type { IpcBlobRef } from "./ipc-contract.js";
+import type { IpcBlobRef } from "./ipc-protocol.js";
 
 const log = getLogger("ipc-blob-store");
 

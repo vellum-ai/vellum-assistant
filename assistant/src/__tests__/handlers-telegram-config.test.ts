@@ -22,7 +22,10 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => testDir,
   getDataDir: () => testDir,
   getIpcBlobDir: () => join(testDir, "ipc-blobs"),
@@ -34,10 +37,12 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => undefined,
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -61,20 +66,27 @@ let secureKeyStore: Record<string, string> = {};
 let setSecureKeyOverride: ((account: string, value: string) => boolean) | null =
   null;
 
+function syncSet(account: string, value: string): boolean {
+  if (setSecureKeyOverride) return setSecureKeyOverride(account, value);
+  secureKeyStore[account] = value;
+  return true;
+}
+
+function syncDelete(account: string): "deleted" | "not-found" {
+  if (account in secureKeyStore) {
+    delete secureKeyStore[account];
+    return "deleted";
+  }
+  return "not-found";
+}
+
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
-  setSecureKey: (account: string, value: string) => {
-    if (setSecureKeyOverride) return setSecureKeyOverride(account, value);
-    secureKeyStore[account] = value;
-    return true;
-  },
-  deleteSecureKey: (account: string) => {
-    if (account in secureKeyStore) {
-      delete secureKeyStore[account];
-      return true;
-    }
-    return false;
-  },
+  setSecureKey: syncSet,
+  deleteSecureKey: syncDelete,
+  setSecureKeyAsync: async (account: string, value: string) =>
+    syncSet(account, value),
+  deleteSecureKeyAsync: async (account: string) => syncDelete(account),
   listSecureKeys: () => Object.keys(secureKeyStore),
   getBackendType: () => "encrypted",
   isDowngradedFromKeychain: () => false,
@@ -137,12 +149,12 @@ let _fetchMock: ((url: string | URL | Request) => Promise<Response>) | null =
   null;
 const originalFetch = globalThis.fetch;
 
-import type { HandlerContext } from "../daemon/handlers.js";
 import { handleTelegramConfig } from "../daemon/handlers/config.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ServerMessage,
   TelegramConfigRequest,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { initializeDb, resetDb } from "../memory/db.js";
 import { DebouncerMap } from "../util/debounce.js";
 
@@ -1230,8 +1242,8 @@ describe("Telegram config handler", () => {
 // Guardian verification status/revoke IPC actions
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { handleGuardianVerification } from "../daemon/handlers/config.js";
-import type { GuardianVerificationRequest } from "../daemon/ipc-contract.js";
+import { handleChannelVerificationSession } from "../daemon/handlers/config.js";
+import type { ChannelVerificationSessionRequest } from "../daemon/ipc-protocol.js";
 describe("Guardian verification IPC actions", () => {
   beforeEach(() => {
     secureKeyStore = {};
@@ -1239,14 +1251,14 @@ describe("Guardian verification IPC actions", () => {
   });
 
   test("status action returns bound=false when no binding exists", () => {
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "telegram",
     };
 
     const { ctx, sent } = createTestContext();
-    handleGuardianVerification(msg, {} as net.Socket, ctx);
+    handleChannelVerificationSession(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -1255,21 +1267,21 @@ describe("Guardian verification IPC actions", () => {
       bound: boolean;
       guardianExternalUserId?: string;
     };
-    expect(res.type).toBe("guardian_verification_response");
+    expect(res.type).toBe("channel_verification_session_response");
     expect(res.success).toBe(true);
     expect(res.bound).toBe(false);
     expect(res.guardianExternalUserId).toBeUndefined();
   });
 
   test("create_challenge action returns a secret and instruction", () => {
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
-      action: "create_challenge",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
+      action: "create_session",
       channel: "telegram",
     };
 
     const { ctx, sent } = createTestContext();
-    handleGuardianVerification(msg, {} as net.Socket, ctx);
+    handleChannelVerificationSession(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -1278,7 +1290,7 @@ describe("Guardian verification IPC actions", () => {
       secret?: string;
       instruction?: string;
     };
-    expect(res.type).toBe("guardian_verification_response");
+    expect(res.type).toBe("channel_verification_session_response");
     expect(res.success).toBe(true);
     expect(res.secret).toBeDefined();
     expect(res.instruction).toBeDefined();
@@ -1288,17 +1300,17 @@ describe("Guardian verification IPC actions", () => {
 
   test("unknown action returns error", () => {
     const msg = {
-      type: "guardian_verification",
+      type: "channel_verification_session",
       action: "nonexistent",
       channel: "telegram",
-    } as unknown as GuardianVerificationRequest;
+    } as unknown as ChannelVerificationSessionRequest;
 
     const { ctx, sent } = createTestContext();
-    handleGuardianVerification(msg, {} as net.Socket, ctx);
+    handleChannelVerificationSession(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as { type: string; success: boolean; error?: string };
-    expect(res.type).toBe("guardian_verification_response");
+    expect(res.type).toBe("channel_verification_session_response");
     expect(res.success).toBe(false);
     expect(res.error).toContain("Unknown action");
   });

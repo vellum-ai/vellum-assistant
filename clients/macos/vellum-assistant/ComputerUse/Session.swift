@@ -463,7 +463,7 @@ final class ComputerUseSession: ObservableObject {
                 let response = alert.runModal()
 
                 if response == .alertFirstButtonReturn {
-                    let restarted = await ChromeAccessibilityHelper.restartChromeWithAccessibility(app: frontApp)
+                    let restarted = await ChromeAccessibilityHelper.restartChromeWithFlags(app: frontApp, flags: ["--force-renderer-accessibility"])
                     if restarted {
                         AccessibilityTreeEnumerator.clearEnhancedAXCache()
                         log.info("\(browserName) restarted — re-enumerating")

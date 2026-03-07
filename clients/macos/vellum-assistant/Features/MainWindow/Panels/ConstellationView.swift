@@ -39,16 +39,16 @@ enum SkillCategory: String, CaseIterable {
         }
     }
 
-    var icon: String {
+    var icon: VIcon {
         switch self {
-        case .communication: return "bubble.left.fill"
-        case .productivity: return "checklist"
-        case .development: return "hammer.fill"
-        case .media: return "film.fill"
-        case .automation: return "bolt.fill"
-        case .webSocial: return "globe"
-        case .knowledge: return "book.fill"
-        case .integration: return "link"
+        case .communication: return .messageCircle
+        case .productivity: return .listChecks
+        case .development: return .wrench
+        case .media: return .film
+        case .automation: return .zap
+        case .webSocial: return .globe
+        case .knowledge: return .bookOpen
+        case .integration: return .link
         }
     }
 
@@ -71,7 +71,7 @@ enum SkillCategory: String, CaseIterable {
 private struct OrbitItem: Identifiable {
     let id: String
     let label: String
-    let icon: String
+    let icon: VIcon
     let emoji: String?
     let color: Color
     let filePath: String?
@@ -215,8 +215,7 @@ private struct CategoryNodeView: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Image(systemName: category.icon)
-                .font(.system(size: 24, weight: .bold))
+            VIconView(category.icon, size: 24)
                 .foregroundColor(category.color)
 
             Text(category.displayName)
@@ -310,8 +309,7 @@ private struct SkillNodeView: View {
                 Text(emoji)
                     .font(.system(size: 22))
             } else {
-                Image(systemName: item.icon)
-                    .font(.system(size: 18, weight: .medium))
+                VIconView(item.icon, size: 18)
                     .foregroundColor(item.color)
             }
 
@@ -391,8 +389,7 @@ private struct SkillPopoverView: View {
                     Text(emoji)
                         .font(.system(size: 20))
                 } else {
-                    Image(systemName: item.icon)
-                        .font(.system(size: 14, weight: .medium))
+                    VIconView(item.icon, size: 14)
                         .foregroundColor(item.color)
                 }
 
@@ -995,8 +992,8 @@ struct ConstellationView: View {
         VIconButton(
             label: isFullscreen ? "Collapse" : "Expand",
             icon: isFullscreen
-                ? "arrow.down.right.and.arrow.up.left"
-                : "arrow.up.left.and.arrow.down.right",
+                ? VIcon.minimize.rawValue
+                : VIcon.maximize.rawValue,
             iconOnly: true,
             tooltip: isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
         ) {
@@ -1011,21 +1008,21 @@ struct ConstellationView: View {
     @ViewBuilder
     private func viewportControls(viewSize: CGSize) -> some View {
         HStack(spacing: VSpacing.xxs) {
-            VIconButton(label: "Zoom in", icon: "plus.magnifyingglass", iconOnly: true, tooltip: "Zoom in") {
+            VIconButton(label: "Zoom in", icon: VIcon.zoomIn.rawValue, iconOnly: true, tooltip: "Zoom in") {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     zoomScale = min(3.0, zoomScale + 0.25)
                     baseZoomScale = zoomScale
                 }
             }
 
-            VIconButton(label: "Zoom out", icon: "minus.magnifyingglass", iconOnly: true, tooltip: "Zoom out") {
+            VIconButton(label: "Zoom out", icon: VIcon.zoomOut.rawValue, iconOnly: true, tooltip: "Zoom out") {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     zoomScale = max(0.4, zoomScale - 0.25)
                     baseZoomScale = zoomScale
                 }
             }
 
-            VIconButton(label: "Fit all", icon: "viewfinder", iconOnly: true, tooltip: "Fit all skills") {
+            VIconButton(label: "Fit all", icon: VIcon.scan.rawValue, iconOnly: true, tooltip: "Fit all skills") {
                 fitAll(viewSize: viewSize)
             }
         }

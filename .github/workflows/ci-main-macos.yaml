@@ -38,8 +38,8 @@ jobs:
         working-directory: clients/macos
         run: ./build.sh test
 
-  notify:
-    name: Slack Notification
+  notify-macos:
+    name: Slack Notification (macOS)
     needs: [test]
     if: always()
     continue-on-error: true

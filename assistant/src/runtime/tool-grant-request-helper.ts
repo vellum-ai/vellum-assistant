@@ -18,8 +18,9 @@ import {
   listCanonicalGuardianRequests,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
-import { getGuardianBinding } from "./channel-guardian-service.js";
+import { getGuardianBinding } from "./channel-verification-service.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("tool-grant-request-helper");
@@ -144,9 +145,8 @@ export function createOrReuseToolGrantRequest(
   // pipeline is preserved.
   const signalPromise = emitNotificationSignal({
     sourceEventName: "guardian.question",
-    sourceChannel,
+    sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceSessionId: conversationId,
-    assistantId,
     attentionHints: {
       requiresAction: true,
       urgency: "high",
@@ -178,7 +178,7 @@ export function createOrReuseToolGrantRequest(
   void signalPromise.then((signalResult) => {
     for (const result of signalResult.deliveryResults) {
       if (result.channel === "vellum") continue; // handled in onThreadCreated
-      if (result.channel !== "telegram" && result.channel !== "sms") continue;
+      if (result.channel !== "telegram") continue;
       createCanonicalGuardianDelivery({
         requestId: canonicalRequest.id,
         destinationChannel: result.channel,

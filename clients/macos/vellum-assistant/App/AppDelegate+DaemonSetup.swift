@@ -1,5 +1,4 @@
 import AppKit
-import Sentry
 import VellumAssistantShared
 import os
 
@@ -101,8 +100,14 @@ extension AppDelegate {
                 services.reconfigureDaemonClient(config: config)
                 log.info("Configured local HTTP transport (localHttpEnabled flag) on port \(port)")
             } else {
-                // Reset to default socket transport in case the previous assistant used HTTP.
-                services.reconfigureDaemonClient(config: .default)
+                // Use the specific assistant's socket path and instance dir so
+                // switching between local instances connects to the correct daemon
+                // and authenticates with the correct session token.
+                let socketPath = assistant?.socketPath ?? DaemonClient.resolveSocketPath()
+                let instanceDir = assistant?.instanceDir
+                let featureFlagToken = instanceDir.map { readFeatureFlagToken(environment: ["BASE_DATA_DIR": $0]) } ?? readFeatureFlagToken()
+                let config = DaemonConfig(transport: .socket(path: socketPath), instanceDir: instanceDir, featureFlagToken: featureFlagToken)
+                services.reconfigureDaemonClient(config: config)
             }
             return
         }
@@ -133,6 +138,13 @@ extension AppDelegate {
         if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
             setenv("RUNTIME_HTTP_PORT", "7821", 0)
         }
+
+        // Start the keychain broker before the daemon so it is listening
+        // when the daemon process launches and reads the socket path.
+        #if !DEBUG
+        keychainBroker = KeychainBrokerServer()
+        keychainBroker?.start()
+        #endif
 
         configureDaemonTransport(for: assistant)
 
@@ -319,7 +331,9 @@ extension AppDelegate {
 
         // Handle avatar_updated from daemon: reload the avatar image from disk
         daemonClient.onAvatarUpdated = { _ in
-            AvatarAppearanceManager.shared.reloadAvatar()
+            Task { @MainActor in
+                AvatarAppearanceManager.shared.reloadAvatar()
+            }
         }
 
         // Restart DaemonClient connection when the health monitor relaunches
@@ -428,8 +442,14 @@ extension AppDelegate {
                     .first(where: { $0.key == "feature_flags.collect-usage-data.enabled" })
                     .map { $0.enabled }
                     ?? true
+                // Persist so MetricKitManager can check this flag synchronously
+                // during the startup window on the next launch, regardless of
+                // whether the user has visited the Privacy settings tab.
+                UserDefaults.standard.set(collectUsageData, forKey: "collectUsageDataEnabled")
                 if !collectUsageData {
-                    SentrySDK.close()
+                    // Route through sentrySerialQueue to prevent races with
+                    // concurrent MetricKit captures or manual report sends.
+                    MetricKitManager.closeSentry()
                 }
             } catch {
                 // Flag check is best-effort; Sentry stays active when the flag
@@ -443,6 +463,9 @@ extension AppDelegate {
 
     func setupAutoUpdate() {
         updateManager.onWillInstallUpdate = { [weak self] in
+            #if !DEBUG
+            self?.keychainBroker?.stop()
+            #endif
             self?.assistantCli.stop()
         }
         updateManager.startAutomaticChecks()

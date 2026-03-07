@@ -9,6 +9,8 @@ mock.module("../util/logger.js", () => ({
 // Only mock sleep so retries complete instantly; keep real retry logic.
 // NOTE: We must NOT use `await import()` inside mock.module — it deadlocks
 // bun's module resolver. Instead, inline the real exports and only replace sleep.
+const sleepSpy = mock((_ms: number) => Promise.resolve());
+
 mock.module("../util/retry.js", () => {
   const DEFAULT_MAX_RETRIES = 3;
   const DEFAULT_BASE_DELAY_MS = 1000;
@@ -86,7 +88,7 @@ mock.module("../util/retry.js", () => {
     isRetryableStatus,
     isRetryableNetworkError,
     extractRetryAfterMs,
-    sleep: () => Promise.resolve(),
+    sleep: sleepSpy,
     abortableSleep: () => Promise.resolve(),
   };
 });
@@ -256,6 +258,7 @@ describe("RetryProvider — rate limit backoff", () => {
   });
 
   test("caps retryAfterMs at MAX_RETRY_DELAY_MS", async () => {
+    sleepSpy.mockClear();
     const error = new ProviderError("rate limited", "anthropic", 429, {
       retryAfterMs: 3_600_000, // 1 hour - way too long
     });
@@ -265,8 +268,11 @@ describe("RetryProvider — rate limit backoff", () => {
     const result = await provider.sendMessage(MESSAGES);
     expect(result.content[0]).toMatchObject({ type: "text", text: "ok" });
     expect(inner.calls).toBe(2);
-    // The test passes quickly because sleep is mocked, but the important thing
-    // is that the provider doesn't hang - the cap is applied in the production code
+
+    // Verify sleep was called with the capped delay, not the original 3,600,000ms
+    const sleepCalls = sleepSpy.mock.calls;
+    const lastDelay = sleepCalls[sleepCalls.length - 1][0];
+    expect(lastDelay).toBe(60_000);
   });
 });
 

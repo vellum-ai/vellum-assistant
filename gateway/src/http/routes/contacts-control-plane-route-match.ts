@@ -2,13 +2,13 @@ export type ContactsControlPlaneRoute =
   | { kind: "listContacts" }
   | { kind: "upsertContact" }
   | { kind: "getContact"; contactId: string }
+  | { kind: "deleteContact"; contactId: string }
   | { kind: "mergeContacts" }
-  | { kind: "updateContactChannel"; channelId: string }
+  | { kind: "updateContactChannel"; contactChannelId: string }
   | { kind: "listInvites" }
   | { kind: "createInvite" }
   | { kind: "redeemInvite" }
-  | { kind: "revokeInvite"; inviteId: string }
-  | { kind: "verifyContactChannel"; contactId: string; channelId: string };
+  | { kind: "revokeInvite"; inviteId: string };
 
 export function matchContactsControlPlaneRoute(
   pathname: string,
@@ -26,20 +26,11 @@ export function matchContactsControlPlaneRoute(
   }
 
   // Channel status/policy updates
-  const channelMatch = pathname.match(/^\/v1\/contacts\/channels\/([^/]+)$/);
+  const channelMatch = pathname.match(/^\/v1\/contact-channels\/([^/]+)$/);
   if (channelMatch && method === "PATCH") {
-    return { kind: "updateContactChannel", channelId: channelMatch[1] };
-  }
-
-  // Trusted channel verification
-  const verifyMatch = pathname.match(
-    /^\/v1\/contacts\/([^/]+)\/channels\/([^/]+)\/verify$/,
-  );
-  if (verifyMatch && method === "POST") {
     return {
-      kind: "verifyContactChannel",
-      contactId: verifyMatch[1],
-      channelId: verifyMatch[2],
+      kind: "updateContactChannel",
+      contactChannelId: channelMatch[1],
     };
   }
 
@@ -61,8 +52,11 @@ export function matchContactsControlPlaneRoute(
 
   // Contact by ID — must come after /invites and /merge to avoid false matches
   const contactIdMatch = pathname.match(/^\/v1\/contacts\/([^/]+)$/);
-  if (contactIdMatch && method === "GET") {
-    return { kind: "getContact", contactId: contactIdMatch[1] };
+  if (contactIdMatch) {
+    if (method === "GET")
+      return { kind: "getContact", contactId: contactIdMatch[1] };
+    if (method === "DELETE")
+      return { kind: "deleteContact", contactId: contactIdMatch[1] };
   }
 
   return null;

@@ -99,7 +99,7 @@ import {
   getConversationMemoryScopeId,
   messageMetadataSchema,
   provenanceFromTrustContext,
-} from "../memory/conversation-store.js";
+} from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { selectEmbeddingBackend } from "../memory/embedding-backend.js";
 import {
@@ -142,7 +142,6 @@ import {
   formatRelativeTime,
   injectMemoryRecallAsSeparateMessage,
   injectMemoryRecallIntoUserMessage,
-  searchMemoryItems,
   stripMemoryRecallMessages,
 } from "../memory/retriever.js";
 import {
@@ -4416,37 +4415,6 @@ describe("Memory regressions", () => {
     expect(payload.scopeId).toBe("default");
   });
 
-  test("extract_items backward compat: old payloads without scopeId default to default", () => {
-    // Simulate an old-style extract_items job without scopeId
-    const jobId = enqueueMemoryJob("extract_items", {
-      messageId: "legacy-msg-id",
-    });
-
-    const db = getDb();
-    const job = db
-      .select()
-      .from(memoryJobs)
-      .where(eq(memoryJobs.id, jobId))
-      .get();
-
-    expect(job).toBeTruthy();
-    const payload = JSON.parse(job!.payload) as Record<string, unknown>;
-    // Old payloads will not have scopeId — consumers must default to 'default'
-    expect(payload.scopeId).toBeUndefined();
-
-    // Verify the job handler's backward-compat logic: claim and inspect
-    const claimed = claimMemoryJobs(100);
-    const claimedJob = claimed.find((j) => j.id === jobId);
-    expect(claimedJob).toBeTruthy();
-    // The parsed payload should not have scopeId (it was never set)
-    const resolvedScope =
-      typeof claimedJob!.payload.scopeId === "string" &&
-      claimedJob!.payload.scopeId
-        ? claimedJob!.payload.scopeId
-        : "default";
-    expect(resolvedScope).toBe("default");
-  });
-
   // PR-19: extractItemsJob forwards scopeId to extractAndUpsertMemoryItemsForMessage
   test("extractAndUpsertMemoryItemsForMessage accepts optional scopeId without breaking", async () => {
     const db = getDb();
@@ -5239,139 +5207,6 @@ describe("Memory regressions", () => {
     expect(summaryText).toContain("publicframework");
     // Private-scope conversation summary content must NOT leak
     expect(summaryText).not.toContain("confidentialproject");
-  });
-
-  // ── searchMemoryItems scopePolicyOverride tests ────────────────────
-
-  test("memory_search in private thread includes default-scope items via fallback", async () => {
-    const db = getDb();
-    const now = Date.now();
-    const convId = "conv-search-fb";
-
-    db.insert(conversations)
-      .values({
-        id: convId,
-        title: null,
-        createdAt: now,
-        updatedAt: now,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalEstimatedCost: 0,
-        contextSummary: null,
-        contextCompactedMessageCount: 0,
-        contextCompactedAt: null,
-      })
-      .run();
-    db.insert(messages)
-      .values({
-        id: "msg-search-fb-1",
-        conversationId: convId,
-        role: "user",
-        content: JSON.stringify([
-          { type: "text", text: "search fallback test" },
-        ]),
-        createdAt: now,
-      })
-      .run();
-
-    // Insert a default-scope segment with FTS so lexical search can find it
-    db.run(`
-      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
-      VALUES ('seg-search-fb-default', 'msg-search-fb-1', '${convId}', 'user', 0, 'The team uses Erlang for distributed message processing systems', 10, 'default', ${now}, ${now})
-    `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-search-fb-default', 'The team uses Erlang for distributed message processing systems')`,
-    );
-
-    const strictConfig = {
-      ...TEST_CONFIG,
-      memory: {
-        ...TEST_CONFIG.memory,
-        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
-        retrieval: {
-          ...TEST_CONFIG.memory.retrieval,
-          scopePolicy: "strict" as const,
-        },
-      },
-    };
-
-    // With the scopePolicyOverride, default-scope items should be included
-    // even though the global policy is strict.
-    const results = await searchMemoryItems(
-      "Erlang distributed message processing",
-      10,
-      strictConfig,
-      "private:thread-search-test",
-      { scopeId: "private:thread-search-test", fallbackToDefault: true },
-    );
-
-    const ids = results.map((r) => r.id);
-    expect(ids).toContain("seg-search-fb-default");
-  });
-
-  test("memory_search in private thread still returns private-scope items", async () => {
-    const db = getDb();
-    const now = Date.now();
-    const convId = "conv-search-priv";
-    const privateScopeId = "private:thread-search-priv";
-
-    db.insert(conversations)
-      .values({
-        id: convId,
-        title: null,
-        createdAt: now,
-        updatedAt: now,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalEstimatedCost: 0,
-        contextSummary: null,
-        contextCompactedMessageCount: 0,
-        contextCompactedAt: null,
-      })
-      .run();
-    db.insert(messages)
-      .values({
-        id: "msg-search-priv-1",
-        conversationId: convId,
-        role: "user",
-        content: JSON.stringify([
-          { type: "text", text: "search private scope test" },
-        ]),
-        createdAt: now,
-      })
-      .run();
-
-    // Insert a private-scope segment with FTS
-    db.run(`
-      INSERT INTO memory_segments (id, message_id, conversation_id, role, segment_index, text, token_estimate, scope_id, created_at, updated_at)
-      VALUES ('seg-search-priv-scope', 'msg-search-priv-1', '${convId}', 'user', 0, 'User prefers Haskell for type-safe functional programming', 10, '${privateScopeId}', ${now}, ${now})
-    `);
-    db.run(
-      `INSERT INTO memory_segment_fts(segment_id, text) VALUES ('seg-search-priv-scope', 'User prefers Haskell for type-safe functional programming')`,
-    );
-
-    const strictConfig = {
-      ...TEST_CONFIG,
-      memory: {
-        ...TEST_CONFIG.memory,
-        embeddings: { ...TEST_CONFIG.memory.embeddings, required: false },
-        retrieval: {
-          ...TEST_CONFIG.memory.retrieval,
-          scopePolicy: "strict" as const,
-        },
-      },
-    };
-
-    const results = await searchMemoryItems(
-      "Haskell functional programming",
-      10,
-      strictConfig,
-      privateScopeId,
-      { scopeId: privateScopeId, fallbackToDefault: true },
-    );
-
-    const ids = results.map((r) => r.id);
-    expect(ids).toContain("seg-search-priv-scope");
   });
 
   // Backfill preserves private conversation scope on memory segments

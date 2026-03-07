@@ -495,7 +495,7 @@ exports[`IPC message snapshots ClientMessage types fork_shared_app serializes to
 
 exports[`IPC message snapshots ClientMessage types open_bundle serializes to expected JSON 1`] = `
 {
-  "filePath": "/tmp/My_App.vellumapp",
+  "filePath": "/tmp/My_App.vellum",
   "type": "open_bundle",
 }
 `;
@@ -628,13 +628,6 @@ exports[`IPC message snapshots ClientMessage types share_app_cloud serializes to
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types share_to_slack serializes to expected JSON 1`] = `
-{
-  "appId": "app-001",
-  "type": "share_to_slack",
-}
-`;
-
 exports[`IPC message snapshots ClientMessage types slack_webhook_config serializes to expected JSON 1`] = `
 {
   "action": "get",
@@ -677,12 +670,12 @@ exports[`IPC message snapshots ClientMessage types telegram_config serializes to
 }
 `;
 
-exports[`IPC message snapshots ClientMessage types guardian_verification serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ClientMessage types channel_verification_session serializes to expected JSON 1`] = `
 {
-  "action": "create_challenge",
+  "action": "create_session",
   "channel": "telegram",
   "sessionId": "sess-001",
-  "type": "guardian_verification",
+  "type": "channel_verification_session",
 }
 `;
 
@@ -1028,6 +1021,22 @@ exports[`IPC message snapshots ClientMessage types conversation_seen_signal seri
   "source": "notification-action",
   "sourceChannel": "vellum",
   "type": "conversation_seen_signal",
+}
+`;
+
+exports[`IPC message snapshots ClientMessage types conversation_unread_signal serializes to expected JSON 1`] = `
+{
+  "confidence": "explicit",
+  "conversationId": "conv-001",
+  "evidenceText": "User selected Mark as unread",
+  "metadata": {
+    "trigger": "context-menu",
+  },
+  "observedAt": 1700000000000,
+  "signalType": "macos_conversation_opened",
+  "source": "ui-navigation",
+  "sourceChannel": "vellum",
+  "type": "conversation_unread_signal",
 }
 `;
 
@@ -1641,6 +1650,15 @@ exports[`IPC message snapshots ServerMessage types task_routed serializes to exp
 }
 `;
 
+exports[`IPC message snapshots ServerMessage types ride_shotgun_error serializes to expected JSON 1`] = `
+{
+  "message": "Failed to start browser — Chrome CDP could not be launched.",
+  "sessionId": "sess-shotgun-001",
+  "type": "ride_shotgun_error",
+  "watchId": "watch-shotgun-001",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types ride_shotgun_progress serializes to expected JSON 1`] = `
 {
   "message": "Observing user activity...",
@@ -1988,7 +2006,7 @@ exports[`IPC message snapshots ServerMessage types reminders_list_response seria
 
 exports[`IPC message snapshots ServerMessage types bundle_app_response serializes to expected JSON 1`] = `
 {
-  "bundlePath": "/tmp/My_App-abc12345.vellumapp",
+  "bundlePath": "/tmp/My_App-abc12345.vellum",
   "manifest": {
     "capabilities": [],
     "content_id": "a1b2c3d4e5f6a7b8",
@@ -2225,13 +2243,6 @@ exports[`IPC message snapshots ServerMessage types share_app_cloud_response seri
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types share_to_slack_response serializes to expected JSON 1`] = `
-{
-  "success": true,
-  "type": "share_to_slack_response",
-}
-`;
-
 exports[`IPC message snapshots ServerMessage types slack_webhook_config_response serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -2288,12 +2299,12 @@ exports[`IPC message snapshots ServerMessage types telegram_config_response seri
 }
 `;
 
-exports[`IPC message snapshots ServerMessage types guardian_verification_response serializes to expected JSON 1`] = `
+exports[`IPC message snapshots ServerMessage types channel_verification_session_response serializes to expected JSON 1`] = `
 {
   "instruction": "Send this code to the Telegram bot",
   "secret": "verify-secret-123",
   "success": true,
-  "type": "guardian_verification_response",
+  "type": "channel_verification_session_response",
 }
 `;
 

@@ -37,13 +37,13 @@ struct TwilioSettingsSection: View {
                         Text("Credentials")
                         Spacer()
                         if hasCredentials {
-                            Image(systemName: "checkmark.circle.fill")
+                            VIconView(.circleCheck, size: 16)
                                 .foregroundColor(VColor.success)
                             Text("Connected")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
-                            Image(systemName: "xmark.circle")
+                            VIconView(.circleX, size: 16)
                                 .foregroundColor(VColor.error)
                             Text("Not configured")
                                 .font(.caption)
@@ -79,7 +79,7 @@ struct TwilioSettingsSection: View {
                                     ProgressView()
                                         .controlSize(.small)
                                 } else {
-                                    Image(systemName: "phone.badge.waveform")
+                                    VIconView(.phoneCall, size: 16)
                                         .foregroundStyle(.secondary)
                                 }
                             }
@@ -141,7 +141,7 @@ struct TwilioSettingsSection: View {
                             HStack {
                                 Text("Provision New Number")
                                 Spacer()
-                                Image(systemName: "plus.circle")
+                                VIconView(.plus, size: 16)
                                     .foregroundStyle(.secondary)
                             }
                         }

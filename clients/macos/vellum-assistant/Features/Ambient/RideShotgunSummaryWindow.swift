@@ -87,7 +87,7 @@ private struct RideShotgunSummaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack {
-                Image(systemName: recordingId != nil ? "record.circle" : "binoculars.fill")
+                VIconView(recordingId != nil ? .circle : .binoculars, size: 14)
                     .foregroundStyle(VColor.accent)
                 Text(recordingId != nil ? "Recording saved" : "Here's what I noticed")
                     .font(VFont.headline)

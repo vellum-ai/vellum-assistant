@@ -47,7 +47,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     twilioAuthToken: undefined,
     twilioAccountSid: undefined,
     twilioPhoneNumber: undefined,
-    smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     whatsappPhoneNumberId: undefined,
@@ -100,7 +99,7 @@ describe("contacts control-plane proxy", () => {
       }),
     );
     await handler.handleUpdateContactChannel(
-      new Request("http://localhost:7830/v1/contacts/channels/ch_1", {
+      new Request("http://localhost:7830/v1/contact-channels/ch_1", {
         method: "PATCH",
       }),
       "ch_1",
@@ -111,7 +110,7 @@ describe("contacts control-plane proxy", () => {
       "http://localhost:7821/v1/contacts",
       "http://localhost:7821/v1/contacts/ct_1",
       "http://localhost:7821/v1/contacts/merge",
-      "http://localhost:7821/v1/contacts/channels/ch_1",
+      "http://localhost:7821/v1/contact-channels/ch_1",
     ]);
   });
 

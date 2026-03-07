@@ -19,13 +19,13 @@ public struct VSkillTypePill: View {
             }
         }
 
-        var icon: String {
+        var vIcon: VIcon {
             switch self {
-            case .core: return "shippingbox.fill"
-            case .installed: return "checkmark.circle.fill"
-            case .created: return "sparkles"
-            case .extra: return "puzzlepiece.fill"
-            case .custom(_, let icon, _, _): return icon
+            case .core: return .package
+            case .installed: return .circleCheck
+            case .created: return .sparkles
+            case .extra: return .puzzle
+            case .custom(_, let icon, _, _): return .resolve(icon)
             }
         }
 
@@ -70,7 +70,7 @@ public struct VSkillTypePill: View {
         default:
             self.type = .custom(
                 label: source.replacingOccurrences(of: "-", with: " ").capitalized,
-                icon: "puzzlepiece.fill",
+                icon: VIcon.puzzle.rawValue,
                 foreground: Color(hex: 0x6B6B5E),
                 background: Color(hex: 0xDDDBCE)
             )
@@ -79,8 +79,7 @@ public struct VSkillTypePill: View {
 
     public var body: some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: type.icon)
-                .font(.system(size: 10, weight: .medium))
+            VIconView(type.vIcon, size: 10)
             Text(type.label)
                 .font(VFont.caption)
         }

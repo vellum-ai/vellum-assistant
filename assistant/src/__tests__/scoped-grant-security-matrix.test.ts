@@ -40,8 +40,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -89,7 +87,6 @@ function grantParams(
 ): CreateScopedApprovalGrantParams {
   const futureExpiry = new Date(Date.now() + 60_000).toISOString();
   return {
-    assistantId: "self",
     scopeMode: "tool_signature",
     toolName: "bash",
     inputDigest: computeToolApprovalDigest("bash", { cmd: "ls" }),
@@ -338,35 +335,6 @@ describe("security matrix: persistence and fail-closed behavior", () => {
 describe("security matrix: cross-scope invariants", () => {
   beforeEach(() => clearTables());
 
-  test("grant for one assistant cannot be consumed by another assistant", () => {
-    const digest = computeToolApprovalDigest("bash", { cmd: "ls" });
-    createScopedApprovalGrant(
-      grantParams({
-        toolName: "bash",
-        inputDigest: digest,
-        assistantId: "assistant-alpha",
-      }),
-    );
-
-    // Attempt consumption from a different assistant
-    const wrongAssistant = consumeScopedApprovalGrantByToolSignature({
-      toolName: "bash",
-      inputDigest: digest,
-      consumingRequestId: "c1",
-      assistantId: "assistant-beta",
-    });
-    expect(wrongAssistant.ok).toBe(false);
-
-    // Correct assistant succeeds
-    const correctAssistant = consumeScopedApprovalGrantByToolSignature({
-      toolName: "bash",
-      inputDigest: digest,
-      consumingRequestId: "c2",
-      assistantId: "assistant-alpha",
-    });
-    expect(correctAssistant.ok).toBe(true);
-  });
-
   test("all scope fields must match simultaneously for consumption", () => {
     const digest = computeToolApprovalDigest("bash", { cmd: "ls" });
 
@@ -375,7 +343,6 @@ describe("security matrix: cross-scope invariants", () => {
       grantParams({
         toolName: "bash",
         inputDigest: digest,
-        assistantId: "self",
         executionChannel: "voice",
         conversationId: "conv-123",
         callSessionId: "call-456",
@@ -391,8 +358,7 @@ describe("security matrix: cross-scope invariants", () => {
         toolName: "bash",
         inputDigest: digest,
         consumingRequestId: "c-chan",
-        assistantId: "self",
-        executionChannel: "sms",
+        executionChannel: "telegram",
         conversationId: "conv-123",
         callSessionId: "call-456",
         requesterExternalUserId: "user-alice",
@@ -405,7 +371,6 @@ describe("security matrix: cross-scope invariants", () => {
         toolName: "bash",
         inputDigest: digest,
         consumingRequestId: "c-conv",
-        assistantId: "self",
         executionChannel: "voice",
         conversationId: "conv-999",
         callSessionId: "call-456",
@@ -419,7 +384,6 @@ describe("security matrix: cross-scope invariants", () => {
         toolName: "bash",
         inputDigest: digest,
         consumingRequestId: "c-call",
-        assistantId: "self",
         executionChannel: "voice",
         conversationId: "conv-123",
         callSessionId: "call-999",
@@ -433,7 +397,6 @@ describe("security matrix: cross-scope invariants", () => {
         toolName: "bash",
         inputDigest: digest,
         consumingRequestId: "c-user",
-        assistantId: "self",
         executionChannel: "voice",
         conversationId: "conv-123",
         callSessionId: "call-456",
@@ -447,7 +410,6 @@ describe("security matrix: cross-scope invariants", () => {
         toolName: "bash",
         inputDigest: digest,
         consumingRequestId: "c-all",
-        assistantId: "self",
         executionChannel: "voice",
         conversationId: "conv-123",
         callSessionId: "call-456",

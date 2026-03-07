@@ -70,7 +70,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
         .padding(2)
         .background(
             RoundedRectangle(cornerRadius: VRadius.md)
-                .fill(VColor.surfaceSubtle)
+                .fill(VColor.inputBackground)
         )
         .animation(VAnimation.fast, value: selection)
     }
@@ -97,8 +97,6 @@ private struct PillSegment: View {
 
     @State private var isHovered = false
 
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         Button(action: action) {
             Text(label)
@@ -111,6 +109,7 @@ private struct PillSegment: View {
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md - 1)
                         .fill(segmentBackground)
+                        .shadow(color: isSelected ? Color.black.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
                 )
                 .contentShape(Rectangle())
         }
@@ -126,9 +125,9 @@ private struct PillSegment: View {
 
     private var segmentBackground: Color {
         if isSelected {
-            return VColor.navActive
+            return VColor.segmentSelected
         } else if isHovered {
-            return VColor.navHover
+            return VColor.segmentHover
         } else {
             return .clear
         }

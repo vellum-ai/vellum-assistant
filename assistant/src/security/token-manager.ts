@@ -12,7 +12,7 @@ import {
 } from "../tools/credentials/metadata-store.js";
 import { getLogger } from "../util/logger.js";
 import { refreshOAuth2Token, type TokenEndpointAuthMethod } from "./oauth2.js";
-import { getSecureKey, setSecureKey } from "./secure-keys.js";
+import { getSecureKey, setSecureKeyAsync } from "./secure-keys.js";
 
 const log = getLogger("token-manager");
 
@@ -217,7 +217,12 @@ async function doRefresh(service: string): Promise<string> {
     throw err;
   }
 
-  if (!setSecureKey(`credential:${service}:access_token`, result.accessToken)) {
+  if (
+    !(await setSecureKeyAsync(
+      `credential:${service}:access_token`,
+      result.accessToken,
+    ))
+  ) {
     throw new TokenExpiredError(
       service,
       `Failed to store refreshed access token for "${service}".`,
@@ -226,7 +231,10 @@ async function doRefresh(service: string): Promise<string> {
 
   if (result.refreshToken) {
     if (
-      !setSecureKey(`credential:${service}:refresh_token`, result.refreshToken)
+      !(await setSecureKeyAsync(
+        `credential:${service}:refresh_token`,
+        result.refreshToken,
+      ))
     ) {
       throw new TokenExpiredError(
         service,

@@ -151,7 +151,6 @@ describe("guardian-action-late-reply", () => {
     });
 
     const deliveries = getExpiredDeliveriesByDestination(
-      "self",
       "telegram",
       "chat-abc",
     );
@@ -163,11 +162,7 @@ describe("guardian-action-late-reply", () => {
   test("getExpiredDeliveriesByDestination returns empty for non-matching channel", () => {
     createExpiredRequest("conv-late-2", { chatId: "chat-abc" });
 
-    const deliveries = getExpiredDeliveriesByDestination(
-      "self",
-      "sms",
-      "chat-abc",
-    );
+    const deliveries = getExpiredDeliveriesByDestination("voice", "chat-abc");
     expect(deliveries).toHaveLength(0);
   });
 
@@ -180,7 +175,6 @@ describe("guardian-action-late-reply", () => {
     startFollowupFromExpiredRequest(request.id, "late answer text");
 
     const deliveries = getExpiredDeliveriesByDestination(
-      "self",
       "telegram",
       "chat-started",
     );
@@ -311,7 +305,6 @@ describe("guardian-action-late-reply", () => {
 
     // Should not appear in expired queries
     const expiredByDest = getExpiredDeliveriesByDestination(
-      "self",
       "telegram",
       "chat-answered",
     );

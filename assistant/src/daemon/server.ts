@@ -23,8 +23,15 @@ import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
 } from "../memory/canonical-guardian-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
-import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import {
+  addMessage,
+  getConversationMemoryScopeId,
+  getConversationThreadType,
+  provenanceFromTrustContext,
+  setConversationOriginChannelIfUnset,
+  setConversationOriginInterfaceIfUnset,
+} from "../memory/conversation-crud.js";
+import { getLatestConversation } from "../memory/conversation-queries.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
   getFailoverProvider,
@@ -52,13 +59,13 @@ import { registerDaemonCallbacks } from "../work-items/work-item-runner.js";
 import { AuthManager } from "./auth-manager.js";
 import { ComputerUseSession } from "./computer-use-session.js";
 import { ConfigWatcher } from "./config-watcher.js";
-import {
-  handleMessage,
-  type HandlerContext,
-  type SessionCreateOptions,
-} from "./handlers.js";
 import { parseIdentityFields } from "./handlers/identity.js";
+import { handleMessage } from "./handlers/index.js";
 import { cleanupRecordingsOnDisconnect } from "./handlers/recording.js";
+import type {
+  HandlerContext,
+  SessionCreateOptions,
+} from "./handlers/shared.js";
 import { ensureBlobDir, sweepStaleBlobs } from "./ipc-blob-store.js";
 import { IpcSender } from "./ipc-handler.js";
 import {
@@ -254,11 +261,10 @@ export class DaemonServer {
   }
 
   private deriveMemoryPolicy(conversationId: string): SessionMemoryPolicy {
-    const threadType =
-      conversationStore.getConversationThreadType(conversationId);
+    const threadType = getConversationThreadType(conversationId);
     if (threadType === "private") {
       return {
-        scopeId: conversationStore.getConversationMemoryScopeId(conversationId),
+        scopeId: getConversationMemoryScopeId(conversationId),
         includeDefaultFallback: true,
         strictSideEffects: true,
       };
@@ -842,7 +848,7 @@ export class DaemonServer {
   }
 
   private async sendInitialSession(socket: net.Socket): Promise<void> {
-    const conversation = conversationStore.getLatestConversation();
+    const conversation = getLatestConversation();
     if (!conversation) {
       this.send(socket, {
         type: "daemon_status",
@@ -1192,7 +1198,7 @@ export class DaemonServer {
           : {}),
       };
       const userMsg = createUserMessage(content, attachments);
-      const persisted = await conversationStore.addMessage(
+      const persisted = await addMessage(
         conversationId,
         "user",
         JSON.stringify(userMsg.content),
@@ -1202,7 +1208,7 @@ export class DaemonServer {
 
       if (serverTurnCtx) {
         try {
-          conversationStore.setConversationOriginChannelIfUnset(
+          setConversationOriginChannelIfUnset(
             conversationId,
             serverTurnCtx.userMessageChannel,
           );
@@ -1215,7 +1221,7 @@ export class DaemonServer {
       }
       if (serverInterfaceCtx) {
         try {
-          conversationStore.setConversationOriginInterfaceIfUnset(
+          setConversationOriginInterfaceIfUnset(
             conversationId,
             serverInterfaceCtx.userMessageInterface,
           );
@@ -1228,7 +1234,7 @@ export class DaemonServer {
       }
 
       const assistantMsg = createAssistantMessage(slashResult.message);
-      await conversationStore.addMessage(
+      await addMessage(
         conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),

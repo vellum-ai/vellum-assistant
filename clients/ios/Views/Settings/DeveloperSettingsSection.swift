@@ -25,9 +25,20 @@ private struct DeveloperSettingsSectionContent: View {
     let clientProvider: ClientProvider
     @ObservedObject var traceStore: TraceStore
     @State private var showDebugPanel = false
+    @State private var showUsageDashboard = false
     // Captured once when the sheet opens so the panel stays on the same session
     // even if newer trace events arrive while the sheet is visible.
     @State private var selectedSessionId: String?
+    // Preserved across sheet presentations to avoid redundant network calls
+    // and loading spinners each time the usage dashboard is opened.
+    // Updated via .onChange(of: clientGeneration) when rebuildClient() fires.
+    @State private var usageDashboardStore: UsageDashboardStore
+
+    init(clientProvider: ClientProvider, traceStore: TraceStore) {
+        self.clientProvider = clientProvider
+        self.traceStore = traceStore
+        _usageDashboardStore = State(initialValue: UsageDashboardStore(client: clientProvider.client))
+    }
 
     private var sessionCount: Int {
         traceStore.eventsBySession.count
@@ -56,7 +67,15 @@ private struct DeveloperSettingsSectionContent: View {
                     selectedSessionId = traceStore.mostRecentSessionId
                     showDebugPanel = true
                 } label: {
-                    Label("Open Debug Panel", systemImage: "ladybug")
+                    Label { Text("Open Debug Panel") } icon: { VIconView(.bug, size: 14) }
+                }
+            }
+
+            Section("Usage & Cost") {
+                Button {
+                    showUsageDashboard = true
+                } label: {
+                    Label { Text("Usage Dashboard") } icon: { VIconView(.barChart, size: 14) }
                 }
             }
 
@@ -72,6 +91,12 @@ private struct DeveloperSettingsSectionContent: View {
                 sessionId: selectedSessionId,
                 onClose: { showDebugPanel = false }
             )
+        }
+        .sheet(isPresented: $showUsageDashboard) {
+            UsageDashboardView(store: usageDashboardStore)
+        }
+        .onChange(of: clientProvider.clientGeneration) {
+            usageDashboardStore.updateClient(clientProvider.client)
         }
     }
 }

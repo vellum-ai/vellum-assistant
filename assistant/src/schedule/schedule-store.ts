@@ -77,16 +77,14 @@ export function createSchedule(params: {
   message: string;
   enabled?: boolean;
   createdBy?: string;
-  syntax?: ScheduleSyntax;
+  syntax: ScheduleSyntax;
   expression?: string;
 }): ScheduleJob {
-  // Resolve syntax and expression: prefer explicit values, fall back to cron default
-  const syntax: ScheduleSyntax = params.syntax ?? "cron";
   const expression = params.expression ?? params.cronExpression;
 
-  const spec = { syntax, expression, timezone: params.timezone };
+  const spec = { syntax: params.syntax, expression, timezone: params.timezone };
   if (!isValidScheduleExpression(spec)) {
-    throw new Error(`Invalid ${syntax} expression: "${expression}"`);
+    throw new Error(`Invalid ${params.syntax} expression: "${expression}"`);
   }
 
   const db = getDb();
@@ -101,7 +99,7 @@ export function createSchedule(params: {
     name: params.name,
     enabled,
     cronExpression: expression,
-    scheduleSyntax: syntax,
+    scheduleSyntax: params.syntax,
     timezone,
     message: params.message,
     nextRunAt,
@@ -178,7 +176,7 @@ export function updateSchedule(
 
   // Resolve the effective syntax and expression after this update
   const newSyntax =
-    updates.syntax ?? (existing.scheduleSyntax as ScheduleSyntax) ?? "cron";
+    updates.syntax ?? (existing.scheduleSyntax as ScheduleSyntax);
   const newExpr =
     updates.expression ?? updates.cronExpression ?? existing.cronExpression;
   const newTimezone =
@@ -262,7 +260,7 @@ export function claimDueSchedules(now: number): ScheduleJob[] {
     let newNextRunAt: number | null;
     let exhausted = false;
     try {
-      const syntax = (row.scheduleSyntax as ScheduleSyntax) ?? "cron";
+      const syntax = row.scheduleSyntax as ScheduleSyntax;
       newNextRunAt = computeNextRunAtEngine({
         syntax,
         expression: row.cronExpression,
@@ -575,7 +573,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     id: row.id,
     name: row.name,
     enabled: row.enabled,
-    syntax: (row.scheduleSyntax as ScheduleSyntax) ?? "cron",
+    syntax: row.scheduleSyntax as ScheduleSyntax,
     expression: row.cronExpression,
     cronExpression: row.cronExpression,
     timezone: row.timezone,

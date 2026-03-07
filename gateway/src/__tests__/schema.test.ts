@@ -66,21 +66,20 @@ describe("/schema route", () => {
     expect(body.paths["/v1/integrations/telegram/setup"]).toBeDefined();
     expect(body.paths["/v1/contacts"]).toBeDefined();
     expect(body.paths["/v1/contacts/merge"]).toBeDefined();
-    expect(body.paths["/v1/contacts/channels/{channelId}"]).toBeDefined();
+    expect(body.paths["/v1/contact-channels/{contactChannelId}"]).toBeDefined();
     expect(body.paths["/v1/contacts/{contactId}"]).toBeDefined();
     expect(body.paths["/v1/contacts/invites"]).toBeDefined();
     expect(body.paths["/v1/contacts/invites/redeem"]).toBeDefined();
     expect(body.paths["/v1/contacts/invites/{inviteId}"]).toBeDefined();
-    expect(body.paths["/v1/integrations/guardian/challenge"]).toBeDefined();
-    expect(body.paths["/v1/integrations/guardian/status"]).toBeDefined();
+    expect(body.paths["/v1/channel-verification-sessions"]).toBeDefined();
     expect(
-      body.paths["/v1/integrations/guardian/outbound/start"],
+      body.paths["/v1/channel-verification-sessions/status"],
     ).toBeDefined();
     expect(
-      body.paths["/v1/integrations/guardian/outbound/resend"],
+      body.paths["/v1/channel-verification-sessions/resend"],
     ).toBeDefined();
     expect(
-      body.paths["/v1/integrations/guardian/outbound/cancel"],
+      body.paths["/v1/channel-verification-sessions/revoke"],
     ).toBeDefined();
     expect(body.paths["/deliver/telegram"]).toBeDefined();
     expect(body.paths["/{path}"]).toBeDefined();

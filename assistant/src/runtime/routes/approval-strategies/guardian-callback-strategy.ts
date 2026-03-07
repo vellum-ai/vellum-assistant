@@ -1,7 +1,7 @@
 /**
  * Guardian callback decision strategy: handles inbound messages from a
  * guardian sender who has pending guardian approval requests. Routes through
- * callback buttons, the conversational engine, or legacy plain-text parsing.
+ * callback buttons or the conversational engine.
  */
 import { applyGuardianDecision } from "../../../approvals/guardian-decision-primitive.js";
 import type { ChannelId } from "../../../channels/types.js";
@@ -9,12 +9,12 @@ import {
   getAllPendingApprovalsByGuardianChat,
   getPendingApprovalByRequestAndGuardianChat,
   type GuardianApprovalRequest,
-} from "../../../memory/channel-guardian-store.js";
+} from "../../../memory/guardian-approvals.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { getLogger } from "../../../util/logger.js";
 import { runApprovalConversationTurn } from "../../approval-conversation-turn.js";
 import { composeApprovalMessageGenerative } from "../../approval-message-composer.js";
-import { parseApprovalDecision } from "../../channel-approval-parser.js";
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
@@ -51,7 +51,7 @@ export interface GuardianCallbackDecisionParams {
   bearerToken?: string;
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
-  approvalConversationGenerator?: ApprovalConversationGenerator;
+  approvalConversationGenerator: ApprovalConversationGenerator;
 }
 
 export interface ApprovalInterceptionResult {
@@ -99,7 +99,6 @@ export async function handleGuardianCallbackDecision(
         callbackDecision.requestId,
         sourceChannel,
         conversationExternalId,
-        assistantId,
       )
     : null;
 
@@ -110,7 +109,6 @@ export async function handleGuardianCallbackDecision(
     const allPending = getAllPendingApprovalsByGuardianChat(
       sourceChannel,
       conversationExternalId,
-      assistantId,
     );
     if (allPending.length === 1) {
       guardianApproval = allPending[0];
@@ -141,7 +139,6 @@ export async function handleGuardianCallbackDecision(
     const allPending = getAllPendingApprovalsByGuardianChat(
       sourceChannel,
       conversationExternalId,
-      assistantId,
     );
     if (allPending.length === 1) {
       guardianApproval = allPending[0];
@@ -204,7 +201,6 @@ export async function handleGuardianCallbackDecision(
   const allGuardianPending = getAllPendingApprovalsByGuardianChat(
     sourceChannel,
     conversationExternalId,
-    assistantId,
   );
   // Only present approvals that belong to this sender so the engine
   // does not offer disambiguation for requests assigned to a rotated
@@ -215,7 +211,7 @@ export async function handleGuardianCallbackDecision(
   const effectivePending =
     senderPending.length > 0 ? senderPending : allGuardianPending;
 
-  if (effectivePending.length > 0 && approvalConversationGenerator && content) {
+  if (effectivePending.length > 0 && content) {
     return handleConversationalDecision({
       guardianApproval,
       allGuardianPending,
@@ -232,22 +228,7 @@ export async function handleGuardianCallbackDecision(
     });
   }
 
-  // ── Legacy fallback when no conversational engine is available ──
-  if (content && !approvalConversationGenerator) {
-    return handleLegacyDecision({
-      guardianApproval,
-      actorExternalId,
-      sourceChannel,
-      conversationExternalId,
-      replyCallbackUrl,
-      content,
-      assistantId,
-      bearerToken,
-      approvalCopyGenerator,
-    });
-  }
-
-  // No content and no engine — nothing actionable.
+  // No content — nothing actionable.
   return null;
 }
 
@@ -566,192 +547,6 @@ async function handleConversationalDecision(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy fallback decision handler
-// ---------------------------------------------------------------------------
-
-async function handleLegacyDecision(params: {
-  guardianApproval: GuardianApprovalRequest;
-  actorExternalId: string;
-  sourceChannel: ChannelId;
-  conversationExternalId: string;
-  replyCallbackUrl: string;
-  content: string;
-  assistantId: string;
-  bearerToken?: string;
-  approvalCopyGenerator?: ApprovalCopyGenerator;
-}): Promise<ApprovalInterceptionResult | null> {
-  const {
-    guardianApproval,
-    actorExternalId,
-    sourceChannel,
-    conversationExternalId,
-    replyCallbackUrl,
-    content,
-    assistantId,
-    bearerToken,
-    approvalCopyGenerator,
-  } = params;
-
-  const legacyGuardianDecision = parseApprovalDecision(content);
-  if (legacyGuardianDecision) {
-    // Guardians cannot approve_always — downgrade to approve_once.
-    if (legacyGuardianDecision.action === "approve_always") {
-      legacyGuardianDecision.action = "approve_once";
-    }
-
-    // Resolve the target approval: when a [ref:<requestId>] tag is
-    // present, look up the specific pending approval by that requestId
-    // so the decision applies to the correct conversation even when
-    // multiple guardian approvals are pending.
-    let targetLegacyApproval = guardianApproval;
-    if (legacyGuardianDecision.requestId) {
-      const resolvedByRequest = getPendingApprovalByRequestAndGuardianChat(
-        legacyGuardianDecision.requestId,
-        sourceChannel,
-        conversationExternalId,
-        assistantId,
-      );
-      if (!resolvedByRequest) {
-        // The referenced request doesn't match any pending guardian
-        // approval — it may have expired or already been resolved.
-        await deliverStaleApprovalReply({
-          scenario: "guardian_disambiguation",
-          sourceChannel,
-          replyCallbackUrl,
-          chatId: conversationExternalId,
-          assistantId,
-          bearerToken,
-          approvalCopyGenerator,
-          logger: log,
-          errorLogMessage:
-            "Failed to deliver stale approval notice (legacy path)",
-          errorLogContext: { conversationExternalId },
-        });
-        return { handled: true, type: "stale_ignored" };
-      }
-      targetLegacyApproval = resolvedByRequest;
-    }
-
-    // Re-validate guardian identity against the resolved target.
-    // The default guardianApproval was already checked, but a
-    // requestId-resolved approval may belong to a different guardian.
-    if (actorExternalId !== targetLegacyApproval.guardianExternalUserId) {
-      log.warn(
-        {
-          conversationExternalId,
-          actorExternalId,
-          expectedGuardian: targetLegacyApproval.guardianExternalUserId,
-          requestId: legacyGuardianDecision.requestId,
-        },
-        "Guardian identity mismatch on legacy ref-resolved target approval",
-      );
-      await deliverIdentityMismatchReply({
-        sourceChannel,
-        replyCallbackUrl,
-        chatId: conversationExternalId,
-        assistantId,
-        bearerToken,
-        approvalCopyGenerator,
-        logger: log,
-        errorLogMessage:
-          "Failed to deliver guardian identity mismatch notice (legacy path)",
-        errorLogContext: { conversationExternalId },
-      });
-      return { handled: true, type: "guardian_decision_applied" };
-    }
-
-    // Access request approvals need a separate decision path.
-    if (targetLegacyApproval.toolName === "ingress_access_request") {
-      const accessResult = await handleAccessRequestApproval(
-        targetLegacyApproval,
-        legacyGuardianDecision.action === "reject" ? "deny" : "approve",
-        actorExternalId,
-        replyCallbackUrl,
-        assistantId,
-        bearerToken,
-      );
-      return accessResult;
-    }
-
-    // Apply the decision through the unified guardian decision primitive.
-    const result = applyGuardianDecision({
-      approval: targetLegacyApproval,
-      decision: legacyGuardianDecision,
-      actorPrincipalId: undefined, // Callback path — principal not available at this layer
-      actorExternalUserId: actorExternalId, // Channel-native ID (Telegram user ID, phone, etc.)
-      actorChannel: sourceChannel,
-    });
-
-    if (result.applied) {
-      // Notify the requester's chat about the outcome
-      const outcomeText = await composeApprovalMessageGenerative(
-        {
-          scenario: "guardian_decision_outcome",
-          decision:
-            legacyGuardianDecision.action === "reject" ? "denied" : "approved",
-          toolName: targetLegacyApproval.toolName,
-          channel: sourceChannel,
-        },
-        {},
-        approvalCopyGenerator,
-      );
-      try {
-        await deliverChannelReply(
-          replyCallbackUrl,
-          {
-            chatId: targetLegacyApproval.requesterChatId,
-            text: outcomeText,
-            assistantId,
-          },
-          bearerToken,
-        );
-      } catch (err) {
-        log.error(
-          { err, conversationId: targetLegacyApproval.conversationId },
-          "Failed to notify requester of guardian decision (legacy path)",
-        );
-      }
-
-      return { handled: true, type: "guardian_decision_applied" };
-    }
-
-    // Race condition: request was already resolved. Deliver stale notice.
-    await deliverStaleApprovalReply({
-      scenario: "approval_already_resolved",
-      sourceChannel,
-      replyCallbackUrl,
-      chatId: conversationExternalId,
-      assistantId,
-      bearerToken,
-      approvalCopyGenerator,
-      logger: log,
-      errorLogMessage:
-        "Failed to deliver stale guardian legacy fallback notice",
-      errorLogContext: {
-        conversationId: targetLegacyApproval.conversationId,
-      },
-    });
-    return { handled: true, type: "stale_ignored" };
-  }
-
-  // No decision could be parsed — send a generic reminder to the guardian
-  await deliverStaleApprovalReply({
-    scenario: "reminder_prompt",
-    sourceChannel,
-    replyCallbackUrl,
-    chatId: conversationExternalId,
-    assistantId,
-    bearerToken,
-    approvalCopyGenerator,
-    logger: log,
-    errorLogMessage: "Failed to deliver guardian reminder (legacy path)",
-    extraContext: { toolName: guardianApproval.toolName },
-    errorLogContext: { conversationId: guardianApproval.conversationId },
-  });
-  return { handled: true, type: "assistant_turn" };
-}
-
-// ---------------------------------------------------------------------------
 // Access request decision helper
 // ---------------------------------------------------------------------------
 
@@ -789,12 +584,14 @@ async function handleAccessRequestApproval(
       requesterChatId: approval.requesterChatId,
       assistantId,
       bearerToken,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
     });
 
     // Emit both guardian_decision and denied signals so all lifecycle
     // observers are notified of the denial.
     const deniedPayload = {
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       requesterExternalUserId: approval.requesterExternalUserId,
       requesterChatId: approval.requesterChatId,
       decidedByExternalUserId,
@@ -803,9 +600,8 @@ async function handleAccessRequestApproval(
 
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
-      assistantId,
       attentionHints: {
         requiresAction: false,
         urgency: "medium",
@@ -818,9 +614,8 @@ async function handleAccessRequestApproval(
 
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.denied",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
-      assistantId,
       attentionHints: {
         requiresAction: false,
         urgency: "low",
@@ -863,6 +658,8 @@ async function handleAccessRequestApproval(
       requesterChatId: approval.requesterChatId,
       assistantId,
       bearerToken,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
     });
   } else {
     // Let the requester know something went wrong without revealing details
@@ -871,6 +668,8 @@ async function handleAccessRequestApproval(
       requesterChatId: approval.requesterChatId,
       assistantId,
       bearerToken,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
     });
   }
 
@@ -883,9 +682,8 @@ async function handleAccessRequestApproval(
   if (!decisionResult.verificationSessionId) {
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.guardian_decision",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
-      assistantId,
       attentionHints: {
         requiresAction: false,
         urgency: "medium",
@@ -893,7 +691,7 @@ async function handleAccessRequestApproval(
         visibleInSourceNow: false,
       },
       contextPayload: {
-        sourceChannel: approval.channel,
+        sourceChannel: approval.channel as NotificationSourceChannel,
         requesterExternalUserId: approval.requesterExternalUserId,
         requesterChatId: approval.requesterChatId,
         decidedByExternalUserId,
@@ -910,9 +708,8 @@ async function handleAccessRequestApproval(
   if (decisionResult.verificationSessionId && codeDelivered) {
     void emitNotificationSignal({
       sourceEventName: "ingress.trusted_contact.verification_sent",
-      sourceChannel: approval.channel,
+      sourceChannel: approval.channel as NotificationSourceChannel,
       sourceSessionId: approval.conversationId,
-      assistantId,
       attentionHints: {
         requiresAction: false,
         urgency: "low",
@@ -920,7 +717,7 @@ async function handleAccessRequestApproval(
         visibleInSourceNow: true,
       },
       contextPayload: {
-        sourceChannel: approval.channel,
+        sourceChannel: approval.channel as NotificationSourceChannel,
         requesterExternalUserId: approval.requesterExternalUserId,
         requesterChatId: approval.requesterChatId,
         verificationSessionId: decisionResult.verificationSessionId,

@@ -202,6 +202,13 @@ export async function prepareMemoryContext(
     type: "memory_status",
     enabled: recall.enabled,
     degraded: recall.degraded,
+    degradation: recall.degradation
+      ? {
+          semanticUnavailable: recall.degradation.semanticUnavailable,
+          reason: recall.degradation.reason,
+          fallbackSources: [...recall.degradation.fallbackSources],
+        }
+      : undefined,
     reason: recall.reason,
     provider: recall.provider,
     model: recall.model,
@@ -235,6 +242,13 @@ export async function prepareMemoryContext(
         type: "memory_recalled",
         provider: recall.provider ?? "unknown",
         model: recall.model ?? "unknown",
+        degradation: recall.degradation
+          ? {
+              semanticUnavailable: recall.degradation.semanticUnavailable,
+              reason: recall.degradation.reason,
+              fallbackSources: [...recall.degradation.fallbackSources],
+            }
+          : undefined,
         lexicalHits: recall.lexicalHits,
         semanticHits: recall.semanticHits,
         recencyHits: recall.recencyHits,

@@ -32,6 +32,7 @@ export {
 } from "./calls-schema.js";
 export type {
   AuditLogConfig,
+  AvatarConfig,
   ContextOverflowRecoveryConfig,
   ContextWindowConfig,
   DaemonConfig,
@@ -45,13 +46,15 @@ export type {
   PlatformConfig,
   RateLimitConfig,
   SecretDetectionConfig,
-  SmsConfig,
   ThinkingConfig,
   TimeoutConfig,
+  TwilioConfig,
   UiConfig,
+  WhatsAppConfig,
 } from "./core-schema.js";
 export {
   AuditLogConfigSchema,
+  AvatarConfigSchema,
   ContextOverflowRecoveryConfigSchema,
   ContextWindowConfigSchema,
   DaemonConfigSchema,
@@ -65,10 +68,11 @@ export {
   PlatformConfigSchema,
   RateLimitConfigSchema,
   SecretDetectionConfigSchema,
-  SmsConfigSchema,
   ThinkingConfigSchema,
   TimeoutConfigSchema,
+  TwilioConfigSchema,
   UiConfigSchema,
+  WhatsAppConfigSchema,
 } from "./core-schema.js";
 export type { ElevenLabsConfig } from "./elevenlabs-schema.js";
 export {
@@ -147,6 +151,7 @@ import {
 import { CallsConfigSchema } from "./calls-schema.js";
 import {
   AuditLogConfigSchema,
+  AvatarConfigSchema,
   ContextWindowConfigSchema,
   DaemonConfigSchema,
   EffortSchema,
@@ -157,10 +162,11 @@ import {
   PlatformConfigSchema,
   RateLimitConfigSchema,
   SecretDetectionConfigSchema,
-  SmsConfigSchema,
   ThinkingConfigSchema,
   TimeoutConfigSchema,
+  TwilioConfigSchema,
   UiConfigSchema,
+  WhatsAppConfigSchema,
 } from "./core-schema.js";
 import { ElevenLabsConfigSchema } from "./elevenlabs-schema.js";
 import { McpConfigSchema } from "./mcp-schema.js";
@@ -256,24 +262,20 @@ export const AssistantConfigSchema = z
     workspaceGit: WorkspaceGitConfigSchema.default(
       WorkspaceGitConfigSchema.parse({}),
     ),
+    twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
     calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
     elevenlabs: ElevenLabsConfigSchema.default(
       ElevenLabsConfigSchema.parse({}),
     ),
-    sms: SmsConfigSchema.default(SmsConfigSchema.parse({})),
+    whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
     ingress: IngressConfigSchema,
     platform: PlatformConfigSchema.default(PlatformConfigSchema.parse({})),
     daemon: DaemonConfigSchema.default(DaemonConfigSchema.parse({})),
     notifications: NotificationsConfigSchema.default(
       NotificationsConfigSchema.parse({}),
     ),
+    avatar: AvatarConfigSchema.default(AvatarConfigSchema.parse({})),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
-    featureFlags: z
-      .record(
-        z.string(),
-        z.boolean({ error: "featureFlags values must be booleans" }),
-      )
-      .default({} as Record<string, boolean>),
     assistantFeatureFlagValues: z
       .record(
         z.string(),

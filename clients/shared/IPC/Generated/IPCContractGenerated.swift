@@ -1,4 +1,4 @@
-// AUTO-GENERATED from assistant/src/daemon/ipc-contract.ts — DO NOT EDIT
+// AUTO-GENERATED from assistant/src/daemon/ipc-protocol.ts — DO NOT EDIT
 // Regenerate: cd assistant && bun run generate:ipc
 //
 // This file contains Swift Codable DTOs derived from the IPC contract.
@@ -584,11 +584,14 @@ public struct IPCBundleAppRequest: Codable, Sendable {
 public struct IPCBundleAppResponse: Codable, Sendable {
     public let type: String
     public let bundlePath: String
+    /// Base64-encoded PNG of the generated app icon, if available.
+    public let iconImageBase64: String?
     public let manifest: IPCBundleAppResponseManifest
 
-    public init(type: String, bundlePath: String, manifest: IPCBundleAppResponseManifest) {
+    public init(type: String, bundlePath: String, iconImageBase64: String? = nil, manifest: IPCBundleAppResponseManifest) {
         self.type = type
         self.bundlePath = bundlePath
+        self.iconImageBase64 = iconImageBase64
         self.manifest = manifest
     }
 }
@@ -673,6 +676,94 @@ public struct IPCChannelBinding: Codable, Sendable {
         self.externalUserId = externalUserId
         self.displayName = displayName
         self.username = username
+    }
+}
+
+public struct IPCChannelVerificationSessionRequest: Codable, Sendable {
+    public let type: String
+    public let action: String
+    public let channel: String?
+    public let sessionId: String?
+    public let rebind: Bool?
+    /// E.164 phone number for voice, Telegram handle/chat-id. Used by outbound actions.
+    public let destination: String?
+    /// Origin conversation ID so completion/failure pointers can route back.
+    public let originConversationId: String?
+    /// Distinguishes guardian vs trusted-contact verification flows in the unified create endpoint.
+    public let purpose: String?
+    /// Contact-channel ID for the absorbed contact-channel verify flow.
+    public let contactChannelId: String?
+
+    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, rebind: Bool? = nil, destination: String? = nil, originConversationId: String? = nil, purpose: String? = nil, contactChannelId: String? = nil) {
+        self.type = type
+        self.action = action
+        self.channel = channel
+        self.sessionId = sessionId
+        self.rebind = rebind
+        self.destination = destination
+        self.originConversationId = originConversationId
+        self.purpose = purpose
+        self.contactChannelId = contactChannelId
+    }
+}
+
+public struct IPCChannelVerificationSessionResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let secret: String?
+    public let instruction: String?
+    /// Present when action is 'status'.
+    public let bound: Bool?
+    public let guardianExternalUserId: String?
+    /// The channel this status pertains to (e.g. "telegram", "voice"). Present when action is 'status'.
+    public let channel: String?
+    /// The assistant ID scoped to this status. Present when action is 'status'.
+    public let assistantId: String?
+    /// The delivery chat ID for the guardian (e.g. Telegram chat ID). Present when action is 'status' and bound is true.
+    public let guardianDeliveryChatId: String?
+    /// Optional channel username/handle for the bound guardian (for UI display).
+    public let guardianUsername: String?
+    /// Optional display name for the bound guardian (for UI display).
+    public let guardianDisplayName: String?
+    /// Whether a pending verification challenge exists for this (assistantId, channel). Used by relay setup to detect active voice verification sessions.
+    public let hasPendingChallenge: Bool?
+    public let error: String?
+    /// Human-readable error detail (e.g. for already_bound failures).
+    public let message: String?
+    /// Session ID for outbound verification flows.
+    public let verificationSessionId: String?
+    /// Epoch ms when the verification session expires.
+    public let expiresAt: Int?
+    /// Epoch ms after which a resend is allowed.
+    public let nextResendAt: Int?
+    /// Number of sends for this session.
+    public let sendCount: Int?
+    /// Telegram deep-link URL for bootstrap (M3 placeholder).
+    public let telegramBootstrapUrl: String?
+    /// True when the outbound session is still in pending_bootstrap state (Telegram handle flow). Prevents the client from clearing the bootstrap URL during status polling.
+    public let pendingBootstrap: Bool?
+
+    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil, message: String? = nil, verificationSessionId: String? = nil, expiresAt: Int? = nil, nextResendAt: Int? = nil, sendCount: Int? = nil, telegramBootstrapUrl: String? = nil, pendingBootstrap: Bool? = nil) {
+        self.type = type
+        self.success = success
+        self.secret = secret
+        self.instruction = instruction
+        self.bound = bound
+        self.guardianExternalUserId = guardianExternalUserId
+        self.channel = channel
+        self.assistantId = assistantId
+        self.guardianDeliveryChatId = guardianDeliveryChatId
+        self.guardianUsername = guardianUsername
+        self.guardianDisplayName = guardianDisplayName
+        self.hasPendingChallenge = hasPendingChallenge
+        self.error = error
+        self.message = message
+        self.verificationSessionId = verificationSessionId
+        self.expiresAt = expiresAt
+        self.nextResendAt = nextResendAt
+        self.sendCount = sendCount
+        self.telegramBootstrapUrl = telegramBootstrapUrl
+        self.pendingBootstrap = pendingBootstrap
     }
 }
 
@@ -802,8 +893,10 @@ public struct IPCConfirmationStateChanged: Codable, Sendable {
     public let causedByRequestId: String?
     /// Normalized user text for analytics/debug (e.g. "approve", "deny").
     public let decisionText: String?
+    /// The tool_use block ID this confirmation applies to, for disambiguating parallel tool calls.
+    public let toolUseId: String?
 
-    public init(type: String, sessionId: String, requestId: String, state: String, source: String, causedByRequestId: String? = nil, decisionText: String? = nil) {
+    public init(type: String, sessionId: String, requestId: String, state: String, source: String, causedByRequestId: String? = nil, decisionText: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.sessionId = sessionId
         self.requestId = requestId
@@ -811,6 +904,7 @@ public struct IPCConfirmationStateChanged: Codable, Sendable {
         self.source = source
         self.causedByRequestId = causedByRequestId
         self.decisionText = decisionText
+        self.toolUseId = toolUseId
     }
 }
 
@@ -916,10 +1010,12 @@ public struct IPCContactsInviteRequest: Codable, Sendable {
     public let status: String?
     /// Invitee's first name (voice invite create only).
     public let friendName: String?
+    /// Contact display name for personalizing invite instructions (create only).
+    public let contactName: String?
     /// Guardian's first name (voice invite create only).
     public let guardianName: String?
 
-    public init(type: String, action: String, sourceChannel: String? = nil, note: String? = nil, maxUses: Double? = nil, expiresInMs: Double? = nil, inviteId: String? = nil, token: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, status: String? = nil, friendName: String? = nil, guardianName: String? = nil) {
+    public init(type: String, action: String, sourceChannel: String? = nil, note: String? = nil, maxUses: Double? = nil, expiresInMs: Double? = nil, inviteId: String? = nil, token: String? = nil, externalUserId: String? = nil, externalChatId: String? = nil, status: String? = nil, friendName: String? = nil, contactName: String? = nil, guardianName: String? = nil) {
         self.type = type
         self.action = action
         self.sourceChannel = sourceChannel
@@ -932,6 +1028,7 @@ public struct IPCContactsInviteRequest: Codable, Sendable {
         self.externalChatId = externalChatId
         self.status = status
         self.friendName = friendName
+        self.contactName = contactName
         self.guardianName = guardianName
     }
 }
@@ -983,7 +1080,7 @@ public struct IPCContactsInviteResponseInvite: Codable, Sendable {
 public struct IPCContactsRequest: Codable, Sendable {
     public let type: String
     public let action: String
-    /// Contact ID (get only).
+    /// Contact ID (get and delete).
     public let contactId: String?
     /// Channel ID (update_channel only).
     public let channelId: String?
@@ -1113,6 +1210,31 @@ public struct IPCConversationSearchResultItem: Codable, Sendable {
 
 /// Client signal indicating the user has seen a conversation (e.g. opened it or clicked a notification).
 public struct IPCConversationSeenSignal: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let sourceChannel: String
+    public let signalType: String
+    public let confidence: String
+    public let source: String
+    public let evidenceText: String?
+    public let observedAt: Int?
+    public let metadata: [String: AnyCodable]?
+
+    public init(type: String, conversationId: String, sourceChannel: String, signalType: String, confidence: String, source: String, evidenceText: String? = nil, observedAt: Int? = nil, metadata: [String: AnyCodable]? = nil) {
+        self.type = type
+        self.conversationId = conversationId
+        self.sourceChannel = sourceChannel
+        self.signalType = signalType
+        self.confidence = confidence
+        self.source = source
+        self.evidenceText = evidenceText
+        self.observedAt = observedAt
+        self.metadata = metadata
+    }
+}
+
+/// Client signal indicating the user wants a conversation marked unread again.
+public struct IPCConversationUnreadSignal: Codable, Sendable {
     public let type: String
     public let conversationId: String
     public let sourceChannel: String
@@ -1710,8 +1832,12 @@ public struct IPCGalleryApp: Codable, Sendable {
     public let featured: Bool?
     public let schemaJson: String
     public let htmlDefinition: String
+    /// 2 = multi-file TSX format with sourceFiles
+    public let formatVersion: Int?
+    /// Maps relative path to file content, e.g. { "src/main.tsx": "...", "src/index.html": "..." }
+    public let sourceFiles: [String: String]?
 
-    public init(id: String, name: String, description: String, icon: String, category: String, version: String, featured: Bool? = nil, schemaJson: String, htmlDefinition: String) {
+    public init(id: String, name: String, description: String, icon: String, category: String, version: String, featured: Bool? = nil, schemaJson: String, htmlDefinition: String, formatVersion: Int? = nil, sourceFiles: [String: String]? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -1721,6 +1847,8 @@ public struct IPCGalleryApp: Codable, Sendable {
         self.featured = featured
         self.schemaJson = schemaJson
         self.htmlDefinition = htmlDefinition
+        self.formatVersion = formatVersion
+        self.sourceFiles = sourceFiles
     }
 }
 
@@ -1963,88 +2091,6 @@ public struct IPCGuardianActionsPendingResponsePromptAction: Codable, Sendable {
     public init(action: String, label: String) {
         self.action = action
         self.label = label
-    }
-}
-
-public struct IPCGuardianVerificationRequest: Codable, Sendable {
-    public let type: String
-    public let action: String
-    public let channel: String?
-    public let sessionId: String?
-    public let rebind: Bool?
-    /// E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions.
-    public let destination: String?
-    /// Origin conversation ID so completion/failure pointers can route back.
-    public let originConversationId: String?
-
-    public init(type: String, action: String, channel: String? = nil, sessionId: String? = nil, rebind: Bool? = nil, destination: String? = nil, originConversationId: String? = nil) {
-        self.type = type
-        self.action = action
-        self.channel = channel
-        self.sessionId = sessionId
-        self.rebind = rebind
-        self.destination = destination
-        self.originConversationId = originConversationId
-    }
-}
-
-public struct IPCGuardianVerificationResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let secret: String?
-    public let instruction: String?
-    /// Present when action is 'status'.
-    public let bound: Bool?
-    public let guardianExternalUserId: String?
-    /// The channel this status pertains to (e.g. "telegram", "sms"). Present when action is 'status'.
-    public let channel: String?
-    /// The assistant ID scoped to this status. Present when action is 'status'.
-    public let assistantId: String?
-    /// The delivery chat ID for the guardian (e.g. Telegram chat ID). Present when action is 'status' and bound is true.
-    public let guardianDeliveryChatId: String?
-    /// Optional channel username/handle for the bound guardian (for UI display).
-    public let guardianUsername: String?
-    /// Optional display name for the bound guardian (for UI display).
-    public let guardianDisplayName: String?
-    /// Whether a pending verification challenge exists for this (assistantId, channel). Used by relay setup to detect active voice verification sessions.
-    public let hasPendingChallenge: Bool?
-    public let error: String?
-    /// Human-readable error detail (e.g. for already_bound failures).
-    public let message: String?
-    /// Session ID for outbound verification flows.
-    public let verificationSessionId: String?
-    /// Epoch ms when the verification session expires.
-    public let expiresAt: Int?
-    /// Epoch ms after which a resend is allowed.
-    public let nextResendAt: Int?
-    /// Number of SMS sends for this session.
-    public let sendCount: Int?
-    /// Telegram deep-link URL for bootstrap (M3 placeholder).
-    public let telegramBootstrapUrl: String?
-    /// True when the outbound session is still in pending_bootstrap state (Telegram handle flow). Prevents the client from clearing the bootstrap URL during status polling.
-    public let pendingBootstrap: Bool?
-
-    public init(type: String, success: Bool, secret: String? = nil, instruction: String? = nil, bound: Bool? = nil, guardianExternalUserId: String? = nil, channel: String? = nil, assistantId: String? = nil, guardianDeliveryChatId: String? = nil, guardianUsername: String? = nil, guardianDisplayName: String? = nil, hasPendingChallenge: Bool? = nil, error: String? = nil, message: String? = nil, verificationSessionId: String? = nil, expiresAt: Int? = nil, nextResendAt: Int? = nil, sendCount: Int? = nil, telegramBootstrapUrl: String? = nil, pendingBootstrap: Bool? = nil) {
-        self.type = type
-        self.success = success
-        self.secret = secret
-        self.instruction = instruction
-        self.bound = bound
-        self.guardianExternalUserId = guardianExternalUserId
-        self.channel = channel
-        self.assistantId = assistantId
-        self.guardianDeliveryChatId = guardianDeliveryChatId
-        self.guardianUsername = guardianUsername
-        self.guardianDisplayName = guardianDisplayName
-        self.hasPendingChallenge = hasPendingChallenge
-        self.error = error
-        self.message = message
-        self.verificationSessionId = verificationSessionId
-        self.expiresAt = expiresAt
-        self.nextResendAt = nextResendAt
-        self.sendCount = sendCount
-        self.telegramBootstrapUrl = telegramBootstrapUrl
-        self.pendingBootstrap = pendingBootstrap
     }
 }
 
@@ -2345,13 +2391,25 @@ public struct IPCHistoryResponseToolCall: Codable, Sendable {
     public let isError: Bool?
     /// Base64-encoded image data from tool contentBlocks (e.g. browser_screenshot).
     public let imageData: String?
+    /// Unix ms when the tool started executing.
+    public let startedAt: Int?
+    /// Unix ms when the tool completed.
+    public let completedAt: Int?
+    /// Confirmation decision for this tool call: "approved" | "denied" | "timed_out".
+    public let confirmationDecision: String?
+    /// Friendly label for the confirmation (e.g. "Edit File", "Run Command").
+    public let confirmationLabel: String?
 
-    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageData: String? = nil) {
+    public init(name: String, input: [String: AnyCodable], result: String? = nil, isError: Bool? = nil, imageData: String? = nil, startedAt: Int? = nil, completedAt: Int? = nil, confirmationDecision: String? = nil, confirmationLabel: String? = nil) {
         self.name = name
         self.input = input
         self.result = result
         self.isError = isError
         self.imageData = imageData
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.confirmationDecision = confirmationDecision
+        self.confirmationLabel = confirmationLabel
     }
 }
 
@@ -2447,8 +2505,8 @@ public struct IPCIdentityGetRequest: Codable, Sendable {
 
 public struct IPCIdentityGetResponse: Codable, Sendable {
     public let type: String
-    /// Whether an IDENTITY.md file was found. When false, all fields are empty defaults. Optional for backwards compat with older daemons.
-    public let found: Bool?
+    /// Whether an IDENTITY.md file was found. When false, all fields are empty defaults.
+    public let found: Bool
     public let name: String
     public let role: String
     public let personality: String
@@ -2459,7 +2517,7 @@ public struct IPCIdentityGetResponse: Codable, Sendable {
     public let createdAt: String?
     public let originSystem: String?
 
-    public init(type: String, found: Bool? = nil, name: String, role: String, personality: String, emoji: String, home: String, version: String? = nil, assistantId: String? = nil, createdAt: String? = nil, originSystem: String? = nil) {
+    public init(type: String, found: Bool, name: String, role: String, personality: String, emoji: String, home: String, version: String? = nil, assistantId: String? = nil, createdAt: String? = nil, originSystem: String? = nil) {
         self.type = type
         self.found = found
         self.name = name
@@ -2681,6 +2739,7 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     public let type: String
     public let provider: String
     public let model: String
+    public let degradation: IPCMemoryRecalledDegradation?
     public let lexicalHits: Double
     public let semanticHits: Double
     public let recencyHits: Double
@@ -2697,10 +2756,11 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     public let latencyMs: Double
     public let topCandidates: [IPCMemoryRecalledCandidateDebug]
 
-    public init(type: String, provider: String, model: String, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [IPCMemoryRecalledCandidateDebug]) {
+    public init(type: String, provider: String, model: String, degradation: IPCMemoryRecalledDegradation? = nil, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [IPCMemoryRecalledCandidateDebug]) {
         self.type = type
         self.provider = provider
         self.model = model
+        self.degradation = degradation
         self.lexicalHits = lexicalHits
         self.semanticHits = semanticHits
         self.recencyHits = recencyHits
@@ -2739,10 +2799,23 @@ public struct IPCMemoryRecalledCandidateDebug: Codable, Sendable {
     }
 }
 
+public struct IPCMemoryRecalledDegradation: Codable, Sendable {
+    public let semanticUnavailable: Bool
+    public let reason: String
+    public let fallbackSources: [String]
+
+    public init(semanticUnavailable: Bool, reason: String, fallbackSources: [String]) {
+        self.semanticUnavailable = semanticUnavailable
+        self.reason = reason
+        self.fallbackSources = fallbackSources
+    }
+}
+
 public struct IPCMemoryStatus: Codable, Sendable {
     public let type: String
     public let enabled: Bool
     public let degraded: Bool
+    public let degradation: IPCMemoryRecalledDegradation?
     public let reason: String?
     public let provider: String?
     public let model: String?
@@ -2754,10 +2827,11 @@ public struct IPCMemoryStatus: Codable, Sendable {
     public let cleanupResolvedJobsCompleted24h: Double
     public let cleanupSupersededJobsCompleted24h: Double
 
-    public init(type: String, enabled: Bool, degraded: Bool, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
+    public init(type: String, enabled: Bool, degraded: Bool, degradation: IPCMemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
         self.type = type
         self.enabled = enabled
         self.degraded = degraded
+        self.degradation = degradation
         self.reason = reason
         self.provider = provider
         self.model = model
@@ -3386,6 +3460,21 @@ public struct IPCReorderThreadsRequestUpdate: Codable, Sendable {
     }
 }
 
+/// Server → Client: bootstrap failure during learn-mode recording setup.
+public struct IPCRideShotgunError: Codable, Sendable {
+    public let type: String
+    public let watchId: String
+    public let sessionId: String
+    public let message: String
+
+    public init(type: String, watchId: String, sessionId: String, message: String) {
+        self.type = type
+        self.watchId = watchId
+        self.sessionId = sessionId
+        self.message = message
+    }
+}
+
 public struct IPCRideShotgunProgress: Codable, Sendable {
     public let type: String
     public let watchId: String
@@ -3891,28 +3980,6 @@ public struct IPCSharedAppsListResponseApp: Codable, Sendable {
         self.version = version
         self.contentId = contentId
         self.updateAvailable = updateAvailable
-    }
-}
-
-public struct IPCShareToSlackRequest: Codable, Sendable {
-    public let type: String
-    public let appId: String
-
-    public init(type: String, appId: String) {
-        self.type = type
-        self.appId = appId
-    }
-}
-
-public struct IPCShareToSlackResponse: Codable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let error: String?
-
-    public init(type: String, success: Bool, error: String? = nil) {
-        self.type = type
-        self.success = success
-        self.error = error
     }
 }
 
@@ -4890,12 +4957,15 @@ public struct IPCToolUseStart: Codable, Sendable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let sessionId: String?
+    /// The tool_use block ID for client-side correlation.
+    public let toolUseId: String?
 
-    public init(type: String, toolName: String, input: [String: AnyCodable], sessionId: String? = nil) {
+    public init(type: String, toolName: String, input: [String: AnyCodable], sessionId: String? = nil, toolUseId: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.input = input
         self.sessionId = sessionId
+        self.toolUseId = toolUseId
     }
 }
 

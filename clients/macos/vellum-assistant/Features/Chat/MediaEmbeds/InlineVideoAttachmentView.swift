@@ -71,31 +71,6 @@ struct InlineVideoAttachmentView: View {
     /// tap on the failed tile opens the external player instead of retrying again.
     @State private var hasRetriedOnce = false
 
-    // Backward-compatible initializer that accepts a static port snapshot.
-    // Used by callers that haven't migrated to the closure-based API yet.
-    init(attachment: ChatAttachment, daemonHttpPort: Int?) {
-        self.attachment = attachment
-        let port = daemonHttpPort
-        self.resolveHttpPort = { port }
-
-        if let img = attachment.thumbnailImage {
-            var w: CGFloat = 0
-            var h: CGFloat = 0
-            if let rep = img.representations.first {
-                w = CGFloat(rep.pixelsWide)
-                h = CGFloat(rep.pixelsHigh)
-            }
-            if w <= 0 || h <= 0 {
-                w = img.size.width
-                h = img.size.height
-            }
-            _videoAspectRatio = State(initialValue: w > 0 && h > 0 ? w / h : 3.0 / 4.0)
-            _thumbnailImage = State(initialValue: img)
-        } else {
-            _videoAspectRatio = State(initialValue: 3.0 / 4.0)
-        }
-    }
-
     init(attachment: ChatAttachment, resolveHttpPort: @escaping () -> Int?) {
         self.attachment = attachment
         self.resolveHttpPort = resolveHttpPort
@@ -144,8 +119,7 @@ struct InlineVideoAttachmentView: View {
                         ProgressView()
                             .controlSize(.small)
                     } else {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .font(.system(size: 24))
+                        VIconView(.arrowDownToLine, size: 24)
                             .foregroundStyle(.white)
                             .shadow(radius: 2)
                     }
@@ -184,8 +158,7 @@ struct InlineVideoAttachmentView: View {
             }
 
             VStack(spacing: VSpacing.sm) {
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 44))
+                VIconView(.play, size: 44)
                     .foregroundStyle(thumbnailImage != nil ? .white : VColor.textSecondary)
                     .shadow(radius: thumbnailImage != nil ? 4 : 0)
 
@@ -221,12 +194,10 @@ struct InlineVideoAttachmentView: View {
     private func failedView(_ failure: VideoPlaybackFailure) -> some View {
         VStack(spacing: VSpacing.xs) {
             if case .port_missing = failure {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 20))
+                VIconView(.refreshCw, size: 20)
                     .foregroundStyle(VColor.textSecondary)
             } else {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 20))
+                VIconView(.triangleAlert, size: 20)
                     .foregroundStyle(VColor.textSecondary)
             }
 
@@ -562,27 +533,14 @@ struct InlineVideoAttachmentView: View {
     }
 }
 
-/// Resolve the local gateway base URL from the GATEWAY_PORT env var (default 7830).
+/// Resolve the local gateway base URL: env var > lockfile > default 7830.
 private func resolveGatewayBaseUrl() -> String {
-    let envPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
-        ?? getenv("GATEWAY_PORT").flatMap({ String(cString: $0) })
-    let port = envPort.flatMap(Int.init) ?? 7830
-    return "http://127.0.0.1:\(port)"
+    "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
 }
 
 /// Fetch raw attachment bytes via the gateway's runtime proxy.
 private func fetchAttachmentContent(gatewayBaseUrl: String, attachmentId: String) async throws -> Data {
-    let tokenBase: String
-    if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-       !baseDir.isEmpty {
-        tokenBase = baseDir
-    } else {
-        tokenBase = NSHomeDirectory()
-    }
-    let tokenPath = tokenBase + "/.vellum/http-token"
-    guard let tokenData = try? Data(contentsOf: URL(fileURLWithPath: tokenPath)),
-          let token = String(data: tokenData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !token.isEmpty else {
+    guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
         throw URLError(.userAuthenticationRequired)
     }
     let url = URL(string: "\(gatewayBaseUrl)/v1/attachments/\(attachmentId)/content")!

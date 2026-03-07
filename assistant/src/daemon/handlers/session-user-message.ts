@@ -17,7 +17,7 @@ import {
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from "../../memory/canonical-guardian-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import { addMessage } from "../../memory/conversation-crud.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { routeGuardianReply } from "../../runtime/guardian-reply-router.js";
 import {
@@ -32,8 +32,11 @@ import {
 } from "../../security/secret-scanner.js";
 import { createApprovalConversationGenerator } from "../approval-generators.js";
 import { getAssistantName } from "../identity-helpers.js";
-import type { UserMessageAttachment } from "../ipc-contract.js";
-import type { ServerMessage, UserMessage } from "../ipc-protocol.js";
+import type {
+  ServerMessage,
+  UserMessage,
+  UserMessageAttachment,
+} from "../ipc-protocol.js";
 import { executeRecordingIntent } from "../recording-executor.js";
 import { resolveRecordingIntent } from "../recording-intent.js";
 import {
@@ -83,12 +86,12 @@ async function persistRecordingExchange(
     type: "message_complete",
     sessionId,
   });
-  await conversationStore.addMessage(
+  await addMessage(
     sessionId,
     "user",
     JSON.stringify([{ type: "text", text: messageText }]),
   );
-  await conversationStore.addMessage(
+  await addMessage(
     sessionId,
     "assistant",
     JSON.stringify([{ type: "text", text: responseText }]),
@@ -539,6 +542,11 @@ async function handlePendingConfirmationReply(
           causedByRequestId: requestId,
           decisionText: messageText.trim(),
         });
+        // Notify agent loop so the outcome is persisted on the tool_use block
+        session.onConfirmationOutcome?.(
+          routerResult.requestId,
+          "resolved_stale",
+        );
       }
 
       const consumedChannelMeta = {
@@ -553,7 +561,7 @@ async function handlePendingConfirmationReply(
         messageText,
         msg.attachments ?? [],
       );
-      await conversationStore.addMessage(
+      await addMessage(
         msg.sessionId,
         "user",
         JSON.stringify(consumedUserMessage.content),
@@ -566,7 +574,7 @@ async function handlePendingConfirmationReply(
           ? "Decision applied."
           : "Request already resolved.");
       const consumedAssistantMessage = createAssistantMessage(replyText);
-      await conversationStore.addMessage(
+      await addMessage(
         msg.sessionId,
         "assistant",
         JSON.stringify(consumedAssistantMessage.content),
@@ -646,6 +654,8 @@ function autoDenyPendingConfirmations(
         source: "auto_deny",
         causedByRequestId: requestId,
       });
+      // Notify agent loop so the outcome is persisted on the tool_use block
+      session.onConfirmationOutcome?.(interaction.requestId, "denied");
     }
   }
   session.denyAllPendingConfirmations();

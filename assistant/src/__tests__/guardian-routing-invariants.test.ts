@@ -36,8 +36,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -178,7 +176,7 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
     path: string;
     symbols: string[];
   }> = [
-    // Inbound channel router (Telegram/SMS/WhatsApp)
+    // Inbound channel router (Telegram/WhatsApp)
     {
       path: "runtime/guardian-reply-router.ts",
       symbols: ["applyCanonicalGuardianDecision"],

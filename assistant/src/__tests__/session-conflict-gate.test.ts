@@ -186,7 +186,7 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   provenanceFromTrustContext: () => ({
@@ -220,6 +220,9 @@ mock.module("../memory/conversation-store.js", () => ({
   updateConversationContextWindow: () => {},
   deleteMessageById: () => ({ segmentIds: [], orphanedItemIds: [] }),
   deleteLastExchange: () => 0,
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
   isLastUserMessageToolResult: () => false,
 }));
 

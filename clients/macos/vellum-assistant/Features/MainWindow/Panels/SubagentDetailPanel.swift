@@ -4,15 +4,16 @@ import VellumAssistantShared
 struct SubagentDetailPanel: View {
     let subagentId: String
     @ObservedObject var viewModel: ChatViewModel
-    @ObservedObject var detailStore: SubagentDetailStore
+    var detailStore: SubagentDetailStore
     var onAbort: (() -> Void)?
     var onRequestDetail: (() -> Void)?
     var onClose: () -> Void
 
     private var subagentInfo: SubagentInfo? { viewModel.activeSubagents.first(where: { $0.id == subagentId }) }
-    private var objective: String? { detailStore.objectives[subagentId] }
-    private var usage: SubagentUsageStats? { detailStore.usageStats[subagentId] }
-    private var events: [SubagentEventItem] { detailStore.eventsBySubagent[subagentId] ?? [] }
+    private var state: SubagentState? { detailStore.subagentStates[subagentId] }
+    private var objective: String? { state?.objective }
+    private var usage: SubagentUsageStats? { state?.usageStats }
+    private var events: [SubagentEventItem] { state?.events ?? [] }
     private var isRunning: Bool { subagentInfo?.status == .running || subagentInfo?.status == .pending }
 
     var body: some View {
@@ -25,8 +26,7 @@ struct SubagentDetailPanel: View {
                     if isRunning {
                         Button(action: { onAbort?() }) {
                             HStack(spacing: VSpacing.xxs) {
-                                Image(systemName: "stop.fill")
-                                    .font(.system(size: 8))
+                                VIconView(.square, size: 8)
                                 Text("Abort")
                                     .font(VFont.captionMedium)
                             }
@@ -64,8 +64,7 @@ struct SubagentDetailPanel: View {
                 // Error banner
                 if let error = subagentInfo?.error, !error.isEmpty {
                     HStack(alignment: .top, spacing: VSpacing.xs) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
+                        VIconView(.triangleAlert, size: 11)
                             .foregroundColor(Danger._500)
                         Text(error)
                             .font(VFont.caption)
@@ -158,8 +157,7 @@ struct SubagentDetailPanel: View {
     @ViewBuilder
     private func metricItem(icon: String, label: String, value: String) -> some View {
         HStack(spacing: VSpacing.xxs) {
-            Image(systemName: icon)
-                .font(.system(size: 10))
+            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
                 .foregroundColor(VColor.textMuted)
             VStack(alignment: .leading, spacing: 0) {
                 Text(label)
@@ -202,8 +200,7 @@ struct SubagentDetailPanel: View {
     @ViewBuilder
     private func label(icon: String, text: String, color: Color) -> some View {
         HStack(spacing: VSpacing.xxs) {
-            Image(systemName: icon)
-                .font(.system(size: 8))
+            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 8)
             Text(text)
                 .font(VFont.small)
         }
@@ -286,8 +283,8 @@ struct SubagentDetailPanel: View {
     }
 
     private func formatCost(_ cost: Double) -> String {
-        if cost == 0 { return "$0.00" }
-        if cost < 0.01 { return "<$0.01" }
-        return String(format: "$%.2f", cost)
+        if cost == 0 { return UsageFormatting.formatCostShort(0) }
+        if cost < 0.01 { return "<\(UsageFormatting.formatCostShort(0.01))" }
+        return UsageFormatting.formatCostShort(cost)
     }
 }

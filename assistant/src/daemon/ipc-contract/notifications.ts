@@ -51,11 +51,25 @@ export interface ConversationSeenSignal {
   metadata?: Record<string, unknown>;
 }
 
+/** Client signal indicating the user wants a conversation marked unread again. */
+export interface ConversationUnreadSignal {
+  type: "conversation_unread_signal";
+  conversationId: string;
+  sourceChannel: string;
+  signalType: string;
+  confidence: string;
+  source: string;
+  evidenceText?: string;
+  observedAt?: number;
+  metadata?: Record<string, unknown>;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _NotificationsClientMessages =
   | NotificationIntentResult
-  | ConversationSeenSignal;
+  | ConversationSeenSignal
+  | ConversationUnreadSignal;
 
 export type _NotificationsServerMessages =
   | NotificationIntent

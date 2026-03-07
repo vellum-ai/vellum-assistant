@@ -52,22 +52,25 @@ export interface TelegramConfigRequest {
   commands?: Array<{ command: string; description: string }>; // Only for action: 'set_commands' or 'setup'
 }
 
-export interface GuardianVerificationRequest {
-  type: "guardian_verification";
+export interface ChannelVerificationSessionRequest {
+  type: "channel_verification_session";
   action:
-    | "create_challenge"
+    | "create_session"
     | "status"
+    | "cancel_session"
     | "revoke"
-    | "start_outbound"
-    | "resend_outbound"
-    | "cancel_outbound";
+    | "resend_session";
   channel?: ChannelId; // Defaults to 'telegram'
   sessionId?: string;
   rebind?: boolean; // When true, allows creating a challenge even if a binding already exists
-  /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
+  /** E.164 phone number for voice, Telegram handle/chat-id. Used by outbound actions. */
   destination?: string;
   /** Origin conversation ID so completion/failure pointers can route back. */
   originConversationId?: string;
+  /** Distinguishes guardian vs trusted-contact verification flows in the unified create endpoint. */
+  purpose?: "guardian" | "trusted_contact";
+  /** Contact-channel ID for the absorbed contact-channel verify flow. */
+  contactChannelId?: string;
 }
 
 export interface TwitterAuthStartRequest {
@@ -166,15 +169,15 @@ export interface TelegramConfigResponse {
   warning?: string;
 }
 
-export interface GuardianVerificationResponse {
-  type: "guardian_verification_response";
+export interface ChannelVerificationSessionResponse {
+  type: "channel_verification_session_response";
   success: boolean;
   secret?: string;
   instruction?: string;
   /** Present when action is 'status'. */
   bound?: boolean;
   guardianExternalUserId?: string;
-  /** The channel this status pertains to (e.g. "telegram", "sms"). Present when action is 'status'. */
+  /** The channel this status pertains to (e.g. "telegram", "voice"). Present when action is 'status'. */
   channel?: ChannelId;
   /** The assistant ID scoped to this status. Present when action is 'status'. */
   assistantId?: string;
@@ -195,7 +198,7 @@ export interface GuardianVerificationResponse {
   expiresAt?: number;
   /** Epoch ms after which a resend is allowed. */
   nextResendAt?: number;
-  /** Number of SMS sends for this session. */
+  /** Number of sends for this session. */
   sendCount?: number;
   /** Telegram deep-link URL for bootstrap (M3 placeholder). */
   telegramBootstrapUrl?: string;
@@ -269,7 +272,7 @@ export type _IntegrationsClientMessages =
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
   | TelegramConfigRequest
-  | GuardianVerificationRequest
+  | ChannelVerificationSessionRequest
   | TwitterAuthStartRequest
   | TwitterAuthStatusRequest
   | IntegrationListRequest
@@ -285,7 +288,7 @@ export type _IntegrationsServerMessages =
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
   | TelegramConfigResponse
-  | GuardianVerificationResponse
+  | ChannelVerificationSessionResponse
   | TwitterAuthResult
   | TwitterAuthStatusResponse
   | IntegrationListResponse

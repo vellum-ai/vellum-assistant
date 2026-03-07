@@ -25,8 +25,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -74,7 +72,7 @@ mock.module("../notifications/emit-signal.js", () => ({
 }));
 
 // Mock channel guardian service — provide a guardian binding for 'self' + 'telegram'
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: (assistantId: string, channel: string) => {
     if (assistantId === "self" && channel === "telegram") {
       return {
@@ -253,9 +251,9 @@ describe("bridgeConfirmationRequestToGuardian", () => {
   });
 
   test("skips when no guardian binding exists for channel", () => {
-    const canonicalRequest = makeCanonicalRequest({ sourceChannel: "sms" });
+    const canonicalRequest = makeCanonicalRequest({ sourceChannel: "voice" });
     const trustContext = makeTrustedContactContext({
-      sourceChannel: "sms",
+      sourceChannel: "voice",
     });
 
     const result = bridgeConfirmationRequestToGuardian({
@@ -351,11 +349,12 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test("passes assistantId to notification signal", () => {
+  test("does not pass assistantId to notification signal", () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext();
 
-    // Use default assistantId 'self' which has a binding
+    // assistantId is used internally for guardian binding lookup but is no
+    // longer forwarded to the notification signal after the assistantId removal refactor.
     bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
@@ -363,7 +362,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
       toolName: "bash",
     });
 
-    expect(emittedSignals[0].assistantId).toBe("self");
+    expect(emittedSignals[0].assistantId).toBeUndefined();
   });
 
   test("includes requesterChatId as null when not provided", () => {

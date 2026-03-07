@@ -13,7 +13,10 @@ import {
   buildGuardianRequestCodeInstruction,
   resolveGuardianQuestionInstructionMode,
 } from "./guardian-question-mode.js";
-import type { NotificationSignal } from "./signal.js";
+import type {
+  NotificationSignal,
+  NotificationSourceEventName,
+} from "./signal.js";
 import type { NotificationChannel, RenderedChannelCopy } from "./types.js";
 
 type CopyTemplate = (payload: Record<string, unknown>) => RenderedChannelCopy;
@@ -229,7 +232,7 @@ export function buildAccessRequestContractText(
 }
 
 // Templates keyed by dot-separated sourceEventName strings matching producers.
-const TEMPLATES: Record<string, CopyTemplate> = {
+const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   "reminder.fired": (payload) => ({
     title: "Reminder",
     body: str(payload.message, str(payload.label, "A reminder has fired")),
@@ -367,7 +370,8 @@ export function composeFallbackCopy(
   signal: NotificationSignal,
   channels: NotificationChannel[],
 ): Partial<Record<NotificationChannel, RenderedChannelCopy>> {
-  const template = TEMPLATES[signal.sourceEventName];
+  const template =
+    TEMPLATES[signal.sourceEventName as NotificationSourceEventName];
 
   const baseCopy: RenderedChannelCopy = template
     ? template(signal.contextPayload)
@@ -387,7 +391,7 @@ function applyChannelDefaults(
 ): RenderedChannelCopy {
   const copy: RenderedChannelCopy = { ...baseCopy };
 
-  if (channel === "telegram" || channel === "sms") {
+  if (channel === "telegram") {
     copy.deliveryText = buildChatSurfaceFallbackDeliveryText(baseCopy, signal);
   }
 

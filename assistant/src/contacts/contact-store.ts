@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, like, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db.js";
@@ -41,7 +41,6 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     role: row.role as Contact["role"],
     contactType: (row.contactType as Contact["contactType"]) ?? "human",
     principalId: row.principalId,
-    assistantId: row.assistantId ?? null,
   };
 }
 
@@ -92,8 +91,6 @@ interface SyncChannelData {
   isPrimary?: boolean;
   externalUserId?: string | null;
   externalChatId?: string | null;
-  /** Raw (pre-canonicalization) address used for dedup fallback when matching contacts created before address normalization. */
-  legacyAddress?: string;
   status?: ChannelStatus;
   policy?: ChannelPolicy;
   verifiedAt?: number | null;
@@ -105,7 +102,7 @@ interface SyncChannelData {
 
 // ── CRUD ─────────────────────────────────────────────────────────────
 
-/** Retrieve a contact by ID without assistantId scoping.
+/** Retrieve a contact by ID.
  * Used by functions that have already resolved identity through channel lookups. */
 export function getContactInternal(id: string): ContactWithChannels | null {
   const db = getDb();
@@ -114,21 +111,9 @@ export function getContactInternal(id: string): ContactWithChannels | null {
   return withChannels(parseContact(row));
 }
 
-export function getContact(
-  id: string,
-  assistantId: string,
-): ContactWithChannels | null {
+export function getContact(id: string): ContactWithChannels | null {
   const db = getDb();
-  const row = db
-    .select()
-    .from(contacts)
-    .where(
-      and(
-        eq(contacts.id, id),
-        or(eq(contacts.assistantId, assistantId), isNull(contacts.assistantId)),
-      ),
-    )
-    .get();
+  const row = db.select().from(contacts).where(eq(contacts.id, id)).get();
   if (!row) return null;
   return withChannels(parseContact(row));
 }
@@ -154,7 +139,6 @@ export function upsertContact(params: {
   role?: ContactRole;
   contactType?: ContactType;
   principalId?: string | null;
-  assistantId: string;
   channels?: SyncChannelData[];
 }): ContactWithChannels & { created: boolean } {
   const db = getDb();
@@ -180,8 +164,6 @@ export function upsertContact(params: {
         updateSet.contactType = params.contactType;
       if (params.principalId !== undefined)
         updateSet.principalId = params.principalId;
-      if (params.assistantId !== undefined)
-        updateSet.assistantId = params.assistantId;
 
       db.update(contacts)
         .set(updateSet)
@@ -201,7 +183,7 @@ export function upsertContact(params: {
   if (!contactId && params.channels && params.channels.length > 0) {
     for (const ch of params.channels) {
       // Primary lookup: match by (type, address)
-      let existingChannel = db
+      const existingChannel = db
         .select()
         .from(contactChannels)
         .where(
@@ -211,27 +193,6 @@ export function upsertContact(params: {
           ),
         )
         .get();
-
-      // Fallback: if the address was canonicalized, the old record may still
-      // have the raw (non-canonical) address stored. Try matching by
-      // legacyAddress so we update the existing contact instead of creating
-      // a duplicate.
-      if (
-        !existingChannel &&
-        ch.legacyAddress &&
-        ch.legacyAddress.toLowerCase() !== ch.address.toLowerCase()
-      ) {
-        existingChannel = db
-          .select()
-          .from(contactChannels)
-          .where(
-            and(
-              eq(contactChannels.type, ch.type),
-              eq(contactChannels.address, ch.legacyAddress.toLowerCase()),
-            ),
-          )
-          .get();
-      }
 
       if (existingChannel) {
         contactId = existingChannel.contactId;
@@ -245,8 +206,6 @@ export function upsertContact(params: {
           updateSet.contactType = params.contactType;
         if (params.principalId !== undefined)
           updateSet.principalId = params.principalId;
-        if (params.assistantId !== undefined)
-          updateSet.assistantId = params.assistantId;
 
         db.update(contacts)
           .set(updateSet)
@@ -272,7 +231,6 @@ export function upsertContact(params: {
       role: params.role ?? "contact",
       contactType: params.contactType ?? "human",
       principalId: params.principalId ?? null,
-      assistantId: params.assistantId,
       createdAt: now,
       updatedAt: now,
     })
@@ -302,7 +260,7 @@ function syncChannels(
     const normalizedAddress = ch.address.toLowerCase();
 
     // Check if this channel already exists for this contact
-    let existing = db
+    const existing = db
       .select()
       .from(contactChannels)
       .where(
@@ -314,31 +272,8 @@ function syncChannels(
       )
       .get();
 
-    // Fallback: the channel may have been stored with a pre-canonicalization
-    // address. Try matching by legacyAddress to find it.
-    if (
-      !existing &&
-      ch.legacyAddress &&
-      ch.legacyAddress.toLowerCase() !== normalizedAddress
-    ) {
-      existing = db
-        .select()
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.contactId, contactId),
-            eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.legacyAddress.toLowerCase()),
-          ),
-        )
-        .get();
-    }
-
     if (existing) {
       const updateSet: Record<string, unknown> = {};
-      // Migrate address to canonical form if it changed
-      if (existing.address !== normalizedAddress)
-        updateSet.address = normalizedAddress;
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
       if (ch.externalUserId !== undefined)
         updateSet.externalUserId = ch.externalUserId;
@@ -404,7 +339,6 @@ function syncChannels(
 }
 
 export function searchContacts(params: {
-  assistantId: string;
   query?: string;
   channelAddress?: string;
   channelType?: string;
@@ -426,25 +360,21 @@ export function searchContacts(params: {
       .where(
         params.channelType
           ? and(
-              or(
-                eq(contacts.assistantId, params.assistantId),
-                isNull(contacts.assistantId),
-              ),
               eq(contactChannels.type, params.channelType),
               like(contactChannels.address, `%${normalizedAddress}%`),
             )
-          : and(
-              or(
-                eq(contacts.assistantId, params.assistantId),
-                isNull(contacts.assistantId),
-              ),
-              like(contactChannels.address, `%${normalizedAddress}%`),
-            ),
+          : and(like(contactChannels.address, `%${normalizedAddress}%`)),
       )
       .all();
 
     const contactIds = [...new Set(channelRows.map((r) => r.contactId))];
     if (contactIds.length === 0) return [];
+
+    // Pre-compute the sanitized query for display-name filtering so the
+    // loop body stays cheap.
+    const sanitizedQuery = params.query
+      ? escapeLike(params.query).toLowerCase()
+      : undefined;
 
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
@@ -453,7 +383,10 @@ export function searchContacts(params: {
       if (
         contact &&
         (!params.role || contact.role === params.role) &&
-        (!params.contactType || contact.contactType === params.contactType)
+        (!params.contactType || contact.contactType === params.contactType) &&
+        (!sanitizedQuery ||
+          (contact.displayName &&
+            contact.displayName.toLowerCase().includes(sanitizedQuery)))
       ) {
         results.push(contact);
       }
@@ -467,15 +400,7 @@ export function searchContacts(params: {
       .select({ contactId: contactChannels.contactId })
       .from(contactChannels)
       .innerJoin(contacts, eq(contactChannels.contactId, contacts.id))
-      .where(
-        and(
-          or(
-            eq(contacts.assistantId, params.assistantId),
-            isNull(contacts.assistantId),
-          ),
-          eq(contactChannels.type, params.channelType),
-        ),
-      )
+      .where(eq(contactChannels.type, params.channelType))
       .all();
 
     const contactIds = [...new Set(channelRows.map((r) => r.contactId))];
@@ -497,12 +422,7 @@ export function searchContacts(params: {
   }
 
   // Search by display name, optionally filtered by channelType
-  const conditions = [
-    or(
-      eq(contacts.assistantId, params.assistantId),
-      isNull(contacts.assistantId),
-    )!,
-  ];
+  const conditions = [];
   if (params.query) {
     const sanitized = escapeLike(params.query);
     if (!sanitized && !params.role && !params.contactType) return [];
@@ -560,7 +480,6 @@ export function searchContacts(params: {
 }
 
 export function listContacts(
-  assistantId: string,
   limit = 50,
   role?: ContactRole,
   contactType?: ContactType,
@@ -568,9 +487,7 @@ export function listContacts(
 ): ContactWithChannels[] {
   const db = getDb();
   const effectiveLimit = opts?.uncapped ? limit : Math.min(limit, 200);
-  const conditions = [
-    or(eq(contacts.assistantId, assistantId), isNull(contacts.assistantId))!,
-  ];
+  const conditions = [];
   if (role) conditions.push(eq(contacts.role, role));
   if (contactType) conditions.push(eq(contacts.contactType, contactType));
   const rows = db
@@ -595,7 +512,6 @@ export function listContacts(
 export function mergeContacts(
   keepId: string,
   mergeId: string,
-  assistantId: string,
 ): ContactWithChannels {
   const db = getDb();
 
@@ -607,30 +523,14 @@ export function mergeContacts(
     const keep = tx
       .select()
       .from(contacts)
-      .where(
-        and(
-          eq(contacts.id, keepId),
-          or(
-            eq(contacts.assistantId, assistantId),
-            isNull(contacts.assistantId),
-          ),
-        ),
-      )
+      .where(eq(contacts.id, keepId))
       .get();
     if (!keep) throw new Error(`Contact "${keepId}" not found`);
 
     const merge = tx
       .select()
       .from(contacts)
-      .where(
-        and(
-          eq(contacts.id, mergeId),
-          or(
-            eq(contacts.assistantId, assistantId),
-            isNull(contacts.assistantId),
-          ),
-        ),
-      )
+      .where(eq(contacts.id, mergeId))
       .get();
     if (!merge) throw new Error(`Contact "${mergeId}" not found`);
 
@@ -646,8 +546,6 @@ export function mergeContacts(
         lastInteraction: mergedLastInteraction,
         notes: [keep.notes, merge.notes].filter(Boolean).join("\n") || null,
         updatedAt: now,
-        // Rebind legacy null-scoped contacts to prevent cross-assistant leakage
-        ...(keep.assistantId == null ? { assistantId } : {}),
       })
       .where(eq(contacts.id, keepId))
       .run();
@@ -686,6 +584,31 @@ export function mergeContacts(
 
   emitContactChange();
   return getContactInternal(keepId)!;
+}
+
+/**
+ * Delete a contact by ID. Guardians cannot be deleted as a safety guard.
+ * Associated contactChannels and assistantContactMetadata rows are
+ * cascade-deleted by the DB schema's onDelete constraints.
+ */
+export function deleteContact(
+  contactId: string,
+): "ok" | "not_found" | "is_guardian" {
+  const db = getDb();
+
+  const contact = db
+    .select()
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .get();
+
+  if (!contact) return "not_found";
+  if (contact.role === "guardian") return "is_guardian";
+
+  db.delete(contacts).where(eq(contacts.id, contactId)).run();
+
+  emitContactChange();
+  return "ok";
 }
 
 /**
@@ -805,14 +728,12 @@ export function findContactChannel(params: {
  */
 export function findGuardianForChannel(
   channelType: string,
-  assistantId: string,
 ): { contact: Contact; channel: ContactChannel } | null {
   const db = getDb();
   const conditions = [
     eq(contacts.role, "guardian"),
     eq(contactChannels.type, channelType),
     eq(contactChannels.status, "active"),
-    eq(contacts.assistantId, assistantId),
   ];
   const rows = db
     .select({
@@ -841,16 +762,12 @@ export function findGuardianForChannel(
  *
  * Returns true if a channel was found and revoked, false otherwise.
  */
-export function revokeGuardianChannel(
-  channelType: string,
-  assistantId: string,
-): boolean {
+export function revokeGuardianChannel(channelType: string): boolean {
   const db = getDb();
   const conditions = [
     eq(contacts.role, "guardian"),
     eq(contactChannels.type, channelType),
     eq(contactChannels.status, "active"),
-    eq(contacts.assistantId, assistantId),
   ];
   const rows = db
     .select({
@@ -885,7 +802,7 @@ export function revokeGuardianChannel(
  * pick a guardian that has no active channels.
  * Returns channels ordered by most-recently-verified first.
  */
-export function listGuardianChannels(assistantId: string): {
+export function listGuardianChannels(): {
   contact: Contact;
   channels: ContactChannel[];
 } | null {
@@ -898,11 +815,7 @@ export function listGuardianChannels(assistantId: string): {
     .from(contacts)
     .innerJoin(contactChannels, eq(contacts.id, contactChannels.contactId))
     .where(
-      and(
-        eq(contacts.role, "guardian"),
-        eq(contactChannels.status, "active"),
-        eq(contacts.assistantId, assistantId),
-      ),
+      and(eq(contacts.role, "guardian"), eq(contactChannels.status, "active")),
     )
     .orderBy(desc(contactChannels.verifiedAt))
     .all();

@@ -40,8 +40,8 @@ mock.module("../security/secret-ingress.js", () => ({
 import { upsertContact } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import * as deliveryCrud from "../memory/delivery-crud.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
@@ -185,7 +185,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
     // Insert a test contact so the contacts-based ACL lookup passes
     upsertContact({
       displayName: "Test User",
-      assistantId: "self",
       channels: [
         {
           type: "telegram",
@@ -225,7 +224,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
   test("trusted contact with guardian binding gets interactive turn", async () => {
     // Create guardian binding in contacts table so the trust resolver finds it
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-for-tc",
       guardianDeliveryChatId: "guardian-chat-for-tc",
@@ -326,7 +324,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
   test("guardian actors remain interactive regardless", async () => {
     // Guardian binding matches the sender — use contacts-first so trust resolver finds it
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -405,12 +402,12 @@ describe("channel-retry-sweep routing state", () => {
     trustClass: "guardian" | "trusted_contact" | "unknown",
     guardianExternalUserId?: string,
   ): string {
-    const inbound = channelDeliveryStore.recordInbound(
+    const inbound = deliveryCrud.recordInbound(
       "telegram",
       `chat-${trustClass}`,
       `msg-${trustClass}-${Date.now()}`,
     );
-    channelDeliveryStore.storePayload(inbound.eventId, {
+    deliveryCrud.storePayload(inbound.eventId, {
       content: "retry me",
       sourceChannel: "telegram",
       interface: "telegram",

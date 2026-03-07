@@ -5,13 +5,13 @@ user-invocable: true
 metadata: {"vellum": {"emoji": "🔍"}}
 ---
 
-You can research and discover influencers across Instagram, TikTok, and X/Twitter using the `vellum influencer` CLI.
+You can research and discover influencers across Instagram, TikTok, and X/Twitter using the `assistant influencer` CLI.
 
 ## CLI Setup
 
-**IMPORTANT: Always use `host_bash` (not `bash`) for all `vellum influencer` commands.** The influencer CLI needs host access for the Chrome extension relay and the `vellum` binary, neither of which are available inside the sandbox.
+**IMPORTANT: Always use `host_bash` (not `bash`) for all `assistant influencer` commands.** The influencer CLI needs host access for the Chrome extension relay and the `vellum` binary, neither of which are available inside the sandbox.
 
-`vellum influencer` is a built-in subcommand of the Vellum assistant CLI. If `vellum` is not found, prepend `PATH="$HOME/.local/bin:$PATH"` to the command.
+`assistant influencer` is a built-in subcommand of the Vellum assistant CLI. If `vellum` is not found, prepend `PATH="$HOME/.local/bin:$PATH"` to the command.
 
 ## Prerequisites
 
@@ -60,7 +60,7 @@ When the user asks to find or research influencers:
    - **Verified only?** — do they need the blue checkmark?
    - Don't over-ask. If the user says "find me fitness influencers on Instagram", that's enough to start.
 
-2. **Search** — run `vellum influencer search "<query>" --platforms <platforms> [options] --json`
+2. **Search** — run `assistant influencer search "<query>" --platforms <platforms> [options] --json`
 
 3. **Present results** — show a clean summary of each influencer found:
    - Username and display name
@@ -71,9 +71,9 @@ When the user asks to find or research influencers:
    - Content themes detected
    - Profile URL
 
-4. **Deep dive** (if needed) — run `vellum influencer profile <username> --platform <platform> --json` to get detailed data on a specific influencer.
+4. **Deep dive** (if needed) — run `assistant influencer profile <username> --platform <platform> --json` to get detailed data on a specific influencer.
 
-5. **Compare** (if needed) — run `vellum influencer compare instagram:user1 twitter:user2 tiktok:user3 --json` to compare influencers side by side.
+5. **Compare** (if needed) — run `assistant influencer compare instagram:user1 twitter:user2 tiktok:user3 --json` to compare influencers side by side.
 
 ## Follower Range Shortcuts
 
@@ -89,17 +89,17 @@ Human-friendly numbers are supported: `10k`, `100k`, `1m`, etc.
 ## Command Reference
 
 ```
-vellum influencer search "<query>" [options] --json
+assistant influencer search "<query>" [options] --json
   --platforms <list>       Comma-separated: instagram,tiktok,twitter (default: all three)
   --min-followers <n>      Minimum follower count (e.g. 10k, 100000)
   --max-followers <n>      Maximum follower count (e.g. 1m, 500k)
   --limit <n>              Max results per platform (default: 10)
   --verified               Only return verified accounts
 
-vellum influencer profile <username> --platform <platform> --json
+assistant influencer profile <username> --platform <platform> --json
   --platform <platform>    instagram, tiktok, or twitter (default: instagram)
 
-vellum influencer compare <platform:username ...> --json
+assistant influencer compare <platform:username ...> --json
   Arguments are space-separated platform:username pairs
   e.g. instagram:nike twitter:nike tiktok:nike
 ```
@@ -123,22 +123,22 @@ vellum influencer compare <platform:username ...> --json
 
 **User**: "Find me fitness influencers on Instagram and TikTok"
 
-1. `vellum influencer search "fitness coach workout" --platforms instagram,tiktok --limit 10 --json`
+1. `assistant influencer search "fitness coach workout" --platforms instagram,tiktok --limit 10 --json`
 2. Present results grouped by platform with follower counts and bios
 3. "I found 8 fitness influencers on Instagram and 6 on TikTok. Want me to dig deeper into any of these profiles?"
 
 **User**: "I need micro-influencers in the beauty niche, verified only"
 
-1. `vellum influencer search "beauty makeup skincare" --platforms instagram,tiktok,twitter --min-followers 10k --max-followers 100k --verified --limit 10 --json`
+1. `assistant influencer search "beauty makeup skincare" --platforms instagram,tiktok,twitter --min-followers 10k --max-followers 100k --verified --limit 10 --json`
 2. Present filtered results
 3. Offer to compare top picks
 
 **User**: "Compare @username1 on Instagram with @username2 on TikTok"
 
-1. `vellum influencer compare instagram:username1 tiktok:username2 --json`
+1. `assistant influencer compare instagram:username1 tiktok:username2 --json`
 2. Present side-by-side comparison with followers, engagement, bio, themes
 
 **User**: "Tell me more about @specificuser on Instagram"
 
-1. `vellum influencer profile specificuser --platform instagram --json`
+1. `assistant influencer profile specificuser --platform instagram --json`
 2. Show full profile details including bio, follower/following counts, verified status, content themes

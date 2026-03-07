@@ -315,7 +315,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   open_bundle: {
     type: "open_bundle",
-    filePath: "/tmp/My_App.vellumapp",
+    filePath: "/tmp/My_App.vellum",
   },
   sign_bundle_payload_response: {
     type: "sign_bundle_payload_response",
@@ -398,10 +398,6 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: "share_app_cloud",
     appId: "app-001",
   },
-  share_to_slack: {
-    type: "share_to_slack",
-    appId: "app-001",
-  },
   slack_webhook_config: {
     type: "slack_webhook_config",
     action: "get",
@@ -426,9 +422,9 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: "telegram_config",
     action: "get",
   },
-  guardian_verification: {
-    type: "guardian_verification",
-    action: "create_challenge",
+  channel_verification_session: {
+    type: "channel_verification_session",
+    action: "create_session",
     channel: "telegram",
     sessionId: "sess-001",
   },
@@ -635,6 +631,17 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     evidenceText: "User clicked View on notification",
     observedAt: 1700000000000,
     metadata: { notificationCategory: "NOTIFICATION_INTENT" },
+  },
+  conversation_unread_signal: {
+    type: "conversation_unread_signal",
+    conversationId: "conv-001",
+    sourceChannel: "vellum",
+    signalType: "macos_conversation_opened",
+    confidence: "explicit",
+    source: "ui-navigation",
+    evidenceText: "User selected Mark as unread",
+    observedAt: 1700000000000,
+    metadata: { trigger: "context-menu" },
   },
   recording_status: {
     type: "recording_status",
@@ -1041,6 +1048,12 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     sessionId: "sess-routed-001",
     interactionType: "computer_use",
   },
+  ride_shotgun_error: {
+    type: "ride_shotgun_error",
+    watchId: "watch-shotgun-001",
+    sessionId: "sess-shotgun-001",
+    message: "Failed to start browser — Chrome CDP could not be launched.",
+  },
   ride_shotgun_progress: {
     type: "ride_shotgun_progress",
     watchId: "watch-shotgun-001",
@@ -1266,7 +1279,7 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
   },
   bundle_app_response: {
     type: "bundle_app_response",
-    bundlePath: "/tmp/My_App-abc12345.vellumapp",
+    bundlePath: "/tmp/My_App-abc12345.vellum",
     manifest: {
       format_version: 1,
       name: "My App",
@@ -1444,10 +1457,6 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     shareToken: "abc123def456",
     shareUrl: "http://localhost:7821/v1/apps/shared/abc123def456",
   },
-  share_to_slack_response: {
-    type: "share_to_slack_response",
-    success: true,
-  },
   slack_webhook_config_response: {
     type: "slack_webhook_config_response",
     webhookUrl: "https://hooks.slack.com/services/T00/B00/xxx",
@@ -1486,8 +1495,8 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     connected: true,
     hasWebhookSecret: true,
   },
-  guardian_verification_response: {
-    type: "guardian_verification_response",
+  channel_verification_session_response: {
+    type: "channel_verification_session_response",
     success: true,
     secret: "verify-secret-123",
     instruction: "Send this code to the Telegram bot",

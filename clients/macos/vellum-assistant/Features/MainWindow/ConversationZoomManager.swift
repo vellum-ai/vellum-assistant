@@ -9,7 +9,7 @@ import SwiftUI
 @MainActor
 @Observable
 final class ConversationZoomManager {
-    static let zoomSteps: [CGFloat] = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0]
+    nonisolated static let zoomSteps: [CGFloat] = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0]
 
     var zoomLevel: CGFloat {
         didSet { UserDefaults.standard.set(zoomLevel, forKey: "conversationTextZoomLevel") }

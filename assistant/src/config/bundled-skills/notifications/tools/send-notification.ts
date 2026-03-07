@@ -131,7 +131,6 @@ export async function run(
       sourceEventName,
       sourceChannel: "assistant_tool",
       sourceSessionId,
-      assistantId: context.assistantId,
       attentionHints: {
         requiresAction: parseBool(input.requires_action, true),
         urgency,

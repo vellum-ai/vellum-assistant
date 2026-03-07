@@ -45,6 +45,9 @@ export interface ContextWindowResult {
   summaryInputTokens: number;
   summaryOutputTokens: number;
   summaryModel: string;
+  summaryCacheCreationInputTokens?: number;
+  summaryCacheReadInputTokens?: number;
+  summaryRawResponses?: unknown[];
   summaryText: string;
   reason?: string;
 }
@@ -68,12 +71,22 @@ export interface ContextWindowCompactOptions {
   targetInputTokensOverride?: number;
 }
 
+export interface ContextWindowManagerOptions {
+  provider: Provider;
+  systemPrompt: string;
+  config: ContextWindowConfig;
+}
+
 export class ContextWindowManager {
-  constructor(
-    private readonly provider: Provider,
-    private readonly systemPrompt: string,
-    private readonly config: ContextWindowConfig,
-  ) {}
+  private readonly provider: Provider;
+  private readonly systemPrompt: string;
+  private readonly config: ContextWindowConfig;
+
+  constructor(options: ContextWindowManagerOptions) {
+    this.provider = options.provider;
+    this.systemPrompt = options.systemPrompt;
+    this.config = options.config;
+  }
 
   async maybeCompact(
     messages: Message[],
@@ -298,6 +311,9 @@ export class ContextWindowManager {
     let summaryInputTokens = 0;
     let summaryOutputTokens = 0;
     let summaryModel = "";
+    let summaryCacheCreationInputTokens = 0;
+    let summaryCacheReadInputTokens = 0;
+    const summaryRawResponses: unknown[] = [];
     let summaryCalls = 0;
 
     for (const chunk of chunks) {
@@ -306,6 +322,13 @@ export class ContextWindowManager {
       summaryInputTokens += summaryUpdate.inputTokens;
       summaryOutputTokens += summaryUpdate.outputTokens;
       summaryModel = summaryUpdate.model || summaryModel;
+      summaryCacheCreationInputTokens += summaryUpdate.cacheCreationInputTokens;
+      summaryCacheReadInputTokens += summaryUpdate.cacheReadInputTokens;
+      if (Array.isArray(summaryUpdate.rawResponse)) {
+        summaryRawResponses.push(...summaryUpdate.rawResponse);
+      } else if (summaryUpdate.rawResponse !== undefined) {
+        summaryRawResponses.push(summaryUpdate.rawResponse);
+      }
       summaryCalls += 1;
     }
 
@@ -387,6 +410,9 @@ export class ContextWindowManager {
       summaryInputTokens,
       summaryOutputTokens,
       summaryModel,
+      summaryCacheCreationInputTokens,
+      summaryCacheReadInputTokens,
+      summaryRawResponses,
       summaryText: summary,
     };
   }
@@ -451,6 +477,9 @@ export class ContextWindowManager {
     inputTokens: number;
     outputTokens: number;
     model: string;
+    cacheCreationInputTokens: number;
+    cacheReadInputTokens: number;
+    rawResponse?: unknown;
   }> {
     const prompt = buildSummaryPrompt(currentSummary, chunk);
     try {
@@ -471,6 +500,10 @@ export class ContextWindowManager {
           inputTokens: response.usage.inputTokens,
           outputTokens: response.usage.outputTokens,
           model: response.model,
+          cacheCreationInputTokens:
+            response.usage.cacheCreationInputTokens ?? 0,
+          cacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
+          rawResponse: response.rawResponse,
         };
       }
     } catch (err) {
@@ -482,6 +515,8 @@ export class ContextWindowManager {
       inputTokens: 0,
       outputTokens: 0,
       model: "",
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
     };
   }
 }
@@ -525,10 +560,6 @@ export function getSummaryFromContextMessage(
   const text = extractText(message.content).trim();
   if (!text.startsWith(CONTEXT_SUMMARY_MARKER)) return null;
   if (INTERNAL_CONTEXT_SUMMARY_MESSAGES.has(message)) {
-    return stripContextSummaryTags(text);
-  }
-  // Backward compatibility for older in-memory sessions that used assistant-role summaries.
-  if (message.role === "assistant") {
     return stripContextSummaryTags(text);
   }
   return null;

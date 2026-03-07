@@ -75,15 +75,6 @@ The telegram-setup skill handles: verifying the bot token from @BotFather, gener
 
 The telegram-setup skill also includes **guardian verification**, which links your Telegram account as the trusted guardian for the bot.
 
-### SMS (Twilio)
-
-SMS messaging uses Twilio as the telephony provider. Twilio credentials and phone number configuration are shared with the **phone-calls** skill. Load the **sms-setup** skill for complete SMS configuration including compliance and testing:
-
-- Call `skill_load` with `skill: "sms-setup"` to load the dependency skill.
-- Tell the user: _"I've loaded the SMS setup guide. It will walk you through configuring Twilio, handling compliance requirements, and testing SMS delivery."_
-
-The sms-setup skill handles: Twilio credential storage (Account SID + Auth Token), phone number provisioning or assignment, public ingress setup, SMS compliance verification, and end-to-end test sending. Once SMS is set up, messaging is available automatically — no additional feature flag is needed.
-
 ### Guardian Verification (Voice or Telegram)
 
 If the user asks to verify their guardian identity for voice or Telegram, load the **guardian-verify-setup** skill:
@@ -137,24 +128,6 @@ Telegram is supported as a messaging provider with limited capabilities compared
 
 - The bot can only message users or groups that have previously interacted with it (sent `/start` or been added to a group). Bots cannot initiate conversations with arbitrary phone numbers.
 - Future support for MTProto user-account sessions may lift some of these restrictions.
-
-### SMS (Twilio)
-
-SMS is supported as a messaging provider with limited capabilities. The conversation ID is the recipient's phone number in E.164 format (e.g. `+14155551234`):
-
-- **Send**: Send an SMS to a phone number (high risk — requires user approval)
-- **Auth Test**: Verify Twilio credentials and show the configured phone number
-
-**Not available** (SMS limitations):
-
-- List conversations — SMS is stateless; there is no API to enumerate past conversations
-- Read message history — message history is not available through the gateway
-- Search messages — no search API is available for SMS
-
-**SMS limits:**
-
-- Outbound SMS uses the assistant's configured Twilio phone number as the sender. The phone number must be provisioned and assigned via the twilio-setup skill.
-- SMS messages are subject to Twilio's character limits and carrier filtering. Long messages may be split into multiple segments.
 
 ### Slack-specific
 
@@ -247,7 +220,7 @@ Gmail uses a **draft-first workflow**. All compose and reply tools create Gmail 
 
 **Reply-all**: `messaging_reply` for Gmail automatically builds the reply-all recipient list from the thread. You do not need to manually look up recipients.
 
-Non-Gmail platforms (Slack, Telegram, SMS) send directly via `messaging_send` / `messaging_reply`.
+Non-Gmail platforms (Slack, Telegram) send directly via `messaging_send` / `messaging_reply`.
 
 ## Email Threading (Gmail)
 
@@ -267,7 +240,7 @@ Before composing any email that references a date or time:
 ## Notifications vs Messages
 
 - `send_notification` is provided by the **notifications** skill (always active) -- use it when the user asks for an alert/notification (for example "send this as a desktop notification").
-- Use `messaging_send` when the user asks to send a message into a specific chat/email/SMS destination.
+- Use `messaging_send` when the user asks to send a message into a specific chat/email destination.
 - `send_notification` channel routing is LLM-driven; `preferred_channels` are hints, not hard channel forcing.
 
 ## Personalized Drafting

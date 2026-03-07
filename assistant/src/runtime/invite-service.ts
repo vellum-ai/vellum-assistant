@@ -10,6 +10,11 @@
 
 import { isChannelId } from "../channels/types.js";
 import {
+  DECLINED_BY_USER_SENTINEL,
+  DEFAULT_USER_REFERENCE,
+  resolveGuardianName,
+} from "../config/user-reference.js";
+import {
   createInvite,
   findByTokenHash,
   hashToken,
@@ -20,15 +25,17 @@ import {
 } from "../memory/invite-store.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
-import { getTransport } from "./channel-invite-transport.js";
+import {
+  getInviteAdapterRegistry,
+  resolveAdapterHandle,
+} from "./channel-invite-transport.js";
+import { generateInviteInstruction } from "./invite-instruction-generator.js";
 import {
   type InviteRedemptionOutcome,
   redeemInvite as redeemInviteTyped,
   redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
   type VoiceRedemptionOutcome,
 } from "./invite-redemption-service.js";
-
-import "./channel-invite-transports/telegram.js";
 
 // ---------------------------------------------------------------------------
 // Response shapes — used by both HTTP routes and IPC handlers
@@ -54,6 +61,10 @@ export interface InviteResponseData {
   voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
+  // Non-voice invite fields (present only for non-voice invites)
+  inviteCode?: string;
+  guardianInstruction?: string;
+  channelHandle?: string;
   createdAt: number;
 }
 
@@ -66,11 +77,11 @@ function buildSharePayload(
   rawToken?: string,
 ): InviteResponseData["share"] | undefined {
   if (!rawToken || !isChannelId(sourceChannel)) return undefined;
-  const transport = getTransport(sourceChannel);
-  if (!transport?.buildShareableInvite) return undefined;
+  const adapter = getInviteAdapterRegistry().get(sourceChannel);
+  if (!adapter?.buildShareLink) return undefined;
 
   try {
-    return transport.buildShareableInvite({
+    return adapter.buildShareLink({
       rawToken,
       sourceChannel,
     });
@@ -83,7 +94,13 @@ function buildSharePayload(
 
 function inviteToResponse(
   inv: IngressInvite,
-  opts?: { rawToken?: string; voiceCode?: string },
+  opts?: {
+    rawToken?: string;
+    voiceCode?: string;
+    inviteCode?: string;
+    guardianInstruction?: string;
+    channelHandle?: string;
+  },
 ): InviteResponseData {
   const share = buildSharePayload(inv.sourceChannel, opts?.rawToken);
   return {
@@ -106,6 +123,11 @@ function inviteToResponse(
       : {}),
     ...(inv.friendName ? { friendName: inv.friendName } : {}),
     ...(inv.guardianName ? { guardianName: inv.guardianName } : {}),
+    ...(opts?.inviteCode ? { inviteCode: opts.inviteCode } : {}),
+    ...(opts?.guardianInstruction
+      ? { guardianInstruction: opts.guardianInstruction }
+      : {}),
+    ...(opts?.channelHandle ? { channelHandle: opts.channelHandle } : {}),
     createdAt: inv.createdAt,
   };
 }
@@ -122,17 +144,19 @@ export type IngressResult<T> =
 // Invite operations
 // ---------------------------------------------------------------------------
 
-export function createIngressInvite(params: {
+export async function createIngressInvite(params: {
   sourceChannel?: string;
   note?: string;
   maxUses?: number;
   expiresInMs?: number;
+  // Contact display name for personalizing invite instructions
+  contactName?: string;
   // Voice invite parameters
   expectedExternalUserId?: string;
   voiceCodeDigits?: number;
   friendName?: string;
   guardianName?: string;
-}): IngressResult<InviteResponseData> {
+}): Promise<IngressResult<InviteResponseData>> {
   if (!params.sourceChannel) {
     return { ok: false, error: "sourceChannel is required for create" };
   }
@@ -142,7 +166,14 @@ export function createIngressInvite(params: {
   // exactly once and never stored.
   let voiceCode: string | undefined;
   let voiceCodeHash: string | undefined;
+  let effectiveGuardianName: string | undefined;
   const isVoice = params.sourceChannel === "voice";
+
+  // For non-voice invites: generate a 6-digit invite code for guardian-mediated
+  // redemption. The plaintext code is returned once in the response; only the
+  // hash is persisted for later redemption lookup.
+  let inviteCode: string | undefined;
+  let inviteCodeHash: string | undefined;
 
   if (isVoice) {
     if (!params.expectedExternalUserId) {
@@ -161,14 +192,20 @@ export function createIngressInvite(params: {
     if (typeof params.friendName !== "string" || !params.friendName.trim()) {
       return { ok: false, error: "friendName is required for voice invites" };
     }
+    effectiveGuardianName =
+      params.guardianName?.trim() || resolveGuardianName();
     if (
-      typeof params.guardianName !== "string" ||
-      !params.guardianName.trim()
+      !effectiveGuardianName ||
+      effectiveGuardianName === DEFAULT_USER_REFERENCE ||
+      effectiveGuardianName === DECLINED_BY_USER_SENTINEL
     ) {
       return { ok: false, error: "guardianName is required for voice invites" };
     }
     voiceCode = generateVoiceCode(6);
     voiceCodeHash = hashVoiceCode(voiceCode);
+  } else {
+    inviteCode = generateVoiceCode(6);
+    inviteCodeHash = hashVoiceCode(inviteCode);
   }
 
   const { invite, rawToken } = createInvite({
@@ -182,10 +219,37 @@ export function createIngressInvite(params: {
           voiceCodeHash,
           voiceCodeDigits: 6,
           friendName: params.friendName,
-          guardianName: params.guardianName,
+          guardianName: effectiveGuardianName,
         }
-      : {}),
+      : { inviteCodeHash }),
   });
+
+  // Build invite instruction for non-voice invites via LLM generation
+  let guardianInstruction: string | undefined;
+  let channelHandle: string | undefined;
+  if (!isVoice && inviteCode) {
+    const channelId = isChannelId(params.sourceChannel)
+      ? params.sourceChannel
+      : undefined;
+    const adapter = channelId
+      ? getInviteAdapterRegistry().get(channelId)
+      : undefined;
+    if (params.sourceChannel === "telegram") {
+      const { ensureTelegramBotUsernameResolved } =
+        await import("./channel-invite-transports/telegram.js");
+      await ensureTelegramBotUsernameResolved();
+    }
+    channelHandle = adapter ? await resolveAdapterHandle(adapter) : undefined;
+    const share = buildSharePayload(params.sourceChannel, rawToken);
+    guardianInstruction = await generateInviteInstruction({
+      contactName: params.contactName,
+      channelType: params.sourceChannel,
+      channelHandle,
+      hasShareUrl: !!share?.url,
+      shareUrl: share?.url,
+    });
+  }
+
   // Voice invites must not expose the token — callers must redeem via the
   // identity-bound voice code flow, not the generic token redemption path.
   return {
@@ -193,6 +257,9 @@ export function createIngressInvite(params: {
     data: inviteToResponse(invite, {
       rawToken: isVoice ? undefined : rawToken,
       voiceCode,
+      inviteCode,
+      guardianInstruction,
+      channelHandle,
     }),
   };
 }

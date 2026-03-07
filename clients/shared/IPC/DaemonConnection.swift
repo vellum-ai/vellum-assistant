@@ -27,10 +27,13 @@ extension DaemonClient {
         shouldReconnect = true
 
         // Check if we should use HTTP transport (both platforms).
-        // The bearer token may be nil at config time (e.g. local daemon hasn't
-        // written the token file yet), so resolve it lazily from disk here.
+        // The bearer token may be nil at config time (e.g. managed mode or
+        // localHttpEnabled where the token isn't known until bootstrap).
+        // Resolve lazily from ActorTokenManager (Keychain) so connections
+        // started after a previous bootstrap carry the persisted JWT.
         if case .http(let baseURL, let bearerToken, let conversationKey) = config.transport {
-            let resolvedToken = bearerToken ?? readHttpToken()
+            let tokenEnv = config.instanceDir.map { ["BASE_DATA_DIR": $0] }
+            let resolvedToken = bearerToken ?? (try? String(contentsOfFile: resolveHttpTokenPath(environment: tokenEnv), encoding: .utf8)).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             try await connectHTTP(baseURL: baseURL, bearerToken: resolvedToken, conversationKey: conversationKey)
             return
         }
@@ -194,12 +197,14 @@ extension DaemonClient {
 
     #if os(macOS)
     func authenticate() async throws {
-        // Try session-token file first, then fall back to transport's configured authToken
+        // Try session-token file first, then fall back to transport's configured authToken.
+        // Use the config's instanceDir so multi-instance switches read the correct token.
+        let tokenEnv = config.instanceDir.map { ["BASE_DATA_DIR": $0] }
         let transportToken: String? = {
             if case .tcp(_, _, _, let t) = config.transport { return t }
             return nil
         }()
-        guard let token = readSessionToken() ?? transportToken else {
+        guard let token = readSessionToken(environment: tokenEnv) ?? transportToken else {
             throw AuthError.missingToken
         }
 

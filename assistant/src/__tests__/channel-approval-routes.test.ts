@@ -45,7 +45,7 @@ mock.module("../security/secret-ingress.js", () => ({
 }));
 
 // Mock render to return the raw content as text
-mock.module("../daemon/handlers.js", () => ({
+mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: (content: unknown) => ({
     text: typeof content === "string" ? content : JSON.stringify(content),
   }),
@@ -59,12 +59,12 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
+import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import * as deliveryChannels from "../memory/delivery-channels.js";
 import {
   createApprovalRequest,
   getAllPendingApprovalsByGuardianChat,
-} from "../memory/channel-guardian-store.js";
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+} from "../memory/guardian-approvals.js";
 import {
   conversations,
   externalConversationBindings,
@@ -115,7 +115,7 @@ function resetTables(): void {
     "canonical_guardian_deliveries",
     "canonical_guardian_requests",
     "channel_guardian_approval_requests",
-    "channel_guardian_verification_challenges",
+    "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
     "channel_inbound_events",
@@ -124,7 +124,7 @@ function resetTables(): void {
     "contact_channels",
     "contacts",
   );
-  channelDeliveryStore.resetAllRunDeliveryClaims();
+  deliveryChannels.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }
 
@@ -208,7 +208,6 @@ const noopProcessMessage = mock(async () => ({ messageId: "msg-1" }));
 function ensureTestContact(): void {
   upsertContact({
     displayName: "Test User",
-    assistantId: "self",
     channels: [
       {
         type: "telegram",
@@ -218,9 +217,9 @@ function ensureTestContact(): void {
         policy: "allow",
       },
       {
-        type: "sms",
-        address: "sms-user-default",
-        externalUserId: "sms-user-default",
+        type: "slack",
+        address: "slack-user-default",
+        externalUserId: "slack-user-default",
         status: "active",
         policy: "allow",
       },
@@ -268,7 +267,6 @@ describe("stale callback handling without matching pending approval", () => {
 describe("inbound callback metadata triggers decision handling", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -362,7 +360,6 @@ describe("inbound callback metadata triggers decision handling", () => {
 describe("inbound text matching approval phrases triggers decision handling", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -402,49 +399,15 @@ describe("inbound text matching approval phrases triggers decision handling", ()
 
     deliverSpy.mockRestore();
   });
-
-  test('text "always" triggers approve_always decision', async () => {
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const initReq = makeInboundRequest({ content: "init" });
-    await handleChannelInbound(initReq, noopProcessMessage);
-
-    const db = getDb();
-    const events = db.$client
-      .prepare("SELECT conversation_id FROM channel_inbound_events")
-      .all() as Array<{ conversation_id: string }>;
-    const conversationId = events[0]?.conversation_id;
-    ensureConversation(conversationId!);
-
-    const sessionMock = registerPendingInteraction(
-      "req-txt-2",
-      conversationId!,
-      "shell",
-    );
-
-    const req = makeInboundRequest({ content: "always" });
-    const res = await handleChannelInbound(req, noopProcessMessage);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-txt-2", "allow");
-
-    deliverSpy.mockRestore();
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 4. Non-decision messages during pending approval (no conversational engine)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("non-decision messages during pending approval (legacy fallback)", () => {
+describe("non-decision messages during pending approval (no conversational engine)", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -526,7 +489,6 @@ describe("messages without pending approval proceed normally", () => {
 describe("empty content with callbackData bypasses validation", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -639,7 +601,6 @@ describe("empty content with callbackData bypasses validation", () => {
 describe("callback requestId validation", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -767,7 +728,6 @@ describe("callback requestId validation", () => {
 describe("no immediate reply after approval decision", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -894,28 +854,27 @@ describe("stale callback handling", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 15. SMS channel approval decisions
+// 15. Plain-text channel approval decisions (telegram)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("SMS channel approval decisions", () => {
+describe("plain-text channel approval decisions", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
-      channel: "sms",
-      guardianExternalUserId: "sms-user-default",
-      guardianDeliveryChatId: "sms-chat-123",
-      guardianPrincipalId: "sms-user-default",
+      channel: "telegram",
+      guardianExternalUserId: "telegram-user-default",
+      guardianDeliveryChatId: "chat-123",
+      guardianPrincipalId: "telegram-user-default",
     });
   });
 
-  function makeSmsInboundRequest(
+  function makePlainTextInboundRequest(
     overrides: Record<string, unknown> = {},
   ): Request {
     const body = {
-      sourceChannel: "sms",
-      interface: "sms",
-      conversationExternalId: "sms-chat-123",
-      actorExternalId: "sms-user-default",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "telegram-user-default",
       externalMessageId: `msg-${Date.now()}-${Math.random()}`,
       content: "hello",
       replyCallbackUrl: "https://gateway.test/deliver",
@@ -930,14 +889,14 @@ describe("SMS channel approval decisions", () => {
     });
   }
 
-  test('plain-text "yes" via SMS triggers approve_once decision', async () => {
+  test('plain-text "yes" triggers approve_once decision', async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
     ).mockResolvedValue({ ok: true });
 
-    // Establish the conversation via SMS
-    const initReq = makeSmsInboundRequest({ content: "init" });
+    // Establish the conversation
+    const initReq = makePlainTextInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
@@ -948,29 +907,29 @@ describe("SMS channel approval decisions", () => {
     ensureConversation(conversationId!);
 
     const sessionMock = registerPendingInteraction(
-      "req-sms-1",
+      "req-pt-1",
       conversationId!,
       "shell",
     );
 
-    const req = makeSmsInboundRequest({ content: "yes" });
+    const req = makePlainTextInboundRequest({ content: "yes" });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-sms-1", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-pt-1", "allow");
 
     deliverSpy.mockRestore();
   });
 
-  test('plain-text "no" via SMS triggers reject decision', async () => {
+  test('plain-text "no" triggers reject decision', async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
     ).mockResolvedValue({ ok: true });
 
-    const initReq = makeSmsInboundRequest({ content: "init" });
+    const initReq = makePlainTextInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
@@ -981,23 +940,23 @@ describe("SMS channel approval decisions", () => {
     ensureConversation(conversationId!);
 
     const sessionMock = registerPendingInteraction(
-      "req-sms-2",
+      "req-pt-2",
       conversationId!,
       "shell",
     );
 
-    const req = makeSmsInboundRequest({ content: "no" });
+    const req = makePlainTextInboundRequest({ content: "no" });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-sms-2", "deny");
+    expect(sessionMock).toHaveBeenCalledWith("req-pt-2", "deny");
 
     deliverSpy.mockRestore();
   });
 
-  test("non-decision SMS message during pending approval sends status reply", async () => {
+  test("non-decision message during pending approval sends status reply", async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
@@ -1007,7 +966,7 @@ describe("SMS channel approval decisions", () => {
       "deliverApprovalPrompt",
     ).mockResolvedValue(undefined);
 
-    const initReq = makeSmsInboundRequest({ content: "init" });
+    const initReq = makePlainTextInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
@@ -1017,22 +976,22 @@ describe("SMS channel approval decisions", () => {
     const conversationId = events[events.length - 1]?.conversation_id;
     ensureConversation(conversationId!);
 
-    registerPendingInteraction("req-sms-3", conversationId!, "shell");
+    registerPendingInteraction("req-pt-3", conversationId!, "shell");
 
-    const req = makeSmsInboundRequest({ content: "what is happening?" });
+    const req = makePlainTextInboundRequest({ content: "what is happening?" });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("assistant_turn");
 
-    // SMS non-decision: status reply delivered via plain text
+    // Non-decision: status reply delivered via plain text
     expect(deliverSpy).toHaveBeenCalled();
     expect(approvalSpy).not.toHaveBeenCalled();
     const statusCall = deliverSpy.mock.calls.find(
       (call) =>
         typeof call[1] === "object" &&
-        (call[1] as { chatId?: string }).chatId === "sms-chat-123",
+        (call[1] as { chatId?: string }).chatId === "chat-123",
     );
     expect(statusCall).toBeDefined();
     const statusPayload = statusCall![1] as {
@@ -1049,14 +1008,14 @@ describe("SMS channel approval decisions", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 16. SMS guardian verify intercept
+// 16. Guardian verify intercept
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("SMS guardian verify intercept", () => {
-  test("verification code reply works with sourceChannel sms", async () => {
-    const { createVerificationChallenge } =
-      await import("../runtime/channel-guardian-service.js");
-    const { secret } = createVerificationChallenge("self", "sms");
+describe("telegram guardian verify intercept", () => {
+  test("verification code reply works with sourceChannel telegram", async () => {
+    const { createInboundVerificationSession } =
+      await import("../runtime/channel-verification-service.js");
+    const { secret } = createInboundVerificationSession("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1069,12 +1028,12 @@ describe("SMS guardian verify intercept", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sourceChannel: "sms",
-        interface: "sms",
-        conversationExternalId: "sms-chat-verify",
+        sourceChannel: "telegram",
+        interface: "telegram",
+        conversationExternalId: "tg-chat-verify",
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: secret,
-        actorExternalId: "sms-user-42",
+        actorExternalId: "tg-user-42",
         replyCallbackUrl: "https://gateway.test/deliver",
       }),
     });
@@ -1083,12 +1042,12 @@ describe("SMS guardian verify intercept", () => {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("verified");
+    expect(body.verificationOutcome).toBe("verified");
 
     expect(deliverSpy).toHaveBeenCalled();
     const replyArgs = deliverSpy.mock.calls[0];
     const replyPayload = replyArgs[1] as { chatId: string; text: string };
-    expect(replyPayload.chatId).toBe("sms-chat-verify");
+    expect(replyPayload.chatId).toBe("tg-chat-verify");
     expect(typeof replyPayload.text).toBe("string");
     expect(replyPayload.text.toLowerCase()).toContain("guardian");
     expect(replyPayload.text.toLowerCase()).toContain("verif");
@@ -1096,11 +1055,11 @@ describe("SMS guardian verify intercept", () => {
     deliverSpy.mockRestore();
   });
 
-  test("invalid verification code returns failed via SMS", async () => {
-    const { createVerificationChallenge } =
-      await import("../runtime/channel-guardian-service.js");
+  test("invalid verification code returns failed via telegram", async () => {
+    const { createInboundVerificationSession } =
+      await import("../runtime/channel-verification-service.js");
     // Ensure there is a pending challenge so bare-code verification is intercepted.
-    createVerificationChallenge("self", "sms");
+    createInboundVerificationSession("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1113,12 +1072,12 @@ describe("SMS guardian verify intercept", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sourceChannel: "sms",
-        interface: "sms",
-        conversationExternalId: "sms-chat-verify-fail",
+        sourceChannel: "telegram",
+        interface: "telegram",
+        conversationExternalId: "tg-chat-verify-fail",
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: "000000",
-        actorExternalId: "sms-user-43",
+        actorExternalId: "tg-user-43",
         replyCallbackUrl: "https://gateway.test/deliver",
       }),
     });
@@ -1127,7 +1086,7 @@ describe("SMS guardian verify intercept", () => {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("failed");
+    expect(body.verificationOutcome).toBe("failed");
 
     expect(deliverSpy).toHaveBeenCalled();
     const replyArgs = deliverSpy.mock.calls[0];
@@ -1141,15 +1100,14 @@ describe("SMS guardian verify intercept", () => {
 
   test("64-char hex verification codes are intercepted when a pending challenge exists", async () => {
     const { createHash, randomBytes } = await import("node:crypto");
-    const { createChallenge } =
-      await import("../memory/channel-guardian-store.js");
+    const { createInboundSession } =
+      await import("../memory/channel-verification-sessions.js");
 
     const secret = randomBytes(32).toString("hex");
     const challengeHash = createHash("sha256").update(secret).digest("hex");
-    createChallenge({
+    createInboundSession({
       id: `challenge-hex-${Date.now()}`,
-      assistantId: "self",
-      channel: "sms",
+      channel: "telegram",
       challengeHash,
       expiresAt: Date.now() + 600_000,
     });
@@ -1166,12 +1124,12 @@ describe("SMS guardian verify intercept", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sourceChannel: "sms",
-        interface: "sms",
-        conversationExternalId: "sms-chat-hex-message",
+        sourceChannel: "telegram",
+        interface: "telegram",
+        conversationExternalId: "tg-chat-hex-message",
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: secret,
-        actorExternalId: "sms-user-hex",
+        actorExternalId: "tg-user-hex",
         replyCallbackUrl: "https://gateway.test/deliver",
       }),
     });
@@ -1180,7 +1138,7 @@ describe("SMS guardian verify intercept", () => {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("verified");
+    expect(body.verificationOutcome).toBe("verified");
     expect(processMessageCalled).toBe(false);
   });
 });
@@ -1192,7 +1150,6 @@ describe("SMS guardian verify intercept", () => {
 describe("guardian decision scoping — multiple pending approvals", () => {
   test("callback for older request resolves to the correct approval request", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-scope-user",
       guardianDeliveryChatId: "guardian-scope-chat",
@@ -1277,7 +1234,6 @@ describe("guardian decision scoping — multiple pending approvals", () => {
 describe("ambiguous plain-text decision with multiple pending requests", () => {
   test("does not apply plain-text decision to wrong request when multiple pending", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-ambig-user",
       guardianDeliveryChatId: "guardian-ambig-chat",
@@ -1478,27 +1434,27 @@ describe("expired guardian approval auto-denies via sweep", () => {
 describe("deliver-once idempotency guard", () => {
   test("claimRunDelivery returns true on first call, false on subsequent calls", () => {
     const runId = "run-idem-unit";
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(false);
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(false);
-    channelDeliveryStore.resetRunDeliveryClaim(runId);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(true);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(false);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(false);
+    deliveryChannels.resetRunDeliveryClaim(runId);
   });
 
   test("different run IDs are independent", () => {
-    expect(channelDeliveryStore.claimRunDelivery("run-a")).toBe(true);
-    expect(channelDeliveryStore.claimRunDelivery("run-b")).toBe(true);
-    expect(channelDeliveryStore.claimRunDelivery("run-a")).toBe(false);
-    expect(channelDeliveryStore.claimRunDelivery("run-b")).toBe(false);
-    channelDeliveryStore.resetRunDeliveryClaim("run-a");
-    channelDeliveryStore.resetRunDeliveryClaim("run-b");
+    expect(deliveryChannels.claimRunDelivery("run-a")).toBe(true);
+    expect(deliveryChannels.claimRunDelivery("run-b")).toBe(true);
+    expect(deliveryChannels.claimRunDelivery("run-a")).toBe(false);
+    expect(deliveryChannels.claimRunDelivery("run-b")).toBe(false);
+    deliveryChannels.resetRunDeliveryClaim("run-a");
+    deliveryChannels.resetRunDeliveryClaim("run-b");
   });
 
   test("resetRunDeliveryClaim allows re-claim", () => {
     const runId = "run-idem-reset";
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
-    channelDeliveryStore.resetRunDeliveryClaim(runId);
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
-    channelDeliveryStore.resetRunDeliveryClaim(runId);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(true);
+    deliveryChannels.resetRunDeliveryClaim(runId);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(true);
+    deliveryChannels.resetRunDeliveryClaim(runId);
   });
 });
 
@@ -1508,9 +1464,9 @@ describe("deliver-once idempotency guard", () => {
 
 describe("assistant-scoped guardian verification via handleChannelInbound", () => {
   test("verification code uses the threaded assistantId (default: self)", async () => {
-    const { createVerificationChallenge } =
-      await import("../runtime/channel-guardian-service.js");
-    const { secret } = createVerificationChallenge("self", "telegram");
+    const { createInboundVerificationSession } =
+      await import("../runtime/channel-verification-service.js");
+    const { secret } = createInboundVerificationSession("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1526,19 +1482,19 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("verified");
+    expect(body.verificationOutcome).toBe("verified");
 
     deliverSpy.mockRestore();
   });
 
   test("verification code with explicit assistantId resolves against canonical scope", async () => {
-    const { createVerificationChallenge } =
-      await import("../runtime/channel-guardian-service.js");
+    const { createInboundVerificationSession } =
+      await import("../runtime/channel-verification-service.js");
     const { getGuardianBinding } =
-      await import("../runtime/channel-guardian-service.js");
+      await import("../runtime/channel-verification-service.js");
 
     // All assistant IDs canonicalize to 'self' in the single-tenant daemon
-    const { secret } = createVerificationChallenge("self", "telegram");
+    const { secret } = createInboundVerificationSession("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1558,7 +1514,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("verified");
+    expect(body.verificationOutcome).toBe("verified");
 
     const bindingX = getGuardianBinding("self", "telegram");
     expect(bindingX).not.toBeNull();
@@ -1568,11 +1524,11 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
   });
 
   test("all assistant IDs share canonical scope for verification", async () => {
-    const { createVerificationChallenge } =
-      await import("../runtime/channel-guardian-service.js");
+    const { createInboundVerificationSession } =
+      await import("../runtime/channel-verification-service.js");
 
     // Both IDs canonicalize to 'self', so the challenge is found
-    const { secret } = createVerificationChallenge("self", "telegram");
+    const { secret } = createInboundVerificationSession("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1592,7 +1548,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("verified");
+    expect(body.verificationOutcome).toBe("verified");
 
     deliverSpy.mockRestore();
   });
@@ -1600,7 +1556,6 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
   test("inbound with explicit assistantId does not mutate existing external bindings", async () => {
     upsertContact({
       displayName: "Incoming User",
-      assistantId: "self",
       channels: [
         {
           type: "telegram",
@@ -1665,7 +1620,6 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
 describe("conversational approval engine — standard path", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -1886,7 +1840,6 @@ describe("conversational approval engine — standard path", () => {
 describe("guardian conversational approval via conversation engine", () => {
   test("guardian follow-up clarification: engine returns keep_pending", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-conv-user",
       guardianDeliveryChatId: "guardian-conv-chat",
@@ -1959,7 +1912,6 @@ describe("guardian conversational approval via conversation engine", () => {
     const pending = getAllPendingApprovalsByGuardianChat(
       "telegram",
       "guardian-conv-chat",
-      "self",
     );
     expect(pending).toHaveLength(1);
 
@@ -1968,7 +1920,6 @@ describe("guardian conversational approval via conversation engine", () => {
 
   test("guardian natural-language approval: engine returns approve_once", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-nlp-user",
       guardianDeliveryChatId: "guardian-nlp-chat",
@@ -2031,7 +1982,6 @@ describe("guardian conversational approval via conversation engine", () => {
     const pending = getAllPendingApprovalsByGuardianChat(
       "telegram",
       "guardian-nlp-chat",
-      "self",
     );
     expect(pending).toHaveLength(0);
 
@@ -2048,7 +1998,6 @@ describe("guardian conversational approval via conversation engine", () => {
 
   test("guardian callback button approve_always is downgraded to approve_once", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-dg-user",
       guardianDeliveryChatId: "guardian-dg-chat",
@@ -2103,7 +2052,6 @@ describe("guardian conversational approval via conversation engine", () => {
 
   test("multi-pending guardian disambiguation: engine requests clarification", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-multi-user",
       guardianDeliveryChatId: "guardian-multi-chat",
@@ -2206,7 +2154,6 @@ describe("guardian conversational approval via conversation engine", () => {
 describe("keep_pending remains conversational — standard path", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -2267,7 +2214,6 @@ describe("keep_pending remains conversational — standard path", () => {
 describe("keep_pending remains conversational — guardian path", () => {
   test('guardian explicit "yes" with keep_pending returns assistant_turn without applying a decision', async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-fb",
       guardianDeliveryChatId: "guardian-chat-fb",
@@ -2291,7 +2237,6 @@ describe("keep_pending remains conversational — guardian path", () => {
       runId: "run-gfb-1",
       requestId: "req-gfb-1",
       conversationId: convId,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-user-fb",
       requesterChatId: "requester-chat-fb",
@@ -2342,7 +2287,6 @@ describe("keep_pending remains conversational — guardian path", () => {
 describe("requester cancel of guardian-gated pending request", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-cancel",
       guardianDeliveryChatId: "guardian-cancel-chat",
@@ -2350,7 +2294,6 @@ describe("requester cancel of guardian-gated pending request", () => {
     });
     upsertContact({
       displayName: "Requester Cancel User",
-      assistantId: "self",
       channels: [
         {
           type: "telegram",
@@ -2394,7 +2337,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       runId: "run-cancel-1",
       requestId: "req-cancel-1",
       conversationId: conversationId!,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-cancel-user",
       requesterChatId: "requester-cancel-chat",
@@ -2476,7 +2418,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       runId: "run-cancel-2",
       requestId: "req-cancel-2",
       conversationId: conversationId!,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-cancel-user",
       requesterChatId: "requester-cancel-chat",
@@ -2552,7 +2493,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       runId: "run-cancel-3",
       requestId: "req-cancel-3",
       conversationId: conversationId!,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-cancel-user",
       requesterChatId: "requester-cancel-chat",
@@ -2621,7 +2561,6 @@ describe("requester cancel of guardian-gated pending request", () => {
       runId: "run-cancel-4",
       requestId: "req-cancel-4",
       conversationId: conversationId!,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-cancel-user",
       requesterChatId: "requester-cancel-chat",
@@ -2657,7 +2596,6 @@ describe("requester cancel of guardian-gated pending request", () => {
 describe("engine decision race condition — standard path", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -2727,7 +2665,6 @@ describe("engine decision race condition — standard path", () => {
 describe("engine decision race condition — guardian path", () => {
   test("returns stale_ignored when guardian engine approves but interaction was already resolved", async () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-race-user",
       guardianDeliveryChatId: "guardian-race-chat",
@@ -2747,7 +2684,6 @@ describe("engine decision race condition — guardian path", () => {
       runId: "run-grc-1",
       requestId: "req-grc-1",
       conversationId: convId,
-      assistantId: "self",
       channel: "telegram",
       requesterExternalUserId: "requester-race-user",
       requesterChatId: "requester-race-chat",
@@ -2809,31 +2745,29 @@ describe("engine decision race condition — guardian path", () => {
 describe("non-decision status reply for different channels", () => {
   beforeEach(() => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
       guardianPrincipalId: "telegram-user-default",
     });
     createGuardianBinding({
-      assistantId: "self",
-      channel: "sms",
+      channel: "slack",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
       guardianPrincipalId: "telegram-user-default",
     });
   });
 
-  test("non-decision message on non-rich channel (sms) sends status reply", async () => {
+  test("non-decision message on slack sends status reply", async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
     ).mockResolvedValue({ ok: true });
 
-    // Establish the conversation using sms (non-rich channel)
+    // Establish the conversation using slack
     const initReq = makeInboundRequest({
       content: "init",
-      sourceChannel: "sms",
+      sourceChannel: "slack",
     });
     await handleChannelInbound(initReq, noopProcessMessage);
 
@@ -2844,12 +2778,12 @@ describe("non-decision status reply for different channels", () => {
     const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    registerPendingInteraction("req-status-sms", conversationId!, "shell");
+    registerPendingInteraction("req-status-slack", conversationId!, "shell");
 
     // Send a non-decision message
     const req = makeInboundRequest({
       content: "what is happening?",
-      sourceChannel: "sms",
+      sourceChannel: "slack",
     });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;
@@ -2927,7 +2861,6 @@ describe("background channel processing approval prompts", () => {
   test("marks guardian channel turns interactive and delivers approval prompt when confirmation is pending", async () => {
     // Set up a guardian binding so the sender is recognized as a guardian
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
@@ -2991,7 +2924,6 @@ describe("background channel processing approval prompts", () => {
     // Guardian binding includes extra whitespace; trust resolution canonicalizes
     // identity and prompt delivery should still treat this sender as the guardian.
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "  telegram-user-default  ",
       guardianDeliveryChatId: "chat-123",
@@ -3056,7 +2988,6 @@ describe("background channel processing approval prompts", () => {
     // trusted contact (not the guardian). The guardian route is resolvable
     // because the binding exists — approval notifications can be delivered.
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-user-other",
       guardianDeliveryChatId: "guardian-chat-other",
@@ -3178,7 +3109,6 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
 
     // Create guardian binding for Telegram
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: guardianUserId,
       guardianDeliveryChatId: guardianChatId,
@@ -3236,7 +3166,6 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
 
     // Create guardian binding for the guardian user on the different chat
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: guardianUserId,
       guardianDeliveryChatId: differentChatId,
@@ -3293,7 +3222,6 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
   beforeEach(() => {
     // Create a guardian binding so the requester resolves as trusted_contact
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "guardian-tc-selfapproval",
       guardianDeliveryChatId: "guardian-tc-selfapproval-chat",
@@ -3301,7 +3229,6 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
     });
     upsertContact({
       displayName: "TC Self-Approval User",
-      assistantId: "self",
       channels: [
         {
           type: "telegram",

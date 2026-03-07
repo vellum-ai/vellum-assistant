@@ -6,10 +6,7 @@ import {
   resolveService,
 } from "../../oauth/provider-profiles.js";
 import { getSecureKey } from "../../security/secure-keys.js";
-import {
-  assertMetadataWritable,
-  getCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
+import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
 import type { OAuthConnectStartRequest } from "../ipc-protocol.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
@@ -26,6 +23,20 @@ function sanitizeOAuthError(message: string): string {
     return "The authorization request was denied. Please try again.";
   }
   return "OAuth authentication failed. Please try again.";
+}
+
+/** Resolve client_secret from the keychain, checking canonical then alias service name. */
+function getClientSecret(
+  resolvedService: string,
+  rawService: string,
+): string | undefined {
+  return (
+    getSecureKey(`credential:${resolvedService}:client_secret`) ??
+    (resolvedService !== rawService
+      ? getSecureKey(`credential:${rawService}:client_secret`)
+      : undefined) ??
+    undefined
+  );
 }
 
 export async function handleOAuthConnectStart(
@@ -60,30 +71,10 @@ export async function handleOAuthConnectStart(
     // Look up client credentials from the keychain under the canonical
     // service name first, then fall back to the original (alias) name
     // in case the user stored credentials under the unresolved key.
-    let clientId =
-      getSecureKey(`credential:${resolvedService}:client_id`) ??
-      getSecureKey(`credential:${resolvedService}:oauth_client_id`);
+    let clientId = getSecureKey(`credential:${resolvedService}:client_id`);
 
     if (!clientId && resolvedService !== msg.service) {
-      clientId =
-        getSecureKey(`credential:${msg.service}:client_id`) ??
-        getSecureKey(`credential:${msg.service}:oauth_client_id`);
-    }
-
-    // Fall back to credential metadata for legacy installs where client
-    // credentials were stored only in metadata (not in the keychain).
-    // Check both canonical and alias service keys, matching the keychain
-    // lookup pattern above.
-    if (!clientId) {
-      const meta = getCredentialMetadata(resolvedService, "access_token");
-      if (meta?.oauth2ClientId) {
-        clientId = meta.oauth2ClientId;
-      } else if (resolvedService !== msg.service) {
-        const aliasMeta = getCredentialMetadata(msg.service, "access_token");
-        if (aliasMeta?.oauth2ClientId) {
-          clientId = aliasMeta.oauth2ClientId;
-        }
-      }
+      clientId = getSecureKey(`credential:${msg.service}:client_id`);
     }
 
     if (!clientId) {
@@ -95,31 +86,7 @@ export async function handleOAuthConnectStart(
       return;
     }
 
-    let clientSecret =
-      getSecureKey(`credential:${resolvedService}:client_secret`) ??
-      getSecureKey(`credential:${resolvedService}:oauth_client_secret`) ??
-      undefined;
-
-    if (!clientSecret && resolvedService !== msg.service) {
-      clientSecret =
-        getSecureKey(`credential:${msg.service}:client_secret`) ??
-        getSecureKey(`credential:${msg.service}:oauth_client_secret`) ??
-        undefined;
-    }
-
-    // Fall back to credential metadata for legacy installs — check both
-    // canonical and alias service keys, matching the keychain lookup pattern.
-    if (!clientSecret) {
-      const meta = getCredentialMetadata(resolvedService, "access_token");
-      if (meta?.oauth2ClientSecret) {
-        clientSecret = meta.oauth2ClientSecret;
-      } else if (resolvedService !== msg.service) {
-        const aliasMeta = getCredentialMetadata(msg.service, "access_token");
-        if (aliasMeta?.oauth2ClientSecret) {
-          clientSecret = aliasMeta.oauth2ClientSecret;
-        }
-      }
-    }
+    const clientSecret = getClientSecret(resolvedService, msg.service);
 
     // Fail early when client_secret is required but missing — guide the
     // user to collect it from the keychain rather than letting the OAuth

@@ -365,7 +365,7 @@ export class VellumQdrantClient {
   /**
    * Detect "collection not found" errors from Qdrant so callers can
    * reset collectionReady and retry after an external deletion
-   * (e.g. `vellum sessions clear`).
+   * (e.g. `assistant sessions clear`).
    */
   private isCollectionMissing(err: unknown): boolean {
     if (

@@ -107,21 +107,16 @@ mock.module("../util/platform.js", () => ({
   isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
-  getHttpTokenPath: () => join(testDir, "http-token"),
   getPlatformTokenPath: () => join(testDir, "platform-token"),
   getTCPHost: () => "127.0.0.1",
   getTCPPort: () => 8765,
   isIOSPairingEnabled: () => false,
   isTCPEnabled: () => false,
-  readHttpToken: () => null,
   readLockfile: () => null,
   readPlatformToken: () => null,
   readSessionToken: () => null,
   removeSocketFile: () => {},
   writeLockfile: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
   ensureDataDir: () => {},
 }));
 
@@ -178,13 +173,10 @@ mock.module("../config/loader.js", () => ({
 
 // Additional mocks required for Session constructor and end-to-end tests
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   addMessage: () => ({ id: "msg-1" }),
-  countConversations: () => 0,
   getMessages: () => [],
-  listConversations: () => [],
   getConversation: () => null,
-  getLatestConversation: () => null,
   createConversation: () => ({
     id: "bench-conv",
     title: "Bench",
@@ -198,15 +190,21 @@ mock.module("../memory/conversation-store.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationThreadType: () => "standard",
   getConversationMemoryScopeId: () => "default",
-  isLastUserMessageToolResult: () => false,
   provenanceFromTrustContext: () => ({}),
   relinkAttachments: () => 0,
-  searchConversations: () => [],
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   updateConversationTitle: () => {},
   updateConversationUsage: () => {},
   updateMessageContent: () => {},
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  countConversations: () => 0,
+  listConversations: () => [],
+  getLatestConversation: () => null,
+  isLastUserMessageToolResult: () => false,
+  searchConversations: () => [],
 }));
 
 mock.module("../hooks/manager.js", () => ({
@@ -263,7 +261,6 @@ mock.module("../calls/call-store.js", () => ({
   buildCallbackDedupeKey: () => "",
   isCallbackProcessed: () => false,
   recordProcessedCallback: () => {},
-  tryRecordProcessedCallback: () => true,
   claimCallback: () => true,
   releaseCallbackClaim: () => {},
 }));

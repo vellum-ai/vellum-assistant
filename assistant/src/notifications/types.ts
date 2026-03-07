@@ -51,6 +51,22 @@ export interface ChannelDestination {
   channel: NotificationChannel;
   endpoint?: string;
   metadata?: Record<string, unknown>;
+  /** Stable binding data for channel-scoped conversation continuation. */
+  bindingContext?: DestinationBindingContext;
+}
+
+/**
+ * Binding data that identifies a specific external chat for a channel.
+ * Used by conversation pairing to look up or create channel-scoped
+ * conversations keyed by (sourceChannel, externalChatId).
+ */
+export interface DestinationBindingContext {
+  /** The channel this binding belongs to (e.g. "telegram", "slack"). */
+  sourceChannel: NotificationChannel;
+  /** The channel-specific chat/thread identifier (e.g. Telegram chat ID, phone number). */
+  externalChatId: string;
+  /** Optional external user identifier within the chat. */
+  externalUserId?: string;
 }
 
 /**
@@ -61,9 +77,6 @@ export interface ChannelDeliveryPayload {
   /** Delivery audit record ID — passed through to the client for ack correlation. */
   deliveryId?: string;
   sourceEventName: string;
-  /** Originating assistant — used by channel adapters that need assistant-specific
-   *  routing (e.g. SMS outbound number selection via the gateway). */
-  assistantId?: string;
   copy: RenderedChannelCopy;
   deepLinkTarget?: Record<string, unknown>;
 }

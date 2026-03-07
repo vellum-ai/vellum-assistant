@@ -7,6 +7,7 @@ enum GalleryCategory: String, CaseIterable, Identifiable {
     case chat = "Chat"
     case display = "Display"
     case feedback = "Feedback"
+    case icons = "Icons"
     case inputs = "Inputs"
     case layout = "Layout"
     case navigation = "Navigation"
@@ -15,18 +16,19 @@ enum GalleryCategory: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var icon: String {
+    var vIcon: VIcon {
         switch self {
-        case .appIcons: return "app.fill"
-        case .buttons: return "hand.tap"
-        case .chat: return "bubble.left.and.bubble.right"
-        case .display: return "rectangle.on.rectangle"
-        case .feedback: return "bell"
-        case .inputs: return "character.cursor.ibeam"
-        case .layout: return "rectangle.split.3x1"
-        case .navigation: return "arrow.triangle.branch"
-        case .modifiers: return "paintbrush"
-        case .tokens: return "paintpalette"
+        case .appIcons: return .layoutGrid
+        case .buttons: return .mousePointerClick
+        case .chat: return .messagesSquare
+        case .display: return .layers
+        case .feedback: return .bell
+        case .icons: return .puzzle
+        case .inputs: return .pencil
+        case .layout: return .panelLeft
+        case .navigation: return .gitBranch
+        case .modifiers: return .paintbrush
+        case .tokens: return .paintbrush
         }
     }
 }
@@ -38,7 +40,7 @@ struct ComponentGalleryView: View {
         NavigationSplitView {
             List(selection: $selectedCategory) {
                 ForEach(GalleryCategory.allCases) { category in
-                    Label(category.rawValue, systemImage: category.icon)
+                    Label { Text(category.rawValue) } icon: { VIconView(category.vIcon, size: 14) }
                         .tag(category)
                 }
             }
@@ -54,6 +56,7 @@ struct ComponentGalleryView: View {
                         case .chat: ChatGallerySection()
                         case .display: DisplayGallerySection()
                         case .feedback: FeedbackGallerySection()
+                        case .icons: IconsGallerySection()
                         case .inputs: InputsGallerySection()
                         case .layout: LayoutGallerySection()
                         case .navigation: NavigationGallerySection()
@@ -64,7 +67,7 @@ struct ComponentGalleryView: View {
                         VEmptyState(
                             title: "Select a category",
                             subtitle: "Choose a component category from the sidebar",
-                            icon: "sidebar.left"
+                            icon: VIcon.panelLeft.rawValue
                         )
                     }
                 }

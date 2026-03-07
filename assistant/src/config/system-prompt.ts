@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { CLI_HELP_REFERENCE } from "../cli/reference.js";
 import { listCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -19,6 +20,13 @@ import { resolveUserPronouns, resolveUserReference } from "./user-reference.js";
 const log = getLogger("system-prompt");
 
 const PROMPT_FILES = ["SOUL.md", "IDENTITY.md", "USER.md"] as const;
+
+let cachedCliHelp: string | undefined;
+
+/** @internal Reset the CLI help cache — exposed for testing only. */
+export function _resetCliHelpCache(): void {
+  cachedCliHelp = undefined;
+}
 
 /**
  * Copy template prompt files into the data directory if they don't already exist.
@@ -149,6 +157,7 @@ export function buildSystemPrompt(): string {
   }
   if (getIsContainerized()) parts.push(buildContainerizedSection());
   parts.push(buildConfigSection());
+  parts.push(buildCliReferenceSection());
   parts.push(buildPostToolResponseSection());
   parts.push(buildExternalCommsIdentitySection());
   parts.push(buildChannelAwarenessSection());
@@ -161,7 +170,7 @@ export function buildSystemPrompt(): string {
       config,
     )
   ) {
-    parts.push(buildGuardianVerificationRoutingSection());
+    parts.push(buildVerificationRoutingSection());
   }
   parts.push(buildAttachmentSection());
   parts.push(buildInChatConfigurationSection());
@@ -177,6 +186,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildAccessPreferenceSection());
   parts.push(buildIntegrationSection());
   parts.push(buildMemoryPersistenceSection());
+  parts.push(buildMemoryRecallSection());
   parts.push(buildWorkspaceReflectionSection());
   parts.push(buildLearningMemorySection());
 
@@ -218,7 +228,7 @@ function buildTaskScheduleReminderRoutingSection(): string {
   ].join("\n");
 }
 
-export function buildGuardianVerificationRoutingSection(): string {
+export function buildVerificationRoutingSection(): string {
   return [
     "## Routing: Guardian Verification",
     "",
@@ -341,7 +351,7 @@ function buildInChatConfigurationSection(): string {
     "",
     "### Avatar Customisation",
     "",
-    'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an avatar image via Gemini and updates all connected clients automatically. Requires a Gemini API key (the same one used for image generation).',
+    'You can change your avatar appearance using the `set_avatar` tool. When the user asks to change, update, or customise your avatar, use `set_avatar` with a `description` parameter describing the desired appearance (e.g. "a friendly purple cat with green eyes wearing a tiny hat"). The tool generates an avatar image and updates all connected clients automatically. If managed avatar generation is configured, no local API key is needed.',
     "",
     "**After generating a new avatar**, always update the `## Avatar` section in `IDENTITY.md` with a brief description of the current avatar appearance. This ensures you remember what you look like across sessions. Example:",
     "```",
@@ -394,9 +404,9 @@ export function buildPhoneCallsRoutingSection(): string {
     "### Trigger phrases",
     '- "Set up phone calling" / "enable calls"',
     '- "Make a call to..." / "call [number/business]"',
-    '- "Configure Twilio" (in context of voice calls, not SMS)',
+    '- "Configure Twilio" (in context of voice calls)',
     '- "Can you make phone calls?"',
-    '- "Set up my phone number" (for calling, not SMS)',
+    '- "Set up my phone number" (for calling)',
     "",
     "### What it does",
     "The skill handles the full phone calling lifecycle:",
@@ -424,18 +434,21 @@ function buildToolPermissionSection(): string {
     "",
     "**CRITICAL RULE:** You MUST ALWAYS output a text message BEFORE calling any tool that requires approval. NEVER call a permission-gated tool without preceding text. Your user needs context to decide whether to allow.",
     "",
+    '**IMPORTANT:** If your user has already granted broad approval for the current conversation (e.g. via "Allow for 10 minutes", "Allow for this thread", or "Always Allow"), do NOT ask for permission again. Instead, just briefly describe what you\'re about to do and proceed. Only ask "Can you allow?" on the FIRST tool call when you haven\'t been granted permission yet.',
+    "",
     "Your text should follow this pattern:",
     "1. **Acknowledge** the request conversationally.",
     '2. **Explain what you need at a high level** (e.g. "I\'ll need to look through your Downloads folder"). Do NOT include raw terminal commands or backtick code. Keep it non-technical.',
     "3. **State safety** in plain language. Is it read-only? Will it change anything?",
-    "4. **Ask for permission** explicitly at the end.",
+    "4. **Ask for permission** only if this is the first time and you haven't been previously approved. If you have been approved, just say what you're doing.",
     "",
     "Style rules:",
     '- NEVER use em dashes (the long dash). Use commas, periods, or "and" instead.',
     "- NEVER show raw commands in backticks like `ls -lt ~/Downloads`. Describe the action in plain English.",
     "- Keep it conversational, like you're talking to a friend.",
     "",
-    'Good: "To show your recent downloads, I\'ll need to look through your Downloads folder. This is read-only. Can you allow this?"',
+    'First time (no prior approval): "To show your recent downloads, I\'ll need to look through your Downloads folder. This is read-only. Can you allow this?"',
+    'Already approved: "Let me check your Downloads folder real quick."',
     'Bad: "I\'ll run `ls -lt ~/Desktop/`" (raw command), or calling a tool with no preceding text.',
     "",
     "### Handling Permission Denials",
@@ -494,7 +507,7 @@ export function buildChannelAwarenessSection(): string {
     "",
     "### Push-to-talk awareness",
     "- The `<channel_capabilities>` block may include `ptt_activation_key` and `ptt_enabled` fields indicating the user's push-to-talk configuration.",
-    "- You can change the push-to-talk activation key using the `voice_config_update` tool. Valid keys: fn (Fn/Globe key), ctrl (Control key), fn_shift (Fn+Shift), none (disable PTT).",
+    '- You can change the push-to-talk activation key using the `voice_config_update` tool. The key is provided as a JSON PTTActivator payload (e.g. `{"kind":"modifierOnly","modifierFlags":8388608}` for Fn).',
     "- When the user asks about voice input or push-to-talk settings, use the tool to apply changes directly rather than directing them to settings.",
     "- When `microphone_permission_granted` is `false`, guide the user to grant microphone access in System Settings before using voice features.",
     "",
@@ -647,6 +660,21 @@ function buildMemoryPersistenceSection(): string {
   ].join("\n");
 }
 
+function buildMemoryRecallSection(): string {
+  return [
+    "## Memory Recall",
+    "",
+    "You have access to a `memory_recall` tool for deep memory retrieval. Use it when:",
+    "",
+    "- The user asks about past conversations, decisions, or context you don't have in the current window",
+    "- You need to recall specific facts, preferences, or project details",
+    "- The auto-injected memory context doesn't contain what you need",
+    "- The user references something from a previous session",
+    "",
+    "The tool searches across semantic, lexical, entity graph, and recency sources. Be specific in your query for best results.",
+  ].join("\n");
+}
+
 function buildWorkspaceReflectionSection(): string {
   return [
     "## Workspace Reflection",
@@ -778,6 +806,24 @@ function buildConfigSection(): string {
   ].join("\n");
 }
 
+export function buildCliReferenceSection(): string {
+  if (cachedCliHelp === undefined) {
+    cachedCliHelp = CLI_HELP_REFERENCE.trim();
+  }
+
+  return [
+    "## Assistant CLI",
+    "",
+    "The `assistant` CLI is installed on the user's machine and available via `bash`.",
+    "",
+    "```",
+    cachedCliHelp,
+    "```",
+    "",
+    "Run `assistant <command> --help` for detailed help on any subcommand.",
+  ].join("\n");
+}
+
 /**
  * Strip lines starting with `_` (comment convention for prompt .md files)
  * and collapse any resulting consecutive blank lines.
@@ -879,7 +925,7 @@ function buildDynamicSkillWorkflowSection(
     lines.push(
       "",
       "### Messaging Skill",
-      'When the user asks about email, messaging, inbox management, or wants to read/send/search messages on any platform (Gmail, Slack, Telegram, SMS), load the "messaging" skill using `skill_load`. The messaging skill handles connection setup, credential flows, and all messaging operations — do not improvise setup instructions from general knowledge.',
+      'When the user asks about email, messaging, inbox management, or wants to read/send/search messages on any platform (Gmail, Slack, Telegram), load the "messaging" skill using `skill_load`. The messaging skill handles connection setup, credential flows, and all messaging operations — do not improvise setup instructions from general knowledge.',
     );
   }
 
@@ -948,7 +994,7 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
     "### Installing additional skills",
     "If `skill_load` fails because a skill is not found, additional first-party skills may be available in the Vellum catalog.",
     "Use `bash` to discover and install them:",
-    "- `vellum skills list` — list all available catalog skills",
-    "- `vellum skills install <skill-id>` — install a skill, then retry `skill_load`",
+    "- `assistant skills list` — list all available catalog skills",
+    "- `assistant skills install <skill-id>` — install a skill, then retry `skill_load`",
   ].join("\n");
 }

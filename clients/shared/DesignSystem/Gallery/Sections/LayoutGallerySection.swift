@@ -16,11 +16,11 @@ struct LayoutGallerySection: View {
 
             VCard(padding: 0) {
                 VToolbar {
-                    VIconButton(label: "Home", icon: "house") {}
-                    VIconButton(label: "Search", icon: "magnifyingglass") {}
-                    VIconButton(label: "Settings", icon: "gear", isActive: true) {}
+                    VIconButton(label: "Home", icon: VIcon.house.rawValue) {}
+                    VIconButton(label: "Search", icon: VIcon.search.rawValue) {}
+                    VIconButton(label: "Settings", icon: VIcon.settings.rawValue, isActive: true) {}
                     Spacer()
-                    VIconButton(label: "Add", icon: "plus", iconOnly: true) {}
+                    VIconButton(label: "Add", icon: VIcon.plus.rawValue, iconOnly: true) {}
                 }
             }
 
@@ -33,7 +33,7 @@ struct LayoutGallerySection: View {
             )
 
             VCard(padding: 0) {
-                VSidePanel(title: "Inspector", onClose: {}) {
+                VSidePanel(title: "Inspector", onClose: {}, pinnedContent: { EmptyView() }) {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Panel content goes here")
                             .font(VFont.body)
@@ -112,7 +112,7 @@ struct LayoutGallerySection: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(VColor.surface)
                     } panel: {
-                        VSidePanel(title: "Details", onClose: { showPanel = false }) {
+                        VSidePanel(title: "Details", onClose: { showPanel = false }, pinnedContent: { EmptyView() }) {
                             Text("Side panel content")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)

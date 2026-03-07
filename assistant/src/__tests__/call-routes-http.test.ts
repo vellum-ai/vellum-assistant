@@ -27,7 +27,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => null,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -108,6 +107,19 @@ mock.module("../calls/twilio-config.js", () => ({
 // Mock secure keys
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: () => null,
+}));
+
+mock.module("../calls/voice-ingress-preflight.js", () => ({
+  preflightVoiceIngress: async () => ({
+    ok: true,
+    publicBaseUrl: "https://test.example.com",
+    ingressConfig: {
+      ingress: {
+        enabled: true,
+        publicBaseUrl: "https://test.example.com",
+      },
+    },
+  }),
 }));
 
 import {

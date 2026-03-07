@@ -76,13 +76,11 @@ public struct ToolCallProgressBar: View {
 
                     if toolCall.isError {
                         // Error icon
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
+                        VIconView(.x, size: 8)
                             .foregroundColor(.white)
                     } else {
                         // Checkmark
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 8, weight: .bold))
+                        VIconView(.check, size: 8)
                             .foregroundColor(.white)
                     }
                 } else {
@@ -145,8 +143,7 @@ public struct ToolCallProgressBar: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Header
             HStack {
-                Image(systemName: "terminal")
-                    .font(.system(size: 12))
+                VIconView(.terminal, size: 12)
                     .foregroundColor(toolCall.isError ? VColor.error : VColor.accent)
 
                 Text(toolCall.friendlyName)
@@ -160,8 +157,7 @@ public struct ToolCallProgressBar: View {
                         expandedStepId = nil
                     }
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
+                    VIconView(.x, size: 10)
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
@@ -215,8 +211,7 @@ public struct ToolCallProgressBar: View {
                     if let exitCode = ToolCallChip.parseExitCode(from: result) {
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
                             HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: 11))
+                                VIconView(.triangleAlert, size: 11)
                                     .foregroundColor(VColor.error)
                                 Text("Exit code \(exitCode)")
                                     .font(VFont.captionMedium)
@@ -239,8 +234,7 @@ public struct ToolCallProgressBar: View {
                         }
                     } else if result == "<command_completed />" {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "checkmark.circle")
-                                .font(.system(size: 11))
+                            VIconView(.circleCheck, size: 11)
                                 .foregroundColor(VColor.accent)
                             Text("Command completed successfully (no output).")
                                 .font(VFont.caption)

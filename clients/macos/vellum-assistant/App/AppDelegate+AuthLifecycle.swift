@@ -97,11 +97,9 @@ extension AppDelegate {
 
             mainWindow?.close()
             mainWindow = nil
-            conversationZoomEnabledCancellable = nil
             conversationBadgeCancellable?.cancel()
             conversationBadgeCancellable = nil
             NSApp.dockTile.badgeLabel = nil
-            isConversationZoomEnabled = false
 
             if let hotKeyMonitor {
                 NSEvent.removeMonitor(hotKeyMonitor)
@@ -177,8 +175,9 @@ extension AppDelegate {
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
 
-        // 3. Stop daemon processes and disconnect transport
-        assistantCli.stop()
+        // 3. Disconnect transport — leave the old daemon running so it stays
+        //    awake and can be switched back to without a cold start.
+        assistantCli.stopMonitoring()
         daemonClient.disconnect()
         // Close and recreate the main window to reset thread/session state
         mainWindow?.close()
@@ -289,11 +288,9 @@ extension AppDelegate {
 
         mainWindow?.close()
         mainWindow = nil
-        conversationZoomEnabledCancellable = nil
         conversationBadgeCancellable?.cancel()
         conversationBadgeCancellable = nil
         NSApp.dockTile.badgeLabel = nil
-        isConversationZoomEnabled = false
 
         if let hotKeyMonitor {
             NSEvent.removeMonitor(hotKeyMonitor)

@@ -1,279 +1,189 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// Mock the credential metadata store so the Telegram adapter can resolve
-// the bot username without touching the filesystem.
-let mockBotUsername: string | undefined = "test_invite_bot";
-mock.module("../tools/credentials/metadata-store.js", () => ({
-  getCredentialMetadata: (service: string, field: string) => {
-    if (service === "telegram" && field === "bot_token" && mockBotUsername) {
-      return { accountInfo: mockBotUsername };
-    }
-    return undefined;
-  },
-  upsertCredentialMetadata: () => {},
-  deleteCredentialMetadata: () => {},
-  listCredentialMetadata: () => [],
-}));
+/**
+ * Tests for channel invite adapter resolution and registry wiring.
+ *
+ * Verifies that `resolveAdapterHandle()` correctly prefers the async
+ * path when available and falls back to the sync path for adapters
+ * that only implement `resolveChannelHandle`. Also covers the
+ * canonical registry APIs (`createInviteAdapterRegistry`,
+ * `getInviteAdapterRegistry`) that replaced the deprecated shims.
+ */
+import { describe, expect, test } from "bun:test";
 
 import {
-  _resetRegistry,
-  type ChannelInviteTransport,
-  getTransport,
-  registerTransport,
+  type ChannelInviteAdapter,
+  createInviteAdapterRegistry,
+  getInviteAdapterRegistry,
+  InviteAdapterRegistry,
+  resolveAdapterHandle,
 } from "../runtime/channel-invite-transport.js";
-// Importing the Telegram module auto-registers the transport
-import { telegramInviteTransport } from "../runtime/channel-invite-transports/telegram.js";
 
-describe("channel-invite-transport", () => {
-  beforeEach(() => {
-    _resetRegistry();
-    mockBotUsername = "test_invite_bot";
-    // Re-register after reset so Telegram tests work
-    registerTransport(telegramInviteTransport);
+describe("resolveAdapterHandle", () => {
+  test("returns sync handle when only resolveChannelHandle is defined", async () => {
+    const adapter: ChannelInviteAdapter = {
+      channel: "telegram",
+      resolveChannelHandle: () => "@mybot",
+    };
+
+    const handle = await resolveAdapterHandle(adapter);
+    expect(handle).toBe("@mybot");
   });
 
-  // =========================================================================
-  // Registry
-  // =========================================================================
+  test("returns undefined when sync resolveChannelHandle returns undefined", async () => {
+    const adapter: ChannelInviteAdapter = {
+      channel: "email",
+      resolveChannelHandle: () => undefined,
+    };
 
-  describe("registry", () => {
-    test("returns the Telegram transport for telegram channel", () => {
-      const transport = getTransport("telegram");
-      expect(transport).toBeDefined();
-      expect(transport!.channel).toBe("telegram");
-    });
-
-    test("returns undefined for an unregistered channel", () => {
-      const transport = getTransport("sms");
-      expect(transport).toBeUndefined();
-    });
-
-    test("overwrites a previously registered transport for the same channel", () => {
-      const custom: ChannelInviteTransport = {
-        channel: "telegram",
-        buildShareableInvite: () => ({ url: "custom", displayText: "custom" }),
-        extractInboundToken: () => undefined,
-      };
-      registerTransport(custom);
-      const transport = getTransport("telegram");
-      expect(
-        transport!.buildShareableInvite({
-          rawToken: "x",
-          sourceChannel: "telegram",
-        }).url,
-      ).toBe("custom");
-    });
-
-    test("_resetRegistry clears all transports", () => {
-      _resetRegistry();
-      expect(getTransport("telegram")).toBeUndefined();
-    });
+    const handle = await resolveAdapterHandle(adapter);
+    expect(handle).toBeUndefined();
   });
 
-  // =========================================================================
-  // Telegram adapter — buildShareableInvite
-  // =========================================================================
+  test("returns undefined when adapter has no handle resolution methods", async () => {
+    const adapter: ChannelInviteAdapter = {
+      channel: "slack",
+    };
 
-  describe("telegram buildShareableInvite", () => {
-    test("produces a valid Telegram deep link", () => {
-      const result = telegramInviteTransport.buildShareableInvite!({
-        rawToken: "abc123_test-token",
-        sourceChannel: "telegram",
-      });
-
-      expect(result.url).toBe(
-        "https://t.me/test_invite_bot?start=iv_abc123_test-token",
-      );
-      expect(result.displayText).toContain(
-        "https://t.me/test_invite_bot?start=iv_abc123_test-token",
-      );
-    });
-
-    test("deep link is deterministic for the same token", () => {
-      const a = telegramInviteTransport.buildShareableInvite!({
-        rawToken: "tok1",
-        sourceChannel: "telegram",
-      });
-      const b = telegramInviteTransport.buildShareableInvite!({
-        rawToken: "tok1",
-        sourceChannel: "telegram",
-      });
-      expect(a.url).toBe(b.url);
-      expect(a.displayText).toBe(b.displayText);
-    });
-
-    test("uses the configured bot username", () => {
-      mockBotUsername = "my_custom_bot";
-      const result = telegramInviteTransport.buildShareableInvite!({
-        rawToken: "token",
-        sourceChannel: "telegram",
-      });
-      expect(result.url).toBe("https://t.me/my_custom_bot?start=iv_token");
-    });
-
-    test("throws when bot username is not configured", () => {
-      mockBotUsername = undefined;
-      // Also clear the env var to ensure no fallback
-      const prev = process.env.TELEGRAM_BOT_USERNAME;
-      delete process.env.TELEGRAM_BOT_USERNAME;
-      try {
-        expect(() =>
-          telegramInviteTransport.buildShareableInvite!({
-            rawToken: "token",
-            sourceChannel: "telegram",
-          }),
-        ).toThrow("bot username is not configured");
-      } finally {
-        if (prev !== undefined) process.env.TELEGRAM_BOT_USERNAME = prev;
-      }
-    });
-
-    test("falls back to TELEGRAM_BOT_USERNAME env var", () => {
-      mockBotUsername = undefined;
-      const prev = process.env.TELEGRAM_BOT_USERNAME;
-      process.env.TELEGRAM_BOT_USERNAME = "env_bot";
-      try {
-        const result = telegramInviteTransport.buildShareableInvite!({
-          rawToken: "token",
-          sourceChannel: "telegram",
-        });
-        expect(result.url).toBe("https://t.me/env_bot?start=iv_token");
-      } finally {
-        if (prev !== undefined) {
-          process.env.TELEGRAM_BOT_USERNAME = prev;
-        } else {
-          delete process.env.TELEGRAM_BOT_USERNAME;
-        }
-      }
-    });
+    const handle = await resolveAdapterHandle(adapter);
+    expect(handle).toBeUndefined();
   });
 
-  // =========================================================================
-  // Telegram adapter — extractInboundToken
-  // =========================================================================
+  test("returns async handle when only resolveChannelHandleAsync is defined", async () => {
+    const adapter: ChannelInviteAdapter = {
+      channel: "email",
+      resolveChannelHandleAsync: async () => "hello@assistant.agentmail.to",
+    };
 
-  describe("telegram extractInboundToken", () => {
-    test("extracts token from structured commandIntent", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        commandIntent: { type: "start", payload: "iv_abc123" },
-        content: "/start iv_abc123",
-      });
-      expect(token).toBe("abc123");
-    });
+    const handle = await resolveAdapterHandle(adapter);
+    expect(handle).toBe("hello@assistant.agentmail.to");
+  });
 
-    test("extracts base64url token from commandIntent", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        commandIntent: { type: "start", payload: "iv_YWJjMTIz-_test" },
-        content: "/start iv_YWJjMTIz-_test",
-      });
-      expect(token).toBe("YWJjMTIz-_test");
-    });
+  test("prefers async over sync when both are defined", async () => {
+    const adapter: ChannelInviteAdapter = {
+      channel: "email",
+      resolveChannelHandle: () => "sync-handle",
+      resolveChannelHandleAsync: async () => "async-handle",
+    };
 
-    test("returns undefined when commandIntent has no payload", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        commandIntent: { type: "start" },
-        content: "/start",
-      });
-      expect(token).toBeUndefined();
-    });
+    const handle = await resolveAdapterHandle(adapter);
+    expect(handle).toBe("async-handle");
+  });
 
-    test("returns undefined when commandIntent payload has wrong prefix (gv_)", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        commandIntent: { type: "start", payload: "gv_abc123" },
-        content: "/start gv_abc123",
-      });
-      expect(token).toBeUndefined();
-    });
+  test("returns undefined when async resolveChannelHandleAsync returns undefined", async () => {
+    const adapter: ChannelInviteAdapter = {
+      channel: "whatsapp",
+      resolveChannelHandleAsync: async () => undefined,
+    };
 
-    test("returns undefined when commandIntent payload has no prefix", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        commandIntent: { type: "start", payload: "abc123" },
-        content: "/start abc123",
-      });
-      expect(token).toBeUndefined();
-    });
+    const handle = await resolveAdapterHandle(adapter);
+    expect(handle).toBeUndefined();
+  });
 
-    test("returns undefined when commandIntent type is not start", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        commandIntent: { type: "help", payload: "iv_abc123" },
-        content: "/help iv_abc123",
-      });
-      expect(token).toBeUndefined();
-    });
+  test("returns undefined when async resolveChannelHandleAsync rejects", async () => {
+    const adapter: ChannelInviteAdapter = {
+      channel: "email",
+      resolveChannelHandleAsync: async () => {
+        throw new Error("transient API failure");
+      },
+    };
 
-    test("returns undefined when commandIntent payload is iv_ with empty token", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        commandIntent: { type: "start", payload: "iv_" },
-        content: "/start iv_",
-      });
-      expect(token).toBeUndefined();
-    });
+    const handle = await resolveAdapterHandle(adapter);
+    expect(handle).toBeUndefined();
+  });
 
-    test("returns undefined when commandIntent payload is iv_ with whitespace-only token", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        commandIntent: { type: "start", payload: "iv_   " },
-        content: "/start iv_   ",
-      });
-      expect(token).toBeUndefined();
-    });
+  test("returns undefined when sync resolveChannelHandle throws", async () => {
+    const adapter: ChannelInviteAdapter = {
+      channel: "telegram",
+      resolveChannelHandle: () => {
+        throw new Error("credential lookup failed");
+      },
+    };
 
-    test("extracts token from raw content fallback", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        content: "/start iv_abc123",
-      });
-      expect(token).toBe("abc123");
-    });
+    const handle = await resolveAdapterHandle(adapter);
+    expect(handle).toBeUndefined();
+  });
+});
 
-    test("extracts token from raw content with extra whitespace", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        content: "/start   iv_token123",
-      });
-      expect(token).toBe("token123");
-    });
+// ---------------------------------------------------------------------------
+// Registry APIs
+// ---------------------------------------------------------------------------
 
-    test("returns undefined for empty content", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        content: "",
-      });
-      expect(token).toBeUndefined();
-    });
+describe("createInviteAdapterRegistry", () => {
+  const builtInChannels = [
+    "email",
+    "slack",
+    "telegram",
+    "voice",
+    "whatsapp",
+  ] as const;
 
-    test("returns undefined for content without /start", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        content: "hello world",
-      });
-      expect(token).toBeUndefined();
-    });
+  test("returns a registry with all built-in adapters registered", () => {
+    const registry = createInviteAdapterRegistry();
 
-    test("returns undefined for /start without iv_ prefix in content", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        content: "/start gv_abc123",
-      });
-      expect(token).toBeUndefined();
-    });
+    for (const channel of builtInChannels) {
+      const adapter = registry.get(channel);
+      expect(adapter).toBeDefined();
+      expect(adapter!.channel).toBe(channel);
+    }
+  });
 
-    test("returns undefined for malformed /start with only iv_ in content", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        content: "/start iv_",
-      });
-      expect(token).toBeUndefined();
-    });
+  test("getAll returns exactly the built-in adapters", () => {
+    const registry = createInviteAdapterRegistry();
+    const all = registry.getAll();
 
-    test("prefers commandIntent over raw content", () => {
-      const token = telegramInviteTransport.extractInboundToken({
-        commandIntent: { type: "start", payload: "iv_from_intent" },
-        content: "/start iv_from_content",
-      });
-      expect(token).toBe("from_intent");
-    });
+    expect(all).toHaveLength(builtInChannels.length);
+    const channels = new Set(all.map((a) => a.channel));
+    for (const ch of builtInChannels) {
+      expect(channels.has(ch)).toBe(true);
+    }
+  });
 
-    test("returns undefined when commandIntent rejects, even if content has token", () => {
-      // commandIntent present but payload has wrong prefix
-      const token = telegramInviteTransport.extractInboundToken({
-        commandIntent: { type: "start", payload: "gv_abc123" },
-        content: "/start iv_valid_token",
-      });
-      expect(token).toBeUndefined();
-    });
+  test("returns a new registry instance on each call", () => {
+    const a = createInviteAdapterRegistry();
+    const b = createInviteAdapterRegistry();
+    expect(a).not.toBe(b);
+  });
+});
+
+describe("getInviteAdapterRegistry", () => {
+  test("returns the singleton registry", () => {
+    const registry = getInviteAdapterRegistry();
+    expect(registry).toBeInstanceOf(InviteAdapterRegistry);
+  });
+
+  test("returns the same instance on repeated calls", () => {
+    const first = getInviteAdapterRegistry();
+    const second = getInviteAdapterRegistry();
+    expect(first).toBe(second);
+  });
+});
+
+describe("InviteAdapterRegistry register / get", () => {
+  test("register stores and get retrieves a custom adapter", () => {
+    const registry = new InviteAdapterRegistry();
+    const custom: ChannelInviteAdapter = {
+      channel: "telegram",
+      resolveChannelHandle: () => "@custom",
+    };
+
+    registry.register(custom);
+    expect(registry.get("telegram")).toBe(custom);
+  });
+
+  test("register overwrites a previously registered adapter", () => {
+    const registry = new InviteAdapterRegistry();
+    const first: ChannelInviteAdapter = { channel: "email" };
+    const second: ChannelInviteAdapter = {
+      channel: "email",
+      resolveChannelHandle: () => "new@example.com",
+    };
+
+    registry.register(first);
+    registry.register(second);
+    expect(registry.get("email")).toBe(second);
+  });
+
+  test("get returns undefined for an unregistered channel", () => {
+    const registry = new InviteAdapterRegistry();
+    expect(registry.get("slack")).toBeUndefined();
   });
 });

@@ -31,8 +31,7 @@ struct RemindersView: View {
             } else if let errorMessage {
                 Spacer()
                 VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
+                    VIconView(.triangleAlert, size: 32)
                         .foregroundStyle(.secondary)
                     Text("Failed to load reminders")
                         .foregroundStyle(.secondary)
@@ -47,8 +46,7 @@ struct RemindersView: View {
             } else if reminders.isEmpty {
                 Spacer()
                 VStack(spacing: 8) {
-                    Image(systemName: "bell.badge")
-                        .font(.largeTitle)
+                    VIconView(.bellDot, size: 32)
                         .foregroundStyle(.secondary)
                     Text("No reminders")
                         .foregroundStyle(.secondary)
@@ -190,7 +188,7 @@ private struct ReminderRow: View {
                 Button {
                     onCancel()
                 } label: {
-                    Image(systemName: "xmark.circle")
+                    VIconView(.circleX, size: 14)
                         .foregroundStyle(.red)
                 }
                 .buttonStyle(.borderless)

@@ -63,7 +63,7 @@ mock.module("../config/loader.js", () => ({
 
     provider: "mock-provider",
     timeouts: { permissionTimeoutSec: 5, toolExecutionTimeoutSec: 120 },
-    permissions: { mode: "legacy" },
+    permissions: { mode: "workspace" },
     skills: { load: { extraDirs: [] } },
     secretDetection: { enabled: true, entropyThreshold: 4.0, action: "warn" },
     sandbox: { enabled: false },

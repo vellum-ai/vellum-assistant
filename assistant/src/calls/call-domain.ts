@@ -14,14 +14,16 @@ import {
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
 } from "../inbound/public-ingress-urls.js";
+import { getConversation } from "../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { queueGenerateConversationTitle } from "../memory/conversation-title-service.js";
 import { upsertBinding } from "../memory/external-conversation-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { isGuardian } from "../runtime/channel-guardian-service.js";
+import { isGuardian } from "../runtime/channel-verification-service.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { upsertActiveCallLease } from "./active-call-lease.js";
 import { isDeniedNumber } from "./call-constants.js";
 import { addPointerMessage } from "./call-pointer-messages.js";
 import { getCallController, unregisterCallController } from "./call-state.js";
@@ -40,10 +42,26 @@ import { activeRelayConnections } from "./relay-server.js";
 import { getTwilioConfig } from "./twilio-config.js";
 import { TwilioConversationRelayProvider } from "./twilio-provider.js";
 import type { CallSession } from "./types.js";
+import { preflightVoiceIngress } from "./voice-ingress-preflight.js";
 
 const log = getLogger("call-domain");
 
 const E164_REGEX = /^\+\d+$/;
+
+function postFailedCallPointer(
+  conversationId: string,
+  phoneNumber: string,
+  reason: string,
+): void {
+  addPointerMessage(conversationId, "failed", phoneNumber, {
+    reason,
+  }).catch((pointerErr) => {
+    log.warn(
+      { conversationId, err: pointerErr },
+      "Failed to post call-failed pointer message",
+    );
+  });
+}
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -123,7 +141,6 @@ export type CallerIdentityResult =
 export async function resolveCallerIdentity(
   config: AssistantConfig,
   requestedMode?: "assistant_number" | "user_number",
-  assistantId?: string,
 ): Promise<CallerIdentityResult> {
   const identityConfig = config.calls.callerIdentity;
   let mode: "assistant_number" | "user_number";
@@ -161,7 +178,7 @@ export async function resolveCallerIdentity(
   }
 
   if (mode === "assistant_number") {
-    const twilioConfig = getTwilioConfig(assistantId);
+    const twilioConfig = getTwilioConfig();
     log.info(
       { mode, source, fromNumber: twilioConfig.phoneNumber },
       "Resolved caller identity",
@@ -290,7 +307,6 @@ export function createInboundVoiceSession(
     provider: "twilio",
     fromNumber,
     toNumber,
-    assistantId,
   });
 
   updateCallSession(session.id, { providerCallSid: callSid });
@@ -389,19 +405,34 @@ export async function startCall(
   let sessionId: string | null = null;
 
   try {
-    const ingressConfig = loadConfig();
-    const provider = new TwilioConversationRelayProvider();
+    const config = loadConfig();
 
     // Resolve which phone number to use as caller ID
     const identityResult = await resolveCallerIdentity(
-      ingressConfig,
+      config,
       callerIdentityMode,
-      assistantId,
     );
     if (!identityResult.ok) {
       return { ok: false, error: identityResult.error, status: 400 };
     }
     const fromNumber = identityResult.fromNumber;
+
+    if (!getConversation(conversationId)) {
+      return {
+        ok: false,
+        error: `Invalid conversationId: no conversation found with ID ${conversationId}`,
+        status: 400,
+      };
+    }
+
+    const preflightResult = await preflightVoiceIngress();
+    if (!preflightResult.ok) {
+      postFailedCallPointer(conversationId, phoneNumber, preflightResult.error);
+      return preflightResult;
+    }
+
+    const ingressConfig = preflightResult.ingressConfig;
+    const provider = new TwilioConversationRelayProvider();
 
     const session = createCallSession({
       conversationId,
@@ -411,7 +442,6 @@ export async function startCall(
       task: callContext ? `${task}\n\nContext: ${callContext}` : task,
       callerIdentityMode: identityResult.mode,
       callerIdentitySource: identityResult.source,
-      assistantId,
       initiatedFromConversationId: conversationId,
     });
     sessionId = session.id;
@@ -482,6 +512,8 @@ export async function startCall(
       "twilio_status",
     );
 
+    upsertActiveCallLease({ callSessionId: session.id });
+
     const { callSid } = await provider.initiateCall({
       from: fromNumber,
       to: phoneNumber,
@@ -535,15 +567,7 @@ export async function startCall(
       });
     }
 
-    // Post a failure pointer message in the initiating conversation
-    addPointerMessage(conversationId, "failed", phoneNumber, {
-      reason: msg,
-    }).catch((pointerErr) => {
-      log.warn(
-        { conversationId, err: pointerErr },
-        "Failed to post call-failed pointer message",
-      );
-    });
+    postFailedCallPointer(conversationId, phoneNumber, msg);
 
     return { ok: false, error: `Error initiating call: ${msg}`, status: 500 };
   }
@@ -861,17 +885,17 @@ export async function relayInstruction(
   return { ok: true };
 }
 
-// ── Guardian verification call ───────────────────────────────────────
+// ── Verification call ─────────────────────────────────────────────────
 
-export type StartGuardianVerificationCallInput = {
+export type StartVerificationCallInput = {
   phoneNumber: string;
-  guardianVerificationSessionId: string;
+  verificationSessionId: string;
   assistantId?: string;
   /** Origin conversation ID so completion/failure pointers can route back. */
   originConversationId?: string;
 };
 
-export type StartGuardianVerificationCallResult =
+export type StartVerificationCallResult =
   | { ok: true; callSessionId: string; callSid: string }
   | CallError;
 
@@ -879,18 +903,13 @@ export type StartGuardianVerificationCallResult =
  * Initiate an outbound call to the guardian's phone for verification.
  *
  * Creates a minimal call session with a voice channel binding and
- * passes `guardianVerificationSessionId` as a custom parameter so the
+ * passes `verificationSessionId` as a custom parameter so the
  * relay server can detect this is a guardian verification call.
  */
-export async function startGuardianVerificationCall(
-  input: StartGuardianVerificationCallInput,
-): Promise<StartGuardianVerificationCallResult> {
-  const {
-    phoneNumber,
-    guardianVerificationSessionId,
-    assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
-    originConversationId,
-  } = input;
+export async function startVerificationCall(
+  input: StartVerificationCallInput,
+): Promise<StartVerificationCallResult> {
+  const { phoneNumber, verificationSessionId, originConversationId } = input;
 
   if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {
     return {
@@ -907,25 +926,27 @@ export async function startGuardianVerificationCall(
     const provider = new TwilioConversationRelayProvider();
 
     // Resolve the assistant's Twilio number as the caller ID
-    const identityResult = await resolveCallerIdentity(
-      config,
-      undefined,
-      assistantId,
-    );
+    const identityResult = await resolveCallerIdentity(config);
     if (!identityResult.ok) {
       return { ok: false, error: identityResult.error, status: 400 };
     }
 
+    const preflightResult = await preflightVoiceIngress();
+    if (!preflightResult.ok) {
+      return preflightResult;
+    }
+    const ingressConfig = preflightResult.ingressConfig;
+
     // Create a minimal conversation so the call session has a valid FK,
     // and bind it to the voice channel so it never appears as an unbound
     // desktop thread.
-    const convKey = `guardian-verify:${guardianVerificationSessionId}`;
+    const convKey = `guardian-verify:${verificationSessionId}`;
     const { conversationId } = getOrCreateConversation(convKey);
 
     upsertBinding({
       conversationId,
       sourceChannel: "voice",
-      externalChatId: `guardian-verify:${guardianVerificationSessionId}`,
+      externalChatId: `guardian-verify:${verificationSessionId}`,
     });
 
     const session = createCallSession({
@@ -933,24 +954,25 @@ export async function startGuardianVerificationCall(
       provider: "twilio",
       fromNumber: identityResult.fromNumber,
       toNumber: phoneNumber,
-      callMode: "guardian_verification",
-      guardianVerificationSessionId,
-      assistantId,
+      callMode: "verification",
+      verificationSessionId,
       initiatedFromConversationId: originConversationId,
     });
     sessionId = session.id;
 
     const webhookUrl = await resolveCallbackUrl(
-      () => getTwilioVoiceWebhookUrl(config, session.id),
+      () => getTwilioVoiceWebhookUrl(ingressConfig, session.id),
       "webhooks/twilio/voice",
       "twilio_voice",
       { callSessionId: session.id },
     );
     const statusCallbackUrl = await resolveCallbackUrl(
-      () => getTwilioStatusCallbackUrl(config),
+      () => getTwilioStatusCallbackUrl(ingressConfig),
       "webhooks/twilio/status",
       "twilio_status",
     );
+
+    upsertActiveCallLease({ callSessionId: session.id });
 
     const { callSid } = await provider.initiateCall({
       from: identityResult.fromNumber,
@@ -958,7 +980,7 @@ export async function startGuardianVerificationCall(
       webhookUrl,
       statusCallbackUrl,
       customParams: {
-        guardianVerificationSessionId,
+        verificationSessionId,
       },
     });
 
@@ -968,7 +990,7 @@ export async function startGuardianVerificationCall(
       {
         callSessionId: session.id,
         callSid,
-        guardianVerificationSessionId,
+        verificationSessionId,
         to: phoneNumber,
       },
       "Guardian verification call initiated",
@@ -978,7 +1000,7 @@ export async function startGuardianVerificationCall(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error(
-      { err, phoneNumber, guardianVerificationSessionId },
+      { err, phoneNumber, verificationSessionId },
       "Failed to initiate guardian verification call",
     );
 

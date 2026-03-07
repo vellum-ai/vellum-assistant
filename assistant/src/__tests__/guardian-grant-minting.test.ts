@@ -48,11 +48,11 @@ mock.module("../util/logger.js", () => ({
 import { GRANT_TTL_MS } from "../approvals/guardian-decision-primitive.js";
 import type { Session } from "../daemon/session.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   createApprovalRequest,
   type GuardianApprovalRequest,
-} from "../memory/channel-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+} from "../memory/guardian-approvals.js";
 import * as approvalMessageComposer from "../runtime/approval-message-composer.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -104,7 +104,6 @@ function createTestGuardianApproval(
     runId: `run-${requestId}`,
     requestId,
     conversationId: CONVERSATION_ID,
-    assistantId: ASSISTANT_ID,
     channel: "telegram",
     requesterExternalUserId: REQUESTER_USER,
     requesterChatId: REQUESTER_CHAT,
@@ -149,7 +148,6 @@ function makeTrustContext(): TrustContext {
   return {
     sourceChannel: "telegram",
     trustClass: "guardian",
-    denialReason: undefined,
   };
 }
 
@@ -506,46 +504,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
     composeSpy.mockRestore();
   });
 
-  // ── 8. approve_once via legacy parser mints a grant ──
-
-  test("approve_once via legacy parser mints a scoped grant", async () => {
-    const requestId = "req-grant-leg-1";
-    createTestGuardianApproval(requestId);
-    registerPendingInteraction(
-      requestId,
-      CONVERSATION_ID,
-      TOOL_NAME,
-      TOOL_INPUT,
-    );
-
-    // No approvalConversationGenerator => legacy parser path
-    const result = await handleApprovalInterception({
-      conversationId: "guardian-conv-8",
-      content: "yes",
-      conversationExternalId: GUARDIAN_CHAT,
-      sourceChannel: "telegram",
-      actorExternalId: GUARDIAN_USER,
-      replyCallbackUrl: "https://gateway.test/deliver",
-      trustCtx: makeTrustContext(),
-      assistantId: ASSISTANT_ID,
-    });
-
-    expect(result.handled).toBe(true);
-    expect(result.type).toBe("guardian_decision_applied");
-
-    // Verify a grant was minted
-    expect(countGrants()).toBe(1);
-
-    const grant = getLatestGrant();
-    expect(grant).not.toBeNull();
-    expect(grant!.scope_mode).toBe("tool_signature");
-    expect(grant!.tool_name).toBe(TOOL_NAME);
-
-    deliverSpy.mockRestore();
-    composeSpy.mockRestore();
-  });
-
-  // ── 9. Grant TTL is approximately 5 minutes ──
+  // ── 8. Grant TTL is approximately 5 minutes ──
 
   test("minted grant has approximately 5-minute TTL", async () => {
     const requestId = "req-grant-ttl-1";
@@ -622,6 +581,8 @@ describe("approval interception trust-class regression coverage", () => {
       trustCtx: {
         sourceChannel: "telegram",
         trustClass: "unknown",
+        requesterExternalUserId: "intruder-user-1",
+        guardianExternalUserId: "guardian-1",
       },
       assistantId: ASSISTANT_ID,
     });
@@ -654,7 +615,6 @@ describe("approval interception trust-class regression coverage", () => {
       trustCtx: {
         sourceChannel: "telegram",
         trustClass: "unknown",
-        denialReason: "no_identity",
       },
       assistantId: ASSISTANT_ID,
     });

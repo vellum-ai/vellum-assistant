@@ -47,11 +47,12 @@ export function handleListInvites(url: URL): Response {
 export async function handleCreateInvite(req: Request): Promise<Response> {
   const body = (await req.json()) as Record<string, unknown>;
 
-  const result = createIngressInvite({
+  const result = await createIngressInvite({
     sourceChannel: body.sourceChannel as string | undefined,
     note: body.note as string | undefined,
     maxUses: body.maxUses as number | undefined,
     expiresInMs: body.expiresInMs as number | undefined,
+    contactName: body.contactName as string | undefined,
     expectedExternalUserId: body.expectedExternalUserId as string | undefined,
     voiceCodeDigits: body.voiceCodeDigits as number | undefined,
     friendName: body.friendName as string | undefined,

@@ -29,13 +29,24 @@ struct ConversationsListResponse: Decodable {
         let updatedAt: Int
         let threadType: String?
         let source: String?
+        let scheduleJobId: String?
         let channelBinding: IPCChannelBinding?
         let conversationOriginChannel: String?
         let conversationOriginInterface: String?
         let assistantAttention: IPCAssistantAttention?
+        let displayOrder: Double?
+        let isPinned: Bool?
     }
     let sessions: [Session]
     let hasMore: Bool?
+}
+
+private struct HTTPErrorEnvelope: Decodable {
+    struct ErrorBody: Decodable {
+        let message: String
+    }
+
+    let error: ErrorBody
 }
 
 // MARK: - HTTP Transport
@@ -161,6 +172,7 @@ public final class HTTPTransport {
         case guardianActionsPending(conversationId: String)
         case guardianActionsDecision
         case conversationsSeen
+        case conversationsUnread
         case identity
         case featureFlags
         case featureFlagUpdate(key: String)
@@ -170,10 +182,15 @@ public final class HTTPTransport {
         case pendingInteractions(conversationKey: String?)
         case contactsList(limit: Int, role: String?)
         case contactsGet(id: String)
-        case contactsChannelUpdate(channelId: String)
-        case contactsChannelVerify(contactId: String, channelId: String)
+        case contactsDelete(id: String)
+        case contactChannelUpdate(contactChannelId: String)
         case contactsUpsert
         case contactsInvitesCreate
+        case channelsReadiness
+        case surfaceContent(surfaceId: String, sessionId: String)
+        case usageTotals(from: Int, to: Int)
+        case usageDaily(from: Int, to: Int)
+        case usageBreakdown(from: Int, to: Int, groupBy: String)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -229,6 +246,8 @@ public final class HTTPTransport {
             return ("/v1/guardian-actions/decision", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
+        case .conversationsUnread:
+            return ("/v1/conversations/unread", nil)
         case .identity:
             return ("/v1/identity", nil)
         case .featureFlags:
@@ -259,17 +278,29 @@ public final class HTTPTransport {
         case .contactsGet(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/contacts/\(encoded)", nil)
-        case .contactsChannelUpdate(let channelId):
-            let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-            return ("/v1/contacts/channels/\(encoded)", nil)
-        case .contactsChannelVerify(let contactId, let channelId):
-            let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
-            let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-            return ("/v1/contacts/\(cEncoded)/channels/\(chEncoded)/verify", nil)
+        case .contactsDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/contacts/\(encoded)", nil)
+        case .contactChannelUpdate(let contactChannelId):
+            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+            return ("/v1/contact-channels/\(encoded)", nil)
         case .contactsUpsert:
             return ("/v1/contacts", nil)
         case .contactsInvitesCreate:
             return ("/v1/contacts/invites", nil)
+        case .channelsReadiness:
+            return ("/v1/channels/readiness", nil)
+        case .surfaceContent(let surfaceId, let sessionId):
+            let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
+            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            return ("/v1/surfaces/\(sEncoded)", "sessionId=\(qEncoded)")
+        case .usageTotals(let from, let to):
+            return ("/v1/usage/totals", "from=\(from)&to=\(to)")
+        case .usageDaily(let from, let to):
+            return ("/v1/usage/daily", "from=\(from)&to=\(to)")
+        case .usageBreakdown(let from, let to, let groupBy):
+            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
+            return ("/v1/usage/breakdown", "from=\(from)&to=\(to)&groupBy=\(encoded)")
         }
     }
 
@@ -306,6 +337,8 @@ public final class HTTPTransport {
             return ("\(prefix)/guardian-actions/decision/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
+        case .conversationsUnread:
+            return ("\(prefix)/conversations/unread/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
         case .featureFlags:
@@ -336,17 +369,29 @@ public final class HTTPTransport {
         case .contactsGet(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/contacts/\(encoded)/", nil)
-        case .contactsChannelUpdate(let channelId):
-            let encoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-            return ("\(prefix)/contacts/channels/\(encoded)/", nil)
-        case .contactsChannelVerify(let contactId, let channelId):
-            let cEncoded = contactId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactId
-            let chEncoded = channelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? channelId
-            return ("\(prefix)/contacts/\(cEncoded)/channels/\(chEncoded)/verify/", nil)
+        case .contactsDelete(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/contacts/\(encoded)/", nil)
+        case .contactChannelUpdate(let contactChannelId):
+            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
+            return ("\(prefix)/contact-channels/\(encoded)/", nil)
         case .contactsUpsert:
             return ("\(prefix)/contacts/", nil)
         case .contactsInvitesCreate:
             return ("\(prefix)/contacts/invites/", nil)
+        case .channelsReadiness:
+            return ("\(prefix)/channels/readiness/", nil)
+        case .surfaceContent(let surfaceId, let sessionId):
+            let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
+            let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            return ("\(prefix)/surfaces/\(sEncoded)/", "sessionId=\(qEncoded)")
+        case .usageTotals(let from, let to):
+            return ("\(prefix)/usage/totals/", "from=\(from)&to=\(to)")
+        case .usageDaily(let from, let to):
+            return ("\(prefix)/usage/daily/", "from=\(from)&to=\(to)")
+        case .usageBreakdown(let from, let to, let groupBy):
+            let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
+            return ("\(prefix)/usage/breakdown/", "from=\(from)&to=\(to)&groupBy=\(encoded)")
         }
     }
 
@@ -614,6 +659,14 @@ public final class HTTPTransport {
             Task { await self.fetchHistory(sessionId: msg.sessionId) }
         } else if let msg = message as? IPCConversationSeenSignal {
             Task { await self.sendConversationSeen(msg) }
+        } else if let msg = message as? IPCConversationUnreadSignal {
+            Task {
+                do {
+                    try await self.sendConversationUnread(msg)
+                } catch {
+                    log.error("Conversation unread signal error: \(error.localizedDescription)")
+                }
+            }
         } else if let msg = message as? GuardianActionsPendingRequestMessage {
             Task { await self.fetchGuardianActionsPending(conversationId: msg.conversationId) }
         } else if let msg = message as? GuardianActionDecisionMessage {
@@ -904,6 +957,16 @@ public final class HTTPTransport {
         let prompts: [GuardianDecisionPromptWire]
     }
 
+    /// JSONSerialization cannot encode AnyCodable wrappers directly, so unwrap
+    /// them before inserting arbitrary payloads into request bodies.
+    private func jsonCompatibleDictionary(_ values: [String: AnyCodable]) -> [String: Any] {
+        var jsonCompatible: [String: Any] = [:]
+        for (key, value) in values {
+            jsonCompatible[key] = value.value
+        }
+        return jsonCompatible
+    }
+
     private func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsSeen) else { return }
 
@@ -926,7 +989,7 @@ public final class HTTPTransport {
             body["observedAt"] = observedAt
         }
         if let metadata = signal.metadata {
-            body["metadata"] = metadata
+            body["metadata"] = jsonCompatibleDictionary(metadata)
         }
 
         do {
@@ -948,6 +1011,79 @@ public final class HTTPTransport {
         }
     }
 
+    func sendConversationUnread(_ signal: IPCConversationUnreadSignal, isRetry: Bool = false) async throws {
+        guard let url = buildURL(for: .conversationsUnread) else {
+            throw HTTPTransportError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "conversationId": signal.conversationId,
+            "sourceChannel": signal.sourceChannel,
+            "signalType": signal.signalType,
+            "confidence": signal.confidence,
+            "source": signal.source
+        ]
+        if let evidenceText = signal.evidenceText {
+            body["evidenceText"] = evidenceText
+        }
+        if let observedAt = signal.observedAt {
+            body["observedAt"] = observedAt
+        }
+        if let metadata = signal.metadata {
+            body["metadata"] = jsonCompatibleDictionary(metadata)
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else {
+                throw HTTPTransportError.healthCheckFailed
+            }
+
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                switch refreshResult {
+                case .success:
+                    try await sendConversationUnread(signal, isRetry: true)
+                    return
+                case .transientFailure:
+                    throw HTTPTransportError.authenticationFailed(
+                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication refresh failed"
+                    )
+                case .terminalFailure:
+                    throw HTTPTransportError.authenticationFailed(
+                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication failed"
+                    )
+                }
+            }
+
+            guard http.statusCode == 200 else {
+                throw HTTPTransportError.requestFailed(
+                    statusCode: http.statusCode,
+                    message: decodeHTTPErrorMessage(from: data)
+                )
+            }
+        } catch {
+            throw error
+        }
+    }
+
+    private func decodeHTTPErrorMessage(from data: Data) -> String? {
+        if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
+            return envelope.error.message
+        }
+        guard let body = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !body.isEmpty else { return nil }
+        return body
+    }
+
     // MARK: - Contacts
 
     /// Route a `ContactsRequestMessage` to the appropriate HTTP endpoint based on its action.
@@ -967,6 +1103,12 @@ public final class HTTPTransport {
                 return
             }
             await updateContactChannel(channelId: channelId, status: msg.status, policy: msg.policy, reason: msg.reason)
+        case "delete":
+            guard let contactId = msg.contactId else {
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "contactId is required for delete")))
+                return
+            }
+            await deleteContact(contactId: contactId)
         default:
             onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Unknown action: \(msg.action)")))
         }
@@ -1046,8 +1188,47 @@ public final class HTTPTransport {
         }
     }
 
+    private func deleteContact(contactId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .contactsDelete(id: contactId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        await deleteContact(contactId: contactId, isRetry: true)
+                    }
+                    return
+                }
+                if http.statusCode == 204 {
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: true)))
+                    return
+                }
+                if http.statusCode == 404 {
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Contact not found")))
+                    return
+                }
+                if http.statusCode == 403 {
+                    onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "Permission denied")))
+                    return
+                }
+                log.error("HTTPTransport: delete contact failed (\(http.statusCode))")
+                onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: "HTTP \(http.statusCode)")))
+            }
+        } catch {
+            log.error("HTTPTransport: delete contact error: \(error.localizedDescription)")
+            onMessage?(.contactsResponse(ContactsResponseMessage(type: "contacts_response", success: false, error: error.localizedDescription)))
+        }
+    }
+
     private func updateContactChannel(channelId: String, status: String?, policy: String?, reason: String?, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .contactsChannelUpdate(channelId: channelId)) else { return }
+        guard let url = buildURL(for: .contactChannelUpdate(contactChannelId: channelId)) else { return }
 
         var request = URLRequest(url: url)
         request.httpMethod = "PATCH"
@@ -1097,7 +1278,7 @@ public final class HTTPTransport {
         let contacts: [ContactPayload]
     }
 
-    /// Response wrapper for `GET /v1/contacts/:id` and `PATCH /v1/contacts/channels/:id`.
+    /// Response wrapper for `GET /v1/contacts/:id` and `PATCH /v1/contact-channels/:contactChannelId`.
     private struct HTTPContactResponse: Decodable {
         let ok: Bool
         let contact: ContactPayload?
@@ -1119,10 +1300,32 @@ public final class HTTPTransport {
             let token: String?
             let share: SharePayload?
             let status: String
+            let inviteCode: String?
+            let guardianInstruction: String?
+            let channelHandle: String?
         }
         struct SharePayload: Decodable {
             let url: String
             let displayText: String
+        }
+    }
+
+    /// Response wrapper for `GET /v1/channels/readiness`.
+    private struct HTTPChannelReadinessResponse: Decodable {
+        let success: Bool
+        let snapshots: [ChannelReadinessSnapshot]
+
+        struct ChannelReadinessSnapshot: Decodable {
+            let channel: String
+            let ready: Bool
+            let channelHandle: String?
+            let localChecks: [CheckResult]?
+            let remoteChecks: [CheckResult]?
+        }
+        struct CheckResult: Decodable {
+            let name: String
+            let passed: Bool
+            let message: String
         }
     }
 
@@ -1215,8 +1418,9 @@ public final class HTTPTransport {
         sourceChannel: String,
         note: String? = nil,
         maxUses: Int? = nil,
+        contactName: String? = nil,
         isRetry: Bool = false
-    ) async throws -> (inviteId: String, token: String, shareUrl: String?)? {
+    ) async throws -> (inviteId: String, token: String, shareUrl: String?, inviteCode: String?, guardianInstruction: String?, channelHandle: String?)? {
         guard let url = buildURL(for: .contactsInvitesCreate) else { return nil }
 
         var request = URLRequest(url: url)
@@ -1227,6 +1431,7 @@ public final class HTTPTransport {
         var body: [String: Any] = ["sourceChannel": sourceChannel]
         if let note { body["note"] = note }
         if let maxUses { body["maxUses"] = maxUses }
+        if let contactName { body["contactName"] = contactName }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -1235,7 +1440,7 @@ public final class HTTPTransport {
             if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, isRetry: true)
+                    return try await createInvite(sourceChannel: sourceChannel, note: note, maxUses: maxUses, contactName: contactName, isRetry: true)
                 }
                 return nil
             }
@@ -1244,30 +1449,43 @@ public final class HTTPTransport {
 
         let decoded = try decoder.decode(HTTPCreateInviteResponse.self, from: data)
         guard let invite = decoded.invite, let token = invite.token else { return nil }
-        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url)
+        return (inviteId: invite.id, token: token, shareUrl: invite.share?.url, inviteCode: invite.inviteCode, guardianInstruction: invite.guardianInstruction, channelHandle: invite.channelHandle)
     }
 
-    // MARK: - Channel Verification
+    // MARK: - Channel Readiness
 
-    /// Send a verification code to a contact's channel via the gateway.
-    func verifyContactChannel(contactId: String, channelId: String, isRetry: Bool = false) async throws -> DaemonClient.ChannelVerificationResult? {
-        guard let url = buildURL(for: .contactsChannelVerify(contactId: contactId, channelId: channelId)) else { return nil }
+    /// Fetch per-channel readiness from `GET /v1/channels/readiness`.
+    /// Returns a dictionary mapping channel type strings to their readiness state.
+    func fetchChannelReadiness(isRetry: Bool = false) async throws -> [String: DaemonClient.ChannelReadinessInfo] {
+        guard let url = buildURL(for: .channelsReadiness) else { return [:] }
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpMethod = "GET"
         applyAuth(&request)
+
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 && !isRetry {
                 let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
                 if case .success = refreshResult {
-                    return try await verifyContactChannel(contactId: contactId, channelId: channelId, isRetry: true)
+                    return try await fetchChannelReadiness(isRetry: true)
                 }
-                return nil
+                return [:]
             }
-            guard (200...299).contains(http.statusCode) else { return nil }
+            guard (200...299).contains(http.statusCode) else { return [:] }
         }
-        return try JSONDecoder().decode(DaemonClient.ChannelVerificationResult.self, from: data)
+
+        let decoded = try decoder.decode(HTTPChannelReadinessResponse.self, from: data)
+        var result: [String: DaemonClient.ChannelReadinessInfo] = [:]
+        for snapshot in decoded.snapshots {
+            let checks = ((snapshot.localChecks ?? []) + (snapshot.remoteChecks ?? []))
+                .map { DaemonClient.ReadinessCheck(name: $0.name, passed: $0.passed, message: $0.message) }
+            result[snapshot.channel] = DaemonClient.ChannelReadinessInfo(
+                ready: snapshot.ready,
+                channelHandle: snapshot.channelHandle,
+                checks: checks
+            )
+        }
+        return result
     }
 
     // MARK: - Surface Actions
@@ -1286,12 +1504,7 @@ public final class HTTPTransport {
             "actionId": action.actionId,
         ]
         if let data = action.data {
-            // Convert [String: AnyCodable] to [String: Any] for JSONSerialization
-            var dataDict: [String: Any] = [:]
-            for (key, value) in data {
-                dataDict[key] = value.value
-            }
-            body["data"] = dataDict
+            body["data"] = jsonCompatibleDictionary(data)
         }
 
         do {
@@ -1310,6 +1523,47 @@ public final class HTTPTransport {
             }
         } catch {
             log.error("HTTPTransport: surface action error: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Surface Content Fetch
+
+    /// Fetch the full surface payload from the daemon for a stripped surface.
+    /// Returns the parsed `SurfaceData` on success, or `nil` if the surface
+    /// was not found or the response could not be parsed.
+    func fetchSurfaceData(surfaceId: String, sessionId: String, isRetry: Bool = false) async -> SurfaceData? {
+        guard let url = buildURL(for: .surfaceContent(surfaceId: surfaceId, sessionId: sessionId)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else {
+                    log.error("HTTPTransport: surface content fetch failed (\(http.statusCode))")
+                    return nil
+                }
+            }
+
+            guard let surfaceData = Surface.parseSurfaceDataFromResponse(data) else {
+                log.error("HTTPTransport: surface content response could not be parsed")
+                return nil
+            }
+
+            return surfaceData
+        } catch {
+            log.error("HTTPTransport: surface content fetch error: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -1484,7 +1738,7 @@ public final class HTTPTransport {
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
-                    IPCSessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention)
+                    IPCSessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {
@@ -1703,6 +1957,89 @@ public final class HTTPTransport {
         }
     }
 
+    // MARK: - Usage Reporting
+
+    /// Fetch aggregate usage totals from `GET /v1/usage/totals`.
+    func fetchUsageTotals(from: Int, to: Int, isRetry: Bool = false) async -> UsageTotalsResponse? {
+        guard let url = buildURL(for: .usageTotals(from: from, to: to)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchUsageTotals(from: from, to: to, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(UsageTotalsResponse.self, from: data)
+        } catch {
+            log.error("fetchUsageTotals failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Fetch per-day usage buckets from `GET /v1/usage/daily`.
+    func fetchUsageDaily(from: Int, to: Int, isRetry: Bool = false) async -> UsageDailyResponse? {
+        guard let url = buildURL(for: .usageDaily(from: from, to: to)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchUsageDaily(from: from, to: to, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(UsageDailyResponse.self, from: data)
+        } catch {
+            log.error("fetchUsageDaily failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Fetch grouped usage breakdown from `GET /v1/usage/breakdown`.
+    func fetchUsageBreakdown(from: Int, to: Int, groupBy: String, isRetry: Bool = false) async -> UsageBreakdownResponse? {
+        guard let url = buildURL(for: .usageBreakdown(from: from, to: to, groupBy: groupBy)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchUsageBreakdown(from: from, to: to, groupBy: groupBy, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(UsageBreakdownResponse.self, from: data)
+        } catch {
+            log.error("fetchUsageBreakdown failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     // MARK: - Disconnect
 
     func disconnect() {
@@ -1801,16 +2138,10 @@ public final class HTTPTransport {
         // Parse the 401 body to check for terminal (non-refreshable) error codes.
         // The server's auth middleware returns errors in a standard envelope:
         //   { "error": { "code": "...", "message": "..." } }
-        // We also accept a top-level "code" for forward compatibility.
         let terminalCodes: Set<String> = ["credentials_revoked"]
         if let data = responseData,
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            let code: String? = {
-                if let errorObj = json["error"] as? [String: Any] {
-                    return errorObj["code"] as? String
-                }
-                return json["code"] as? String
-            }()
+            let code = (json["error"] as? [String: Any])?["code"] as? String
             if let code, terminalCodes.contains(code) {
                 // Explicitly terminal — no refresh possible
                 log.error("Terminal 401 code: \(code) — re-auth required")
@@ -1959,6 +2290,8 @@ public final class HTTPTransport {
     enum HTTPTransportError: Error, LocalizedError {
         case healthCheckFailed
         case invalidURL
+        case requestFailed(statusCode: Int, message: String?)
+        case authenticationFailed(message: String)
 
         var errorDescription: String? {
             switch self {
@@ -1966,6 +2299,10 @@ public final class HTTPTransport {
                 return "Remote assistant health check failed"
             case .invalidURL:
                 return "Invalid remote assistant URL"
+            case .requestFailed(let statusCode, let message):
+                return message ?? "HTTP request failed (\(statusCode))"
+            case .authenticationFailed(let message):
+                return message
             }
         }
     }

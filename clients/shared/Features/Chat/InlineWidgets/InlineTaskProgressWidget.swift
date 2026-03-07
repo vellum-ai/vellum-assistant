@@ -93,8 +93,7 @@ public struct InlineTaskProgressWidget: View {
     private func statusBadge(for status: String) -> some View {
         let (label, icon, color) = statusInfo(for: status)
         return HStack(spacing: VSpacing.xs) {
-            Image(systemName: icon)
-                .font(.system(size: 10))
+            VIconView(icon, size: 10)
             Text(label)
                 .font(VFont.caption)
         }
@@ -148,36 +147,36 @@ public struct InlineTaskProgressWidget: View {
     private func stepIcon(for status: String) -> some View {
         switch status {
         case "completed":
-            Image(systemName: "checkmark.circle.fill")
+            VIconView(.circleCheck, size: 14)
                 .foregroundColor(Emerald._500)
         case "in_progress":
             ProgressView()
                 .controlSize(.small)
                 .tint(Amber._500)
         case "waiting":
-            Image(systemName: "clock.fill")
+            VIconView(.clock, size: 14)
                 .foregroundColor(Amber._500)
         case "failed":
-            Image(systemName: "xmark.circle.fill")
+            VIconView(.circleX, size: 14)
                 .foregroundColor(Danger._500)
         default:
-            Image(systemName: "circle")
+            VIconView(.circle, size: 14)
                 .foregroundColor(Moss._500)
         }
     }
 
-    private func statusInfo(for status: String) -> (label: String, icon: String, color: Color) {
+    private func statusInfo(for status: String) -> (label: String, icon: VIcon, color: Color) {
         switch status {
         case "completed":
-            return ("Completed", "checkmark.circle.fill", Emerald._500)
+            return ("Completed", .circleCheck, Emerald._500)
         case "in_progress":
-            return ("In Progress", "arrow.triangle.2.circlepath", Amber._500)
+            return ("In Progress", .refreshCw, Amber._500)
         case "waiting":
-            return ("Waiting", "clock.fill", Amber._500)
+            return ("Waiting", .clock, Amber._500)
         case "failed":
-            return ("Failed", "xmark.circle.fill", Danger._500)
+            return ("Failed", .circleX, Danger._500)
         default:
-            return ("Pending", "circle", Moss._500)
+            return ("Pending", .circle, Moss._500)
         }
     }
 }

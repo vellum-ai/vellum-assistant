@@ -51,27 +51,21 @@ export function getClipboardCommand(): string | null {
 }
 
 /**
- * Read and parse the lockfile, trying the primary path (~/.vellum.lock.json)
- * first, then falling back to the legacy path (~/.vellum.lockfile.json).
+ * Read and parse the lockfile (~/.vellum.lock.json).
  * Respects BASE_DATA_DIR for non-standard home directories.
- * Returns null if neither file exists or both are malformed.
+ * Returns null if the file doesn't exist or is malformed.
  */
 export function readLockfile(): Record<string, unknown> | null {
   const base = getBaseDataDir() || homedir();
-  const candidates = [
-    join(base, ".vellum.lock.json"),
-    join(base, ".vellum.lockfile.json"),
-  ];
-  for (const lockPath of candidates) {
-    if (!existsSync(lockPath)) continue;
-    try {
-      const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
-      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-        return raw as Record<string, unknown>;
-      }
-    } catch {
-      // malformed JSON — try next
+  const lockPath = join(base, ".vellum.lock.json");
+  if (!existsSync(lockPath)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>;
     }
+  } catch {
+    // malformed JSON
   }
   return null;
 }
@@ -85,6 +79,11 @@ export function readLockfile(): Record<string, unknown> | null {
  * inbound call path resolves phone numbers to config keys (typically
  * "self"). This function maps any known lockfile assistant ID to "self"
  * so both sides use a consistent DB key.
+ *
+ * Multi-instance safety: each daemon process runs with a scoped
+ * BASE_DATA_DIR, so readLockfile() only sees the lockfile for this
+ * instance. The mapping to "self" is correct because each daemon is
+ * single-tenant — it only manages its own instance's data.
  */
 export function normalizeAssistantId(assistantId: string): string {
   if (assistantId === "self") return "self";
@@ -243,10 +242,6 @@ export function isIOSPairingEnabled(): boolean {
   return existsSync(join(getRootDir(), "ios-pairing-enabled"));
 }
 
-export function getHttpTokenPath(): string {
-  return join(getRootDir(), "http-token");
-}
-
 /**
  * Returns the path to the platform API token file (~/.vellum/platform-token).
  * This token is the X-Session-Token used to authenticate with the Vellum
@@ -356,13 +351,6 @@ export function getWorkspaceHooksDir(): string {
 export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }
-
-// Re-export migration functions so existing consumers don't break.
-export { migrateToDataLayout } from "../migrations/data-layout.js";
-export {
-  migratePath,
-  migrateToWorkspaceLayout,
-} from "../migrations/workspace-layout.js";
 
 export function ensureDataDir(): void {
   const root = getRootDir();

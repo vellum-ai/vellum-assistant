@@ -7,294 +7,320 @@ struct BundleConfirmationView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            headerSection
-
-            Divider()
-                .background(VColor.surfaceBorder)
-
-            // Content
-            ScrollView {
-                VStack(alignment: .leading, spacing: VSpacing.lg) {
-                    trustTierSection
-                    scanResultSection
-                    bundleSizeSection
-                }
-                .padding(VSpacing.xl)
-                .textSelection(.enabled)
+            switch viewModel.installState {
+            case .installed:
+                installedStateView
+            case .installing:
+                installingStateView
+            case .error(let message):
+                errorStateView(message: message)
+            case .ready:
+                confirmationContent
             }
-
-            Divider()
-                .background(VColor.surfaceBorder)
-
-            // Footer buttons
-            footerSection
         }
-        .frame(minWidth: 420, maxWidth: 420, minHeight: 350)
+        .frame(width: 480, height: 400)
         .background(VColor.background)
     }
 
-    // MARK: - Header
+    // MARK: - Main Confirmation Content
 
-    private var headerSection: some View {
-        VStack(spacing: VSpacing.sm) {
-            Text(viewModel.manifest.icon ?? "\u{1F4E6}")
-                .font(.system(size: 40))
+    private var confirmationContent: some View {
+        VStack(spacing: 0) {
+            // Hero section — icon + name + description
+            heroSection
 
+            // Info section — trust, size, warnings
+            infoSection
+
+            Spacer(minLength: 0)
+
+            Divider()
+                .background(VColor.surfaceBorder)
+
+            // Action buttons
+            footerSection
+        }
+    }
+
+    // MARK: - Hero Section
+
+    private var heroSection: some View {
+        VStack(spacing: VSpacing.md) {
+            Spacer()
+                .frame(height: VSpacing.xl)
+
+            // App icon — 96pt centered with rounded corners and shadow
+            Group {
+                if let icon = viewModel.appIconImage {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    // Inline emoji fallback while icon loads
+                    Text(viewModel.manifest.icon ?? "\u{1F4E6}")
+                        .font(.system(size: 64))
+                }
+            }
+            .frame(width: 96, height: 96)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+            .vShadow(VShadow.md)
+
+            // App name
             Text(viewModel.manifest.name)
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
                 .multilineTextAlignment(.center)
+                .lineLimit(2)
 
+            // Description
             if let description = viewModel.manifest.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.body)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
-                    .lineLimit(3)
+                    .lineLimit(2)
+                    .padding(.horizontal, VSpacing.xxl)
             }
-
-            Text("by \(viewModel.manifest.createdBy)")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textMuted)
         }
-        .padding(VSpacing.xl)
         .frame(maxWidth: .infinity)
-        .textSelection(.enabled)
+        .padding(.bottom, VSpacing.lg)
     }
 
-    // MARK: - Trust Tier
+    // MARK: - Info Section
 
-    private var trustTierSection: some View {
-        HStack(spacing: VSpacing.sm) {
-            trustTierIcon
-            trustTierText
+    private var infoSection: some View {
+        VStack(spacing: VSpacing.sm) {
+            // Trust tier badge — centered
+            trustBadge
+
+            // Signer info
+            if let signerName = viewModel.signatureResult.signerDisplayName, !signerName.isEmpty {
+                Text("Signed by \(signerName)")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+            }
+
+            // Bundle size
+            Text(viewModel.formattedSize)
+                .font(VFont.caption)
+                .foregroundColor(VColor.textMuted)
+
+            // Security warnings — expandable disclosure
+            if !viewModel.scanResult.warnings.isEmpty {
+                warningsDisclosure
+            }
         }
-        .padding(VSpacing.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(trustTierBackground)
-        .cornerRadius(VRadius.md)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, VSpacing.xl)
+    }
+
+    // MARK: - Trust Badge
+
+    private var trustBadge: some View {
+        HStack(spacing: VSpacing.xs) {
+            trustBadgeIcon
+            trustBadgeLabel
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.xs)
+        .background(trustBadgeBackground)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
     }
 
     @ViewBuilder
-    private var trustTierIcon: some View {
+    private var trustBadgeIcon: some View {
         switch viewModel.trustTier {
         case .verified:
-            Image(systemName: "checkmark.seal.fill")
+            VIconView(.badgeCheck, size: 14)
                 .foregroundColor(VColor.success)
         case .signed:
-            Image(systemName: "checkmark.seal.fill")
+            VIconView(.badgeCheck, size: 14)
                 .foregroundColor(VColor.accent)
         case .unsigned:
-            Image(systemName: "lock.open")
+            VIconView(.lockOpen, size: 12)
                 .foregroundColor(VColor.textSecondary)
         case .tampered:
-            Image(systemName: "xmark.seal.fill")
+            VIconView(.badgeX, size: 14)
                 .foregroundColor(VColor.error)
         }
     }
 
     @ViewBuilder
-    private var trustTierText: some View {
+    private var trustBadgeLabel: some View {
         switch viewModel.trustTier {
         case .verified:
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text("Verified")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.success)
-                Text("Created by \(viewModel.signatureResult.signerDisplayName ?? "Unknown") (\(viewModel.signatureResult.signerAccount ?? ""))")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
+            Text("Verified")
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.success)
         case .signed:
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text("Signed")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.accent)
-                let keyId = viewModel.signatureResult.signerKeyId ?? "unknown"
-                let shortKey = keyId.count > 8 ? String(keyId.prefix(8)) + "..." : keyId
-                Text("Created by \(viewModel.signatureResult.signerDisplayName ?? shortKey). Content hasn't been modified.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
+            Text("Signed")
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.accent)
         case .unsigned:
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text("Not signed")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textSecondary)
-                Text("This app hasn't been signed. Only open apps from sources you trust.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
+            Text("Not Signed")
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textSecondary)
         case .tampered:
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                Text("Tampered")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.error)
-                Text("This app has been modified since it was signed.")
-                    .font(VFont.caption)
-                    .foregroundColor(VColor.textSecondary)
-            }
+            Text("Tampered")
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.error)
         }
     }
 
-    private var trustTierBackground: Color {
+    private var trustBadgeBackground: Color {
         switch viewModel.trustTier {
-        case .verified:
-            return VColor.success.opacity(0.1)
-        case .signed:
-            return VColor.accent.opacity(0.1)
-        case .unsigned:
-            return VColor.surface
-        case .tampered:
-            return VColor.error.opacity(0.1)
+        case .verified: return VColor.success.opacity(0.15)
+        case .signed: return VColor.accent.opacity(0.15)
+        case .unsigned: return VColor.surface
+        case .tampered: return VColor.error.opacity(0.15)
         }
     }
 
-    // MARK: - Scan Result
+    // MARK: - Warnings Disclosure
 
-    @ViewBuilder
-    private var scanResultSection: some View {
-        if !viewModel.scanResult.blocked.isEmpty {
-            // Blocked state (should not normally reach here)
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(VColor.error)
-                Text("Security scan blocked")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.error)
-            }
-            .padding(VSpacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VColor.error.opacity(0.1))
-            .cornerRadius(VRadius.md)
-        } else if !viewModel.scanResult.warnings.isEmpty {
-            // Warnings
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Button(action: { viewModel.warningsExpanded.toggle() }) {
-                    HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "info.circle")
-                            .foregroundColor(VColor.textSecondary)
-                        Text("Scan complete — \(viewModel.scanResult.warnings.count) note\(viewModel.scanResult.warnings.count == 1 ? "" : "s")")
-                            .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textSecondary)
-                        Spacer()
-                        Image(systemName: viewModel.warningsExpanded ? "chevron.up" : "chevron.down")
-                            .foregroundColor(VColor.textSecondary)
-                            .font(.system(size: 10))
-                    }
+    private var warningsDisclosure: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Button(action: {
+                withAnimation(VAnimation.standard) {
+                    viewModel.warningsExpanded.toggle()
                 }
-                .buttonStyle(.plain)
-
-                if viewModel.warningsExpanded {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        ForEach(viewModel.scanResult.warnings, id: \.self) { warning in
-                            HStack(alignment: .top, spacing: VSpacing.sm) {
-                                Text("\u{2022}")
-                                    .foregroundColor(VColor.textMuted)
-                                Text(warning)
-                                    .font(VFont.caption)
-                                    .foregroundColor(VColor.textSecondary)
-                            }
-                        }
-                    }
-                    .padding(.leading, VSpacing.xl)
+            }) {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.triangleAlert, size: 10)
+                        .foregroundColor(VColor.warning)
+                    Text("\(viewModel.scanResult.warnings.count) warning\(viewModel.scanResult.warnings.count == 1 ? "" : "s")")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textSecondary)
+                    VIconView(viewModel.warningsExpanded ? .chevronUp : .chevronDown, size: 8)
+                        .foregroundColor(VColor.textMuted)
                 }
             }
-            .padding(VSpacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VColor.surface)
-            .cornerRadius(VRadius.md)
-        } else {
-            // Clean scan
-            HStack(spacing: VSpacing.sm) {
-                Image(systemName: "checkmark.shield.fill")
-                    .foregroundColor(VColor.success)
-                Text("Security scan passed")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.success)
+            .buttonStyle(.plain)
+
+            if viewModel.warningsExpanded {
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    ForEach(viewModel.scanResult.warnings, id: \.self) { warning in
+                        Text("\u{2022} \(warning)")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                }
+                .padding(.leading, VSpacing.lg)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            .padding(VSpacing.md)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VColor.success.opacity(0.1))
-            .cornerRadius(VRadius.md)
         }
-    }
-
-    // MARK: - Bundle Size
-
-    private var bundleSizeSection: some View {
-        HStack(spacing: VSpacing.sm) {
-            Image(systemName: "doc.zipper")
-                .foregroundColor(VColor.textSecondary)
-            Text("Bundle size: \(viewModel.formattedSize)")
-                .font(VFont.caption)
-                .foregroundColor(VColor.textSecondary)
-        }
+        .padding(.top, VSpacing.xs)
     }
 
     // MARK: - Footer
 
     private var footerSection: some View {
         HStack(spacing: VSpacing.md) {
-            // Cancel button
-            Button(action: { viewModel.cancel() }) {
-                Text("Cancel")
-                    .font(VFont.bodyMedium)
-                    .foregroundColor(VColor.textSecondary)
-                    .padding(.vertical, VSpacing.buttonV)
-                    .padding(.horizontal, VSpacing.lg)
+            VButton(label: "Cancel", style: .ghost, size: .medium) {
+                viewModel.cancel()
             }
-            .buttonStyle(.plain)
-            .background(VColor.surface)
-            .cornerRadius(VRadius.md)
 
             Spacer()
 
             if viewModel.isTampered {
-                if viewModel.showTamperedWarning {
-                    // Show "Open Anyway" destructive button
-                    VStack(alignment: .trailing, spacing: VSpacing.xs) {
-                        Text("This app may contain malicious content.")
-                            .font(VFont.caption)
-                            .foregroundColor(VColor.error)
-                        Button(action: { viewModel.confirm() }) {
-                            Text("Open Anyway")
-                                .font(VFont.bodyMedium)
-                                .foregroundColor(VColor.error)
-                                .padding(.vertical, VSpacing.buttonV)
-                                .padding(.horizontal, VSpacing.lg)
-                        }
-                        .buttonStyle(.plain)
-                        .background(VColor.error.opacity(0.2))
-                        .cornerRadius(VRadius.md)
-                    }
-                } else {
-                    Button(action: { viewModel.showTamperedWarning = true }) {
-                        Text("Open Anyway...")
-                            .font(VFont.bodyMedium)
-                            .foregroundColor(VColor.textSecondary)
-                            .padding(.vertical, VSpacing.buttonV)
-                            .padding(.horizontal, VSpacing.lg)
-                    }
-                    .buttonStyle(.plain)
-                    .background(VColor.surface)
-                    .cornerRadius(VRadius.md)
-                }
+                tamperedInstallButton
             } else {
-                // Normal "Open in Vellum" button
-                Button(action: { viewModel.confirm() }) {
-                    Text("\(viewModel.manifest.icon ?? "\u{1F4E6}") Open in Vellum")
-                        .font(VFont.bodyMedium)
-                        .foregroundColor(VColor.textPrimary)
-                        .padding(.vertical, VSpacing.buttonV)
-                        .padding(.horizontal, VSpacing.lg)
+                VButton(label: "Install", style: .primary, size: .medium) {
+                    viewModel.confirm()
                 }
-                .buttonStyle(.plain)
-                .background(VColor.accent)
-                .cornerRadius(VRadius.md)
+                .disabled(viewModel.isInstalling)
             }
         }
-        .padding(VSpacing.lg)
+        .padding(.horizontal, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
+    }
+
+    @ViewBuilder
+    private var tamperedInstallButton: some View {
+        if viewModel.showTamperedWarning {
+            VStack(alignment: .trailing, spacing: VSpacing.xxs) {
+                Text("This app may have been modified.")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.error)
+                VButton(label: "Install Anyway", style: .danger, size: .medium) {
+                    viewModel.confirm()
+                }
+                .disabled(viewModel.isInstalling)
+            }
+        } else {
+            VButton(label: "Install", style: .ghost, size: .medium) {
+                withAnimation(VAnimation.standard) {
+                    viewModel.showTamperedWarning = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Installing State
+
+    private var installingStateView: some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            ProgressView()
+                .controlSize(.large)
+
+            Text("Installing…")
+                .font(VFont.title)
+                .foregroundColor(VColor.textPrimary)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
+    }
+
+    // MARK: - Error State
+
+    private func errorStateView(message: String) -> some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            VIconView(.circleX, size: 56)
+                .foregroundColor(VColor.error)
+
+            Text("Installation Failed")
+                .font(VFont.title)
+                .foregroundColor(VColor.textPrimary)
+
+            Text(message)
+                .font(VFont.body)
+                .foregroundColor(VColor.error)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, VSpacing.xxl)
+
+            VButton(label: "Dismiss", style: .ghost, size: .medium) {
+                viewModel.cancel()
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
+    }
+
+    // MARK: - Installed State
+
+    private var installedStateView: some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            VIconView(.circleCheck, size: 56)
+                .foregroundColor(VColor.success)
+
+            Text("Installed")
+                .font(VFont.title)
+                .foregroundColor(VColor.textPrimary)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
     }
 }

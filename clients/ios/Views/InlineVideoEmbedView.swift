@@ -42,8 +42,7 @@ struct InlineVideoEmbedView: View {
 
             // Provider attribution bar
             HStack(spacing: VSpacing.xs) {
-                Image(systemName: "play.rectangle.fill")
-                    .font(.system(size: 10))
+                VIconView(.video, size: 10)
                     .foregroundColor(VColor.textMuted)
                 Text(provider.capitalized)
                     .font(VFont.small)
@@ -71,8 +70,7 @@ struct InlineVideoEmbedView: View {
                     .fill(Color.black.opacity(0.8)) // Intentional: always-dark video placeholder
                     .frame(height: 200)
 
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 48))
+                VIconView(.circlePlay, size: 48)
                     .foregroundColor(.white.opacity(0.9))
             }
         }
@@ -92,8 +90,7 @@ struct InlineVideoEmbedView: View {
 
     private func failedView(_ message: String) -> some View {
         VStack(spacing: VSpacing.sm) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 24))
+            VIconView(.triangleAlert, size: 24)
                 .foregroundColor(VColor.textMuted)
             Text("Failed to load video")
                 .font(VFont.caption)

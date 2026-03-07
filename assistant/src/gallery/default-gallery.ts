@@ -752,6 +752,540 @@ const expenseTrackerHtml = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// -- Multi-file source files for Focus Timer (formatVersion 2) --
+
+const focusTimerSourceFiles: Record<string, string> = {
+  "src/index.html": `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Focus Timer</title>
+</head>
+<body>
+  <div id="app"></div>
+</body>
+</html>`,
+
+  "src/main.tsx": `import { render } from "preact";
+import { Timer } from "./components/Timer.js";
+import "./styles.css";
+
+function App() {
+  return <Timer workMinutes={25} breakMinutes={5} />;
+}
+
+render(<App />, document.getElementById("app")!);
+`,
+
+  "src/components/Timer.tsx": `import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+
+interface TimerProps {
+  workMinutes: number;
+  breakMinutes: number;
+}
+
+export function Timer({ workMinutes, breakMinutes }: TimerProps) {
+  const [secondsLeft, setSecondsLeft] = useState(workMinutes * 60);
+  const [isRunning, setIsRunning] = useState(false);
+  const [isBreak, setIsBreak] = useState(false);
+  const [sessions, setSessions] = useState(0);
+  const [totalMinutes, setTotalMinutes] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearTimer = useCallback(() => {
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
+
+  // Tick effect: runs when the timer is active
+  useEffect(() => {
+    if (!isRunning) return;
+
+    intervalRef.current = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearTimer();
+          setIsRunning(false);
+          if (!isBreak) {
+            setSessions((s) => s + 1);
+            setTotalMinutes((t) => t + workMinutes);
+            setIsBreak(true);
+            return breakMinutes * 60;
+          } else {
+            setIsBreak(false);
+            return workMinutes * 60;
+          }
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return clearTimer;
+  }, [isRunning, isBreak, workMinutes, breakMinutes, clearTimer]);
+
+  const toggle = () => setIsRunning((r) => !r);
+
+  const reset = () => {
+    clearTimer();
+    setIsRunning(false);
+    setIsBreak(false);
+    setSecondsLeft(workMinutes * 60);
+  };
+
+  const minutes = Math.floor(secondsLeft / 60);
+  const seconds = secondsLeft % 60;
+  const display =
+    String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+
+  return (
+    <div class="container">
+      <h1>Focus Timer</h1>
+      <div class={\`mode-label\${isBreak ? " break" : ""}\`}>
+        {isBreak ? "Break Time" : "Work Session"}
+      </div>
+      <div class="timer-display">{display}</div>
+      <div class="controls">
+        <button class="btn-primary" onClick={toggle}>
+          {isRunning ? "Pause" : "Start"}
+        </button>
+        <button class="btn-secondary" onClick={reset}>
+          Reset
+        </button>
+      </div>
+      <div class="stats">
+        <div class="stat-item">
+          <div class="stat-value">{sessions}</div>
+          <div class="stat-label">Sessions</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">{totalMinutes}</div>
+          <div class="stat-label">Minutes</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+`,
+
+  "src/styles.css": `:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --primary: #e94560;
+  --primary-hover: #c73e54;
+  --text: #eee;
+  --text-secondary: #aaa;
+  --break-color: #0f9b58;
+  --radius: 12px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+.container {
+  text-align: center;
+  max-width: 400px;
+  width: 100%;
+}
+h1 {
+  font-size: 1.4rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.mode-label {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 32px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.mode-label.break { color: var(--break-color); }
+.timer-display {
+  font-size: 5rem;
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 2px;
+  margin-bottom: 40px;
+}
+.controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+button {
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  padding: 10px 28px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid #333;
+}
+.btn-secondary:hover { background: #1e2d4f; }
+.stats {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+}
+.stat-item {
+  text-align: center;
+}
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+`,
+};
+
+// -- Multi-file source files for Habit Tracker (formatVersion 2) --
+
+const habitTrackerSourceFiles: Record<string, string> = {
+  "src/index.html": `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Habit Tracker</title>
+</head>
+<body>
+  <div id="app"></div>
+</body>
+</html>`,
+
+  "src/main.tsx": `import { render } from "preact";
+import { HabitTracker } from "./components/HabitTracker.js";
+import "./styles.css";
+
+render(<HabitTracker />, document.getElementById("app")!);
+`,
+
+  "src/components/HabitTracker.tsx": `import { useCallback, useEffect, useState } from "preact/hooks";
+import { HabitRow } from "./HabitRow.js";
+
+declare const vellum: {
+  data: {
+    query(): Promise<Array<{ id: string; data: Record<string, string> }>>;
+    create(data: Record<string, string>): Promise<void>;
+    update(id: string, data: Record<string, string>): Promise<void>;
+    delete(id: string): Promise<void>;
+  };
+};
+
+function getDates(): string[] {
+  const dates: string[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  return dates;
+}
+
+function getDayNames(dates: string[]): string[] {
+  const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return dates.map((d) => names[new Date(d + "T12:00:00").getDay()]);
+}
+
+interface HabitRecord {
+  id: string;
+  data: { name: string; completedDates: string };
+}
+
+export function HabitTracker() {
+  const [habits, setHabits] = useState<HabitRecord[]>([]);
+  const [input, setInput] = useState("");
+  const dates = getDates();
+  const dayNames = getDayNames(dates);
+
+  const loadHabits = useCallback(() => {
+    vellum.data.query().then((records) => {
+      setHabits(records as unknown as HabitRecord[]);
+    });
+  }, []);
+
+  useEffect(() => {
+    loadHabits();
+  }, [loadHabits]);
+
+  const addHabit = () => {
+    const name = input.trim();
+    if (!name) return;
+    setInput("");
+    vellum.data.create({ name, completedDates: "[]" }).then(loadHabits);
+  };
+
+  const toggleDate = (recordId: string, date: string) => {
+    const record = habits.find((h) => h.id === recordId);
+    if (!record) return;
+    let completed: string[] = [];
+    try {
+      completed = JSON.parse(record.data.completedDates || "[]");
+    } catch {
+      // ignore parse errors
+    }
+    const idx = completed.indexOf(date);
+    if (idx === -1) completed.push(date);
+    else completed.splice(idx, 1);
+    vellum.data
+      .update(recordId, {
+        name: record.data.name,
+        completedDates: JSON.stringify(completed),
+      })
+      .then(loadHabits);
+  };
+
+  const deleteHabit = (recordId: string) => {
+    vellum.data.delete(recordId).then(loadHabits);
+  };
+
+  return (
+    <div>
+      <div class="header">
+        <h1>Habit Tracker</h1>
+      </div>
+      <div class="add-form">
+        <input
+          type="text"
+          value={input}
+          onInput={(e) => setInput((e.target as HTMLInputElement).value)}
+          onKeyDown={(e) => e.key === "Enter" && addHabit()}
+          placeholder="Add a new habit..."
+        />
+        <button class="btn-primary" onClick={addHabit}>
+          Add
+        </button>
+      </div>
+      <div class="days-header">
+        <div />
+        {dayNames.map((name, i) => (
+          <div key={i} class="day-label">
+            {name}
+          </div>
+        ))}
+      </div>
+      <div>
+        {habits.length === 0 ? (
+          <div class="empty-state">No habits yet. Add one above!</div>
+        ) : (
+          habits.map((record) => (
+            <HabitRow
+              key={record.id}
+              record={record}
+              dates={dates}
+              onToggle={toggleDate}
+              onDelete={deleteHabit}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+`,
+
+  "src/components/HabitRow.tsx": `interface HabitRowProps {
+  record: { id: string; data: { name: string; completedDates: string } };
+  dates: string[];
+  onToggle: (id: string, date: string) => void;
+  onDelete: (id: string) => void;
+}
+
+export function HabitRow({ record, dates, onToggle, onDelete }: HabitRowProps) {
+  let completed: string[] = [];
+  try {
+    completed = JSON.parse(record.data.completedDates || "[]");
+  } catch {
+    // ignore parse errors
+  }
+
+  return (
+    <div class="habit-row">
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <span class="habit-name">{record.data.name}</span>
+        <button class="delete-btn" onClick={() => onDelete(record.id)}>
+          x
+        </button>
+      </div>
+      {dates.map((date) => {
+        const checked = completed.includes(date);
+        return (
+          <div key={date} class="check-cell">
+            <button
+              class={\`check-btn\${checked ? " checked" : ""}\`}
+              onClick={() => onToggle(record.id, date)}
+            >
+              {checked ? "\\u2713" : ""}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+`,
+
+  "src/styles.css": `:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-hover: #263348;
+  --primary: #6366f1;
+  --primary-hover: #5558e6;
+  --success: #22c55e;
+  --text: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --border: #334155;
+  --radius: 10px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding: 24px;
+  min-height: 100vh;
+}
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+h1 { font-size: 1.4rem; font-weight: 600; }
+.add-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.add-form input {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  outline: none;
+}
+.add-form input:focus { border-color: var(--primary); }
+.add-form input::placeholder { color: var(--text-secondary); }
+button {
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 10px 18px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+.btn-primary:hover { background: var(--primary-hover); }
+.days-header {
+  display: grid;
+  grid-template-columns: 1fr repeat(7, 40px);
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+.day-label {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+.habit-row {
+  display: grid;
+  grid-template-columns: 1fr repeat(7, 40px);
+  gap: 4px;
+  padding: 10px 4px;
+  border-radius: var(--radius);
+  margin-bottom: 4px;
+  align-items: center;
+}
+.habit-row:hover { background: var(--surface); }
+.habit-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.check-cell {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.check-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 2px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  color: transparent;
+  font-size: 14px;
+}
+.check-btn.checked {
+  background: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+.check-btn:hover { border-color: var(--success); }
+.delete-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.delete-btn:hover { color: #ef4444; background: rgba(239,68,68,0.1); }
+.empty-state {
+  text-align: center;
+  padding: 48px 0;
+  color: var(--text-secondary);
+}
+`,
+};
+
 export const defaultGallery: GalleryManifest = {
   version: 1,
   updatedAt: "2026-02-15T00:00:00Z",
@@ -776,6 +1310,8 @@ export const defaultGallery: GalleryManifest = {
         additionalProperties: false,
       }),
       htmlDefinition: focusTimerHtml,
+      formatVersion: 2,
+      sourceFiles: focusTimerSourceFiles,
     },
     {
       id: "gallery-habit-tracker",
@@ -795,6 +1331,8 @@ export const defaultGallery: GalleryManifest = {
         required: ["name", "completedDates"],
       }),
       htmlDefinition: habitTrackerHtml,
+      formatVersion: 2,
+      sourceFiles: habitTrackerSourceFiles,
     },
     {
       id: "gallery-expense-tracker",

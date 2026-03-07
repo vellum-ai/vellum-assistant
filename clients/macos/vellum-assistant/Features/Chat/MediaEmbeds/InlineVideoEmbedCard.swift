@@ -76,8 +76,7 @@ struct InlineVideoEmbedCard: View {
 
     private var placeholderView: some View {
         VStack(spacing: VSpacing.sm) {
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 44))
+            VIconView(.play, size: 44)
                 .foregroundStyle(VColor.textSecondary)
 
             Text(provider.capitalized)
@@ -108,8 +107,7 @@ struct InlineVideoEmbedCard: View {
     /// clickable link that opens in the default browser.
     private func failedView(_ message: String) -> some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: "play.rectangle.fill")
-                .font(.system(size: 16))
+            VIconView(.play, size: 16)
                 .foregroundStyle(VColor.textSecondary)
 
             Text(provider.capitalized)

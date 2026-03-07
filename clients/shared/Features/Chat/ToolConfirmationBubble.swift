@@ -127,8 +127,7 @@ public struct ToolConfirmationBubble: View {
     private var systemPermissionCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 16))
+                VIconView(.shield, size: 16)
                     .foregroundColor(VColor.accent)
 
                 Text(confirmation.permissionFriendlyName)
@@ -191,8 +190,7 @@ public struct ToolConfirmationBubble: View {
     @ViewBuilder
     private var commandExplanationBanner: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(systemName: "info.circle.fill")
-                .font(.system(size: 14))
+            VIconView(.info, size: 14)
                 .foregroundColor(VColor.accent)
                 .padding(.top, 1)
 
@@ -241,8 +239,7 @@ public struct ToolConfirmationBubble: View {
                     }
                 } label: {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
+                        VIconView(.chevronRight, size: 9)
                             .foregroundColor(VColor.textMuted)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                         Text(showTechnicalDetails ? "Hide" : "More details")
@@ -283,8 +280,7 @@ public struct ToolConfirmationBubble: View {
     @ViewBuilder
     private var headerRow: some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: confirmation.toolCategoryIcon)
-                .font(.system(size: 12))
+            VIconView(confirmation.toolCategoryIcon, size: 12)
                 .foregroundColor(VColor.textSecondary)
 
             Text(confirmation.toolCategory)
@@ -360,8 +356,7 @@ public struct ToolConfirmationBubble: View {
                     Text("View diff")
                         .font(.system(size: 10))
                         .foregroundColor(VColor.textMuted)
-                    Image(systemName: showDiff ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
+                    VIconView(showDiff ? .chevronUp : .chevronDown, size: 8)
                         .foregroundColor(VColor.textMuted)
                 }
                 .contentShape(Rectangle())
@@ -784,8 +779,7 @@ public struct ToolConfirmationBubble: View {
                                 itemCount: confirmation.allowlistOptions.count
                             )
                         } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 10, weight: .semibold))
+                            VIconView(.chevronLeft, size: 10)
                                 .foregroundColor(VColor.textMuted)
                         }
                         .buttonStyle(.plain)
@@ -1014,10 +1008,10 @@ private struct ScopePickerRow: View {
                 input: ["command": AnyCodable("npm install express")],
                 riskLevel: "medium",
                 allowlistOptions: [
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "exact", description: "This exact command", pattern: "npm install express"),
+                    IPCConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "npm install express"),
                 ],
                 scopeOptions: [
-                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "This project", scope: "project"),
+                    IPCConfirmationRequestScopeOption(label: "This project", scope: "project"),
                 ],
                 executionTarget: "host"
             ),
@@ -1062,12 +1056,12 @@ private struct ScopePickerRow: View {
                 input: ["command": AnyCodable("ls -la ~/Library/Application\\ Support/")],
                 riskLevel: "medium",
                 allowlistOptions: [
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "exact", description: "This exact command", pattern: "ls -la ~/Library/Application\\ Support/"),
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "prefix", description: "Any \"ls -la ~/Library/Application\\\" command", pattern: "ls -la ~/Library/Application*"),
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "tool", description: "Any ls command", pattern: "ls *"),
+                    IPCConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "ls -la ~/Library/Application\\ Support/"),
+                    IPCConfirmationRequestAllowlistOption(label: "prefix", description: "Any \"ls -la ~/Library/Application\\\" command", pattern: "ls -la ~/Library/Application*"),
+                    IPCConfirmationRequestAllowlistOption(label: "tool", description: "Any ls command", pattern: "ls *"),
                 ],
                 scopeOptions: [
-                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "This project", scope: "project"),
+                    IPCConfirmationRequestScopeOption(label: "This project", scope: "project"),
                 ],
                 executionTarget: "host"
             ),
@@ -1141,11 +1135,11 @@ private struct ScopePickerRow: View {
                 input: ["command": AnyCodable("npm test")],
                 riskLevel: "medium",
                 allowlistOptions: [
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "exact", description: "This exact command", pattern: "npm test"),
+                    IPCConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "npm test"),
                 ],
                 scopeOptions: [
-                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "This project", scope: "project"),
-                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),
+                    IPCConfirmationRequestScopeOption(label: "This project", scope: "project"),
+                    IPCConfirmationRequestScopeOption(label: "Everywhere", scope: "everywhere"),
                 ],
                 executionTarget: "host"
             ),
@@ -1162,13 +1156,13 @@ private struct ScopePickerRow: View {
                 input: ["command": AnyCodable("git push origin main")],
                 riskLevel: "medium",
                 allowlistOptions: [
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "exact", description: "This exact command", pattern: "git push origin main"),
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "prefix", description: "Any \"git push\" command", pattern: "git push *"),
-                    ConfirmationRequestMessage.ConfirmationAllowlistOption(label: "tool", description: "Any git command", pattern: "git *"),
+                    IPCConfirmationRequestAllowlistOption(label: "exact", description: "This exact command", pattern: "git push origin main"),
+                    IPCConfirmationRequestAllowlistOption(label: "prefix", description: "Any \"git push\" command", pattern: "git push *"),
+                    IPCConfirmationRequestAllowlistOption(label: "tool", description: "Any git command", pattern: "git *"),
                 ],
                 scopeOptions: [
-                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "This project", scope: "project"),
-                    ConfirmationRequestMessage.ConfirmationScopeOption(label: "Everywhere", scope: "everywhere"),
+                    IPCConfirmationRequestScopeOption(label: "This project", scope: "project"),
+                    IPCConfirmationRequestScopeOption(label: "Everywhere", scope: "everywhere"),
                 ],
                 executionTarget: "host"
             ),

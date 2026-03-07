@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { SecretRequest, ServerMessage } from "../daemon/ipc-contract.js";
+import type { SecretRequest, ServerMessage } from "../daemon/ipc-protocol.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 
