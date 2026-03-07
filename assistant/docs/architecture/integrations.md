@@ -300,7 +300,6 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/messaging/providers/slack/`             | Slack adapter, client, types                                                                              |
 | `assistant/src/messaging/providers/gmail/`             | Gmail adapter, client, types                                                                              |
 | `assistant/src/config/bundled-skills/messaging/`       | Unified messaging skill (SKILL.md, TOOLS.json, tools/)                                                    |
-| `assistant/src/watcher/providers/slack.ts`             | Slack watcher for DMs, mentions, thread replies                                                           |
 | `assistant/src/watcher/providers/gmail.ts`             | Gmail watcher using History API                                                                           |
 | `assistant/src/watcher/providers/github.ts`            | GitHub watcher for PRs, issues, review requests, and mentions                                             |
 | `assistant/src/watcher/providers/linear.ts`            | Linear watcher for assigned issues, status changes, and @mentions                                         |
