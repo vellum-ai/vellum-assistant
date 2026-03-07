@@ -421,6 +421,27 @@ describe("conversation-attention-store", () => {
       expect(state.lastSeenAssistantMessageAt).toBe(1000);
     });
 
+    test("bootstraps unread rewind to a strictly older assistant timestamp", () => {
+      ensureConversation("conv-1");
+      insertAssistantMessage("conv-1", "msg-1", 1000);
+      insertAssistantMessage("conv-1", "msg-2", 2000);
+      insertAssistantMessage("conv-1", "msg-3", 2000);
+
+      markConversationUnread("conv-1");
+
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.latestAssistantMessageId).toBe("msg-3");
+      expect(state.latestAssistantMessageAt).toBe(2000);
+      expect(state.lastSeenAssistantMessageId).toBe("msg-1");
+      expect(state.lastSeenAssistantMessageAt).toBe(1000);
+      expect(
+        listConversationAttention({ state: "unseen" }).map(
+          (entry) => entry.conversationId,
+        ),
+      ).toEqual(["conv-1"]);
+    });
+
     test("is idempotent when the conversation is already unread", () => {
       ensureConversation("conv-1");
       insertAssistantMessage("conv-1", "msg-1", 1000);
