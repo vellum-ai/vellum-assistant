@@ -284,10 +284,15 @@ describe("getUsageTotals", () => {
     expect(totals.unpricedEventCount).toBe(0);
   });
 
-  test("sums tokens and cost across priced events", () => {
+  test("sums direct input, cache tokens, and cost across priced events", () => {
     insertEventAt(
       1000,
-      { inputTokens: 100, outputTokens: 50 },
+      {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheCreationInputTokens: 25,
+        cacheReadInputTokens: 50,
+      },
       {
         estimatedCostUsd: 0.01,
         pricingStatus: "priced",
@@ -295,7 +300,12 @@ describe("getUsageTotals", () => {
     );
     insertEventAt(
       2000,
-      { inputTokens: 200, outputTokens: 100 },
+      {
+        inputTokens: 200,
+        outputTokens: 100,
+        cacheCreationInputTokens: 75,
+        cacheReadInputTokens: 125,
+      },
       {
         estimatedCostUsd: 0.02,
         pricingStatus: "priced",
@@ -305,6 +315,8 @@ describe("getUsageTotals", () => {
     const totals = getUsageTotals({ from: 0, to: 5000 });
     expect(totals.totalInputTokens).toBe(300);
     expect(totals.totalOutputTokens).toBe(150);
+    expect(totals.totalCacheCreationTokens).toBe(100);
+    expect(totals.totalCacheReadTokens).toBe(175);
     expect(totals.totalEstimatedCostUsd).toBeCloseTo(0.03);
     expect(totals.eventCount).toBe(2);
     expect(totals.pricedEventCount).toBe(2);
@@ -375,14 +387,24 @@ describe("getUsageDayBuckets", () => {
     expect(buckets).toHaveLength(0);
   });
 
-  test("groups events into correct day buckets", () => {
+  test("groups direct input into correct day buckets without double-counting cache tokens", () => {
     const day1Start = utcMs(2025, 3, 1, 0);
     const day1Mid = utcMs(2025, 3, 1, 12);
     const day2Start = utcMs(2025, 3, 2, 6);
 
     insertEventAt(day1Start, { inputTokens: 100, outputTokens: 10 });
-    insertEventAt(day1Mid, { inputTokens: 200, outputTokens: 20 });
-    insertEventAt(day2Start, { inputTokens: 300, outputTokens: 30 });
+    insertEventAt(day1Mid, {
+      inputTokens: 200,
+      outputTokens: 20,
+      cacheCreationInputTokens: 50,
+      cacheReadInputTokens: 100,
+    });
+    insertEventAt(day2Start, {
+      inputTokens: 300,
+      outputTokens: 30,
+      cacheCreationInputTokens: 20,
+      cacheReadInputTokens: 30,
+    });
 
     const buckets = getUsageDayBuckets({
       from: utcMs(2025, 3, 1),
@@ -463,10 +485,15 @@ describe("getUsageGroupBreakdown", () => {
     expect(groups).toHaveLength(0);
   });
 
-  test("groups by actor", () => {
+  test("groups by actor with direct input and cache totals kept separate", () => {
     insertEventAt(
       1000,
-      { actor: "main_agent", inputTokens: 100 },
+      {
+        actor: "main_agent",
+        inputTokens: 100,
+        cacheCreationInputTokens: 30,
+        cacheReadInputTokens: 50,
+      },
       {
         estimatedCostUsd: 0.01,
         pricingStatus: "priced",
@@ -474,7 +501,12 @@ describe("getUsageGroupBreakdown", () => {
     );
     insertEventAt(
       2000,
-      { actor: "main_agent", inputTokens: 200 },
+      {
+        actor: "main_agent",
+        inputTokens: 200,
+        cacheCreationInputTokens: 20,
+        cacheReadInputTokens: 25,
+      },
       {
         estimatedCostUsd: 0.02,
         pricingStatus: "priced",
@@ -495,11 +527,15 @@ describe("getUsageGroupBreakdown", () => {
     // Ordered by cost descending
     expect(groups[0].group).toBe("main_agent");
     expect(groups[0].totalInputTokens).toBe(300);
+    expect(groups[0].totalCacheCreationTokens).toBe(50);
+    expect(groups[0].totalCacheReadTokens).toBe(75);
     expect(groups[0].totalEstimatedCostUsd).toBeCloseTo(0.03);
     expect(groups[0].eventCount).toBe(2);
 
     expect(groups[1].group).toBe("title_generator");
     expect(groups[1].totalInputTokens).toBe(50);
+    expect(groups[1].totalCacheCreationTokens).toBe(0);
+    expect(groups[1].totalCacheReadTokens).toBe(0);
     expect(groups[1].eventCount).toBe(1);
   });
 
