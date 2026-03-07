@@ -121,6 +121,9 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   // Internal-only route, not reachable from the public internet
   "/internal/telegram/reconcile",
 
+  // Internal-only route, used only for daemon-triggered Twilio refreshes
+  "/internal/twilio/reconcile",
+
   // Duplicate webhook paths for Twilio call routing — the canonical
   // paths under /webhooks/ are documented instead
   "/v1/calls/twilio/voice-webhook",

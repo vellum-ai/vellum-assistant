@@ -27,6 +27,7 @@ import {
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
 import { createTelegramReconcileHandler } from "./http/routes/telegram-reconcile.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
+import { createTwilioReconcileHandler } from "./http/routes/twilio-reconcile.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
 import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
@@ -124,6 +125,7 @@ async function main() {
     createTelegramWebhookHandler(config);
   const handleTelegramDeliver = createTelegramDeliverHandler(config);
   const handleTelegramReconcile = createTelegramReconcileHandler(config);
+  const handleTwilioReconcile = createTwilioReconcileHandler(config);
 
   const isTelegramConfigured = () =>
     !!(config.telegramBotToken && config.telegramWebhookSecret);
@@ -200,6 +202,10 @@ async function main() {
     {
       path: "/internal/telegram/reconcile",
       handler: (req) => handleTelegramReconcile(req),
+    },
+    {
+      path: "/internal/twilio/reconcile",
+      handler: (req) => handleTwilioReconcile(req),
     },
 
     // ── Webhooks (unauthenticated, validated by provider-specific mechanisms) ──
