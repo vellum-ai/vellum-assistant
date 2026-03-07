@@ -277,7 +277,7 @@ describe("redeemVoiceInviteCode", () => {
   test("voice-only invite cannot be redeemed if sourceChannel on invite is not voice", () => {
     // Create a non-voice invite with voice code metadata to simulate a
     // hypothetical misconfiguration. The redemption service filters by
-    // sourceChannel='voice', so non-voice invites are invisible.
+    // sourceChannel='phone', so non-phone invites are invisible.
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
 
@@ -295,7 +295,7 @@ describe("redeemVoiceInviteCode", () => {
       code,
     });
 
-    // findActiveVoiceInvites filters by sourceChannel='voice', so the
+    // findActiveVoiceInvites filters by sourceChannel='phone', so the
     // telegram invite won't be found.
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });

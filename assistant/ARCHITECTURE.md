@@ -483,7 +483,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 
 **Creation flow:**
 
-1. Guardian creates a voice invite via `POST /v1/contacts/invites` with `sourceChannel: "voice"` and `expectedExternalUserId` (E.164 phone).
+1. Guardian creates a voice invite via `POST /v1/contacts/invites` with `sourceChannel: "phone"` and `expectedExternalUserId` (E.164 phone).
 2. `invite-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
 3. The one-time plaintext `voiceCode` is returned in the creation response. The raw token is NOT returned for voice invites — redemption uses the identity-bound code flow exclusively.
 4. Guardian communicates the code to the invitee out-of-band.

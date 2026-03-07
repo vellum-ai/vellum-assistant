@@ -284,7 +284,7 @@ curl -s -X POST "$BASE/v1/contacts" \
     "displayName": "Bob",
     "role": "contact",
     "channels": [{
-      "type": "voice",
+      "type": "phone",
       "address": "+15551234567",
       "externalUserId": "+15551234567",
       "externalChatId": "+15551234567",

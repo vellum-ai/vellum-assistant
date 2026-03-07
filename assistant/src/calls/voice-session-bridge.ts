@@ -219,7 +219,7 @@ function buildVoiceCallControlPrompt(opts: {
  * Execute a single voice turn through the daemon session pipeline.
  *
  * Manages the session directly with voice-specific defaults:
- *   - sourceChannel: 'voice'
+ *   - sourceChannel: 'phone'
  *   - event sink wired to the provided callbacks
  *   - abort propagated from the returned handle
  *
