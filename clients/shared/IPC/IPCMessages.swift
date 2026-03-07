@@ -1090,9 +1090,6 @@ extension IPCSkillsListResponseSkill {
     }
 }
 
-/// Backward-compatible alias for code referencing the old name.
-public typealias SkillSummaryItem = SkillInfo
-
 /// Response containing the list of available skills.
 /// Backed by generated `IPCSkillsListResponse`.
 public typealias SkillsListResponseMessage = IPCSkillsListResponse
