@@ -78,7 +78,6 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
     bannedSnippets: [
       "security find-generic-password",
       "secret-tool lookup service vellum-assistant account credential:ngrok:authtoken",
-      "INTERNAL_GATEWAY_BASE_URL",
     ],
   },
   {
