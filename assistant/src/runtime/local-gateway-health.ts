@@ -126,12 +126,15 @@ async function runDefaultWakeCommand(
     ? ["vellum", "wake", assistantName]
     : ["vellum", "wake"];
 
-  // When we have an explicit assistant name (e.g. from instance path), unset
-  // BASE_DATA_DIR so the spawned CLI reads the global lockfile and targets
-  // the correct instance. Otherwise the CLI would read the instance-scoped
-  // lockfile which may lack assistant metadata.
+  // Only when the assistant name came from the instance path (e.g.
+  // ~/.local/share/vellum/assistants/<name>/), unset BASE_DATA_DIR so the
+  // spawned CLI reads the global lockfile. When the name came from the
+  // lockfile, keep BASE_DATA_DIR — vellum wake resolves names through the
+  // lockfile rooted at BASE_DATA_DIR, so clearing it would read the wrong
+  // lockfile (e.g. $HOME) and fail or wake the wrong assistant.
+  const fromInstancePath = resolveInstanceNameFromBaseDataDir();
   const env =
-    assistantName && getBaseDataDir()
+    fromInstancePath && getBaseDataDir()
       ? { ...process.env, BASE_DATA_DIR: undefined }
       : process.env;
 
