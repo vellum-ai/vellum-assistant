@@ -34,7 +34,7 @@ export const GATEWAY_SUBPATH_MAP: Record<string, string> = {
 
 /**
  * Direct Twilio webhook subpaths that are blocked in gateway_only mode.
- * Includes all public-facing webhook paths (voice, status, connect-action, SMS)
+ * Includes all public-facing webhook paths (voice, status, connect-action, sms)
  * because the runtime must never serve as a direct ingress for external webhooks.
  * Internal forwarding endpoints (gateway->runtime) are unaffected.
  */
@@ -73,8 +73,8 @@ export async function validateTwilioWebhook(
 
   if (!authToken) {
     log.error(
-      "Twilio auth token not found in secure key store — cannot verify webhook HMAC signature. " +
-        "Rejecting request. Set credential:twilio:auth_token via the credential_store tool.",
+      "Twilio auth token not found in config — cannot verify webhook HMAC signature. " +
+        "Rejecting request. Set twilio.authToken via config.",
     );
     return httpError("FORBIDDEN", "Forbidden", 403);
   }

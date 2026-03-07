@@ -148,7 +148,7 @@ describe("redeemVoiceInviteCode", () => {
     const codeHash = hashVoiceCode(code);
 
     const { invite } = createInvite({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       maxUses: opts.maxUses ?? 1,
       expiresInMs: opts.expiresInMs,
       expectedExternalUserId: opts.callerPhone ?? "+15551234567",
@@ -165,7 +165,7 @@ describe("redeemVoiceInviteCode", () => {
 
     const result = redeemVoiceInviteCode({
       callerExternalUserId: phone,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
 
@@ -184,14 +184,14 @@ describe("redeemVoiceInviteCode", () => {
 
     const result = redeemVoiceInviteCode({
       callerExternalUserId: phone,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
 
     expect(result.ok).toBe(true);
 
     const channelResult = findContactChannel({
-      channelType: "voice",
+      channelType: "phone",
       externalUserId: phone,
     });
 
@@ -206,7 +206,7 @@ describe("redeemVoiceInviteCode", () => {
 
     const result = redeemVoiceInviteCode({
       callerExternalUserId: "+19999999999",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
 
@@ -218,7 +218,7 @@ describe("redeemVoiceInviteCode", () => {
 
     const result = redeemVoiceInviteCode({
       callerExternalUserId: "+15551234567",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code: "000000",
     });
 
@@ -231,7 +231,7 @@ describe("redeemVoiceInviteCode", () => {
 
     const result = redeemVoiceInviteCode({
       callerExternalUserId: phone,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
 
@@ -245,7 +245,7 @@ describe("redeemVoiceInviteCode", () => {
     // First redemption succeeds
     const first = redeemVoiceInviteCode({
       callerExternalUserId: phone,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
     expect(first.ok).toBe(true);
@@ -253,7 +253,7 @@ describe("redeemVoiceInviteCode", () => {
     // Second redemption fails — max uses exhausted
     const second = redeemVoiceInviteCode({
       callerExternalUserId: phone,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
     expect(second).toEqual({ ok: false, reason: "invalid_or_expired" });
@@ -267,7 +267,7 @@ describe("redeemVoiceInviteCode", () => {
 
     const result = redeemVoiceInviteCode({
       callerExternalUserId: phone,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
 
@@ -277,7 +277,7 @@ describe("redeemVoiceInviteCode", () => {
   test("voice-only invite cannot be redeemed if sourceChannel on invite is not voice", () => {
     // Create a non-voice invite with voice code metadata to simulate a
     // hypothetical misconfiguration. The redemption service filters by
-    // sourceChannel='voice', so non-voice invites are invisible.
+    // sourceChannel='phone', so non-phone invites are invisible.
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
 
@@ -291,11 +291,11 @@ describe("redeemVoiceInviteCode", () => {
 
     const result = redeemVoiceInviteCode({
       callerExternalUserId: "+15551234567",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
 
-    // findActiveVoiceInvites filters by sourceChannel='voice', so the
+    // findActiveVoiceInvites filters by sourceChannel='phone', so the
     // telegram invite won't be found.
     expect(result).toEqual({ ok: false, reason: "invalid_or_expired" });
   });
@@ -306,7 +306,7 @@ describe("redeemVoiceInviteCode", () => {
 
     // Pre-create an active member for this phone on voice channel
     upsertContactChannel({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       externalUserId: phone,
       status: "active",
       policy: "allow",
@@ -314,7 +314,7 @@ describe("redeemVoiceInviteCode", () => {
 
     const result = redeemVoiceInviteCode({
       callerExternalUserId: phone,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
 
@@ -331,7 +331,7 @@ describe("redeemVoiceInviteCode", () => {
     const { code } = createVoiceInvite({ callerPhone: phone });
 
     upsertContactChannel({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       externalUserId: phone,
       status: "blocked",
       policy: "deny",
@@ -339,7 +339,7 @@ describe("redeemVoiceInviteCode", () => {
 
     const result = redeemVoiceInviteCode({
       callerExternalUserId: phone,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code,
     });
 
@@ -349,7 +349,7 @@ describe("redeemVoiceInviteCode", () => {
   test("empty callerExternalUserId fails", () => {
     const result = redeemVoiceInviteCode({
       callerExternalUserId: "",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       code: "123456",
     });
 

@@ -51,7 +51,7 @@ const getConversationMock = mock((id: string) => {
   return mockExistingConversations[id] ?? null;
 });
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -405,22 +405,22 @@ describe("pairDeliveryWithConversation", () => {
       source: "user",
       title: "User Thread",
     };
-    mockBindings["notification:sms:+15551234567"] = {
+    mockBindings["notification:slack:C0123ABCDEF"] = {
       conversationId: "conv-user-owned",
-      sourceChannel: "notification:sms",
-      externalChatId: "+15551234567",
+      sourceChannel: "notification:slack",
+      externalChatId: "C0123ABCDEF",
     };
 
     const signal = makeSignal();
     const copy = makeCopy();
     const bindingContext: DestinationBindingContext = {
-      sourceChannel: "sms" as NotificationChannel,
-      externalChatId: "+15551234567",
+      sourceChannel: "slack" as NotificationChannel,
+      externalChatId: "C0123ABCDEF",
     };
 
     const result = await pairDeliveryWithConversation(
       signal,
-      "sms" as NotificationChannel,
+      "slack" as NotificationChannel,
       copy,
       { bindingContext },
     );
@@ -436,7 +436,7 @@ describe("pairDeliveryWithConversation", () => {
       unknown
     >;
     expect(upsertArgs.conversationId).toBe("conv-001");
-    expect(upsertArgs.sourceChannel).toBe("notification:sms");
+    expect(upsertArgs.sourceChannel).toBe("notification:slack");
   });
 
   test("falls back to new conversation when bound conversation no longer exists", async () => {
@@ -546,13 +546,13 @@ describe("pairDeliveryWithConversation", () => {
       conversationId: "conv-gone",
     };
     const bindingContext: DestinationBindingContext = {
-      sourceChannel: "sms" as NotificationChannel,
-      externalChatId: "+15559876543",
+      sourceChannel: "slack" as NotificationChannel,
+      externalChatId: "C9876ZYXWVU",
     };
 
     const result = await pairDeliveryWithConversation(
       signal,
-      "sms" as NotificationChannel,
+      "slack" as NotificationChannel,
       copy,
       { threadAction, bindingContext },
     );
@@ -567,8 +567,8 @@ describe("pairDeliveryWithConversation", () => {
       unknown
     >;
     expect(upsertArgs.conversationId).toBe("conv-001");
-    expect(upsertArgs.sourceChannel).toBe("notification:sms");
-    expect(upsertArgs.externalChatId).toBe("+15559876543");
+    expect(upsertArgs.sourceChannel).toBe("notification:slack");
+    expect(upsertArgs.externalChatId).toBe("C9876ZYXWVU");
   });
 
   test("explicit reuse_existing takes precedence over binding-key reuse", async () => {
@@ -663,7 +663,7 @@ describe("pairDeliveryWithConversation", () => {
     // accepts NotificationChannel which is then cast internally to ChannelId.
     const result = await pairDeliveryWithConversation(
       signal,
-      "voice" as NotificationChannel,
+      "phone" as NotificationChannel,
       copy,
     );
 

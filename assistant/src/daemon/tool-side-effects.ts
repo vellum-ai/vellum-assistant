@@ -214,13 +214,12 @@ registerHook(
 registerHook(
   "voice_config_update",
   (_name, input, _result, { broadcastToAllClients }) => {
-    const setting =
-      (input.setting as string) ??
-      (input.activation_key ? "activation_key" : undefined);
+    const setting = input.setting as string | undefined;
     if (!setting) return;
 
     const SETTING_TO_KEY: Record<string, string> = {
       activation_key: "pttActivationKey",
+      tts_voice_id: "ttsVoiceId",
       wake_word_enabled: "wakeWordEnabled",
       wake_word_keyword: "wakeWordKeyword",
       wake_word_timeout: "wakeWordTimeoutSeconds",
@@ -230,7 +229,7 @@ registerHook(
 
     // Coerce the value to the correct type before broadcasting, matching
     // the validation logic in the tool's execute method.
-    const raw = input.value ?? input.activation_key;
+    const raw = input.value;
     let coerced: string | boolean | number = raw as string;
     if (setting === "wake_word_enabled") {
       coerced = raw === true || raw === "true";

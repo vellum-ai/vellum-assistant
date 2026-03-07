@@ -1,8 +1,15 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+// Mutable homedir override — when set, resolveInstanceDataDir reads from here.
+let homedirOverride: string | undefined;
+mock.module("node:os", () => ({
+  homedir: () => homedirOverride ?? homedir(),
+  tmpdir,
+}));
 
 import {
   ensureDataDir,
@@ -22,6 +29,7 @@ import {
   getWorkspaceHooksDir,
   getWorkspacePromptPath,
   getWorkspaceSkillsDir,
+  resolveInstanceDataDir,
 } from "../util/platform.js";
 
 const originalBaseDataDir = process.env.BASE_DATA_DIR;
@@ -32,6 +40,7 @@ afterEach(() => {
   } else {
     process.env.BASE_DATA_DIR = originalBaseDataDir;
   }
+  homedirOverride = undefined;
 });
 
 // Baseline path characterization: documents current pre-migration path layout.
@@ -136,5 +145,161 @@ describe("workspace path primitives", () => {
   test("workspace helpers honor BASE_DATA_DIR", () => {
     process.env.BASE_DATA_DIR = "/tmp/custom-base";
     expect(getWorkspaceDir()).toBe("/tmp/custom-base/.vellum/workspace");
+  });
+});
+
+describe("resolveInstanceDataDir", () => {
+  function makeTempHome(): string {
+    const dir = join(
+      tmpdir(),
+      `platform-home-${randomBytes(4).toString("hex")}`,
+    );
+    mkdirSync(dir, { recursive: true });
+    homedirOverride = dir;
+    return dir;
+  }
+
+  function writeLockfileToHome(
+    home: string,
+    data: Record<string, unknown>,
+  ): void {
+    writeFileSync(
+      join(home, ".vellum.lock.json"),
+      JSON.stringify(data, null, 2),
+    );
+  }
+
+  test("returns undefined when no lockfile exists", () => {
+    makeTempHome();
+    expect(resolveInstanceDataDir()).toBeUndefined();
+  });
+
+  test("returns sole local assistant instanceDir when no activeAssistant", () => {
+    const home = makeTempHome();
+    writeLockfileToHome(home, {
+      assistants: [
+        {
+          assistantId: "vellum-calm-stork",
+          cloud: "local",
+          resources: {
+            instanceDir:
+              "/Users/test/.local/share/vellum/assistants/vellum-calm-stork",
+          },
+        },
+      ],
+    });
+    expect(resolveInstanceDataDir()).toBe(
+      "/Users/test/.local/share/vellum/assistants/vellum-calm-stork",
+    );
+  });
+
+  test("returns active assistant instanceDir when activeAssistant matches", () => {
+    const home = makeTempHome();
+    writeLockfileToHome(home, {
+      activeAssistant: "vellum-bold-fox",
+      assistants: [
+        {
+          assistantId: "vellum-calm-stork",
+          cloud: "local",
+          resources: {
+            instanceDir:
+              "/Users/test/.local/share/vellum/assistants/vellum-calm-stork",
+          },
+        },
+        {
+          assistantId: "vellum-bold-fox",
+          cloud: "local",
+          resources: {
+            instanceDir:
+              "/Users/test/.local/share/vellum/assistants/vellum-bold-fox",
+          },
+        },
+      ],
+    });
+    expect(resolveInstanceDataDir()).toBe(
+      "/Users/test/.local/share/vellum/assistants/vellum-bold-fox",
+    );
+  });
+
+  test("returns undefined when multiple local assistants and no activeAssistant", () => {
+    const home = makeTempHome();
+    writeLockfileToHome(home, {
+      assistants: [
+        {
+          assistantId: "vellum-calm-stork",
+          cloud: "local",
+          resources: {
+            instanceDir:
+              "/Users/test/.local/share/vellum/assistants/vellum-calm-stork",
+          },
+        },
+        {
+          assistantId: "vellum-bold-fox",
+          cloud: "local",
+          resources: {
+            instanceDir:
+              "/Users/test/.local/share/vellum/assistants/vellum-bold-fox",
+          },
+        },
+      ],
+    });
+    expect(resolveInstanceDataDir()).toBeUndefined();
+  });
+
+  test("returns undefined when lockfile has no assistants array", () => {
+    const home = makeTempHome();
+    writeLockfileToHome(home, { version: 1 });
+    expect(resolveInstanceDataDir()).toBeUndefined();
+  });
+
+  test("returns undefined when lockfile is malformed JSON", () => {
+    const home = makeTempHome();
+    writeFileSync(join(home, ".vellum.lock.json"), "{{not json");
+    expect(resolveInstanceDataDir()).toBeUndefined();
+  });
+
+  test("treats assistants without cloud field as local", () => {
+    const home = makeTempHome();
+    writeLockfileToHome(home, {
+      assistants: [
+        {
+          assistantId: "vellum-quiet-owl",
+          resources: {
+            instanceDir:
+              "/Users/test/.local/share/vellum/assistants/vellum-quiet-owl",
+          },
+        },
+      ],
+    });
+    expect(resolveInstanceDataDir()).toBe(
+      "/Users/test/.local/share/vellum/assistants/vellum-quiet-owl",
+    );
+  });
+
+  test("ignores cloud assistants when resolving", () => {
+    const home = makeTempHome();
+    writeLockfileToHome(home, {
+      assistants: [
+        {
+          assistantId: "vellum-cloud-eagle",
+          cloud: "platform",
+          resources: {
+            instanceDir: "/some/cloud/path",
+          },
+        },
+        {
+          assistantId: "vellum-local-robin",
+          cloud: "local",
+          resources: {
+            instanceDir:
+              "/Users/test/.local/share/vellum/assistants/vellum-local-robin",
+          },
+        },
+      ],
+    });
+    // Only one local assistant, so it auto-selects
+    expect(resolveInstanceDataDir()).toBe(
+      "/Users/test/.local/share/vellum/assistants/vellum-local-robin",
+    );
   });
 });

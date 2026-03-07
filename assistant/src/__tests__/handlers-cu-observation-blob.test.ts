@@ -49,12 +49,13 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { ComputerUseSession } from "../daemon/computer-use-session.js";
-import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
+import { handleMessage } from "../daemon/handlers/index.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   CuObservation,
   IpcBlobRef,
   ServerMessage,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 /** Poll until a predicate is true or timeout (default 2s). */

@@ -1,7 +1,7 @@
 /**
  * Channel-agnostic approval orchestration module.
  *
- * Bridges the gap between external channel adapters (Telegram, SMS, etc.)
+ * Bridges the gap between external channel adapters (Telegram, Slack, etc.)
  * and the pending-interactions tracker / permission system:
  *
  *   1. Detect pending confirmations for a conversation

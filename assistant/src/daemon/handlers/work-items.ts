@@ -1,6 +1,6 @@
 import * as net from "node:net";
 
-import { getMessages } from "../../memory/conversation-store.js";
+import { getMessages } from "../../memory/conversation-crud.js";
 import { check, classifyRisk } from "../../permissions/checker.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { runTask } from "../../tasks/task-runner.js";

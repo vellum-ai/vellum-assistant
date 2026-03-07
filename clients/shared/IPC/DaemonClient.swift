@@ -142,6 +142,7 @@ public protocol DaemonClientProtocol {
     var isBlobTransportAvailable: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
+    func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws
     func connect() async throws
     func disconnect()
     func startSSE()
@@ -153,6 +154,10 @@ public protocol DaemonClientProtocol {
 }
 
 extension DaemonClientProtocol {
+    public func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws {
+        try send(signal)
+    }
+
     /// Default no-op implementation for clients that don't support HTTP surface fetches.
     public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
@@ -225,15 +230,48 @@ public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
     public let group: String
     public let totalInputTokens: Int
     public let totalOutputTokens: Int
+    public let totalCacheCreationTokens: Int
+    public let totalCacheReadTokens: Int
     public let totalEstimatedCostUsd: Double
     public let eventCount: Int
 
-    public init(group: String, totalInputTokens: Int, totalOutputTokens: Int, totalEstimatedCostUsd: Double, eventCount: Int) {
+    public init(
+        group: String,
+        totalInputTokens: Int,
+        totalOutputTokens: Int,
+        totalCacheCreationTokens: Int = 0,
+        totalCacheReadTokens: Int = 0,
+        totalEstimatedCostUsd: Double,
+        eventCount: Int
+    ) {
         self.group = group
         self.totalInputTokens = totalInputTokens
         self.totalOutputTokens = totalOutputTokens
+        self.totalCacheCreationTokens = totalCacheCreationTokens
+        self.totalCacheReadTokens = totalCacheReadTokens
         self.totalEstimatedCostUsd = totalEstimatedCostUsd
         self.eventCount = eventCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case group
+        case totalInputTokens
+        case totalOutputTokens
+        case totalCacheCreationTokens
+        case totalCacheReadTokens
+        case totalEstimatedCostUsd
+        case eventCount
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        group = try container.decode(String.self, forKey: .group)
+        totalInputTokens = try container.decode(Int.self, forKey: .totalInputTokens)
+        totalOutputTokens = try container.decode(Int.self, forKey: .totalOutputTokens)
+        totalCacheCreationTokens = try container.decodeIfPresent(Int.self, forKey: .totalCacheCreationTokens) ?? 0
+        totalCacheReadTokens = try container.decodeIfPresent(Int.self, forKey: .totalCacheReadTokens) ?? 0
+        totalEstimatedCostUsd = try container.decode(Double.self, forKey: .totalEstimatedCostUsd)
+        eventCount = try container.decode(Int.self, forKey: .eventCount)
     }
 }
 
@@ -466,8 +504,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `guardian_verification_response` message.
-    public var onGuardianVerificationResponse: ((GuardianVerificationResponseMessage) -> Void)?
+    /// Called when the daemon sends a `channel_verification_session_response` message.
+    public var onChannelVerificationSessionResponse: ((ChannelVerificationSessionResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `telegram_config_response` message.
     public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
@@ -894,6 +932,23 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 log.error("Send failed: \(error.localizedDescription)")
             }
         })
+    }
+
+    public func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws {
+        if let override = sendOverride {
+            try override(signal)
+            return
+        }
+
+        if let httpTransport {
+            guard httpTransport.isConnected else {
+                throw SendError.notConnected
+            }
+            try await httpTransport.sendConversationUnread(signal)
+            return
+        }
+
+        try send(signal)
     }
 
     // MARK: - Surface Actions
@@ -1390,22 +1445,26 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
     }
 
-    /// Create a guardian verification challenge, check status, revoke, or manage outbound verification for a channel.
-    public func sendGuardianVerification(
+    /// Channel verification session management: "create_session", "status", "cancel_session", "revoke", "resend_session".
+    public func sendChannelVerificationSession(
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
         rebind: Bool? = nil,
         destination: String? = nil,
-        originConversationId: String? = nil
+        originConversationId: String? = nil,
+        purpose: String? = nil,
+        contactChannelId: String? = nil
     ) throws {
-        try send(GuardianVerificationRequestMessage(
+        try send(ChannelVerificationSessionRequestMessage(
             action: action,
             channel: channel,
             sessionId: sessionId,
             rebind: rebind,
             destination: destination,
-            originConversationId: originConversationId
+            originConversationId: originConversationId,
+            purpose: purpose,
+            contactChannelId: contactChannelId
         ))
     }
 
@@ -1517,7 +1576,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return first
         }
 
-        guard let response, response.found != false else { return nil }
+        guard let response, response.found else { return nil }
         return RemoteIdentityInfo(
             name: response.name,
             role: response.role,
@@ -1774,16 +1833,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Contacts Management
 
-    /// Response from the channel verification endpoint.
-    public struct ChannelVerificationResult: Decodable {
-        public let ok: Bool
-        public let verificationSessionId: String?
-        public let expiresAt: Int?
-        public let sendCount: Int?
-        public let telegramBootstrapUrl: String?
-        public let error: String?
-    }
-
     /// A channel to attach when creating a new contact.
     public struct NewContactChannel: Codable {
         public let type: String
@@ -2019,32 +2068,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return result
         #else
         return [:]
-        #endif
-    }
-
-    /// Send a verification code to a contact's channel via the gateway.
-    /// Routes through `HTTPTransport` when available. Falls back to the
-    /// local gateway (port 7830) for socket-based connections.
-    public func verifyContactChannel(
-        contactChannelId: String
-    ) async throws -> ChannelVerificationResult? {
-        if let httpTransport {
-            return try await httpTransport.verifyContactChannel(
-                contactChannelId: contactChannelId
-            )
-        }
-
-        #if os(macOS)
-        let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
-        guard var request = buildLocalRequest(target: .gateway, path: "v1/contact-channels/\(encoded)/verify", method: "POST") else { return nil }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode) else { return nil }
-        return try JSONDecoder().decode(ChannelVerificationResult.self, from: data)
-        #else
-        return nil
         #endif
     }
 
@@ -2308,7 +2331,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Actor Token Bootstrap
 
-    /// Response from `POST /v1/integrations/guardian/vellum/bootstrap`.
+    /// Response from `POST /v1/guardian/init`.
     /// Accepts both `accessToken` (new) and `actorToken` (legacy) field names.
     public struct GuardianBootstrapResponse: Decodable {
         public let guardianPrincipalId: String
@@ -2363,7 +2386,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         var request: URLRequest
 
         if let httpTransport {
-            guard let url = URL(string: "\(httpTransport.baseURL)/v1/integrations/guardian/vellum/bootstrap") else {
+            guard let url = URL(string: "\(httpTransport.baseURL)/v1/guardian/init") else {
                 log.error("Invalid bootstrap URL")
                 return false
             }
@@ -2375,7 +2398,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
             request = r
-        } else if var r = buildLocalRequest(target: .daemon, path: "v1/integrations/guardian/vellum/bootstrap", method: "POST", timeout: 15) {
+        } else if var r = buildLocalRequest(target: .daemon, path: "v1/guardian/init", method: "POST", timeout: 15) {
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request = r
         } else {

@@ -6,7 +6,7 @@
 import {
   getExpiredPendingApprovals,
   updateApprovalDecision,
-} from "../../memory/channel-guardian-store.js";
+} from "../../memory/guardian-approvals.js";
 import { getLogger } from "../../util/logger.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -31,7 +31,7 @@ let expirySweepTimer: ReturnType<typeof setInterval> | null = null;
  *
  * Accepts a `gatewayBaseUrl` rather than a fixed delivery URL so that
  * each approval's notification is routed to the correct channel-specific
- * endpoint (e.g. `/deliver/telegram`, `/deliver/sms`).
+ * endpoint (e.g. `/deliver/telegram`, `/deliver/voice`).
  */
 export function sweepExpiredGuardianApprovals(
   gatewayBaseUrl: string,

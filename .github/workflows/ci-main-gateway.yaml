@@ -38,8 +38,8 @@ jobs:
       - name: Test
         run: bun run test
 
-  notify:
-    name: Slack Notification
+  notify-gateway:
+    name: Slack Notification (Gateway)
     needs: [checks]
     if: always()
     continue-on-error: true

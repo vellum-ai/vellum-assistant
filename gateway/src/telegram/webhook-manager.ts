@@ -1,3 +1,5 @@
+import type { CredentialCache } from "../credential-cache.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
 import { callTelegramApi } from "./api.js";
 import { getLogger } from "../logger.js";
@@ -13,6 +15,12 @@ interface WebhookInfo {
 
 const ALLOWED_UPDATES = ["message", "edited_message", "callback_query"];
 
+/** Options bag for optional cache injection into webhook reconciliation. */
+export type WebhookManagerCaches = {
+  credentials?: CredentialCache;
+  configFile?: ConfigFileCache;
+};
+
 /**
  * Reconciles the Telegram webhook registration against the expected state
  * derived from the gateway's ingress URL and current webhook secret.
@@ -24,15 +32,35 @@ const ALLOWED_UPDATES = ["message", "edited_message", "callback_query"];
  */
 export async function reconcileTelegramWebhook(
   config: GatewayConfig,
+  caches?: WebhookManagerCaches,
 ): Promise<void> {
-  if (!config.telegramBotToken || !config.telegramWebhookSecret) {
+  // Resolve credentials — prefer cache, fall back to config
+  let botToken: string | undefined;
+  let webhookSecret: string | undefined;
+  if (caches?.credentials) {
+    botToken = await caches.credentials.get("credential:telegram:bot_token");
+    webhookSecret = await caches.credentials.get(
+      "credential:telegram:webhook_secret",
+    );
+  }
+  botToken ??= config.telegramBotToken;
+  webhookSecret ??= config.telegramWebhookSecret;
+
+  if (!botToken || !webhookSecret) {
     log.debug(
       "Skipping webhook reconciliation: Telegram credentials not configured",
     );
     return;
   }
 
-  if (!config.ingressPublicBaseUrl) {
+  // Resolve ingress URL — prefer cache, fall back to config
+  let ingressUrl: string | undefined;
+  if (caches?.configFile) {
+    ingressUrl = caches.configFile.getString("ingress", "publicBaseUrl");
+  }
+  ingressUrl ??= config.ingressPublicBaseUrl;
+
+  if (!ingressUrl) {
     log.debug(
       "Skipping webhook reconciliation: INGRESS_PUBLIC_BASE_URL not set",
     );
@@ -41,10 +69,15 @@ export async function reconcileTelegramWebhook(
 
   // Strip trailing slashes to avoid double-slash in the path
   // (e.g. "https://example.com/" + "/webhooks/telegram" => "https://example.com//webhooks/telegram")
-  const baseUrl = config.ingressPublicBaseUrl.replace(/\/+$/, "");
+  const baseUrl = ingressUrl.replace(/\/+$/, "");
   const expectedUrl = `${baseUrl}/webhooks/telegram`;
 
-  const info = await callTelegramApi<WebhookInfo>(config, "getWebhookInfo", {});
+  const info = await callTelegramApi<WebhookInfo>(
+    config,
+    "getWebhookInfo",
+    {},
+    caches?.credentials ? { credentials: caches.credentials } : undefined,
+  );
 
   log.info(
     {
@@ -55,11 +88,16 @@ export async function reconcileTelegramWebhook(
     "Reconciling Telegram webhook",
   );
 
-  await callTelegramApi(config, "setWebhook", {
-    url: expectedUrl,
-    secret_token: config.telegramWebhookSecret,
-    allowed_updates: ALLOWED_UPDATES,
-  });
+  await callTelegramApi(
+    config,
+    "setWebhook",
+    {
+      url: expectedUrl,
+      secret_token: webhookSecret,
+      allowed_updates: ALLOWED_UPDATES,
+    },
+    caches?.credentials ? { credentials: caches.credentials } : undefined,
+  );
 
   log.info({ url: expectedUrl }, "Telegram webhook registered successfully");
 }

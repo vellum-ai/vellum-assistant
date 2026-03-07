@@ -33,20 +33,25 @@ import {
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
-import type { ServerMessage } from "../daemon/ipc-contract.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
+  markConversationUnread,
   recordConversationSeenSignal,
   type SignalType,
 } from "../memory/conversation-attention-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import {
+  countConversations,
+  listConversations,
+} from "../memory/conversation-queries.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
 import {
   consumeCallback,
   consumeCallbackError,
 } from "../security/oauth-callback-registry.js";
+import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
@@ -102,6 +107,7 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
+import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
 import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
@@ -116,7 +122,10 @@ import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
-import { integrationRouteDefinitions } from "./routes/integration-routes.js";
+import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
+import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
+import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
+import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { mcpRouteDefinitions } from "./routes/mcp-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
@@ -127,11 +136,9 @@ import {
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
-import { slackShareRouteDefinitions } from "./routes/slack-share-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
-import { twilioRouteDefinitions } from "./routes/twilio-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 
 // Re-export for consumers
@@ -459,16 +466,10 @@ export class RuntimeHttpServer {
     // needs to work when the access token is expired. Bootstrap has its
     // own loopback IP validation; refresh is secured by the refresh token
     // in the request body (32 random bytes, hash-only storage).
-    if (
-      path === "/v1/integrations/guardian/vellum/bootstrap" &&
-      req.method === "POST"
-    ) {
+    if (path === "/v1/guardian/init" && req.method === "POST") {
       return await handleGuardianBootstrap(req, server);
     }
-    if (
-      path === "/v1/integrations/guardian/vellum/refresh" &&
-      req.method === "POST"
-    ) {
+    if (path === "/v1/guardian/refresh" && req.method === "POST") {
       return await handleGuardianRefresh(req);
     }
 
@@ -722,12 +723,8 @@ export class RuntimeHttpServer {
         handler: ({ url }) => {
           const limit = Number(url.searchParams.get("limit") ?? 50);
           const offset = Number(url.searchParams.get("offset") ?? 0);
-          const conversations = conversationStore.listConversations(
-            limit,
-            false,
-            offset,
-          );
-          const totalCount = conversationStore.countConversations();
+          const conversations = listConversations(limit, false, offset);
+          const totalCount = countConversations();
           const conversationIds = conversations.map((c) => c.id);
           const bindings =
             externalConversationStore.getBindingsForConversations(
@@ -774,6 +771,7 @@ export class RuntimeHttpServer {
                 updatedAt: c.updatedAt,
                 threadType: c.threadType === "private" ? "private" : "standard",
                 source: c.source ?? "user",
+                ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
                 ...(binding
                   ? {
                       channelBinding: {
@@ -834,6 +832,34 @@ export class RuntimeHttpServer {
         },
       },
 
+      {
+        endpoint: "conversations/unread",
+        method: "POST",
+        handler: async ({ req }) => {
+          const body = (await req.json()) as Record<string, unknown>;
+          const conversationId = body.conversationId as string | undefined;
+          if (!conversationId)
+            return httpError("BAD_REQUEST", "Missing conversationId", 400);
+          try {
+            markConversationUnread(conversationId);
+            return Response.json({ ok: true });
+          } catch (err) {
+            if (err instanceof UserError) {
+              return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
+            }
+            log.error(
+              { err, conversationId },
+              "POST /v1/conversations/unread: failed",
+            );
+            return httpError(
+              "INTERNAL_ERROR",
+              "Failed to mark conversation unread",
+              500,
+            );
+          }
+        },
+      },
+
       ...conversationRouteDefinitions({
         interfacesDir: this.interfacesDir,
         sendMessageDeps: this.sendMessageDeps,
@@ -853,7 +879,9 @@ export class RuntimeHttpServer {
       // contacts/:id catch-all must follow invite routes to avoid shadowing
       ...contactCatchAllRouteDefinitions(),
 
-      ...integrationRouteDefinitions(),
+      ...telegramRouteDefinitions(),
+      ...channelVerificationRouteDefinitions(),
+      ...slackChannelRouteDefinitions(),
       ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),

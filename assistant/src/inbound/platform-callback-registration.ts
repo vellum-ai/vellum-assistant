@@ -52,7 +52,7 @@ interface RegisterCallbackRouteResponse {
  * @param callbackPath - The path portion after the ingress base URL
  *   (e.g. "webhooks/twilio/voice"). Leading/trailing slashes are stripped
  *   by the platform.
- * @param type - The route type identifier (e.g. "twilio_voice", "twilio_sms",
+ * @param type - The route type identifier (e.g. "twilio_voice",
  *   "twilio_status", "oauth", "telegram").
  * @returns The platform-provided callback URL that external services should use.
  * @throws If the platform request fails.

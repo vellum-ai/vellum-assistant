@@ -2,11 +2,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
-// Mock conversation-store before importing tool executors that depend on it.
+// Mock conversation-crud before importing tool executors that depend on it.
 let mockGetMessages: (
   conversationId: string,
 ) => Array<{ role: string; content: string }> | null = () => null;
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},

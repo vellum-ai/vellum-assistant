@@ -10,6 +10,41 @@ import { importPlaywright } from "./runtime-check.js";
 const log = getLogger("browser-manager");
 
 /**
+ * Well-known paths where Google Chrome is installed on each platform.
+ * Returns the first path that exists on disk, or null if none found.
+ */
+function findSystemChrome(): string | null {
+  const candidates: string[] = [];
+
+  if (process.platform === "darwin") {
+    candidates.push(
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    );
+  } else if (process.platform === "win32") {
+    const programFiles = process.env.PROGRAMFILES || "C:\\Program Files";
+    const programFilesX86 =
+      process.env["PROGRAMFILES(X86)"] || "C:\\Program Files (x86)";
+    candidates.push(
+      join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+      join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+    );
+  } else {
+    // Linux
+    candidates.push(
+      "/usr/bin/google-chrome",
+      "/usr/bin/google-chrome-stable",
+    );
+  }
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
  * Returns true when the host has a GUI capable of displaying a browser window.
  * macOS and Windows always have a display; Linux requires DISPLAY or WAYLAND_DISPLAY.
  */
@@ -187,15 +222,11 @@ class BrowserManager {
     this.contextCreating = (async () => {
       await authSessionCache.load();
 
-      // Resolve launch function: use injected test launcher or resolve
-      // playwright (may install at runtime in compiled binaries).
-      let launch: LaunchFn;
-      if (launchPersistentContext) {
-        launch = launchPersistentContext;
-      } else {
-        const pw = await importPlaywright();
-
-        // Auto-install Chromium if the browser binary is missing
+      // Ensure Playwright's bundled Chrome for Testing is installed.
+      // Accepts the playwright module so it can be called from different scopes.
+      const ensureChromeForTesting = async (
+        pw: Awaited<ReturnType<typeof importPlaywright>>,
+      ) => {
         let chromiumInstalled = false;
         try {
           const execPath = pw.chromium.executablePath();
@@ -237,14 +268,60 @@ class BrowserManager {
             throw new Error(`Failed to install Chromium: ${msg}`);
           }
         }
+      };
 
-        launch = pw.chromium.launchPersistentContext.bind(pw.chromium);
+      // Resolve launch function: use injected test launcher or resolve
+      // playwright (may install at runtime in compiled binaries).
+      let launch: LaunchFn;
+      if (launchPersistentContext) {
+        launch = launchPersistentContext;
+      } else {
+        const pw = await importPlaywright();
+
+        // Prefer a locally-installed Google Chrome over Chrome for Testing.
+        // If system Chrome exists but fails to launch, fall back to the
+        // bundled Chrome for Testing so browser features remain available.
+        const systemChrome = findSystemChrome();
+
+        if (systemChrome) {
+          log.info(
+            { path: systemChrome },
+            "Using system Chrome installation",
+          );
+          launch = (userDataDir, options) =>
+            pw.chromium.launchPersistentContext(userDataDir, {
+              ...options,
+              executablePath: systemChrome,
+            });
+        } else {
+          await ensureChromeForTesting(pw);
+          launch = pw.chromium.launchPersistentContext.bind(pw.chromium);
+        }
       }
 
       const profileDir = getProfileDir();
       mkdirSync(profileDir, { recursive: true });
       const headless = !canDisplayGui();
-      const ctx = await launch(profileDir, { headless });
+
+      let ctx: BrowserContext;
+      try {
+        ctx = await launch(profileDir, { headless });
+      } catch (err) {
+        // If system Chrome was selected but failed, fall back to Chrome for Testing
+        if (findSystemChrome() && !launchPersistentContext) {
+          log.warn(
+            { err },
+            "System Chrome launch failed, falling back to Chrome for Testing",
+          );
+          const pw = await importPlaywright();
+          await ensureChromeForTesting(pw);
+          ctx = await pw.chromium.launchPersistentContext(profileDir, {
+            headless,
+          });
+        } else {
+          throw err;
+        }
+      }
       log.info(
         { profileDir, headless },
         headless

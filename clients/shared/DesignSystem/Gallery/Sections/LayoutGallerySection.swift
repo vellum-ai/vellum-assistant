@@ -33,7 +33,7 @@ struct LayoutGallerySection: View {
             )
 
             VCard(padding: 0) {
-                VSidePanel(title: "Inspector", onClose: {}) {
+                VSidePanel(title: "Inspector", onClose: {}, pinnedContent: { EmptyView() }) {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Panel content goes here")
                             .font(VFont.body)
@@ -112,7 +112,7 @@ struct LayoutGallerySection: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(VColor.surface)
                     } panel: {
-                        VSidePanel(title: "Details", onClose: { showPanel = false }) {
+                        VSidePanel(title: "Details", onClose: { showPanel = false }, pinnedContent: { EmptyView() }) {
                             Text("Side panel content")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textSecondary)

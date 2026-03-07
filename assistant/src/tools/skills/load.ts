@@ -126,14 +126,14 @@ export class SkillLoadTool implements Tool {
           continue;
 
         childLines.push(
-          `  - ${child.id}: ${child.name} — ${child.description} (${child.skillFilePath})`,
+          `  - ${child.id}: ${child.displayName} — ${child.description} (${child.skillFilePath})`,
         );
 
         // Load the included skill's body content
         const childLoaded = loadSkillBySelector(childId);
         if (childLoaded.skill && childLoaded.skill.body.length > 0) {
           includedBodies.push(
-            `--- Included Skill: ${childLoaded.skill.name} (${childId}) ---\n${childLoaded.skill.body}`,
+            `--- Included Skill: ${childLoaded.skill.displayName} (${childId}) ---\n${childLoaded.skill.body}`,
           );
         }
       }
@@ -182,7 +182,7 @@ export class SkillLoadTool implements Tool {
 
     return {
       content: [
-        `Skill: ${skill.name}`,
+        `Skill: ${skill.displayName}`,
         `ID: ${skill.id}`,
         `Description: ${skill.description}`,
         `Path: ${skill.skillFilePath}`,

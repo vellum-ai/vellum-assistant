@@ -104,7 +104,9 @@ extension AppDelegate {
                 // switching between local instances connects to the correct daemon
                 // and authenticates with the correct session token.
                 let socketPath = assistant?.socketPath ?? DaemonClient.resolveSocketPath()
-                let config = DaemonConfig(socketPath: socketPath, instanceDir: assistant?.instanceDir)
+                let instanceDir = assistant?.instanceDir
+                let featureFlagToken = instanceDir.map { readFeatureFlagToken(environment: ["BASE_DATA_DIR": $0]) } ?? readFeatureFlagToken()
+                let config = DaemonConfig(transport: .socket(path: socketPath), instanceDir: instanceDir, featureFlagToken: featureFlagToken)
                 services.reconfigureDaemonClient(config: config)
             }
             return

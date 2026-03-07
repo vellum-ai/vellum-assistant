@@ -214,7 +214,7 @@ async function bootstrapAccessToken(
   }
 
   const deviceId = `vellum-cli:${platform()}:${hostname()}:${userInfo().username}`;
-  const url = `${baseUrl}/v1/integrations/guardian/vellum/bootstrap`;
+  const url = `${baseUrl}/v1/guardian/init`;
 
   const response = await fetch(url, {
     method: "POST",

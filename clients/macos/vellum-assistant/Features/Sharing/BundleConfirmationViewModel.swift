@@ -6,9 +6,9 @@ import VellumAssistantShared
 @MainActor
 @Observable
 final class BundleConfirmationViewModel {
-    let manifest: OpenBundleResponseMessage.Manifest
-    let scanResult: OpenBundleResponseMessage.ScanResult
-    let signatureResult: OpenBundleResponseMessage.SignatureResult
+    let manifest: IPCOpenBundleResponseManifest
+    let scanResult: IPCOpenBundleResponseScanResult
+    let signatureResult: IPCOpenBundleResponseSignatureResult
     let bundleSizeBytes: Int
     let filePath: String
 

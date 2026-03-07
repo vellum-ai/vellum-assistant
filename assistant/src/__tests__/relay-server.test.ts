@@ -199,17 +199,17 @@ import {
   resolveCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import {
-  createChallenge,
+  createInboundSession,
   createVerificationSession,
-} from "../memory/channel-guardian-store.js";
-import { addMessage, getMessages } from "../memory/conversation-store.js";
+} from "../memory/channel-verification-sessions.js";
+import { addMessage, getMessages } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import { createInvite } from "../memory/invite-store.js";
 import { conversations } from "../memory/schema.js";
 import {
   createOutboundSession,
   getGuardianBinding,
-} from "../runtime/channel-guardian-service.js";
+} from "../runtime/channel-verification-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 
 initializeDb();
@@ -280,7 +280,7 @@ function resetTables() {
     "messages",
     "conversations",
     "assistant_ingress_invites",
-    "channel_guardian_verification_challenges",
+    "channel_verification_sessions",
     "channel_guardian_rate_limits",
     "canonical_guardian_requests",
     "canonical_guardian_deliveries",
@@ -292,7 +292,7 @@ function resetTables() {
 
 function addTrustedVoiceContact(phoneNumber: string): void {
   upsertContactChannel({
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     externalUserId: phoneNumber,
     externalChatId: phoneNumber,
     status: "active",
@@ -305,7 +305,7 @@ function createVoiceVerificationSession(
   sessionId?: string,
 ): string {
   const { secret } = createOutboundSession({
-    channel: "voice",
+    channel: "phone",
     expectedExternalUserId: expectedPhoneE164,
     expectedChatId: expectedPhoneE164,
     expectedPhoneE164,
@@ -317,9 +317,9 @@ function createVoiceVerificationSession(
 function createPendingVoiceGuardianChallenge(
   secret: string = "123456",
 ): string {
-  createChallenge({
+  createInboundSession({
     id: randomUUID(),
-    channel: "voice",
+    channel: "phone",
     challengeHash: createHash("sha256").update(secret).digest("hex"),
     expiresAt: Date.now() + 10 * 60 * 1000,
   });
@@ -383,10 +383,10 @@ describe("relay-server", () => {
               "user",
               JSON.stringify([{ type: "text", text: content }]),
               {
-                userMessageChannel: "voice",
-                assistantMessageChannel: "voice",
-                userMessageInterface: "voice",
-                assistantMessageInterface: "voice",
+                userMessageChannel: "phone",
+                assistantMessageChannel: "phone",
+                userMessageInterface: "phone",
+                assistantMessageInterface: "phone",
               },
             );
             return message.id;
@@ -434,10 +434,10 @@ describe("relay-server", () => {
                 "assistant",
                 JSON.stringify([{ type: "text", text: fullText }]),
                 {
-                  userMessageChannel: "voice",
-                  assistantMessageChannel: "voice",
-                  userMessageInterface: "voice",
-                  assistantMessageInterface: "voice",
+                  userMessageChannel: "phone",
+                  assistantMessageChannel: "phone",
+                  userMessageInterface: "phone",
+                  assistantMessageInterface: "phone",
                 },
               );
             }
@@ -1355,7 +1355,7 @@ describe("relay-server", () => {
     );
 
     // Should be in verification-pending state
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
 
     // Verify TTS prompt was sent asking for code
@@ -1374,11 +1374,11 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verification should have succeeded
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding should have been created
-    const binding = getGuardianBinding("self", "voice");
+    const binding = getGuardianBinding("self", "phone");
     expect(binding).not.toBeNull();
 
     // Orchestrator greeting should have fired
@@ -1392,13 +1392,11 @@ describe("relay-server", () => {
     // Verify events recorded
     const guardianEvents = getCallEvents(session.id);
     expect(
-      guardianEvents.some(
-        (e) => e.eventType === "guardian_voice_verification_started",
-      ),
+      guardianEvents.some((e) => e.eventType === "voice_verification_started"),
     ).toBe(true);
     expect(
       guardianEvents.some(
-        (e) => e.eventType === "guardian_voice_verification_succeeded",
+        (e) => e.eventType === "voice_verification_succeeded",
       ),
     ).toBe(true);
 
@@ -1431,7 +1429,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Speak the code as individual digit characters
     const spokenCode = secret.split("").join(" ");
@@ -1447,11 +1445,11 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verification should have succeeded
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Binding created
-    const binding = getGuardianBinding("self", "voice");
+    const binding = getGuardianBinding("self", "phone");
     expect(binding).not.toBeNull();
 
     // Greeting should have started
@@ -1475,7 +1473,7 @@ describe("relay-server", () => {
     });
 
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
       guardianPrincipalId: "+15550001111",
@@ -1506,7 +1504,7 @@ describe("relay-server", () => {
         };
       }
     )?.trustContext;
-    expect(runtimeContext?.sourceChannel).toBe("voice");
+    expect(runtimeContext?.sourceChannel).toBe("phone");
     expect(runtimeContext?.trustClass).toBe("guardian");
     expect(runtimeContext?.guardianExternalUserId).toBe("+15550001111");
 
@@ -1523,7 +1521,7 @@ describe("relay-server", () => {
     });
 
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15550009999",
       guardianDeliveryChatId: "+15550009999",
       guardianPrincipalId: "+15550009999",
@@ -1556,7 +1554,7 @@ describe("relay-server", () => {
         };
       }
     )?.trustContext;
-    expect(runtimeContext?.sourceChannel).toBe("voice");
+    expect(runtimeContext?.sourceChannel).toBe("phone");
     expect(runtimeContext?.trustClass).toBe("trusted_contact");
     expect(runtimeContext?.guardianExternalUserId).toBe("+15550009999");
     expect(runtimeContext?.requesterExternalUserId).toBe("+15550002222");
@@ -1576,7 +1574,7 @@ describe("relay-server", () => {
     });
 
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
       guardianPrincipalId: "+15550001111",
@@ -1607,7 +1605,7 @@ describe("relay-server", () => {
         };
       }
     )?.trustContext;
-    expect(runtimeContext?.sourceChannel).toBe("voice");
+    expect(runtimeContext?.sourceChannel).toBe("phone");
     expect(runtimeContext?.trustClass).toBe("guardian");
     expect(runtimeContext?.guardianExternalUserId).toBe("+15550001111");
 
@@ -1659,7 +1657,7 @@ describe("relay-server", () => {
         };
       }
     )?.trustContext;
-    expect(runtimeContext?.sourceChannel).toBe("voice");
+    expect(runtimeContext?.sourceChannel).toBe("phone");
     expect(runtimeContext?.trustClass).toBe("unknown");
 
     relay.destroy();
@@ -1715,7 +1713,7 @@ describe("relay-server", () => {
         };
       }
     )?.trustContext;
-    expect(postVerify?.sourceChannel).toBe("voice");
+    expect(postVerify?.sourceChannel).toBe("phone");
     expect(postVerify?.trustClass).toBe("guardian");
     expect(postVerify?.guardianExternalUserId).toBe(session.fromNumber);
 
@@ -1744,7 +1742,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter a wrong code via DTMF
     for (const digit of "000000") {
@@ -1752,7 +1750,7 @@ describe("relay-server", () => {
     }
 
     // Should still be in verification-pending state (retry allowed)
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
 
     // Should have sent a retry prompt
@@ -1788,7 +1786,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter wrong codes 3 times (max attempts = 3)
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -1816,7 +1814,7 @@ describe("relay-server", () => {
     // Verify events
     const events = getCallEvents(session.id);
     expect(
-      events.some((e) => e.eventType === "guardian_voice_verification_failed"),
+      events.some((e) => e.eventType === "voice_verification_failed"),
     ).toBe(true);
 
     // Let the delayed endSession callback flush
@@ -1862,7 +1860,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Should NOT be in guardian verification state
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Should have started normal greeting
@@ -1898,7 +1896,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Speak only 3 digits
     await relay.handleMessage(
@@ -1911,7 +1909,7 @@ describe("relay-server", () => {
     );
 
     // Should still be in verification state
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Should have prompted for more digits
     const textMessages = ws.sentMessages
@@ -1937,8 +1935,8 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559999999",
-      callMode: "guardian_verification",
-      guardianVerificationSessionId: "gv-session-ptr-success",
+      callMode: "verification",
+      verificationSessionId: "gv-session-ptr-success",
       initiatedFromConversationId: "conv-gv-pointer-success-origin",
     });
 
@@ -1956,12 +1954,12 @@ describe("relay-server", () => {
         from: "+15551111111",
         to: "+15559999999",
         customParameters: {
-          guardianVerificationSessionId: "gv-session-ptr-success",
+          verificationSessionId: "gv-session-ptr-success",
         },
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter the correct code via DTMF
     for (const digit of secret) {
@@ -1969,7 +1967,7 @@ describe("relay-server", () => {
     }
 
     // Verification should have succeeded
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
 
     // Origin conversation should have a pointer message
     const originText = getLatestAssistantText("conv-gv-pointer-success-origin");
@@ -1992,8 +1990,8 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559999999",
-      callMode: "guardian_verification",
-      guardianVerificationSessionId: "gv-session-ptr-fail",
+      callMode: "verification",
+      verificationSessionId: "gv-session-ptr-fail",
       initiatedFromConversationId: "conv-gv-pointer-fail-origin",
     });
 
@@ -2008,12 +2006,12 @@ describe("relay-server", () => {
         from: "+15551111111",
         to: "+15559999999",
         customParameters: {
-          guardianVerificationSessionId: "gv-session-ptr-fail",
+          verificationSessionId: "gv-session-ptr-fail",
         },
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter wrong codes 3 times (max attempts = 3)
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -2055,7 +2053,7 @@ describe("relay-server", () => {
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       maxUses: 1,
       expectedExternalUserId: "+15558887777",
       voiceCodeHash: codeHash,
@@ -2128,7 +2126,7 @@ describe("relay-server", () => {
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       maxUses: 1,
       expectedExternalUserId: "+15558886666",
       voiceCodeHash: codeHash,
@@ -2453,7 +2451,7 @@ describe("relay-server", () => {
 
     // Create a blocked member
     upsertContactChannel({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       externalUserId: "+15558881111",
       externalChatId: "+15558881111",
       status: "blocked",
@@ -2529,7 +2527,7 @@ describe("relay-server", () => {
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "+15557770001",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
@@ -2577,7 +2575,7 @@ describe("relay-server", () => {
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "+15557770002",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
@@ -2664,7 +2662,7 @@ describe("relay-server", () => {
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "+15557770003",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
@@ -2928,7 +2926,7 @@ describe("relay-server", () => {
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "+15557770011",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
@@ -3876,13 +3874,13 @@ describe("relay-server", () => {
     });
 
     // Create a trusted-contact verification challenge with status 'pending'
-    // so getPendingChallenge finds it during inbound setup, and
-    // verificationPurpose 'trusted_contact' so validateAndConsumeChallenge
+    // so getPendingSession finds it during inbound setup, and
+    // verificationPurpose 'trusted_contact' so validateAndConsumeVerification
     // returns the correct verificationType.
     const tcSecret = "654321";
     createVerificationSession({
       id: randomUUID(),
-      channel: "voice",
+      channel: "phone",
       challengeHash: createHash("sha256").update(tcSecret).digest("hex"),
       expiresAt: Date.now() + 10 * 60 * 1000,
       status: "pending",
@@ -3906,7 +3904,7 @@ describe("relay-server", () => {
     );
 
     // Should be in verification-pending state
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
 
     // Enter the correct code via DTMF
@@ -3917,7 +3915,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verification should have succeeded — call remains connected
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Deterministic handoff copy should have been sent (not a fresh greeting)
@@ -3975,7 +3973,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter the correct code
     for (const digit of secret) {
@@ -3985,11 +3983,11 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Should have transitioned to connected with normal greeting (not handoff copy)
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding should have been created
-    const binding = getGuardianBinding("self", "voice");
+    const binding = getGuardianBinding("self", "phone");
     expect(binding).not.toBeNull();
 
     // Normal greeting should fire (from mockSendMessage), not the handoff copy
@@ -4015,7 +4013,7 @@ describe("relay-server", () => {
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       maxUses: 1,
       expectedExternalUserId: "+15557776666",
       voiceCodeHash: codeHash,
@@ -4089,7 +4087,7 @@ describe("relay-server", () => {
 
     // Create a guardian binding with a different displayName
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15559990001",
       guardianDeliveryChatId: "+15559990001",
       guardianPrincipalId: "+15559990001",
@@ -4134,7 +4132,7 @@ describe("relay-server", () => {
 
     // Create a guardian binding with a displayName
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15559990002",
       guardianDeliveryChatId: "+15559990002",
       guardianPrincipalId: "+15559990002",

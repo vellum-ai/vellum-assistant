@@ -95,7 +95,7 @@ const conversation = {
   memoryScopeId: "default" as string,
 };
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -108,13 +108,16 @@ mock.module("../memory/conversation-store.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  getLatestConversation: () => conversation,
   createConversation: () => conversation,
   getConversation: (id: string) =>
     id === conversation.id ? conversation : null,
   getConversationThreadType: () => "standard",
   getConversationMemoryScopeId: () => "default",
   getMessages: () => [],
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  getLatestConversation: () => conversation,
   listConversations: () => [conversation],
   countConversations: () => 1,
 }));

@@ -15,8 +15,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -272,6 +270,7 @@ describe("scheduler RRULE execution", () => {
       name: "Cron Schedule",
       cronExpression: "* * * * *",
       message: "Cron message",
+      syntax: "cron",
     });
 
     // Verify it defaults to cron syntax
@@ -555,7 +554,7 @@ describe("scheduler RRULE execution", () => {
       routingIntent: "multi_channel",
       routingHints: {
         requestedByUser: true,
-        channelMentions: ["telegram", "sms"],
+        channelMentions: ["telegram", "slack"],
       },
     });
 
@@ -592,7 +591,7 @@ describe("scheduler RRULE execution", () => {
       routingIntent: "multi_channel",
       routingHints: {
         requestedByUser: true,
-        channelMentions: ["telegram", "sms"],
+        channelMentions: ["telegram", "slack"],
       },
     });
     expect(getReminder(reminder.id)?.status).toBe("fired");

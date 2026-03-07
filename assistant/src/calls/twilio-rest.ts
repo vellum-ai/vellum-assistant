@@ -2,12 +2,11 @@
  * Reusable Twilio REST API helpers.
  *
  * Provides low-level building blocks (auth header, base URL, credential
- * resolution) shared across the voice provider, SMS channel, and IPC
+ * resolution) shared across the voice provider and IPC
  * config handler. Uses fetch() directly — no twilio npm package.
  */
 
 import { loadConfig } from "../config/loader.js";
-import { getSecureKey } from "../security/secure-keys.js";
 import { ConfigError, ProviderError } from "../util/errors.js";
 
 export interface TwilioCredentials {
@@ -15,27 +14,25 @@ export interface TwilioCredentials {
   authToken: string;
 }
 
-/**
- * Resolve the Twilio Account SID from config.
- * Returns undefined if not found.
- */
+/** Resolve the Twilio Account SID from config. */
 function resolveAccountSid(): string | undefined {
   try {
     const config = loadConfig();
-    if (config.twilio?.accountSid) return config.twilio.accountSid;
+    return config.twilio?.accountSid || undefined;
   } catch {
     // Config may not be available during early startup
+    return undefined;
   }
-  return undefined;
 }
 
-/** Resolve Twilio credentials from config and secure key store. Throws if not configured. */
+/** Resolve Twilio credentials from config. Throws if not configured. */
 export function getTwilioCredentials(): TwilioCredentials {
   const accountSid = resolveAccountSid();
-  const authToken = getSecureKey("credential:twilio:auth_token");
+  const config = loadConfig();
+  const authToken = config.twilio?.authToken || undefined;
   if (!accountSid || !authToken) {
     throw new ConfigError(
-      "Twilio credentials not configured. Set twilio.accountSid via config and credential:twilio:auth_token via the credential_store tool.",
+      "Twilio credentials not configured. Set twilio.accountSid and twilio.authToken via config.",
     );
   }
   return { accountSid, authToken };
@@ -43,9 +40,12 @@ export function getTwilioCredentials(): TwilioCredentials {
 
 /** Check whether Twilio credentials are present (non-throwing). */
 export function hasTwilioCredentials(): boolean {
-  return (
-    !!resolveAccountSid() && !!getSecureKey("credential:twilio:auth_token")
-  );
+  try {
+    const config = loadConfig();
+    return !!resolveAccountSid() && !!config.twilio?.authToken;
+  } catch {
+    return false;
+  }
 }
 
 /** Build the HTTP Basic auth header for Twilio API requests. */
@@ -66,7 +66,7 @@ export function twilioBaseUrl(accountSid: string): string {
 export interface TwilioPhoneNumber {
   phoneNumber: string;
   friendlyName: string;
-  capabilities: { voice: boolean; sms: boolean };
+  capabilities: { voice: boolean };
 }
 
 /** List incoming phone numbers owned by the account. */
@@ -95,21 +95,21 @@ export async function listIncomingPhoneNumbers(
     incoming_phone_numbers: Array<{
       phone_number: string;
       friendly_name: string;
-      capabilities: { voice: boolean; sms: boolean };
+      capabilities: { voice: boolean };
     }>;
   };
 
   return data.incoming_phone_numbers.map((n) => ({
     phoneNumber: n.phone_number,
     friendlyName: n.friendly_name,
-    capabilities: { voice: n.capabilities.voice, sms: n.capabilities.sms },
+    capabilities: { voice: n.capabilities.voice },
   }));
 }
 
 export interface AvailablePhoneNumber {
   phoneNumber: string;
   friendlyName: string;
-  capabilities: { voice: boolean; sms: boolean };
+  capabilities: { voice: boolean };
 }
 
 /** Search for available phone numbers to purchase. */
@@ -148,14 +148,14 @@ export async function searchAvailableNumbers(
     available_phone_numbers: Array<{
       phone_number: string;
       friendly_name: string;
-      capabilities: { voice: boolean; sms: boolean };
+      capabilities: { voice: boolean };
     }>;
   };
 
   return data.available_phone_numbers.map((n) => ({
     phoneNumber: n.phone_number,
     friendlyName: n.friendly_name,
-    capabilities: { voice: n.capabilities.voice, sms: n.capabilities.sms },
+    capabilities: { voice: n.capabilities.voice },
   }));
 }
 
@@ -191,7 +191,7 @@ export async function provisionPhoneNumber(
   const data = (await res.json()) as {
     phone_number: string;
     friendly_name: string;
-    capabilities: { voice: boolean; sms: boolean };
+    capabilities: { voice: boolean };
   };
 
   return {
@@ -199,7 +199,6 @@ export async function provisionPhoneNumber(
     friendlyName: data.friendly_name,
     capabilities: {
       voice: data.capabilities.voice,
-      sms: data.capabilities.sms,
     },
   };
 }
@@ -245,15 +244,13 @@ export async function fetchMessageStatus(
 export interface WebhookUrls {
   voiceUrl: string;
   statusCallbackUrl: string;
-  smsUrl: string;
 }
 
 /**
  * Update the webhook URLs on a Twilio IncomingPhoneNumber.
  *
- * Configures voice webhook, voice status callback, and SMS webhook so
- * that Twilio routes inbound calls and messages to the assistant's
- * gateway endpoints.
+ * Configures voice webhook and voice status callback so that Twilio
+ * routes inbound calls to the assistant's gateway endpoints.
  */
 export async function updatePhoneNumberWebhooks(
   accountSid: string,
@@ -303,8 +300,6 @@ export async function updatePhoneNumberWebhooks(
     VoiceMethod: "POST",
     StatusCallback: webhooks.statusCallbackUrl,
     StatusCallbackMethod: "POST",
-    SmsUrl: webhooks.smsUrl,
-    SmsMethod: "POST",
   });
 
   const updateRes = await fetch(

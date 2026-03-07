@@ -17,8 +17,6 @@ import { getLogger } from "../util/logger.js";
 import {
   ensureDataDir,
   getWorkspaceConfigPath,
-  migrateToDataLayout,
-  migrateToWorkspaceLayout,
   readLockfile,
   writeLockfile,
 } from "../util/platform.js";
@@ -46,30 +44,8 @@ function getConfigPath(): string {
   return getWorkspaceConfigPath();
 }
 
-/**
- * Run migrations before creating workspace dirs, so legacy files are
- * moved into workspace/ before ensureDataDir() creates empty dirs that
- * would cause migration moves to no-op.
- */
 function ensureMigratedDataDir(): void {
-  migrateToDataLayout();
-  migrateToWorkspaceLayout();
   ensureDataDir();
-}
-
-/**
- * Migrate deprecated raw config values before Zod validation.
- * This prevents `validateWithSchema` from silently dropping fields whose
- * values were valid in older releases but have since been removed from the
- * schema enum, which would cause a fallback to the default and silently
- * change behavior on upgrade.
- */
-function migrateRawConfig(raw: Record<string, unknown>): void {
-  const permissions = raw.permissions as Record<string, unknown> | undefined;
-  if (permissions?.mode === "legacy") {
-    permissions.mode = "workspace";
-    log.info('Migrated permissions.mode from "legacy" to "workspace".');
-  }
 }
 
 /**
@@ -144,6 +120,69 @@ function deleteNestedKey(
   }
   if (current != null && typeof current === "object") {
     delete (current as Record<string, unknown>)[String(path[path.length - 1])];
+  }
+}
+
+/**
+ * Deep-merge missing keys from `defaults` into `target`.
+ * Only adds keys that do not already exist in `target`; never overwrites.
+ * Returns true if any key was added.
+ */
+export function deepMergeMissing(
+  target: Record<string, unknown>,
+  defaults: Record<string, unknown>,
+): boolean {
+  let changed = false;
+  for (const key of Object.keys(defaults)) {
+    if (!(key in target)) {
+      target[key] = defaults[key];
+      changed = true;
+    } else if (
+      defaults[key] != null &&
+      typeof defaults[key] === "object" &&
+      !Array.isArray(defaults[key]) &&
+      target[key] != null &&
+      typeof target[key] === "object" &&
+      !Array.isArray(target[key])
+    ) {
+      // Recurse into nested objects
+      if (
+        deepMergeMissing(
+          target[key] as Record<string, unknown>,
+          defaults[key] as Record<string, unknown>,
+        )
+      ) {
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+/**
+ * Read the existing config.json from disk, merge any missing schema-default
+ * keys, and rewrite only when there is an effective change.
+ * Preserves exclusions: apiKeys and dataDir are never written.
+ */
+function backfillConfigDefaults(
+  configPath: string,
+  fullDefaults: Record<string, unknown>,
+): void {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(configPath, "utf-8"));
+  } catch {
+    return; // Unreadable file — skip backfill
+  }
+
+  // Only backfill into plain objects (not arrays, strings, etc.)
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+    return;
+  }
+
+  if (deepMergeMissing(raw as Record<string, unknown>, fullDefaults)) {
+    writeFileSync(configPath, JSON.stringify(raw, null, 2) + "\n");
+    log.info("Backfilled missing config defaults in %s", configPath);
   }
 }
 
@@ -244,28 +283,29 @@ export function loadConfig(): AssistantConfig {
       }
     }
 
-    // Migrate removed config values before validation so existing configs
-    // don't silently change behavior when Zod drops unknown enum values.
-    migrateRawConfig(fileConfig);
-
     // Validate and apply defaults via Zod schema
     const config = validateWithSchema(fileConfig);
 
     // If the config file didn't exist, write the full defaults to disk so
     // users can discover and edit all available options.
-    if (!configFileExisted) {
-      try {
-        const dir = dirname(configPath);
-        if (!existsSync(dir)) {
-          mkdirSync(dir, { recursive: true });
-        }
-        // Strip apiKeys (managed in secure storage) and dataDir (runtime-derived)
-        const { apiKeys: _, dataDir: _d, ...persistable } = config;
+    // If it existed, backfill any missing schema keys from defaults without
+    // overwriting existing user values.
+    try {
+      const dir = dirname(configPath);
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+      }
+      // Strip apiKeys (managed in secure storage) and dataDir (runtime-derived)
+      const { apiKeys: _, dataDir: _d, ...persistable } = config;
+
+      if (!configFileExisted) {
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
-      } catch (err) {
-        log.warn({ err }, "Failed to write default config file");
+      } else {
+        backfillConfigDefaults(configPath, persistable);
       }
+    } catch (err) {
+      log.warn({ err }, "Failed to write/backfill config file");
     }
 
     // Set cached before secure-key/env overrides so re-entrant calls

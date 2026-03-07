@@ -86,11 +86,11 @@ Each policy defines:
 
 ### Conversation Strategy Types
 
-| Strategy                         | Behavior                                                                                                                                                                                                                                     | Used by                                         |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `start_new_conversation`         | Creates a fresh conversation per delivery. The thread is surfaced via IPC.                                                                                                                                                                   | `vellum`                                        |
-| `continue_existing_conversation` | Looks up a previously bound conversation by binding key (sourceChannel + externalChatId) and appends to it. When no bound conversation exists (first delivery to a destination), creates a new one and upserts the binding for future reuse. | `telegram`, `sms`, `whatsapp`, `slack`, `email` |
-| `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                                                                                                              | `voice`                                         |
+| Strategy                         | Behavior                                                                                                                                                                                                                                     | Used by                                  |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `start_new_conversation`         | Creates a fresh conversation per delivery. The thread is surfaced via IPC.                                                                                                                                                                   | `vellum`                                 |
+| `continue_existing_conversation` | Looks up a previously bound conversation by binding key (sourceChannel + externalChatId) and appends to it. When no bound conversation exists (first delivery to a destination), creates a new one and upserts the binding for future reuse. | `telegram`, `whatsapp`, `slack`, `email` |
+| `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                                                                                                              | `phone`                                  |
 
 ### Helper Functions
 
@@ -264,7 +264,7 @@ The `enforceRoutingIntent()` function in `decision-engine.ts` runs after the LLM
 - **`multi_channel`**: If the LLM selected fewer than 2 channels but 2+ are connected, expands `selectedChannels` to at least two connected channels.
 - **`single_channel`**: No override -- the LLM's selection stands.
 
-When enforcement changes the decision, the updated channel selection is re-persisted to the `notification_decisions` table so the stored decision matches what was actually dispatched. The `reasoningSummary` is annotated with the enforcement action (e.g. `[routing_intent=all_channels enforced: vellum, telegram, sms]`).
+When enforcement changes the decision, the updated channel selection is re-persisted to the `notification_decisions` table so the stored decision matches what was actually dispatched. The `reasoningSummary` is annotated with the enforcement action (e.g. `[routing_intent=all_channels enforced: vellum, telegram]`).
 
 ### Single-Reminder Fanout
 
@@ -300,19 +300,12 @@ The macOS/iOS client posts a native `UNUserNotificationCenter` notification from
 
 HTTP POST to the gateway's `/deliver/telegram` endpoint. The `TelegramAdapter` sends channel-native text (`deliveryText` when present) to the guardian's chat ID (resolved from the active guardian binding), with deterministic fallbacks when model copy is unavailable.
 
-### SMS (when guardian binding exists)
-
-HTTP POST to the gateway's `/deliver/sms` endpoint. The `SmsAdapter` follows the same pattern as the Telegram adapter: it resolves a phone number from the active guardian binding and sends text via the gateway, which forwards to the Twilio Messages API. The adapter resolves message text via a priority chain: `deliveryText` > `body` > `title` > humanized event name. The `assistantId` is threaded through the `ChannelDeliveryPayload` so the gateway can resolve the correct outbound phone number for multi-assistant deployments.
-
-SMS delivery is text-only (no MMS). Graceful degradation: when the gateway is unreachable or SMS is not configured, the adapter returns a failed `DeliveryResult` without throwing, so the broadcaster continues delivering to other channels.
-
 ### Channel Connectivity
 
 Connected channels are resolved at signal emission time by `getConnectedChannels()` in `emit-signal.ts`:
 
 - **Vellum** is always considered connected (IPC socket is always available when the daemon is running)
 - **Telegram** is considered connected only when an active guardian binding exists for the assistant (checked via `getActiveBinding()`)
-- **SMS** is considered connected only when an active guardian binding exists for the assistant (same check as Telegram)
 
 ## Conversation Materialization
 
@@ -383,7 +376,7 @@ Each `guardian_action_request` is assigned a unique 6-character hex code (e.g. `
 
 ### Disambiguation Flow
 
-The disambiguation logic is identical on all channels — mac/vellum (`session-process.ts`), Telegram, and SMS (`inbound-message-handler.ts`):
+The disambiguation logic is identical on all channels — mac/vellum (`session-process.ts`) and Telegram (`inbound-message-handler.ts`):
 
 1. **Single pending delivery in the thread**: The guardian's reply is matched to the sole pending request automatically. No request code prefix is needed. This is the **single-match fast path**.
 
@@ -397,7 +390,6 @@ The disambiguation invariant is enforced identically across:
 
 - **Mac/Vellum** (`session-process.ts`): Intercepts user messages in conversations with pending guardian action deliveries before the agent loop runs.
 - **Telegram** (`inbound-message-handler.ts`): Intercepts inbound messages matched to conversations with pending guardian action deliveries.
-- **SMS** (`inbound-message-handler.ts`): Same codepath as Telegram.
 
 All three paths use the same pattern: look up pending deliveries by conversation, apply single-match fast path or request-code prefix matching, and send disambiguation messages via the guardian action message composer when ambiguous.
 
@@ -430,7 +422,6 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 | `destination-resolver.ts` | Resolves per-channel endpoints (vellum IPC, Telegram chat ID)                                  |
 | `adapters/macos.ts`       | Vellum adapter -- broadcasts `notification_intent` via IPC with deep-link metadata             |
 | `adapters/telegram.ts`    | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                       |
-| `adapters/sms.ts`         | SMS adapter -- POSTs to gateway `/deliver/sms` via Twilio Messages API                         |
 | `preference-extractor.ts` | Detects notification preferences in conversation messages                                      |
 | `preference-summary.ts`   | Builds preference context string for the decision engine prompt                                |
 | `preferences-store.ts`    | CRUD for `notification_preferences` table                                                      |
@@ -461,7 +452,7 @@ await emitNotificationSignal({
   },
   // Optional: control multi-channel fanout behavior
   routingIntent: "multi_channel", // 'single_channel' | 'multi_channel' | 'all_channels'
-  routingHints: { preferredChannels: ["telegram", "sms"] },
+  routingHints: { preferredChannels: ["telegram"] },
 });
 ```
 

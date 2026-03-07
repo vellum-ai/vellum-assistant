@@ -219,7 +219,7 @@ function buildVoiceCallControlPrompt(opts: {
  * Execute a single voice turn through the daemon session pipeline.
  *
  * Manages the session directly with voice-specific defaults:
- *   - sourceChannel: 'voice'
+ *   - sourceChannel: 'phone'
  *   - event sink wired to the provided callbacks
  *   - abort propagated from the returned handle
  *
@@ -283,7 +283,7 @@ export async function startVoiceTurn(
 
   // Get or create the session
   const transport = {
-    channelId: "voice" as ChannelId,
+    channelId: "phone" as ChannelId,
   };
   const session = await deps.getOrCreateSession(opts.conversationId, transport);
 
@@ -321,11 +321,11 @@ export async function startVoiceTurn(
   session.setTrustContext(opts.trustContext ?? null);
   session.setCommandIntent(null);
   session.setTurnChannelContext({
-    userMessageChannel: "voice",
-    assistantMessageChannel: "voice",
+    userMessageChannel: "phone",
+    assistantMessageChannel: "phone",
   });
   session.setChannelCapabilities(
-    resolveChannelCapabilities("voice", undefined),
+    resolveChannelCapabilities("phone", undefined),
   );
   session.setVoiceCallControlPrompt(voiceCallControlPrompt);
 
@@ -392,7 +392,7 @@ export async function startVoiceTurn(
               toolName: msg.toolName,
               inputDigest,
               consumingRequestId: msg.requestId,
-              executionChannel: "voice",
+              executionChannel: "phone",
               conversationId: opts.conversationId,
               callSessionId: opts.callSessionId,
               requesterExternalUserId:

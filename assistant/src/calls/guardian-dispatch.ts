@@ -136,7 +136,7 @@ async function dispatchGuardianQuestionInner(
     const request = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId,
       callSessionId,
       pendingQuestionId: pendingQuestion.id,
@@ -203,7 +203,7 @@ async function dispatchGuardianQuestionInner(
       request.requestCode ?? request.id.slice(0, 6).toUpperCase();
     const signalResult = await emitNotificationSignal({
       sourceEventName: "guardian.question",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceSessionId: callSessionId,
       attentionHints: {
         requiresAction: true,
@@ -246,10 +246,6 @@ async function dispatchGuardianQuestionInner(
           vellumDeliveryId = delivery.id;
         }
         applyDeliveryStatus(vellumDeliveryId, result);
-        continue;
-      }
-
-      if (result.channel !== "telegram" && result.channel !== "sms") {
         continue;
       }
 

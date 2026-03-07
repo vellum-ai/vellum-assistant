@@ -258,6 +258,7 @@ mock.module("../memory/conversation-attention-store.js", () => ({
   getAttentionStateByConversationIds: () => new Map(),
   recordAttentionSignal: () => {},
   recordConversationSeenSignal: () => {},
+  markConversationUnread: () => {},
 }));
 
 mock.module("../memory/canonical-guardian-store.js", () => ({
@@ -275,7 +276,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalRequests: () => [],
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -288,7 +289,6 @@ mock.module("../memory/conversation-store.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  getLatestConversation: () => conversation,
   createConversation: (
     titleOrOpts?: string | { title?: string; threadType?: string },
   ) => {
@@ -316,9 +316,13 @@ mock.module("../memory/conversation-store.js", () => ({
     return "default";
   },
   getMessages: () => [],
+  getDisplayMetaForConversations: () => new Map(),
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  getLatestConversation: () => conversation,
   listConversations: () => [conversation],
   countConversations: () => 1,
-  getDisplayMetaForConversations: () => new Map(),
 }));
 
 mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({

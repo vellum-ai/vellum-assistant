@@ -13,7 +13,7 @@ import {
   resolveActorTrust,
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getPendingChallenge } from "../runtime/channel-guardian-service.js";
+import { getPendingSession } from "../runtime/channel-verification-service.js";
 import { getLogger } from "../util/logger.js";
 import type { CallSession } from "./types.js";
 
@@ -34,12 +34,12 @@ export interface SetupContext {
 export type SetupOutcome =
   | { action: "normal_call"; isInbound: boolean }
   | {
-      action: "guardian_verification";
+      action: "verification";
       assistantId: string;
       fromNumber: string;
     }
   | {
-      action: "outbound_guardian_verification";
+      action: "outbound_verification";
       assistantId: string;
       sessionId: string;
       toNumber: string;
@@ -87,7 +87,7 @@ export function routeSetup(ctx: SetupContext): {
 
   const actorTrust = resolveActorTrust({
     assistantId,
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     conversationExternalId: otherPartyNumber,
     actorExternalId: otherPartyNumber || undefined,
   });
@@ -101,21 +101,16 @@ export function routeSetup(ctx: SetupContext): {
 
   // ── Outbound guardian verification (persisted mode) ──────────────
   const persistedMode = ctx.session?.callMode;
-  const persistedGvSessionId = ctx.session?.guardianVerificationSessionId;
-  const customParamGvSessionId =
-    ctx.customParameters?.guardianVerificationSessionId;
-  const guardianVerificationSessionId =
-    persistedGvSessionId ?? customParamGvSessionId;
+  const persistedVsId = ctx.session?.verificationSessionId;
+  const customParamVsId = ctx.customParameters?.verificationSessionId;
+  const verificationSessionId = persistedVsId ?? customParamVsId;
 
-  if (
-    persistedMode === "guardian_verification" &&
-    guardianVerificationSessionId
-  ) {
+  if (persistedMode === "verification" && verificationSessionId) {
     return {
       outcome: {
-        action: "outbound_guardian_verification",
+        action: "outbound_verification",
         assistantId,
-        sessionId: guardianVerificationSessionId,
+        sessionId: verificationSessionId,
         toNumber: ctx.to,
       },
       resolved,
@@ -123,19 +118,19 @@ export function routeSetup(ctx: SetupContext): {
   }
 
   // Secondary signal: custom parameter without persisted mode (pre-migration)
-  if (!persistedMode && customParamGvSessionId) {
+  if (!persistedMode && customParamVsId) {
     log.warn(
       {
         callSessionId: ctx.callSessionId,
-        guardianVerificationSessionId: customParamGvSessionId,
+        verificationSessionId: customParamVsId,
       },
       "Guardian verification detected via setup custom parameter (no persisted call_mode) — entering verification path",
     );
     return {
       outcome: {
-        action: "outbound_guardian_verification",
+        action: "outbound_verification",
         assistantId,
-        sessionId: customParamGvSessionId,
+        sessionId: customParamVsId,
         toNumber: ctx.to,
       },
       resolved,
@@ -164,7 +159,7 @@ export function routeSetup(ctx: SetupContext): {
   }
 
   // ── Inbound call ACL evaluation ─────────────────────────────────
-  const pendingChallenge = getPendingChallenge("voice");
+  const pendingChallenge = getPendingSession("phone");
 
   if (actorTrust.trustClass === "unknown" && !pendingChallenge) {
     // Check for blocked caller
@@ -290,7 +285,7 @@ export function routeSetup(ctx: SetupContext): {
   if (pendingChallenge) {
     return {
       outcome: {
-        action: "guardian_verification",
+        action: "verification",
         assistantId,
         fromNumber: ctx.from,
       },

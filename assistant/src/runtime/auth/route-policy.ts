@@ -129,6 +129,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations", scopes: ["chat.read"] },
   { endpoint: "conversations/attention", scopes: ["chat.read"] },
   { endpoint: "conversations/seen", scopes: ["chat.write"] },
+  { endpoint: "conversations/unread", scopes: ["chat.write"] },
   { endpoint: "search", scopes: ["chat.read"] },
   { endpoint: "search/global", scopes: ["chat.read"] },
   { endpoint: "suggestion", scopes: ["chat.read"] },
@@ -191,19 +192,21 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
     endpoint: "integrations/slack/channel/config:DELETE",
     scopes: ["settings.write"],
   },
-  { endpoint: "integrations/guardian/challenge", scopes: ["settings.write"] },
-  { endpoint: "integrations/guardian/status", scopes: ["settings.read"] },
-  { endpoint: "integrations/guardian/revoke", scopes: ["settings.write"] },
+  { endpoint: "channel-verification-sessions", scopes: ["settings.write"] },
   {
-    endpoint: "integrations/guardian/outbound/start",
+    endpoint: "channel-verification-sessions:DELETE",
     scopes: ["settings.write"],
   },
   {
-    endpoint: "integrations/guardian/outbound/resend",
+    endpoint: "channel-verification-sessions/resend",
     scopes: ["settings.write"],
   },
   {
-    endpoint: "integrations/guardian/outbound/cancel",
+    endpoint: "channel-verification-sessions/status",
+    scopes: ["settings.read"],
+  },
+  {
+    endpoint: "channel-verification-sessions/revoke",
     scopes: ["settings.write"],
   },
   { endpoint: "integrations/twilio/config", scopes: ["settings.read"] },
@@ -228,22 +231,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
     endpoint: "integrations/twilio/numbers/release",
     scopes: ["settings.write"],
   },
-  { endpoint: "integrations/twilio/sms/compliance", scopes: ["settings.read"] },
-  {
-    endpoint: "integrations/twilio/sms/compliance/tollfree",
-    scopes: ["settings.write"],
-  },
-  {
-    endpoint: "integrations/twilio/sms/compliance/tollfree:PATCH",
-    scopes: ["settings.write"],
-  },
-  {
-    endpoint: "integrations/twilio/sms/compliance/tollfree:DELETE",
-    scopes: ["settings.write"],
-  },
-  { endpoint: "integrations/twilio/sms/test", scopes: ["settings.write"] },
-  { endpoint: "integrations/twilio/sms/doctor", scopes: ["settings.write"] },
-
   // Slack share
   { endpoint: "slack/channels", scopes: ["settings.read"] },
   { endpoint: "slack/share", scopes: ["settings.write"] },

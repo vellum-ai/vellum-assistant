@@ -3,7 +3,7 @@
  *
  * When a trusted-contact channel session creates a confirmation_request (tool approval),
  * this helper emits a guardian.question notification signal and persists canonical
- * delivery rows to guardian destinations (Telegram/SMS/Vellum), enabling the guardian
+ * delivery rows to guardian destinations (Telegram/Slack/Vellum), enabling the guardian
  * to approve via callback/request-code path.
  *
  * Modeled after the tool-grant-request-helper pattern. Designed to be called from
@@ -22,7 +22,7 @@ import type { NotificationSourceChannel } from "../notifications/signal.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
-import { getGuardianBinding } from "./channel-guardian-service.js";
+import { getGuardianBinding } from "./channel-verification-service.js";
 
 const log = getLogger("confirmation-request-guardian-bridge");
 
@@ -181,7 +181,6 @@ export function bridgeConfirmationRequestToGuardian(
     .then((signalResult) => {
       for (const result of signalResult.deliveryResults) {
         if (result.channel === "vellum") continue; // handled in onThreadCreated
-        if (result.channel !== "telegram" && result.channel !== "sms") continue;
         createCanonicalGuardianDelivery({
           requestId: canonicalRequest.id,
           destinationChannel: result.channel,

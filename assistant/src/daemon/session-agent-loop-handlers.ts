@@ -13,8 +13,12 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import * as conversationStore from "../memory/conversation-store.js";
-import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import {
+  addMessage,
+  getMessageById,
+  provenanceFromTrustContext,
+  updateMessageContent,
+} from "../memory/conversation-crud.js";
 import { recordRequestLog } from "../memory/llm-request-log-store.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
@@ -45,7 +49,10 @@ export interface EventHandlerState {
   pendingDirectiveDisplayBuffer: string;
   firstAssistantText: string;
   exchangeInputTokens: number;
+  exchangeCacheCreationInputTokens: number;
+  exchangeCacheReadInputTokens: number;
   exchangeOutputTokens: number;
+  readonly exchangeRawResponses: unknown[];
   model: string;
   orderingErrorDetected: boolean;
   deferredOrderingError: string | null;
@@ -106,7 +113,10 @@ export function createEventHandlerState(): EventHandlerState {
     pendingDirectiveDisplayBuffer: "",
     firstAssistantText: "",
     exchangeInputTokens: 0,
+    exchangeCacheCreationInputTokens: 0,
+    exchangeCacheReadInputTokens: 0,
     exchangeOutputTokens: 0,
+    exchangeRawResponses: [],
     model: "",
     orderingErrorDetected: false,
     deferredOrderingError: null,
@@ -485,7 +495,7 @@ function annotatePersistedAssistantMessage(state: EventHandlerState): void {
   const messageId = state.lastAssistantMessageId;
   if (!messageId) return;
 
-  const row = conversationStore.getMessageById(messageId);
+  const row = getMessageById(messageId);
   if (!row) return;
 
   let content: ContentBlock[];
@@ -520,7 +530,7 @@ function annotatePersistedAssistantMessage(state: EventHandlerState): void {
   }
 
   if (modified) {
-    conversationStore.updateMessageContent(messageId, JSON.stringify(content));
+    updateMessageContent(messageId, JSON.stringify(content));
   }
 
   // Clear for the next turn
@@ -593,7 +603,7 @@ export async function handleMessageComplete(
       assistantMessageInterface:
         deps.turnInterfaceContext.assistantMessageInterface,
     };
-    await conversationStore.addMessage(
+    await addMessage(
       deps.ctx.conversationId,
       "user",
       JSON.stringify(toolResultBlocks),
@@ -655,7 +665,7 @@ export async function handleMessageComplete(
     assistantMessageInterface:
       deps.turnInterfaceContext.assistantMessageInterface,
   };
-  const assistantMsg = await conversationStore.addMessage(
+  const assistantMsg = await addMessage(
     deps.ctx.conversationId,
     "assistant",
     JSON.stringify(contentWithSurfaces),
@@ -691,8 +701,13 @@ export function handleUsage(
   event: Extract<AgentEvent, { type: "usage" }>,
 ): void {
   state.exchangeInputTokens += event.inputTokens;
+  state.exchangeCacheCreationInputTokens += event.cacheCreationInputTokens ?? 0;
+  state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;
   state.exchangeOutputTokens += event.outputTokens;
   state.model = event.model;
+  if (event.rawResponse !== undefined) {
+    state.exchangeRawResponses.push(event.rawResponse);
+  }
 
   if (event.rawRequest && event.rawResponse) {
     try {

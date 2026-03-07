@@ -22,10 +22,10 @@ import cliPkg from "../../package.json";
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
 import {
   allocateLocalResources,
-  defaultLocalResources,
   findAssistantByName,
   loadAllAssistants,
   saveAssistantEntry,
+  setActiveAssistant,
   syncConfigToLockfile,
 } from "../lib/assistant-config";
 import type {
@@ -39,6 +39,7 @@ import {
   VALID_SPECIES,
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
+import { hatchDocker } from "../lib/docker";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import {
@@ -169,6 +170,7 @@ const DEFAULT_REMOTE: RemoteHost = "local";
 interface HatchArgs {
   species: Species;
   detached: boolean;
+  keepAlive: boolean;
   name: string | null;
   remote: RemoteHost;
   daemonOnly: boolean;
@@ -180,6 +182,7 @@ function parseArgs(): HatchArgs {
   const args = process.argv.slice(3);
   let species: Species = DEFAULT_SPECIES;
   let detached = false;
+  let keepAlive = false;
   let name: string | null = null;
   let remote: RemoteHost = DEFAULT_REMOTE;
   let daemonOnly = false;
@@ -212,6 +215,9 @@ function parseArgs(): HatchArgs {
       console.log(
         "  --watch                   Run assistant and gateway in watch mode (hot reload on source changes)",
       );
+      console.log(
+        "  --keep-alive              Stay alive after hatch, exit when gateway stops",
+      );
       process.exit(0);
     } else if (arg === "-d") {
       detached = true;
@@ -221,6 +227,8 @@ function parseArgs(): HatchArgs {
       restart = true;
     } else if (arg === "--watch") {
       watch = true;
+    } else if (arg === "--keep-alive") {
+      keepAlive = true;
     } else if (arg === "--name") {
       const next = args[i + 1];
       if (!next || next.startsWith("-")) {
@@ -251,13 +259,13 @@ function parseArgs(): HatchArgs {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --daemon-only, --restart, --watch, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --daemon-only, --restart, --watch, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>`,
       );
       process.exit(1);
     }
   }
 
-  return { species, detached, name, remote, daemonOnly, restart, watch };
+  return { species, detached, keepAlive, name, remote, daemonOnly, restart, watch };
 }
 
 function formatElapsed(ms: number): string {
@@ -682,6 +690,7 @@ async function hatchLocal(
   daemonOnly: boolean = false,
   restart: boolean = false,
   watch: boolean = false,
+  keepAlive: boolean = false,
 ): Promise<void> {
   if (restart && !name && !process.env.VELLUM_ASSISTANT_NAME) {
     console.error(
@@ -717,14 +726,9 @@ async function hatchLocal(
   const existingEntry = findAssistantByName(instanceName);
   if (existingEntry?.cloud === "local" && existingEntry.resources) {
     resources = existingEntry.resources;
-  } else if (restart && existingEntry?.cloud === "local") {
-    // Legacy entry without resources — use default paths to match existing layout
-    resources = defaultLocalResources();
   } else {
     resources = await allocateLocalResources(instanceName);
   }
-
-  const baseDataDir = join(resources.instanceDir, ".vellum");
 
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
@@ -761,7 +765,6 @@ async function hatchLocal(
     assistantId: instanceName,
     runtimeUrl,
     localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
-    baseDataDir,
     bearerToken,
     cloud: "local",
     species,
@@ -770,6 +773,7 @@ async function hatchLocal(
   };
   if (!daemonOnly && !restart) {
     saveAssistantEntry(localEntry);
+    setActiveAssistant(instanceName);
     syncConfigToLockfile();
 
     if (process.env.VELLUM_DESKTOP_APP) {
@@ -790,6 +794,46 @@ async function hatchLocal(
     const localGatewayUrl = `http://127.0.0.1:${resources.gatewayPort}`;
     await displayPairingQRCode(localGatewayUrl, bearerToken, runtimeUrl);
   }
+
+  if (keepAlive) {
+    const gatewayHealthUrl = `http://127.0.0.1:${resources.gatewayPort}/healthz`;
+    const POLL_INTERVAL_MS = 5000;
+    const MAX_FAILURES = 3;
+    let consecutiveFailures = 0;
+
+    const shutdown = async (): Promise<void> => {
+      console.log("\nShutting down local processes...");
+      await stopLocalProcesses(resources);
+      process.exit(0);
+    };
+
+    process.on("SIGTERM", () => void shutdown());
+    process.on("SIGINT", () => void shutdown());
+
+    // Poll the gateway health endpoint until it stops responding.
+    while (true) {
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      try {
+        const res = await fetch(gatewayHealthUrl, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          consecutiveFailures = 0;
+        } else {
+          consecutiveFailures++;
+        }
+      } catch {
+        consecutiveFailures++;
+      }
+      if (consecutiveFailures >= MAX_FAILURES) {
+        console.log(
+          "\n⚠️  Gateway stopped responding — shutting down.",
+        );
+        await stopLocalProcesses(resources);
+        process.exit(1);
+      }
+    }
+  }
 }
 
 function getCliVersion(): string {
@@ -800,7 +844,7 @@ export async function hatch(): Promise<void> {
   const cliVersion = getCliVersion();
   console.log(`@vellumai/cli v${cliVersion}`);
 
-  const { species, detached, name, remote, daemonOnly, restart, watch } =
+  const { species, detached, keepAlive, name, remote, daemonOnly, restart, watch } =
     parseArgs();
 
   if (restart && remote !== "local") {
@@ -810,13 +854,15 @@ export async function hatch(): Promise<void> {
     process.exit(1);
   }
 
-  if (watch && remote !== "local") {
-    console.error("Error: --watch is only supported for local hatch targets.");
+  if (watch && remote !== "local" && remote !== "docker") {
+    console.error(
+      "Error: --watch is only supported for local and docker hatch targets.",
+    );
     process.exit(1);
   }
 
   if (remote === "local") {
-    await hatchLocal(species, name, daemonOnly, restart, watch);
+    await hatchLocal(species, name, daemonOnly, restart, watch, keepAlive);
     return;
   }
 
@@ -831,8 +877,8 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "docker") {
-    console.error("Error: Docker remote host is not yet implemented.");
-    process.exit(1);
+    await hatchDocker(species, detached, name, watch);
+    return;
   }
 
   console.error(`Error: Remote host '${remote}' is not yet supported.`);

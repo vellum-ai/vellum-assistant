@@ -9,7 +9,6 @@ import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-hel
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { getLogger } from "../util/logger.js";
-import { enforceGuardianOnlyPolicy } from "./guardian-control-plane-policy.js";
 import { getAllTools, getTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import type {
@@ -19,6 +18,7 @@ import type {
   ToolExecutionResult,
   ToolLifecycleEvent,
 } from "./types.js";
+import { enforceVerificationControlPlanePolicy } from "./verification-control-plane-policy.js";
 
 const log = getLogger("tool-approval-handler");
 
@@ -215,7 +215,7 @@ export class ToolApprovalHandler {
     }
 
     // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.
-    const guardianCheck = enforceGuardianOnlyPolicy(
+    const guardianCheck = enforceVerificationControlPlanePolicy(
       name,
       input,
       context.trustClass,
@@ -417,7 +417,7 @@ export class ToolApprovalHandler {
     // minting (2-5s). Non-voice channels get an instant sync lookup so
     // normal denials are not delayed.
     if (needsGrantConsumption && deferredConsumeParams) {
-      const isVoice = context.executionChannel === "voice";
+      const isVoice = context.executionChannel === "phone";
       const grantResult = await consumeGrantForInvocation(
         deferredConsumeParams,
         isVoice ? { signal: context.signal } : { maxWaitMs: 0 },

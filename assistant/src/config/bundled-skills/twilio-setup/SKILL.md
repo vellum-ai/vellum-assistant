@@ -1,9 +1,8 @@
 ---
-name: "Twilio Setup"
-description: "Configure Twilio credentials and phone numbers for voice calls"
-user-invocable: true
-includes: ["public-ingress"]
-metadata: { "vellum": { "emoji": "\ud83d\udcf1" } }
+name: twilio-setup
+description: Configure Twilio credentials and phone numbers for voice calls
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"📱","vellum":{"display-name":"Twilio Setup","user-invocable":true,"includes":["public-ingress"]}}
 ---
 
 You are helping your user configure Twilio for voice calls. Walk through each step below.
@@ -12,14 +11,14 @@ You are helping your user configure Twilio for voice calls. Walk through each st
 
 Before you begin, understand how each Twilio value is stored:
 
-| Value        | Type       | Storage method                                | Secret? |
-| ------------ | ---------- | --------------------------------------------- | ------- |
-| Account SID  | Config     | `assistant config set twilio.accountSid`      | No      |
-| Auth Token   | Credential | `assistant credentials set twilio:auth_token` | **Yes** |
-| Phone Number | Config     | `assistant config set twilio.phoneNumber`     | No      |
+| Value        | Type              | Storage method                                | Secret? |
+| ------------ | ----------------- | --------------------------------------------- | ------- |
+| Account SID  | Config            | `assistant config set twilio.accountSid`      | No      |
+| Auth Token   | Credential+Config | `credential_store` prompt, then sync to config | **Yes** |
+| Phone Number | Config            | `assistant config set twilio.phoneNumber`     | No      |
 
 - **Config values** (Account SID, Phone Number) are non-sensitive identifiers. Collect them via normal conversation -- the user can paste them in chat or you can use `AskUserQuestion`.
-- **Credential values** (Auth Token) are secrets. Collect them securely via `credential_store` -- never accept them pasted in plaintext chat.
+- **Auth Token** is a secret. Collect it securely via `credential_store` prompt -- never accept it pasted in plaintext chat. After storing in the credential vault, you MUST also sync it to config so the voice calling system can read it (see Step 2).
 
 ## Retrieving Twilio Credentials
 
@@ -27,19 +26,29 @@ Many steps below require the Account SID and Auth Token. Retrieve them with:
 
 ```bash
 TWILIO_SID=$(assistant config get twilio.accountSid)
-TWILIO_TOKEN=$(assistant credentials reveal twilio:auth_token)
+TWILIO_TOKEN=$(assistant config get twilio.authToken)
 ```
 
-## Step 1: Check Current Configuration
+# Checking Current Configuration
+
+You can determine whether Twilio has been fully set up by checking to see that all the following config and credential values have been set:
 
 ```bash
 assistant config get twilio.accountSid
-assistant credentials inspect twilio:auth_token --json  # check "hasSecret" field
+assistant config get twilio.authToken
 assistant config get twilio.phoneNumber
 ```
 
-- If `twilio.accountSid` has a value, `hasSecret` is `true`, and `twilio.phoneNumber` is set -- Twilio is fully configured. Offer to show status or reconfigure.
+- If all three config values are non-empty -- Twilio is fully configured. Offer to show status or reconfigure.
 - Otherwise, continue to the missing steps.
+
+# Twilio Setup Steps
+
+Follow the steps below in order to fully configure Twilio in preparation to make phone calls.
+
+## Step 1: Check Current Configuration
+
+Refer to "Checking Current Configuration" above to see the current state of the user's Twilio setup. If Twilio appears to be fully configured. Offer to show status or reconfigure. Otherwise, continue to the missing steps below.
 
 ## Step 2: Collect and Store Credentials
 
@@ -47,12 +56,12 @@ Tell the user: **"You'll need a Twilio account. Sign up at https://www.twilio.co
 
 They need two values from the Twilio Console dashboard (https://console.twilio.com):
 
-- **Account SID** -- visible on the dashboard, starts with `AC`
-- **Auth Token** -- click "Show" to reveal (this is the only secret)
+- **Account SID** -- visible on the dashboard, starts with `AC` (this is not a secret value and can be collected conversationally)
+- **Auth Token** -- click "Show" to reveal (this is a secret value and should be collected securely)
 
 ### Collect Account SID
 
-Ask the user for their Account SID. They can paste it directly in chat since it is not a secret. Then store it:
+Ask the user for their Account SID. This is NOT a secret value, so the user should be encouraged to comfortable paste it into the chat directly. Once they have, store it as a config value:
 
 ```bash
 assistant config set twilio.accountSid "<Account SID from user>"
@@ -60,14 +69,20 @@ assistant config set twilio.accountSid "<Account SID from user>"
 
 ### Collect Auth Token
 
-Collect the Twilio auth token securely:
+Ask the user for their Auth Token. This IS a secret value, so the user should be prompted to enter the value securely. Do NOT ask them to provide it in the chat. Once they have, store it as a credential:
 
 - Call `credential_store` with `action: "prompt"`, `service: "twilio"`, `field: "auth_token"`, `label: "Twilio Auth Token"`, `description: "Enter your Auth Token from the Twilio Console dashboard (click 'Show' to reveal it)"`, `placeholder: "your_auth_token"`.
+
+After the credential is stored, sync it to config so the voice calling system can find it:
+
+```bash
+assistant config set twilio.authToken "$(assistant credentials reveal twilio:auth_token)"
+```
 
 Confirm it has been stored successfully:
 
 ```bash
-assistant credentials inspect "twilio:auth_token"
+assistant config get twilio.authToken
 ```
 
 If credentials are invalid, Twilio API calls in Step 3 will fail -- ask the user to re-enter.
@@ -129,18 +144,9 @@ assistant config set twilio.phoneNumber "+14155551234"
 
 ## Step 4: Set Up Public Ingress and Webhooks
 
-Twilio needs a publicly reachable URL for voice webhooks. Check if ingress is configured:
+### Verify Public Ingress is Set Up
 
-```bash
-assistant config get ingress.publicBaseUrl
-assistant config get ingress.enabled
-```
-
-If not configured, load the public-ingress skill:
-
-```
-skill_load skill=public-ingress
-```
+Twilio needs a publicly reachable URL for voice webhooks. Load the `public-ingress` skill to determine whether a public ingress has been configured and walk the user through setting one up if not.
 
 ### Configure Twilio Webhooks
 
@@ -150,7 +156,7 @@ Retrieve credentials and config values:
 
 ```bash
 TWILIO_SID=$(assistant config get twilio.accountSid)
-TWILIO_TOKEN=$(assistant credentials reveal twilio:auth_token)
+TWILIO_TOKEN=$(assistant config get twilio.authToken)
 PUBLIC_URL=$(assistant config get ingress.publicBaseUrl)
 PHONE_NUMBER=$(assistant config get twilio.phoneNumber)
 ```
@@ -171,33 +177,6 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status"
 ```
 
-## Step 5: Verify and Enable
-
-Re-run the checks from Step 1 to confirm everything is set. Then enable voice calls:
-
-```bash
-assistant config set calls.enabled true
-```
-
-Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}."**
-
-## Step 6: Guardian Verification (Optional)
-
-Link the user's phone number as the trusted voice guardian so the assistant can verify inbound callers.
-
-Load the guardian-verify-setup skill with `channel: "voice"`:
-
-```
-skill_load skill=guardian-verify-setup
-```
-
-The skill handles the full verification flow (outbound call, code entry, confirmation). If the user declines, skip this step.
-
-To re-check guardian status later:
-
-```bash
-assistant integrations guardian status --channel voice --json
-```
 
 ## Clearing Credentials
 
@@ -206,6 +185,7 @@ To disconnect Twilio:
 ```bash
 assistant credentials delete twilio:auth_token
 assistant config set twilio.accountSid ""
+assistant config set twilio.authToken ""
 ```
 
 Phone number assignments are preserved. Voice calls will stop until credentials are reconfigured.
@@ -240,7 +220,7 @@ Webhooks on the Twilio phone number may not match the current ingress URL. This 
 
 ```bash
 TWILIO_SID=$(assistant config get twilio.accountSid)
-TWILIO_TOKEN=$(assistant credentials reveal twilio:auth_token)
+TWILIO_TOKEN=$(assistant config get twilio.authToken)
 PUBLIC_URL=$(assistant config get ingress.publicBaseUrl)
 PHONE_NUMBER=$(assistant config get twilio.phoneNumber)
 

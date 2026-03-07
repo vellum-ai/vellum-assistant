@@ -40,8 +40,8 @@ mock.module("../security/secret-ingress.js", () => ({
 import { upsertContact } from "../contacts/contact-store.js";
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import * as deliveryCrud from "../memory/delivery-crud.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
@@ -402,12 +402,12 @@ describe("channel-retry-sweep routing state", () => {
     trustClass: "guardian" | "trusted_contact" | "unknown",
     guardianExternalUserId?: string,
   ): string {
-    const inbound = channelDeliveryStore.recordInbound(
+    const inbound = deliveryCrud.recordInbound(
       "telegram",
       `chat-${trustClass}`,
       `msg-${trustClass}-${Date.now()}`,
     );
-    channelDeliveryStore.storePayload(inbound.eventId, {
+    deliveryCrud.storePayload(inbound.eventId, {
       content: "retry me",
       sourceChannel: "telegram",
       interface: "telegram",

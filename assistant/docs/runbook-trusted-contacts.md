@@ -13,10 +13,9 @@ Operational procedures for inspecting, managing, and debugging the trusted conta
 # Base URL — assistant runtime (adjust if using a non-default port)
 BASE=http://localhost:7821
 
-# Bearer token: if running via the assistant's shell tools, $GATEWAY_AUTH_TOKEN
-# is injected automatically. For manual operator use, mint a token via the CLI
-# or use one from the daemon (e.g. from a recent shell env export).
-TOKEN=$GATEWAY_AUTH_TOKEN
+# Bearer token: for operator use, retrieve from the daemon process environment
+# or use `assistant` CLI commands which handle auth automatically.
+TOKEN=<your-bearer-token>
 ```
 
 ## 1. Inspect Trusted Contacts
@@ -35,8 +34,8 @@ curl -s "$BASE/v1/contacts?role=contact" \
 curl -s "$BASE/v1/contacts?channelType=telegram" \
   -H "Authorization: Bearer $TOKEN" | jq
 
-# SMS contacts only
-curl -s "$BASE/v1/contacts?channelType=sms" \
+# Voice contacts only
+curl -s "$BASE/v1/contacts?channelType=phone" \
   -H "Authorization: Bearer $TOKEN" | jq
 ```
 
@@ -117,14 +116,14 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 
 ## 3. Inspect Pending Verification Sessions
 
-Verification challenges are stored in `channel_guardian_verification_challenges`. Active sessions have `status = 'awaiting_response'` and `expires_at > now`.
+Verification challenges are stored in `channel_verification_sessions`. Active sessions have `status = 'awaiting_response'` and `expires_at > now`.
 
 ```bash
 sqlite3 ~/.vellum/workspace/data/db/assistant.db \
   "SELECT id, channel, status, identity_binding_status, \
    expected_external_user_id, expected_chat_id, expected_phone_e164, \
    expires_at, created_at \
-   FROM channel_guardian_verification_challenges \
+   FROM channel_verification_sessions \
    WHERE status IN ('awaiting_response', 'pending_bootstrap') \
    AND expires_at > $(date +%s)000 \
    ORDER BY created_at DESC;"
@@ -200,7 +199,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
   "SELECT id, channel, status, identity_binding_status, \
    expected_external_user_id, expected_chat_id, expected_phone_e164, \
    expires_at, consumed_by_external_user_id \
-   FROM channel_guardian_verification_challenges \
+   FROM channel_verification_sessions \
    WHERE expected_external_user_id = 'TARGET_USER_ID' \
    OR expected_chat_id = 'TARGET_CHAT_ID' \
    ORDER BY created_at DESC LIMIT 5;"
@@ -274,7 +273,7 @@ curl -s -X POST "$BASE/v1/contacts" \
   }' | jq
 ```
 
-For SMS contacts, use the E.164 phone number as the address and external user/chat ID:
+For voice contacts, use the E.164 phone number as the address and external user/chat ID:
 
 ```bash
 curl -s -X POST "$BASE/v1/contacts" \
@@ -284,7 +283,7 @@ curl -s -X POST "$BASE/v1/contacts" \
     "displayName": "Bob",
     "role": "contact",
     "channels": [{
-      "type": "sms",
+      "type": "phone",
       "address": "+15551234567",
       "externalUserId": "+15551234567",
       "externalChatId": "+15551234567",
@@ -302,7 +301,7 @@ Expired sessions are already invisible to the verification flow (filtered by `ex
 
 ```bash
 sqlite3 ~/.vellum/workspace/data/db/assistant.db \
-  "DELETE FROM channel_guardian_verification_challenges \
+  "DELETE FROM channel_verification_sessions \
    WHERE expires_at < $(date +%s)000 \
    AND status IN ('awaiting_response', 'pending_bootstrap');"
 ```

@@ -1,6 +1,6 @@
 /**
  * Store for external conversation bindings — maps internal conversation IDs
- * to external channel identifiers (e.g. Telegram chat ID, SMS thread ID).
+ * to external channel identifiers (e.g. Telegram chat ID, voice session).
  *
  * This enables the system to track which conversations originated from
  * external channels and expose channel metadata in session/conversation

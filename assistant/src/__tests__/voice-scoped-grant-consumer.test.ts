@@ -257,9 +257,9 @@ function grantParams(
     scopeMode: "tool_signature",
     toolName: TOOL_NAME,
     inputDigest: computeToolApprovalDigest(TOOL_NAME, TOOL_INPUT),
-    requestChannel: "voice",
+    requestChannel: "phone",
     decisionChannel: "telegram",
-    executionChannel: "voice",
+    executionChannel: "phone",
     conversationId: CONVERSATION_ID,
     callSessionId: CALL_SESSION_ID,
     expiresAt: futureExpiry,
@@ -285,7 +285,7 @@ describe("voice bridge confirmation handling (grant consumption via primitive)",
     setupBridgeDeps(() => mockData.session);
 
     const trustContext: TrustContext = {
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       trustClass: "trusted_contact",
       requesterExternalUserId: "caller-123",
     };
@@ -329,7 +329,7 @@ describe("voice bridge confirmation handling (grant consumption via primitive)",
     setupBridgeDeps(() => mockData.session);
 
     const trustContext: TrustContext = {
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       trustClass: "trusted_contact",
       requesterExternalUserId: "caller-123",
     };
@@ -367,7 +367,7 @@ describe("voice bridge confirmation handling (grant consumption via primitive)",
     setupBridgeDeps(() => mockData.session);
 
     const trustContext: TrustContext = {
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       trustClass: "trusted_contact",
     };
 
@@ -397,7 +397,7 @@ describe("voice bridge confirmation handling (grant consumption via primitive)",
     setupBridgeDeps(() => mockData.session);
 
     const trustContext: TrustContext = {
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       trustClass: "guardian",
     };
 

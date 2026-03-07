@@ -76,9 +76,6 @@ mock.module("../util/platform.js", () => ({
   isTCPEnabled: () => false,
   getTCPHost: () => "127.0.0.1",
   isIOSPairingEnabled: () => false,
-  migrateToDataLayout: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 // Mock system-prompt to provide only stripCommentLines without pulling in

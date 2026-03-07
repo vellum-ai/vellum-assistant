@@ -8,10 +8,12 @@ const testDir = mkdtempSync(join(tmpdir(), "handlers-telegram-cfg-test-"));
 
 // Track loadRawConfig / saveRawConfig calls
 let rawConfigStore: Record<string, unknown> = {};
+let mockBotUsername = "";
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
+    telegram: { botUsername: mockBotUsername },
   }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({ ...rawConfigStore }),
@@ -20,6 +22,22 @@ mock.module("../config/loader.js", () => ({
   },
   saveConfig: () => {},
   invalidateConfigCache: () => {},
+  setNestedValue: (
+    obj: Record<string, unknown>,
+    path: string,
+    value: unknown,
+  ) => {
+    const keys = path.split(".");
+    let current = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+      const key = keys[i];
+      if (current[key] == null || typeof current[key] !== "object") {
+        current[key] = {};
+      }
+      current = current[key] as Record<string, unknown>;
+    }
+    current[keys[keys.length - 1]] = value;
+  },
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -149,12 +167,12 @@ let _fetchMock: ((url: string | URL | Request) => Promise<Response>) | null =
   null;
 const originalFetch = globalThis.fetch;
 
-import type { HandlerContext } from "../daemon/handlers.js";
 import { handleTelegramConfig } from "../daemon/handlers/config.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ServerMessage,
   TelegramConfigRequest,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { initializeDb, resetDb } from "../memory/db.js";
 import { DebouncerMap } from "../util/debounce.js";
 
@@ -200,6 +218,7 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
 describe("Telegram config handler", () => {
   beforeEach(() => {
     rawConfigStore = {};
+    mockBotUsername = "";
     secureKeyStore = {};
     setSecureKeyOverride = null;
     credentialMetadataStore = [];
@@ -236,6 +255,7 @@ describe("Telegram config handler", () => {
     secureKeyStore["credential:telegram:bot_token"] = "test-bot-token";
     secureKeyStore["credential:telegram:webhook_secret"] =
       "test-webhook-secret";
+    mockBotUsername = "my_test_bot";
     credentialMetadataStore.push({
       service: "telegram",
       field: "bot_token",
@@ -1242,8 +1262,8 @@ describe("Telegram config handler", () => {
 // Guardian verification status/revoke IPC actions
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { handleGuardianVerification } from "../daemon/handlers/config.js";
-import type { GuardianVerificationRequest } from "../daemon/ipc-contract.js";
+import { handleChannelVerificationSession } from "../daemon/handlers/config.js";
+import type { ChannelVerificationSessionRequest } from "../daemon/ipc-protocol.js";
 describe("Guardian verification IPC actions", () => {
   beforeEach(() => {
     secureKeyStore = {};
@@ -1251,14 +1271,14 @@ describe("Guardian verification IPC actions", () => {
   });
 
   test("status action returns bound=false when no binding exists", () => {
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "telegram",
     };
 
     const { ctx, sent } = createTestContext();
-    handleGuardianVerification(msg, {} as net.Socket, ctx);
+    handleChannelVerificationSession(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -1267,21 +1287,21 @@ describe("Guardian verification IPC actions", () => {
       bound: boolean;
       guardianExternalUserId?: string;
     };
-    expect(res.type).toBe("guardian_verification_response");
+    expect(res.type).toBe("channel_verification_session_response");
     expect(res.success).toBe(true);
     expect(res.bound).toBe(false);
     expect(res.guardianExternalUserId).toBeUndefined();
   });
 
   test("create_challenge action returns a secret and instruction", () => {
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
-      action: "create_challenge",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
+      action: "create_session",
       channel: "telegram",
     };
 
     const { ctx, sent } = createTestContext();
-    handleGuardianVerification(msg, {} as net.Socket, ctx);
+    handleChannelVerificationSession(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -1290,7 +1310,7 @@ describe("Guardian verification IPC actions", () => {
       secret?: string;
       instruction?: string;
     };
-    expect(res.type).toBe("guardian_verification_response");
+    expect(res.type).toBe("channel_verification_session_response");
     expect(res.success).toBe(true);
     expect(res.secret).toBeDefined();
     expect(res.instruction).toBeDefined();
@@ -1300,17 +1320,17 @@ describe("Guardian verification IPC actions", () => {
 
   test("unknown action returns error", () => {
     const msg = {
-      type: "guardian_verification",
+      type: "channel_verification_session",
       action: "nonexistent",
       channel: "telegram",
-    } as unknown as GuardianVerificationRequest;
+    } as unknown as ChannelVerificationSessionRequest;
 
     const { ctx, sent } = createTestContext();
-    handleGuardianVerification(msg, {} as net.Socket, ctx);
+    handleChannelVerificationSession(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as { type: string; success: boolean; error?: string };
-    expect(res.type).toBe("guardian_verification_response");
+    expect(res.type).toBe("channel_verification_session_response");
     expect(res.success).toBe(false);
     expect(res.error).toContain("Unknown action");
   });

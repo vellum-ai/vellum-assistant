@@ -62,6 +62,8 @@ public enum UsageGroupByDimension: String, CaseIterable, Sendable {
 
 /// Formatting helpers for usage dashboard values, shared across platforms.
 public enum UsageFormatting {
+    public static let directInputTokensLabel = "Direct Input Tokens"
+
     public static func formatCost(_ usd: Double) -> String {
         formatCostWithPrecision(usd, fractionDigits: 4)
     }
@@ -85,6 +87,16 @@ public enum UsageFormatting {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         return formatter.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    public static func formatBreakdownSummary(_ entry: UsageGroupBreakdownEntry) -> String {
+        let segments = [
+            "\(formatCount(entry.totalInputTokens)) direct",
+            "\(formatCount(entry.totalCacheCreationTokens)) cache created",
+            "\(formatCount(entry.totalCacheReadTokens)) cache read",
+            "\(formatCount(entry.totalOutputTokens)) out",
+        ]
+        return segments.joined(separator: " / ")
     }
 }
 

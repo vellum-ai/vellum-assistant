@@ -79,7 +79,7 @@ mock.module("../runtime/gateway-client.js", () => ({
 
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { findActiveSession } from "../runtime/channel-guardian-service.js";
+import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
@@ -102,7 +102,7 @@ const TEST_BEARER_TOKEN = "test-token";
 function resetState(): void {
   const db = getDb();
   db.run("DELETE FROM channel_guardian_approval_requests");
-  db.run("DELETE FROM channel_guardian_verification_challenges");
+  db.run("DELETE FROM channel_verification_sessions");
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
@@ -293,14 +293,14 @@ describe("Slack inbound trusted contact verification", () => {
     // sessions, extract it from the session's challengeHash by consuming
     // the challenge directly.
     // The session was created with createOutboundSession which generates
-    // a 6-digit code. We can validate by calling validateAndConsumeChallenge
+    // a 6-digit code. We can validate by calling validateAndConsumeVerification
     // with the correct secret. Since the mock captures the DM text, we
     // can extract the code indirectly. But for testing, we just verify
-    // the session properties and that validateAndConsumeChallenge works
+    // the session properties and that validateAndConsumeVerification works
     // with the correct identity.
 
     // The actual secret was sent in the DM. For this test, let's use the
-    // session directly via the channel-guardian-service to verify the
+    // session directly via the channel-verification-service to verify the
     // consume path works.
     // The DM text contains the verification code implicitly (it's in the
     // template message). Since we need to test the full round-trip, let's
@@ -313,7 +313,7 @@ describe("Slack inbound trusted contact verification", () => {
 
     // Create a verification session manually to test the consume path
     const { createOutboundSession } =
-      await import("../runtime/channel-guardian-service.js");
+      await import("../runtime/channel-verification-service.js");
 
     const outboundSession = createOutboundSession({
       channel: "slack",
@@ -338,6 +338,6 @@ describe("Slack inbound trusted contact verification", () => {
     const verifyJson = (await verifyResp.json()) as Record<string, unknown>;
 
     expect(verifyJson.accepted).toBe(true);
-    expect(verifyJson.guardianVerification).toBe("verified");
+    expect(verifyJson.verificationOutcome).toBe("verified");
   });
 });

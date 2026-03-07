@@ -1,7 +1,8 @@
 ---
-name: "Watcher"
-description: "Polling watcher system for monitoring external sources"
-metadata: {"vellum": {"emoji": "👀"}}
+name: watcher
+description: Polling watcher system for monitoring external sources
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"👀","vellum":{"display-name":"Watcher"}}
 ---
 
 Create and manage watchers that poll external services for events and process them with an action prompt.

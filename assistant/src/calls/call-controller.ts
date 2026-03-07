@@ -9,7 +9,7 @@
  */
 
 import { getGatewayInternalBaseUrl } from "../config/env.js";
-import type { ServerMessage } from "../daemon/ipc-contract.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import {
   expireCanonicalGuardianRequest,

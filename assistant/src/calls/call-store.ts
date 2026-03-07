@@ -9,6 +9,7 @@ import {
 } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
 import { cast, createRowMapper } from "../util/row-mapper.js";
+import { syncActiveCallLeaseFromSession } from "./active-call-lease.js";
 import { validateTransition } from "./call-state-machine.js";
 import type {
   CallEvent,
@@ -35,7 +36,7 @@ const parseCallSession = createRowMapper<
   task: "task",
   status: { from: "status", transform: cast<CallSession["status"]>() },
   callMode: { from: "callMode", transform: cast<CallSession["callMode"]>() },
-  guardianVerificationSessionId: "guardianVerificationSessionId",
+  verificationSessionId: "verificationSessionId",
   callerIdentityMode: "callerIdentityMode",
   callerIdentitySource: "callerIdentitySource",
   initiatedFromConversationId: "initiatedFromConversationId",
@@ -79,7 +80,7 @@ export function createCallSession(opts: {
   toNumber: string;
   task?: string;
   callMode?: string;
-  guardianVerificationSessionId?: string;
+  verificationSessionId?: string;
   callerIdentityMode?: string;
   callerIdentitySource?: string;
   initiatedFromConversationId?: string;
@@ -96,7 +97,7 @@ export function createCallSession(opts: {
     task: opts.task ?? null,
     status: "initiated" as const,
     callMode: (opts.callMode ?? null) as CallSession["callMode"],
-    guardianVerificationSessionId: opts.guardianVerificationSessionId ?? null,
+    verificationSessionId: opts.verificationSessionId ?? null,
     callerIdentityMode: opts.callerIdentityMode ?? null,
     callerIdentitySource: opts.callerIdentitySource ?? null,
     initiatedFromConversationId: opts.initiatedFromConversationId ?? null,
@@ -168,8 +169,12 @@ export function updateCallSession(
       | "initiatedFromConversationId"
     >
   >,
+  opts?: { beforeLeaseSync?: () => void },
 ): void {
   const db = getDb();
+  const shouldSyncActiveLease =
+    Object.prototype.hasOwnProperty.call(updates, "providerCallSid") ||
+    Object.prototype.hasOwnProperty.call(updates, "status");
 
   // Validate status transition when a new status is provided
   if (updates.status) {
@@ -198,6 +203,19 @@ export function updateCallSession(
     .set({ ...updates, updatedAt: Date.now() })
     .where(eq(callSessions.id, id))
     .run();
+
+  opts?.beforeLeaseSync?.();
+
+  if (shouldSyncActiveLease) {
+    try {
+      syncActiveCallLeaseFromSession(getCallSession(id));
+    } catch (err) {
+      log.warn(
+        { callSessionId: id, err },
+        "Failed to sync active call lease from session update",
+      );
+    }
+  }
 }
 
 // ── Recovery queries ─────────────────────────────────────────────────
@@ -377,31 +395,6 @@ export function recordProcessedCallback(
     dedupeKey,
     callSessionId,
     Date.now(),
-  );
-}
-
-/**
- * Try to record a processed callback. Returns true if this is a new callback
- * (inserted successfully). Returns false if the callback was already processed
- * (dedupe key already exists), indicating a replay.
- *
- * Uses INSERT ... ON CONFLICT DO NOTHING pattern for atomicity.
- *
- * @deprecated Use claimCallback + releaseCallbackClaim instead to
- * atomically claim a callback and release on failure.
- */
-export function tryRecordProcessedCallback(
-  dedupeKey: string,
-  callSessionId: string,
-): boolean {
-  return (
-    rawRun(
-      `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-      uuid(),
-      dedupeKey,
-      callSessionId,
-      Date.now(),
-    ) > 0
   );
 }
 

@@ -58,14 +58,12 @@ graph TB
         SLACK_ADAPTER["Slack Adapter<br/>messaging/providers/slack/"]
         GMAIL_ADAPTER["Gmail Adapter<br/>messaging/providers/gmail/"]
         TELEGRAM_ADAPTER["Telegram Adapter<br/>messaging/providers/telegram-bot/"]
-        SMS_ADAPTER["SMS Adapter (Twilio)<br/>messaging/providers/sms/"]
     end
 
     subgraph "External APIs"
         SLACK_API["Slack Web API"]
         GMAIL_API["Gmail REST API"]
         TELEGRAM_API["Telegram Bot API"]
-        TWILIO_API["Twilio REST API"]
     end
 
     SHARED --> REGISTRY
@@ -73,11 +71,9 @@ graph TB
     SLACK_ADAPTER -.->|implements| PROVIDER_IF
     GMAIL_ADAPTER -.->|implements| PROVIDER_IF
     TELEGRAM_ADAPTER -.->|implements| PROVIDER_IF
-    SMS_ADAPTER -.->|implements| PROVIDER_IF
     SLACK_ADAPTER --> SLACK_API
     GMAIL_ADAPTER --> GMAIL_API
     TELEGRAM_ADAPTER --> TELEGRAM_API
-    SMS_ADAPTER --> TWILIO_API
     AUTH_TEST --> SHARED
     LIST --> SHARED
     SEARCH --> SHARED
@@ -147,7 +143,7 @@ Twitter uses a standalone OAuth2 flow separate from the unified messaging layer.
 
 #### Twitter OAuth2 Flow
 
-Twitter's OAuth2 flow delegates to the shared **connect orchestrator** (`oauth/connect-orchestrator.ts`). The Twitter provider profile in the registry defines auth/token URLs, default scopes, and an identity verifier. The daemon handler (`daemon/handlers/oauth-connect.ts`) resolves credentials from the keychain using canonical names (`client_id`, `client_secret`) with fallback to legacy names (`oauth_client_id`, `oauth_client_secret`), then calls `orchestrateOAuthConnect()`.
+Twitter's OAuth2 flow delegates to the shared **connect orchestrator** (`oauth/connect-orchestrator.ts`). The Twitter provider profile in the registry defines auth/token URLs, default scopes, and an identity verifier. The daemon handler (`daemon/handlers/oauth-connect.ts`) resolves credentials from the keychain using canonical names (`client_id`, `client_secret`), then calls `orchestrateOAuthConnect()`.
 
 ```mermaid
 sequenceDiagram
@@ -226,7 +222,7 @@ The strategy is persisted in the Vellum config file as `twitter.operationStrateg
 | Flow                  | PKCE (S256), optional client secret, via connect orchestrator                                                      |
 | Default scopes        | `tweet.read`, `tweet.write`, `users.read`, `offline.access` (from provider profile)                                |
 | Identity verification | Provider profile `identityVerifier` → `GET https://api.x.com/2/users/me` with Bearer token                         |
-| Credential names      | Canonical: `client_id`, `client_secret`; reads fall back to legacy `oauth_client_id`, `oauth_client_secret`        |
+| Credential names      | `client_id`, `client_secret`                                                                                       |
 | IPC messages          | `oauth_connect_start` / `oauth_connect_result` (generic), plus legacy `twitter_auth_start` / `twitter_auth_status` |
 
 #### Twitter Credential Metadata Structure
@@ -278,7 +274,7 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PKCE by default, optional client_secret            | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in credential metadata for autonomous refresh                                                                                                                                        |
 | Shared connect orchestrator                        | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code                        |
-| Canonical credential naming                        | Writes use `client_id`/`client_secret`; reads fall back to legacy `oauth_client_id`/`oauth_client_secret` for backward compatibility                                                                                                                                    |
+| Canonical credential naming                        | All reads and writes use `client_id`/`client_secret` as canonical field names                                                                                                                                                                                           |
 | Gateway callback transport                         | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments.                                                       |
 | Unified `MessagingProvider` interface              | All platforms implement the same contract; generic tools work immediately for new providers                                                                                                                                                                             |
 | Twitter outside unified messaging                  | Twitter is a broadcast/read platform, not a conversation platform — it doesn't fit the `MessagingProvider` contract                                                                                                                                                     |
@@ -304,7 +300,6 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/messaging/providers/slack/`             | Slack adapter, client, types                                                                              |
 | `assistant/src/messaging/providers/gmail/`             | Gmail adapter, client, types                                                                              |
 | `assistant/src/config/bundled-skills/messaging/`       | Unified messaging skill (SKILL.md, TOOLS.json, tools/)                                                    |
-| `assistant/src/watcher/providers/slack.ts`             | Slack watcher for DMs, mentions, thread replies                                                           |
 | `assistant/src/watcher/providers/gmail.ts`             | Gmail watcher using History API                                                                           |
 | `assistant/src/watcher/providers/github.ts`            | GitHub watcher for PRs, issues, review requests, and mentions                                             |
 | `assistant/src/watcher/providers/linear.ts`            | Linear watcher for assigned issues, status changes, and @mentions                                         |
@@ -375,7 +370,7 @@ Result is a discriminated union: `{ success, deferred, grantedScopes, accountInf
 
 `assistant/src/daemon/handlers/oauth-connect.ts` handles `oauth_connect_start` messages. The handler:
 
-1. Resolves client credentials from the keychain using canonical names (`client_id`, `client_secret`) with fallback to legacy names (`oauth_client_id`, `oauth_client_secret`).
+1. Resolves client credentials from the keychain using canonical names (`client_id`, `client_secret`).
 2. Validates that required credentials exist (including `client_secret` when the provider requires it).
 3. Delegates to `orchestrateOAuthConnect()`.
 4. Sends `oauth_connect_result` back to the client.
@@ -712,6 +707,6 @@ graph TB
 | `assistant/src/tools/assets/materialize.ts`       | `asset_materialize` tool — decode and write attachment to sandbox path                  |
 | `assistant/src/daemon/media-visibility-policy.ts` | Pure policy module — `isAttachmentVisible()`, `filterVisibleAttachments()`              |
 | `assistant/src/memory/schema.ts`                  | `attachments` and `message_attachments` table schemas                                   |
-| `assistant/src/memory/conversation-store.ts`      | `getConversationThreadType()` — thread type lookup for visibility context               |
+| `assistant/src/memory/conversation-crud.ts`       | `getConversationThreadType()` — thread type lookup for visibility context               |
 
 ---

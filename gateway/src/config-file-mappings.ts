@@ -22,13 +22,13 @@ type ConfigFileMapping =
 
 export const CONFIG_FILE_MAPPINGS: ConfigFileMapping[] = [
   {
-    key: "sms",
+    key: "twilio",
     field: "phoneNumber",
     configField: "twilioPhoneNumber",
     type: "string",
   },
   {
-    key: "sms",
+    key: "twilio",
     field: "assistantPhoneNumbers",
     configField: "assistantPhoneNumbers",
     type: "normalized-record",

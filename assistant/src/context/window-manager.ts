@@ -45,8 +45,16 @@ export interface ContextWindowResult {
   summaryInputTokens: number;
   summaryOutputTokens: number;
   summaryModel: string;
+  summaryCacheCreationInputTokens?: number;
+  summaryCacheReadInputTokens?: number;
+  summaryRawResponses?: unknown[];
   summaryText: string;
   reason?: string;
+}
+
+export interface ShouldCompactResult {
+  needed: boolean;
+  estimatedTokens: number;
 }
 
 export interface ContextWindowCompactOptions {
@@ -66,25 +74,58 @@ export interface ContextWindowCompactOptions {
    * than the normal `config.targetInputTokens` during forced recovery.
    */
   targetInputTokensOverride?: number;
+  /**
+   * Pre-computed token estimate from a prior `shouldCompact()` call.
+   * When provided, `maybeCompact()` skips its own `estimatePromptTokens()`
+   * call, avoiding a redundant O(history) tokenization pass.
+   */
+  precomputedEstimate?: number;
+}
+
+export interface ContextWindowManagerOptions {
+  provider: Provider;
+  systemPrompt: string;
+  config: ContextWindowConfig;
 }
 
 export class ContextWindowManager {
-  constructor(
-    private readonly provider: Provider,
-    private readonly systemPrompt: string,
-    private readonly config: ContextWindowConfig,
-  ) {}
+  private readonly provider: Provider;
+  private readonly systemPrompt: string;
+  private readonly config: ContextWindowConfig;
+
+  constructor(options: ContextWindowManagerOptions) {
+    this.provider = options.provider;
+    this.systemPrompt = options.systemPrompt;
+    this.config = options.config;
+  }
+
+  /**
+   * Cheap pre-check: returns whether the estimated token count exceeds
+   * the compaction threshold, along with the estimated token count so
+   * callers can pass it into `maybeCompact()` via `precomputedEstimate`
+   * to avoid a redundant tokenization pass.
+   */
+  shouldCompact(messages: Message[]): ShouldCompactResult {
+    if (!this.config.enabled) return { needed: false, estimatedTokens: 0 };
+    const estimated = estimatePromptTokens(messages, this.systemPrompt, {
+      providerName: this.provider.name,
+    });
+    const threshold = Math.floor(
+      this.config.maxInputTokens * this.config.compactThreshold,
+    );
+    return { needed: estimated >= threshold, estimatedTokens: estimated };
+  }
 
   async maybeCompact(
     messages: Message[],
     signal?: AbortSignal,
     options?: ContextWindowCompactOptions,
   ): Promise<ContextWindowResult> {
-    const previousEstimatedInputTokens = estimatePromptTokens(
-      messages,
-      this.systemPrompt,
-      { providerName: this.provider.name },
-    );
+    const previousEstimatedInputTokens =
+      options?.precomputedEstimate ??
+      estimatePromptTokens(messages, this.systemPrompt, {
+        providerName: this.provider.name,
+      });
     const thresholdTokens = Math.floor(
       this.config.maxInputTokens * this.config.compactThreshold,
     );
@@ -298,6 +339,9 @@ export class ContextWindowManager {
     let summaryInputTokens = 0;
     let summaryOutputTokens = 0;
     let summaryModel = "";
+    let summaryCacheCreationInputTokens = 0;
+    let summaryCacheReadInputTokens = 0;
+    const summaryRawResponses: unknown[] = [];
     let summaryCalls = 0;
 
     for (const chunk of chunks) {
@@ -306,6 +350,13 @@ export class ContextWindowManager {
       summaryInputTokens += summaryUpdate.inputTokens;
       summaryOutputTokens += summaryUpdate.outputTokens;
       summaryModel = summaryUpdate.model || summaryModel;
+      summaryCacheCreationInputTokens += summaryUpdate.cacheCreationInputTokens;
+      summaryCacheReadInputTokens += summaryUpdate.cacheReadInputTokens;
+      if (Array.isArray(summaryUpdate.rawResponse)) {
+        summaryRawResponses.push(...summaryUpdate.rawResponse);
+      } else if (summaryUpdate.rawResponse !== undefined) {
+        summaryRawResponses.push(summaryUpdate.rawResponse);
+      }
       summaryCalls += 1;
     }
 
@@ -387,6 +438,9 @@ export class ContextWindowManager {
       summaryInputTokens,
       summaryOutputTokens,
       summaryModel,
+      summaryCacheCreationInputTokens,
+      summaryCacheReadInputTokens,
+      summaryRawResponses,
       summaryText: summary,
     };
   }
@@ -451,6 +505,9 @@ export class ContextWindowManager {
     inputTokens: number;
     outputTokens: number;
     model: string;
+    cacheCreationInputTokens: number;
+    cacheReadInputTokens: number;
+    rawResponse?: unknown;
   }> {
     const prompt = buildSummaryPrompt(currentSummary, chunk);
     try {
@@ -471,6 +528,10 @@ export class ContextWindowManager {
           inputTokens: response.usage.inputTokens,
           outputTokens: response.usage.outputTokens,
           model: response.model,
+          cacheCreationInputTokens:
+            response.usage.cacheCreationInputTokens ?? 0,
+          cacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
+          rawResponse: response.rawResponse,
         };
       }
     } catch (err) {
@@ -482,6 +543,8 @@ export class ContextWindowManager {
       inputTokens: 0,
       outputTokens: 0,
       model: "",
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
     };
   }
 }
@@ -525,10 +588,6 @@ export function getSummaryFromContextMessage(
   const text = extractText(message.content).trim();
   if (!text.startsWith(CONTEXT_SUMMARY_MARKER)) return null;
   if (INTERNAL_CONTEXT_SUMMARY_MESSAGES.has(message)) {
-    return stripContextSummaryTags(text);
-  }
-  // Backward compatibility for older in-memory sessions that used assistant-role summaries.
-  if (message.role === "assistant") {
     return stripContextSummaryTags(text);
   }
   return null;

@@ -17,21 +17,28 @@ import type {
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
-import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import {
+  addMessage,
+  provenanceFromTrustContext,
+  setConversationOriginChannelIfUnset,
+  setConversationOriginInterfaceIfUnset,
+} from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { getLogger } from "../util/logger.js";
-import { resolveGuardianVerificationIntent } from "./guardian-verification-intent.js";
-import type { UsageStats } from "./ipc-contract.js";
-import type { ServerMessage, UserMessageAttachment } from "./ipc-protocol.js";
+import type {
+  ServerMessage,
+  UsageStats,
+  UserMessageAttachment,
+} from "./ipc-protocol.js";
 import type { MessageQueue } from "./session-queue-manager.js";
 import type { QueueDrainReason } from "./session-queue-manager.js";
 import type { TrustContext } from "./session-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./session-slash.js";
 import type { TraceEmitter } from "./trace-emitter.js";
+import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("session-process");
 
@@ -287,7 +294,7 @@ export async function drainQueue(
             createUserMessage(next.displayContent, next.attachments).content,
           )
         : JSON.stringify(userMsg.content);
-      await conversationStore.addMessage(
+      await addMessage(
         session.conversationId,
         "user",
         contentToPersist,
@@ -296,7 +303,7 @@ export async function drainQueue(
       session.messages.push(userMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
-      await conversationStore.addMessage(
+      await addMessage(
         session.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -305,13 +312,13 @@ export async function drainQueue(
       session.messages.push(assistantMsg);
 
       if (queuedTurnCtx) {
-        conversationStore.setConversationOriginChannelIfUnset(
+        setConversationOriginChannelIfUnset(
           session.conversationId,
           queuedTurnCtx.userMessageChannel,
         );
       }
       if (queuedInterfaceCtx) {
-        conversationStore.setConversationOriginInterfaceIfUnset(
+        setConversationOriginInterfaceIfUnset(
           session.conversationId,
           queuedInterfaceCtx.userMessageInterface,
         );
@@ -373,16 +380,17 @@ export async function drainQueue(
   // loop receives the rewritten instruction.
   let agentLoopContent = resolvedContent;
   if (slashResult.kind === "passthrough") {
-    const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
-    if (guardianIntent.kind === "direct_setup") {
+    const verificationIntent =
+      resolveVerificationSessionIntent(resolvedContent);
+    if (verificationIntent.kind === "direct_setup") {
       log.info(
         {
           conversationId: session.conversationId,
-          channelHint: guardianIntent.channelHint,
+          channelHint: verificationIntent.channelHint,
         },
-        "Guardian verification intent intercepted in queue — forcing skill flow",
+        "Verification session intent intercepted in queue — forcing skill flow",
       );
-      agentLoopContent = guardianIntent.rewrittenContent;
+      agentLoopContent = verificationIntent.rewrittenContent;
       session.preactivatedSkillIds = ["guardian-verify-setup"];
     }
   }
@@ -566,7 +574,7 @@ export async function processMessage(
       };
 
       const userMsg = createUserMessage(content, attachments);
-      const persisted = await conversationStore.addMessage(
+      const persisted = await addMessage(
         session.conversationId,
         "user",
         JSON.stringify(userMsg.content),
@@ -580,7 +588,7 @@ export async function processMessage(
           ? "Decision applied."
           : "Request already resolved.");
       const assistantMsg = createAssistantMessage(replyText);
-      await conversationStore.addMessage(
+      await addMessage(
         session.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -636,7 +644,7 @@ export async function processMessage(
     const contentToPersist = displayContent
       ? JSON.stringify(createUserMessage(displayContent, attachments).content)
       : JSON.stringify(userMsg.content);
-    const persisted = await conversationStore.addMessage(
+    const persisted = await addMessage(
       session.conversationId,
       "user",
       contentToPersist,
@@ -645,7 +653,7 @@ export async function processMessage(
     session.messages.push(userMsg);
 
     const assistantMsg = createAssistantMessage(slashResult.message);
-    await conversationStore.addMessage(
+    await addMessage(
       session.conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
@@ -654,13 +662,13 @@ export async function processMessage(
     session.messages.push(assistantMsg);
 
     if (pmTurnCtx) {
-      conversationStore.setConversationOriginChannelIfUnset(
+      setConversationOriginChannelIfUnset(
         session.conversationId,
         pmTurnCtx.userMessageChannel,
       );
     }
     if (pmInterfaceCtx) {
-      conversationStore.setConversationOriginInterfaceIfUnset(
+      setConversationOriginInterfaceIfUnset(
         session.conversationId,
         pmInterfaceCtx.userMessageInterface,
       );
@@ -698,16 +706,17 @@ export async function processMessage(
   // rewritten content only for the agent loop instruction.
   let agentLoopContent = resolvedContent;
   if (slashResult.kind === "passthrough") {
-    const guardianIntent = resolveGuardianVerificationIntent(resolvedContent);
-    if (guardianIntent.kind === "direct_setup") {
+    const verificationIntent =
+      resolveVerificationSessionIntent(resolvedContent);
+    if (verificationIntent.kind === "direct_setup") {
       log.info(
         {
           conversationId: session.conversationId,
-          channelHint: guardianIntent.channelHint,
+          channelHint: verificationIntent.channelHint,
         },
-        "Guardian verification intent intercepted — forcing skill flow",
+        "Verification session intent intercepted — forcing skill flow",
       );
-      agentLoopContent = guardianIntent.rewrittenContent;
+      agentLoopContent = verificationIntent.rewrittenContent;
       session.preactivatedSkillIds = ["guardian-verify-setup"];
     }
   }

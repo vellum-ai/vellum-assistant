@@ -1,8 +1,8 @@
 ---
-name: "Notifications"
-description: "Send notifications through the unified notification router"
-user-invocable: true
-metadata: { "vellum": { "emoji": "\ud83d\udd14" } }
+name: notifications
+description: Send notifications through the unified notification router
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🔔","vellum":{"display-name":"Notifications","user-invocable":true}}
 ---
 
 Use `send_notification` for user-facing alerts and notifications. This tool routes through the unified notification pipeline, which handles channel selection, delivery, deduplication, and audit logging.

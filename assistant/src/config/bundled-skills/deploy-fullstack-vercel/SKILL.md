@@ -1,8 +1,8 @@
 ---
-name: "Deploy Fullstack to Vercel"
-description: "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data"
-metadata: {"vellum": {"emoji": "🚀"}}
-
+name: deploy-fullstack-vercel
+description: Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🚀","vellum":{"display-name":"Deploy Fullstack to Vercel"}}
 ---
 
 # Deploy Fullstack to Vercel

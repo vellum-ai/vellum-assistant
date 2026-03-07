@@ -5,8 +5,6 @@ import VellumAssistantShared
 
 struct ChatBubble: View {
     let message: ChatMessage
-    /// When true, tool call chips are suppressed because a nearby message has inline surfaces.
-    let hideToolCalls: Bool
     /// Decided confirmation from the next message, rendered as a compact chip at the bottom.
     let decidedConfirmation: ToolConfirmationData?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void

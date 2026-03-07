@@ -10,11 +10,15 @@ on:
         description: 'Release version to test (e.g. "1.2.3"). If set, downloads the DMG from vellum-ai/velly releases instead of building from source.'
         required: false
         type: string
-      run_experimental:
-        description: 'Run experimental tests (tests marked with status: experimental in front matter).'
+      test_filter:
+        description: 'Test filter level: critical (only critical), stable (critical + stable), experimental (all tests).'
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - experimental
+          - stable
+          - critical
+        default: stable
       test_case:
         description: 'Run a single test case by name (e.g. "hello-world"). If empty, runs all tests.'
         required: false
@@ -98,7 +102,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: '1.3.9'
 
       - name: Build binaries
         if: ${{ !inputs.release_version }}
@@ -250,7 +254,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: '1.3.9'
 
       - name: Install Playwright dependencies
         if: ${{ !inputs.use_xcode }}
@@ -278,12 +282,172 @@ jobs:
         working-directory: playwright/agent-xcode
         run: swift build -c release
 
+      - name: Grant screen recording permission
+        run: |
+          # On macOS 15+ (Sequoia), screencapture triggers a "requesting to
+          # bypass the system private window picker" dialog. We suppress it via:
+          #   1. TCC database grants (system + user) + daemon restart
+          #   2. ScreenCaptureApprovals plist (15.1+ format) + daemon bounces
+          #   3. Accessibility TCC grants for osascript (needed for auto-click)
+
+          set -x  # echo commands for debugging
+
+          CLIENTS="/usr/sbin/screencapture /bin/bash /bin/zsh /opt/homebrew/bin/bun"
+          TS=$(date +%s)
+          FUTURE="4321-01-01 00:00:00 +0000"
+
+          # ── 1. TCC database grants ──
+          echo "--- TCC.db schema ---"
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" ".schema access" || echo "Cannot read TCC schema"
+
+          for client in $CLIENTS; do
+            sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+              "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$TS);" \
+              && echo "TCC system ScreenCapture: granted $client" \
+              || echo "TCC system ScreenCapture: FAILED for $client"
+          done
+
+          # Grant Accessibility for osascript so the auto-click fallback works
+          ACCESSIBILITY_CLIENTS="/usr/bin/osascript /bin/bash /bin/zsh /opt/homebrew/bin/bun"
+          for client in $ACCESSIBILITY_CLIENTS; do
+            sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+              "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceAccessibility','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$TS);" \
+              && echo "TCC system Accessibility: granted $client" \
+              || echo "TCC system Accessibility: FAILED for $client"
+          done
+
+          # User-level TCC database
+          USER_TCC="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+          if [ -f "$USER_TCC" ]; then
+            for client in $CLIENTS; do
+              sqlite3 "$USER_TCC" \
+                "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$TS);" \
+                && echo "TCC user: granted $client" \
+                || echo "TCC user: FAILED for $client"
+            done
+          else
+            echo "User TCC.db not found at $USER_TCC — skipping user-level grants"
+          fi
+
+          echo "--- System TCC entries after insert ---"
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "SELECT service, client, auth_value FROM access WHERE service IN ('kTCCServiceScreenCapture','kTCCServiceAccessibility');" || true
+
+          # Restart tccd so it picks up the DB changes
+          echo "--- Restarting tccd ---"
+          sudo killall -9 tccd 2>&1 || echo "tccd kill failed (may not be running)"
+          sleep 1
+
+          # ── 2. ScreenCaptureApprovals plist (15.1+ format) ──
+          # macOS 15.1+ requires BOTH kScreenCaptureApprovalLastAlerted AND
+          # kScreenCaptureApprovalLastUsed in each entry's dict.
+          # Ref: github.com/luckman212/screencapture-nag-remover
+          APPROVALS_DIR="$HOME/Library/Group Containers/group.com.apple.replayd"
+          mkdir -p "$APPROVALS_DIR"
+          APPROVALS_PLIST="$APPROVALS_DIR/ScreenCaptureApprovals"
+          for client in $CLIENTS; do
+            defaults write "$APPROVALS_PLIST" "$client" -dict \
+              kScreenCaptureApprovalLastAlerted -date "$FUTURE" \
+              kScreenCaptureApprovalLastUsed -date "$FUTURE" \
+              && echo "Approvals: set $client" \
+              || echo "Approvals: FAILED for $client"
+          done
+
+          echo "--- ScreenCaptureApprovals plist ---"
+          defaults read "$APPROVALS_PLIST" || echo "Cannot read ScreenCaptureApprovals"
+
+          # Bounce daemons so they re-read the plist
+          # (SIGHUP for replayd, kill cfprefsd to flush preferences cache)
+          echo "--- Bouncing replayd and cfprefsd ---"
+          killall -HUP replayd 2>&1 || echo "replayd HUP failed (may not be running)"
+          killall -u "$(whoami)" cfprefsd 2>&1 || echo "cfprefsd kill failed"
+          sleep 1
+
+          echo "--- Done with permission grants ---"
+
+      - name: Start screen recording dialog auto-clicker
+        run: |
+          # As a fallback, run a background AppleScript that auto-clicks
+          # "Allow" on the screen recording permission dialog if it appears.
+          # This covers the case where TCC/plist grants don't fully suppress it.
+          #
+          # We write the AppleScript to a file directly (not via heredoc) to
+          # avoid shebang whitespace issues from YAML indentation.
+          APPLESCRIPT='/tmp/dismiss-dialog.scpt'
+          printf '%s\n' \
+            'on run' \
+            '  tell application "System Events"' \
+            '    set targetNames to {"CoreServicesUIAgent", "UserNotificationCenter"}' \
+            '    repeat with procName in targetNames' \
+            '      try' \
+            '        set targetProc to first process whose name is (contents of procName)' \
+            '        tell targetProc' \
+            '          repeat with w in (every window)' \
+            '            try' \
+            '              repeat with btn in (every button of w)' \
+            '                set btnName to name of btn' \
+            '                if btnName starts with "Allow" then' \
+            '                  click btn' \
+            '                  do shell script "echo $(date): Clicked " & quoted form of btnName & " on " & (contents of procName) & " >> /tmp/dialog-watcher.log"' \
+            '                end if' \
+            '              end repeat' \
+            '            end try' \
+            '          end repeat' \
+            '        end tell' \
+            '      end try' \
+            '    end repeat' \
+            '  end tell' \
+            'end run' \
+            > "$APPLESCRIPT"
+
+          # Background loop: poll every 2s, run the AppleScript, log errors
+          (
+            while true; do
+              osascript "$APPLESCRIPT" 2>> /tmp/dialog-watcher.log || true
+              sleep 2
+            done
+          ) &
+          echo $! > /tmp/dialog-watcher.pid
+          echo "Dialog auto-clicker started with PID $(cat /tmp/dialog-watcher.pid)"
+          echo "--- AppleScript contents ---"
+          cat "$APPLESCRIPT"
+
+      - name: Install ffmpeg
+        timeout-minutes: 5
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
+        run: |
+          if ! command -v ffmpeg &> /dev/null; then
+            echo "ffmpeg not found, installing via brew..."
+            brew install ffmpeg
+          else
+            echo "ffmpeg already installed: $(ffmpeg -version | head -1)"
+          fi
+
+      - name: Verify ffmpeg screen recording
+        run: |
+          echo "=== ffmpeg version ==="
+          ffmpeg -version | head -3
+          echo ""
+          echo "=== avfoundation devices ==="
+          ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true
+          echo ""
+          echo "=== Test 3s recording (WebM/VP8) ==="
+          ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 -i "0:none" \
+            -c:v libvpx -b:v 1M -crf 30 \
+            -t 3 -y /tmp/test-ffmpeg.webm 2>&1 || true
+          echo ""
+          echo "=== Test video file ==="
+          ls -la /tmp/test-ffmpeg.webm 2>/dev/null || echo "No video file created"
+          file /tmp/test-ffmpeg.webm 2>/dev/null || true
       - name: Run Playwright tests
         id: tests
         working-directory: playwright
         continue-on-error: true
         env:
-          RUN_EXPERIMENTAL: ${{ inputs.run_experimental && '1' || '' }}
+          TEST_FILTER: ${{ inputs.test_filter || 'stable' }}
         run: |
           SHARD_ARGS=""
           if [ "$TOTAL_SHARDS" -gt 1 ]; then
@@ -291,19 +455,32 @@ jobs:
           fi
 
           if [ "${{ inputs.use_xcode }}" = "true" ]; then
-            unset RUN_EXPERIMENTAL
+            unset TEST_FILTER
             XCODE_ARGS=""
             if [ -n "${{ inputs.test_case }}" ]; then
               XCODE_ARGS="${{ inputs.test_case }}"
             fi
-            if [ "${{ inputs.run_experimental }}" = "true" ]; then
+            if [ "${{ inputs.test_filter }}" = "experimental" ]; then
               XCODE_ARGS="$XCODE_ARGS --experimental"
             fi
             cd agent-xcode && ./.build/release/agent-xcode $XCODE_ARGS
           elif [ -n "${{ inputs.test_case }}" ]; then
+            unset TEST_FILTER
             bun run test -g "${{ inputs.test_case }}" $SHARD_ARGS
           else
             bun run test $SHARD_ARGS
+          fi
+
+      - name: Dump dialog watcher log
+        if: always() && steps.tests.outcome != 'skipped'
+        run: |
+          echo "--- Dialog watcher log ---"
+          cat /tmp/dialog-watcher.log 2>/dev/null || echo "No dialog watcher log found"
+          echo "--- Dialog watcher PID status ---"
+          if [ -f /tmp/dialog-watcher.pid ]; then
+            PID=$(cat /tmp/dialog-watcher.pid)
+            ps -p "$PID" 2>/dev/null && echo "Watcher still running" || echo "Watcher already exited"
+            kill "$PID" 2>/dev/null || true
           fi
 
       - name: Upload test artifacts
@@ -361,8 +538,8 @@ jobs:
         if: steps.tests.outcome == 'failure'
         run: exit 1
 
-  notify:
-    name: Slack Notification
+  notify-playwright:
+    name: Slack Notification (Playwright)
     needs: [prepare, build, playwright]
     if: always() && github.event_name == 'schedule'
     continue-on-error: true

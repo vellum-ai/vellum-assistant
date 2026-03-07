@@ -2,11 +2,9 @@
  * Guardian action follow-up executor.
  *
  * After the conversation engine classifies the guardian's reply as
- * `call_back` or `message_back` and transitions the follow-up state to
- * `dispatching`, this module executes the actual action:
+ * `call_back` and transitions the follow-up state to `dispatching`,
+ * this module executes the actual action:
  *
- *   - **message_back**: Generates outbound SMS text and sends it to the
- *     counterparty phone number via the gateway's /deliver/sms endpoint.
  *   - **call_back**: Starts an outbound call to the counterparty with
  *     context about the guardian's answer.
  *
@@ -14,13 +12,12 @@
  * dispatches the appropriate action, and returns a result with generated
  * reply text for the guardian's confirmation message.
  *
- * This module is channel-agnostic: both inbound-message-handler (Telegram,
- * SMS channels) and session-process (mac/IPC channel) use it.
+ * This module is channel-agnostic: both inbound-message-handler (Telegram
+ * channels) and session-process (mac/IPC channel) use it.
  */
 
 import { startCall } from "../calls/call-domain.js";
 import { getCallSession } from "../calls/call-store.js";
-import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import {
   finalizeFollowup,
@@ -30,8 +27,6 @@ import {
 } from "../memory/guardian-action-store.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
-import { mintDaemonDeliveryToken } from "./auth/token-service.js";
-import { deliverChannelReply } from "./gateway-client.js";
 import { composeGuardianActionMessageGenerative } from "./guardian-action-message-composer.js";
 import type { GuardianActionCopyGenerator } from "./http-types.js";
 
@@ -104,62 +99,6 @@ export function resolveCounterparty(
 // ---------------------------------------------------------------------------
 // Action dispatchers
 // ---------------------------------------------------------------------------
-
-/**
- * Send an SMS to the counterparty with the guardian's answer context.
- * Uses the gateway's /deliver/sms endpoint (same path as the SMS notification adapter).
- */
-async function executeMessageBack(
-  request: GuardianActionRequest,
-  counterparty: CounterpartyInfo,
-  generator?: GuardianActionCopyGenerator,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  try {
-    // Generate the outbound SMS text using the composer
-    const messageText = await composeGuardianActionMessageGenerative(
-      {
-        scenario: "outbound_message_copy",
-        questionText: request.questionText,
-        lateAnswerText: request.lateAnswerText ?? undefined,
-        callerIdentifier: counterparty.displayIdentifier,
-      },
-      {},
-      generator,
-    );
-
-    const gatewayBase = getGatewayInternalBaseUrl();
-    const deliverUrl = `${gatewayBase}/deliver/sms`;
-    const bearerToken = mintDaemonDeliveryToken();
-
-    await deliverChannelReply(
-      deliverUrl,
-      {
-        chatId: counterparty.phoneNumber,
-        text: messageText,
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
-      },
-      bearerToken,
-    );
-
-    log.info(
-      { requestId: request.id, counterpartyPhone: counterparty.phoneNumber },
-      "Follow-up message_back SMS sent successfully",
-    );
-
-    return { ok: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(
-      {
-        err,
-        requestId: request.id,
-        counterpartyPhone: counterparty.phoneNumber,
-      },
-      "Failed to send follow-up message_back SMS",
-    );
-    return { ok: false, error: message };
-  }
-}
 
 /**
  * Start an outbound call to the counterparty with context about the
@@ -307,12 +246,11 @@ export async function executeFollowupAction(
   // Execute the action
   let actionResult: { ok: true } | { ok: false; error: string };
 
-  if (action === "message_back") {
-    actionResult = await executeMessageBack(request, counterparty, generator);
-  } else if (action === "call_back") {
+  if (action === "call_back") {
     actionResult = await executeCallBack(request, counterparty);
   } else {
-    // decline is already handled in M5 — should not reach the executor
+    // decline is already handled in M5 — should not reach the executor.
+    // message_back (SMS) is no longer supported.
     finalizeFollowup(requestId, "failed");
     const errorText = await composeGuardianActionMessageGenerative(
       {
@@ -333,10 +271,7 @@ export async function executeFollowupAction(
   if (actionResult.ok) {
     finalizeFollowup(requestId, "completed");
 
-    const scenario =
-      action === "message_back"
-        ? ("followup_message_sent" as const)
-        : ("followup_call_started" as const);
+    const scenario = "followup_call_started" as const;
     const confirmText = await composeGuardianActionMessageGenerative(
       {
         scenario,

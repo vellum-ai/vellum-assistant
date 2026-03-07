@@ -58,9 +58,14 @@ export async function recover(): Promise<void> {
   unlinkSync(metadataPath);
 
   // 6. Start daemon + gateway (same as wake)
-  await startLocalDaemon();
+  if (!entry.resources) {
+    throw new Error(
+      `Recovered assistant '${name}' is missing resource configuration. Re-hatch to fix.`,
+    );
+  }
+  await startLocalDaemon(false, entry.resources);
   if (!process.env.VELLUM_DESKTOP_APP) {
-    await startGateway();
+    await startGateway(undefined, false, entry.resources);
   }
 
   console.log(`✅ Recovered assistant '${name}'.`);

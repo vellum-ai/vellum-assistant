@@ -55,11 +55,12 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
+import { handleMessage } from "../daemon/handlers/index.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ServerMessage,
   SlackWebhookConfigRequest,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {

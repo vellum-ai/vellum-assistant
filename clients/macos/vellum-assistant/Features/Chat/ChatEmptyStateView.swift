@@ -25,6 +25,7 @@ struct ChatEmptyStateView: View {
     var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
+    var threadId: UUID?
 
     @State private var visible = false
     @State private var title: String = titles.randomElement()!
@@ -116,7 +117,8 @@ struct ChatEmptyStateView: View {
                     onFileDrop: onFileDrop,
                     onDropImageData: onDropImageData,
                     onMicrophoneToggle: onMicrophoneToggle,
-                    placeholderText: placeholder
+                    placeholderText: placeholder,
+                    threadId: threadId
                 )
             }
             .frame(maxWidth: 500)
@@ -162,6 +164,7 @@ struct ChatTemporaryChatEmptyStateView: View {
     var onDropImageData: ((Data, String?) -> Void)? = nil
     let onMicrophoneToggle: () -> Void
     let onDismissError: () -> Void
+    var threadId: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -221,7 +224,8 @@ struct ChatTemporaryChatEmptyStateView: View {
                     onFileDrop: onFileDrop,
                     onDropImageData: onDropImageData,
                     onMicrophoneToggle: onMicrophoneToggle,
-                    placeholderText: "Ask anything..."
+                    placeholderText: "Ask anything...",
+                    threadId: threadId
                 )
             }
 

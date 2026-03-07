@@ -1,14 +1,39 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ModelPricingOverride } from "../config/schema.js";
+import type { PricingUsage } from "../usage/types.js";
 import {
   estimateCost,
   resolvePricing,
+  resolvePricingForUsage,
+  resolvePricingForUsageWithOverrides,
   resolvePricingWithOverrides,
 } from "../util/pricing.js";
 
 describe("resolvePricing", () => {
   describe("Anthropic models", () => {
+    test("returns priced for claude-opus-4-6", () => {
+      const result = resolvePricing(
+        "anthropic",
+        "claude-opus-4-6",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(5 + 25);
+    });
+
+    test("returns priced for claude-opus-4-6-fast", () => {
+      const result = resolvePricing(
+        "anthropic",
+        "claude-opus-4-6-fast",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(30 + 150);
+    });
+
     test("returns priced for claude-opus-4", () => {
       const result = resolvePricing(
         "anthropic",
@@ -159,6 +184,17 @@ describe("resolvePricing", () => {
   });
 
   describe("prefix matching", () => {
+    test("matches claude-opus-4-6-20260205 via claude-opus-4-6 prefix", () => {
+      const result = resolvePricing(
+        "anthropic",
+        "claude-opus-4-6-20260205",
+        1_000_000,
+        1_000_000,
+      );
+      expect(result.pricingStatus).toBe("priced");
+      expect(result.estimatedCostUsd).toBe(5 + 25);
+    });
+
     test("matches claude-sonnet-4-6 via claude-sonnet-4 prefix", () => {
       const result = resolvePricing(
         "anthropic",
@@ -222,6 +258,52 @@ describe("resolvePricing", () => {
       expect(result.pricingStatus).toBe("priced");
       expect(result.estimatedCostUsd).toBe(0);
     });
+  });
+});
+
+describe("resolvePricingForUsage", () => {
+  test("prices mixed direct, cache read, and cache write Anthropic usage", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 2_000_000,
+      cacheCreationInputTokens: 300_000,
+      cacheReadInputTokens: 300_000,
+      anthropicCacheCreation: {
+        ephemeral_5m_input_tokens: 200_000,
+        ephemeral_1h_input_tokens: 100_000,
+      },
+    };
+
+    const result = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(57.4, 10);
+  });
+
+  test("returns unpriced with null cost for unknown provider", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 10,
+      outputTokens: 20,
+      cacheCreationInputTokens: 30,
+      cacheReadInputTokens: 40,
+      anthropicCacheCreation: {
+        ephemeral_5m_input_tokens: 10,
+        ephemeral_1h_input_tokens: 20,
+      },
+    };
+
+    const result = resolvePricingForUsage(
+      "unknown-provider",
+      "some-model",
+      usage,
+    );
+
+    expect(result.pricingStatus).toBe("unpriced");
+    expect(result.estimatedCostUsd).toBeNull();
   });
 });
 
@@ -357,6 +439,39 @@ describe("resolvePricingWithOverrides", () => {
   });
 });
 
+describe("resolvePricingForUsageWithOverrides", () => {
+  test("uses override pricing for structured Anthropic usage", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 200_000,
+      cacheReadInputTokens: 100_000,
+      anthropicCacheCreation: {
+        ephemeral_5m_input_tokens: 200_000,
+        ephemeral_1h_input_tokens: 0,
+      },
+    };
+    const overrides: ModelPricingOverride[] = [
+      {
+        provider: "anthropic",
+        modelPattern: "claude-opus-4-6",
+        inputPer1M: 10,
+        outputPer1M: 20,
+      },
+    ];
+
+    const result = resolvePricingForUsageWithOverrides(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+      overrides,
+    );
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBeCloseTo(32.6, 10);
+  });
+});
+
 describe("estimateCost", () => {
   test("returns a number for known Anthropic model", () => {
     const cost = estimateCost(
@@ -367,6 +482,16 @@ describe("estimateCost", () => {
     );
     expect(typeof cost).toBe("number");
     expect(cost).toBe(3 + 15);
+  });
+
+  test("returns correct cost for standard claude-opus-4-6", () => {
+    const cost = estimateCost(
+      1_000_000,
+      1_000_000,
+      "claude-opus-4-6",
+      "anthropic",
+    );
+    expect(cost).toBe(5 + 25);
   });
 
   test("returns 0 for unknown model", () => {

@@ -10,8 +10,10 @@ import {
   validateEdgeToken,
   mintBrowserRelayToken,
 } from "./auth/token-exchange.js";
+import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig, isSlackChannelConfigured } from "./config.js";
+import { CredentialCache } from "./credential-cache.js";
 import {
   buildCredentialServiceMappings,
   applyCredentialChanges,
@@ -27,6 +29,7 @@ import {
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
 import { createTelegramReconcileHandler } from "./http/routes/telegram-reconcile.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
+import { createTwilioReconcileHandler } from "./http/routes/twilio-reconcile.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
 import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
@@ -34,8 +37,6 @@ import {
   createTwilioRelayWebsocketHandler,
   getRelayWebsocketHandlers,
 } from "./http/routes/twilio-relay-websocket.js";
-import { createTwilioSmsWebhookHandler } from "./http/routes/twilio-sms-webhook.js";
-import { createSmsDeliverHandler } from "./http/routes/sms-deliver.js";
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
@@ -45,7 +46,7 @@ import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
 } from "./http/routes/feature-flags.js";
-import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
+import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
@@ -120,10 +121,25 @@ async function main() {
   initSigningKey(signingKey);
   log.info("JWT signing key initialized");
 
+  // ── TTL caches ──
+  // Instantiate caches for credential and config file reads.
+  // These are passed into handler factories so handlers read from cached
+  // values with automatic TTL refresh instead of the mutable GatewayConfig.
+  // During the compatibility phase, both cache reads and legacy config field
+  // reads coexist — caches are preferred, with config as fallback.
+  const credentialCache = new CredentialCache();
+  const configFileCache = new ConfigFileCache();
+
+  const twilioValidationCaches = {
+    credentials: credentialCache,
+    configFile: configFileCache,
+  };
+
   const { handler: handleTelegramWebhook, dedupCache: telegramDedupCache } =
-    createTelegramWebhookHandler(config);
+    createTelegramWebhookHandler(config, { credentials: credentialCache });
   const handleTelegramDeliver = createTelegramDeliverHandler(config);
   const handleTelegramReconcile = createTelegramReconcileHandler(config);
+  const handleTwilioReconcile = createTwilioReconcileHandler(config);
 
   const isTelegramConfigured = () =>
     !!(config.telegramBotToken && config.telegramWebhookSecret);
@@ -131,27 +147,30 @@ async function main() {
   const isWhatsAppConfigured = () =>
     !!(config.whatsappPhoneNumberId && config.whatsappAccessToken);
 
-  const handleTwilioVoiceWebhook = createTwilioVoiceWebhookHandler(config);
-  const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(config);
+  const handleTwilioVoiceWebhook = createTwilioVoiceWebhookHandler(
+    config,
+    twilioValidationCaches,
+  );
+  const handleTwilioStatusWebhook = createTwilioStatusWebhookHandler(
+    config,
+    twilioValidationCaches,
+  );
   const handleTwilioConnectActionWebhook =
-    createTwilioConnectActionWebhookHandler(config);
+    createTwilioConnectActionWebhookHandler(config, twilioValidationCaches);
   const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config);
   const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
-  const { handler: handleTwilioSmsWebhook, dedupCache: smsDedupCache } =
-    createTwilioSmsWebhookHandler(config);
-  const handleSmsDeliver = createSmsDeliverHandler(config);
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
-    createWhatsAppWebhookHandler(config);
+    createWhatsAppWebhookHandler(config, { credentials: credentialCache });
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
   const handleSlackDeliver = createSlackDeliverHandler(config, (threadTs) => {
     slackSocketClient?.trackThread(threadTs);
   });
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
-  const guardianControlPlaneProxy =
-    createGuardianControlPlaneProxyHandler(config);
+  const channelVerificationSessionProxy =
+    createChannelVerificationSessionProxyHandler(config);
   const telegramControlPlaneProxy =
     createTelegramControlPlaneProxyHandler(config);
   const contactsControlPlaneProxy =
@@ -201,6 +220,10 @@ async function main() {
       path: "/internal/telegram/reconcile",
       handler: (req) => handleTelegramReconcile(req),
     },
+    {
+      path: "/internal/twilio/reconcile",
+      handler: (req) => handleTwilioReconcile(req),
+    },
 
     // ── Webhooks (unauthenticated, validated by provider-specific mechanisms) ──
     {
@@ -213,28 +236,12 @@ async function main() {
       handler: (req) => handleTwilioVoiceWebhook(req),
     },
     {
-      path: "/v1/calls/twilio/voice-webhook",
-      handler: (req) => handleTwilioVoiceWebhook(req),
-    },
-    {
       path: "/webhooks/twilio/status",
-      handler: (req) => handleTwilioStatusWebhook(req),
-    },
-    {
-      path: "/v1/calls/twilio/status",
       handler: (req) => handleTwilioStatusWebhook(req),
     },
     {
       path: "/webhooks/twilio/connect-action",
       handler: (req) => handleTwilioConnectActionWebhook(req),
-    },
-    {
-      path: "/v1/calls/twilio/connect-action",
-      handler: (req) => handleTwilioConnectActionWebhook(req),
-    },
-    {
-      path: "/webhooks/twilio/sms",
-      handler: (req) => handleTwilioSmsWebhook(req),
     },
     {
       path: "/webhooks/whatsapp",
@@ -255,11 +262,6 @@ async function main() {
       precondition: requireTelegram,
       auth: "track-failures",
       handler: (req) => handleTelegramDeliver(req),
-    },
-    {
-      path: "/deliver/sms",
-      auth: "track-failures",
-      handler: (req) => handleSmsDeliver(req),
     },
     {
       path: "/deliver/whatsapp",
@@ -384,14 +386,6 @@ async function main() {
       handler: (req, params) =>
         contactsControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
     },
-    {
-      path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
-    },
-
     // ── Contacts/invites control plane ──
     {
       path: "/v1/contacts/invites",
@@ -419,7 +413,9 @@ async function main() {
         contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
     },
     {
-      path: /^\/v1\/contacts\/([^/]+)$/,
+      // Keep DELETE on the invite collection unsupported; only /invites/:id
+      // should revoke an invite.
+      path: /^\/v1\/contacts\/(?!invites$)([^/]+)$/,
       method: "DELETE",
       auth: "edge",
       handler: (req, params) =>
@@ -433,53 +429,47 @@ async function main() {
         contactsControlPlaneProxy.handleGetContact(req, params[0]),
     },
 
-    // ── Guardian control plane ──
+    // ── Channel verification sessions ──
     {
-      path: "/v1/integrations/guardian/vellum/bootstrap",
+      path: "/v1/guardian/init",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => channelVerificationSessionProxy.handleGuardianInit(req),
+    },
+    {
+      path: "/v1/channel-verification-sessions",
       method: "POST",
       auth: "edge",
       handler: (req) =>
-        guardianControlPlaneProxy.handleGuardianVellumBootstrap(req),
+        channelVerificationSessionProxy.handleCreateVerificationSession(req),
     },
     {
-      path: "/v1/integrations/guardian/challenge",
+      path: "/v1/channel-verification-sessions",
+      method: "DELETE",
+      auth: "edge",
+      handler: (req) =>
+        channelVerificationSessionProxy.handleCancelVerificationSession(req),
+    },
+    {
+      path: "/v1/channel-verification-sessions/resend",
       method: "POST",
       auth: "edge",
       handler: (req) =>
-        guardianControlPlaneProxy.handleCreateGuardianChallenge(req),
+        channelVerificationSessionProxy.handleResendVerificationSession(req),
     },
     {
-      path: "/v1/integrations/guardian/status",
+      path: "/v1/channel-verification-sessions/status",
       method: "GET",
       auth: "edge",
-      handler: (req) => guardianControlPlaneProxy.handleGetGuardianStatus(req),
+      handler: (req) =>
+        channelVerificationSessionProxy.handleGetVerificationStatus(req),
     },
     {
-      path: "/v1/integrations/guardian/revoke",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => guardianControlPlaneProxy.handleRevokeGuardian(req),
-    },
-    {
-      path: "/v1/integrations/guardian/outbound/start",
+      path: "/v1/channel-verification-sessions/revoke",
       method: "POST",
       auth: "edge",
       handler: (req) =>
-        guardianControlPlaneProxy.handleStartGuardianOutbound(req),
-    },
-    {
-      path: "/v1/integrations/guardian/outbound/resend",
-      method: "POST",
-      auth: "edge",
-      handler: (req) =>
-        guardianControlPlaneProxy.handleResendGuardianOutbound(req),
-    },
-    {
-      path: "/v1/integrations/guardian/outbound/cancel",
-      method: "POST",
-      auth: "edge",
-      handler: (req) =>
-        guardianControlPlaneProxy.handleCancelGuardianOutbound(req),
+        channelVerificationSessionProxy.handleRevokeVerificationBinding(req),
     },
 
     // ── Guardian refresh (custom auth: accepts expired JWTs) ──
@@ -488,7 +478,7 @@ async function main() {
     // expires. Signature, audience, and policy epoch are still verified
     // — only the expiration check is relaxed.
     {
-      path: "/v1/integrations/guardian/vellum/refresh",
+      path: "/v1/guardian/refresh",
       method: "POST",
       auth: "custom",
       handler: (req, _params, getClientIp) => {
@@ -503,7 +493,7 @@ async function main() {
           authRateLimiter.recordFailure(getClientIp());
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
-        return guardianControlPlaneProxy.handleGuardianRefresh(req);
+        return channelVerificationSessionProxy.handleGuardianRefresh(req);
       },
     },
 
@@ -552,52 +542,6 @@ async function main() {
       auth: "edge",
       handler: (req) => twilioControlPlaneProxy.handleReleaseTwilioNumber(req),
     },
-    {
-      path: "/v1/integrations/twilio/sms/compliance",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => twilioControlPlaneProxy.handleGetSmsCompliance(req),
-    },
-    {
-      path: "/v1/integrations/twilio/sms/compliance/tollfree",
-      method: "POST",
-      auth: "edge",
-      handler: (req) =>
-        twilioControlPlaneProxy.handleSubmitTollfreeVerification(req),
-    },
-    {
-      path: /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
-      method: "PATCH",
-      auth: "edge",
-      handler: (req, params) =>
-        twilioControlPlaneProxy.handleUpdateTollfreeVerification(
-          req,
-          decodeURIComponent(params[0]),
-        ),
-    },
-    {
-      path: /^\/v1\/integrations\/twilio\/sms\/compliance\/tollfree\/([^/]+)$/,
-      method: "DELETE",
-      auth: "edge",
-      handler: (req, params) =>
-        twilioControlPlaneProxy.handleDeleteTollfreeVerification(
-          req,
-          decodeURIComponent(params[0]),
-        ),
-    },
-    {
-      path: "/v1/integrations/twilio/sms/test",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => twilioControlPlaneProxy.handleSmsSendTest(req),
-    },
-    {
-      path: "/v1/integrations/twilio/sms/doctor",
-      method: "POST",
-      auth: "edge",
-      handler: (req) => twilioControlPlaneProxy.handleSmsDoctor(req),
-    },
-
     // ── Slack control plane ──
     {
       path: "/v1/slack/channels",
@@ -756,10 +700,7 @@ async function main() {
       // ── Pre-router: WebSocket upgrades ──
       // Bun's WS upgrade needs `server.upgrade()` which doesn't return
       // a Response, so these can't go through the route table.
-      if (
-        url.pathname === "/webhooks/twilio/relay" ||
-        url.pathname === "/v1/calls/relay"
-      ) {
+      if (url.pathname === "/webhooks/twilio/relay") {
         const upgradeResult = handleTwilioRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;
@@ -809,23 +750,32 @@ async function main() {
 
   // Start periodic background cleanup for dedup caches
   telegramDedupCache.startCleanup();
-  smsDedupCache.startCleanup();
   whatsappDedupCache.startCleanup();
 
+  const telegramCaches = {
+    credentials: credentialCache,
+    configFile: configFileCache,
+  };
+
   function registerTelegramCommands(): void {
-    callTelegramApi(config, "setMyCommands", {
-      commands: [
-        { command: "new", description: "Start a new conversation" },
-        { command: "help", description: "Show available commands" },
-      ],
-    }).catch((err) => {
+    callTelegramApi(
+      config,
+      "setMyCommands",
+      {
+        commands: [
+          { command: "new", description: "Start a new conversation" },
+          { command: "help", description: "Show available commands" },
+        ],
+      },
+      { credentials: credentialCache },
+    ).catch((err) => {
       log.error({ err }, "Failed to register Telegram bot commands");
     });
   }
 
   if (isTelegramConfigured()) {
     registerTelegramCommands();
-    reconcileTelegramWebhook(config).catch((err) => {
+    reconcileTelegramWebhook(config, telegramCaches).catch((err) => {
       log.error({ err }, "Failed to reconcile Telegram webhook on startup");
     });
   }
@@ -890,10 +840,15 @@ async function main() {
       log,
     );
 
+    // Invalidate the credential cache so subsequent reads pick up fresh values
+    if (changed.size > 0) {
+      credentialCache.invalidate();
+    }
+
     // Side effects keyed by service name
     if (changed.has("telegram") && isTelegramConfigured()) {
       registerTelegramCommands();
-      reconcileTelegramWebhook(config).catch((err) => {
+      reconcileTelegramWebhook(config, telegramCaches).catch((err) => {
         log.error(
           { err },
           "Failed to reconcile Telegram webhook after credential change",
@@ -910,9 +865,12 @@ async function main() {
   const configFileWatcher = new ConfigFileWatcher((event) => {
     applyConfigFileMappings(event.data, event.changedKeys, config);
 
+    // Invalidate the config file cache so subsequent reads pick up fresh values
+    configFileCache.invalidate();
+
     // Side effect: reconcile Telegram webhook when ingress URL changes
     if (event.changedKeys.has("ingress") && isTelegramConfigured()) {
-      reconcileTelegramWebhook(config).catch((err) => {
+      reconcileTelegramWebhook(config, telegramCaches).catch((err) => {
         log.error(
           { err },
           "Failed to reconcile Telegram webhook after ingress URL change",
@@ -931,7 +889,6 @@ async function main() {
     credentialWatcher.stop();
     configFileWatcher.stop();
     telegramDedupCache.stopCleanup();
-    smsDedupCache.stopCleanup();
     whatsappDedupCache.stopCleanup();
     if (slackSocketClient) {
       slackSocketClient.stop();

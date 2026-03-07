@@ -73,6 +73,22 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
     func appendThreads(from response: SessionListResponseMessage) {
         // no-op for tests
     }
+
+    func mergeAssistantAttention(
+        from session: IPCSessionListResponseSession,
+        intoThreadAt index: Int
+    ) {
+        threads[index].hasUnseenLatestAssistantMessage =
+            session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+        threads[index].latestAssistantMessageAt =
+            session.assistantAttention?.latestAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+        threads[index].lastSeenAssistantMessageAt =
+            session.assistantAttention?.lastSeenAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+    }
 }
 
 // MARK: - Helpers
@@ -90,6 +106,17 @@ private func makeSessionListResponse(sessions: [(id: String, title: String, crea
         return dict
     }
     let dict: [String: Any] = ["type": "session_list_response", "sessions": sessionDicts]
+    let data = try! JSONSerialization.data(withJSONObject: dict)
+    return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
+}
+
+private func makeSessionListResponse(
+    sessionDicts: [[String: Any]]
+) -> SessionListResponseMessage {
+    let dict: [String: Any] = [
+        "type": "session_list_response",
+        "sessions": sessionDicts,
+    ]
     let data = try! JSONSerialization.data(withJSONObject: dict)
     return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
 }
@@ -305,6 +332,41 @@ struct ThreadSessionRestorerTests {
 
         // Most recent thread should be activated
         #expect(delegate.activatedThreadId == delegate.threads[0].id)
+    }
+
+    @Test @MainActor
+    func sessionListPreservesAssistantAttentionTimestamps() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let defaultThread = ThreadModel()
+        delegate.threads = [defaultThread]
+        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+
+        let response = makeSessionListResponse(sessionDicts: [[
+            "id": "s-attention",
+            "title": "Attention thread",
+            "createdAt": 1000,
+            "updatedAt": 2000,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": true,
+                "latestAssistantMessageAt": 4000,
+                "lastSeenAssistantMessageAt": 3000,
+            ],
+        ]])
+
+        restorer.handleSessionListResponse(response)
+
+        guard let restoredThread = delegate.threads.first(where: { $0.sessionId == "s-attention" }) else {
+            Issue.record("Expected restored attention thread")
+            return
+        }
+
+        #expect(restoredThread.hasUnseenLatestAssistantMessage)
+        #expect(restoredThread.latestAssistantMessageAt?.timeIntervalSince1970 == 4.0)
+        #expect(restoredThread.lastSeenAssistantMessageAt?.timeIntervalSince1970 == 3.0)
     }
 
     @Test @MainActor
@@ -537,7 +599,7 @@ struct ThreadSessionRestorerTests {
 
         let response = makeSessionListResponse(sessions: [
             (id: "s1", title: "Voice Call", updatedAt: 2000, threadType: nil,
-             channelBinding: ["sourceChannel": "voice", "externalChatId": "call-123"]),
+             channelBinding: ["sourceChannel": "phone", "externalChatId": "call-123"]),
         ])
         restorer.handleSessionListResponse(response)
 
@@ -564,7 +626,7 @@ struct ThreadSessionRestorerTests {
             (id: "s2", title: "Telegram Chat", updatedAt: 3000, threadType: nil,
              channelBinding: ["sourceChannel": "telegram", "externalChatId": "789"]),
             (id: "s3", title: "Voice Call", updatedAt: 2000, threadType: nil,
-             channelBinding: ["sourceChannel": "voice", "externalChatId": "call-456"]),
+             channelBinding: ["sourceChannel": "phone", "externalChatId": "call-456"]),
             (id: "s4", title: "Another Desktop Chat", updatedAt: 1000, threadType: nil, channelBinding: nil),
         ])
         restorer.handleSessionListResponse(response)

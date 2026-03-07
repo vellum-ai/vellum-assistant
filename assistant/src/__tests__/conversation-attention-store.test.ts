@@ -15,8 +15,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -33,6 +31,7 @@ import { eq } from "drizzle-orm";
 import {
   getAttentionStateByConversationIds,
   listConversationAttention,
+  markConversationUnread,
   projectAssistantMessage,
   recordConversationSeenSignal,
 } from "../memory/conversation-attention-store.js";
@@ -41,6 +40,7 @@ import {
   conversationAssistantAttentionState,
   conversationAttentionEvents,
   conversations,
+  messages,
 } from "../memory/schema.js";
 
 initializeDb();
@@ -62,7 +62,26 @@ function clearTables(): void {
   const db = getDb();
   db.delete(conversationAttentionEvents).run();
   db.delete(conversationAssistantAttentionState).run();
+  db.delete(messages).run();
   db.delete(conversations).run();
+}
+
+function insertAssistantMessage(
+  conversationId: string,
+  messageId: string,
+  createdAt: number,
+): void {
+  const db = getDb();
+  db.insert(messages)
+    .values({
+      id: messageId,
+      conversationId,
+      role: "assistant",
+      content: `Assistant message ${messageId}`,
+      createdAt,
+      metadata: null,
+    })
+    .run();
 }
 
 afterAll(() => {
@@ -159,6 +178,28 @@ describe("conversation-attention-store", () => {
   // ── recordConversationSeenSignal ────────────────────────────────
 
   describe("recordConversationSeenSignal", () => {
+    test("preserves iOS conversation-opened provenance", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "ios_conversation_opened",
+        confidence: "explicit",
+        source: "ios-client",
+      });
+
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.lastSeenSignalType).toBe("ios_conversation_opened");
+      expect(state.lastSeenAssistantMessageId).toBe("msg-1");
+    });
+
     test("appends an immutable event row", () => {
       ensureConversation("conv-1");
       const event = recordConversationSeenSignal({
@@ -332,6 +373,141 @@ describe("conversation-attention-store", () => {
       expect(state.lastSeenAssistantMessageAt).toBe(1000);
       // Signal metadata should reflect the latest signal
       expect(state.lastSeenSignalType).toBe("telegram_inbound_message");
+    });
+  });
+
+  // ── markConversationUnread ───────────────────────────────────────
+
+  describe("markConversationUnread", () => {
+    test("rewinds the seen cursor to null when the latest assistant message is the first one", () => {
+      ensureConversation("conv-1");
+      insertAssistantMessage("conv-1", "msg-1", 1000);
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
+      });
+
+      markConversationUnread("conv-1");
+
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.latestAssistantMessageId).toBe("msg-1");
+      expect(state.lastSeenAssistantMessageId).toBeNull();
+      expect(state.lastSeenAssistantMessageAt).toBeNull();
+      expect(
+        listConversationAttention({ state: "unseen" }).map(
+          (entry) => entry.conversationId,
+        ),
+      ).toEqual(["conv-1"]);
+    });
+
+    test("rewinds the seen cursor to the prior assistant message", () => {
+      ensureConversation("conv-1");
+      insertAssistantMessage("conv-1", "msg-1", 1000);
+      insertAssistantMessage("conv-1", "msg-2", 2000);
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-2",
+        messageAt: 2000,
+      });
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
+      });
+
+      markConversationUnread("conv-1");
+
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.latestAssistantMessageId).toBe("msg-2");
+      expect(state.latestAssistantMessageAt).toBe(2000);
+      expect(state.lastSeenAssistantMessageId).toBe("msg-1");
+      expect(state.lastSeenAssistantMessageAt).toBe(1000);
+    });
+
+    test("bootstraps unread rewind to a strictly older assistant timestamp", () => {
+      ensureConversation("conv-1");
+      insertAssistantMessage("conv-1", "msg-1", 1000);
+      insertAssistantMessage("conv-1", "msg-2", 2000);
+      insertAssistantMessage("conv-1", "msg-3", 2000);
+
+      markConversationUnread("conv-1");
+
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.latestAssistantMessageId).toBe("msg-3");
+      expect(state.latestAssistantMessageAt).toBe(2000);
+      expect(state.lastSeenAssistantMessageId).toBe("msg-1");
+      expect(state.lastSeenAssistantMessageAt).toBe(1000);
+      expect(
+        listConversationAttention({ state: "unseen" }).map(
+          (entry) => entry.conversationId,
+        ),
+      ).toEqual(["conv-1"]);
+    });
+
+    test("is idempotent when the conversation is already unread", () => {
+      ensureConversation("conv-1");
+      insertAssistantMessage("conv-1", "msg-1", 1000);
+      insertAssistantMessage("conv-1", "msg-2", 2000);
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-2",
+        messageAt: 2000,
+      });
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "desktop-client",
+      });
+
+      markConversationUnread("conv-1");
+      const onceUnread = getAttentionStateByConversationIds(["conv-1"]).get(
+        "conv-1",
+      )!;
+
+      markConversationUnread("conv-1");
+
+      const twiceUnread = getAttentionStateByConversationIds(["conv-1"]).get(
+        "conv-1",
+      )!;
+      expect(twiceUnread.lastSeenAssistantMessageId).toBe(
+        onceUnread.lastSeenAssistantMessageId,
+      );
+      expect(twiceUnread.lastSeenAssistantMessageAt).toBe(
+        onceUnread.lastSeenAssistantMessageAt,
+      );
+    });
+
+    test("rejects conversations with no assistant message", () => {
+      ensureConversation("conv-1");
+
+      expect(() => markConversationUnread("conv-1")).toThrow(
+        "Conversation has no assistant message to mark unread",
+      );
     });
   });
 

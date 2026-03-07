@@ -71,31 +71,6 @@ struct InlineVideoAttachmentView: View {
     /// tap on the failed tile opens the external player instead of retrying again.
     @State private var hasRetriedOnce = false
 
-    // Backward-compatible initializer that accepts a static port snapshot.
-    // Used by callers that haven't migrated to the closure-based API yet.
-    init(attachment: ChatAttachment, daemonHttpPort: Int?) {
-        self.attachment = attachment
-        let port = daemonHttpPort
-        self.resolveHttpPort = { port }
-
-        if let img = attachment.thumbnailImage {
-            var w: CGFloat = 0
-            var h: CGFloat = 0
-            if let rep = img.representations.first {
-                w = CGFloat(rep.pixelsWide)
-                h = CGFloat(rep.pixelsHigh)
-            }
-            if w <= 0 || h <= 0 {
-                w = img.size.width
-                h = img.size.height
-            }
-            _videoAspectRatio = State(initialValue: w > 0 && h > 0 ? w / h : 3.0 / 4.0)
-            _thumbnailImage = State(initialValue: img)
-        } else {
-            _videoAspectRatio = State(initialValue: 3.0 / 4.0)
-        }
-    }
-
     init(attachment: ChatAttachment, resolveHttpPort: @escaping () -> Int?) {
         self.attachment = attachment
         self.resolveHttpPort = resolveHttpPort

@@ -167,7 +167,7 @@ export async function createIngressInvite(params: {
   let voiceCode: string | undefined;
   let voiceCodeHash: string | undefined;
   let effectiveGuardianName: string | undefined;
-  const isVoice = params.sourceChannel === "voice";
+  const isVoice = params.sourceChannel === "phone";
 
   // For non-voice invites: generate a 6-digit invite code for guardian-mediated
   // redemption. The plaintext code is returned once in the response; only the
@@ -351,7 +351,7 @@ export function redeemIngressInviteTyped(params: {
 export function redeemVoiceInviteCode(params: {
   assistantId?: string;
   callerExternalUserId: string;
-  sourceChannel: "voice";
+  sourceChannel: "phone";
   code: string;
 }): VoiceRedemptionOutcome {
   return redeemVoiceInviteCodeTyped(params);

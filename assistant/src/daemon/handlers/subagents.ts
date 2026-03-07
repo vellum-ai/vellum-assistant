@@ -4,7 +4,7 @@
 
 import * as net from "node:net";
 
-import * as conversationStore from "../../memory/conversation-store.js";
+import { getMessages } from "../../memory/conversation-crud.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import type {
   SubagentAbortRequest,
@@ -192,7 +192,7 @@ export function handleSubagentDetailRequest(
     return;
   }
 
-  const subagentMsgs = conversationStore.getMessages(msg.conversationId);
+  const subagentMsgs = getMessages(msg.conversationId);
 
   // Extract objective from the first user message
   let objective: string | undefined;

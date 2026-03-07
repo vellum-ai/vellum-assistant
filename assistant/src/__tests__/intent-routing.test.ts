@@ -35,9 +35,6 @@ mock.module("../util/platform.js", () => ({
   getClipboardCommand: () => null,
   readSessionToken: () => null,
   removeSocketFile: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
 }));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
@@ -301,9 +298,10 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("verify guardian");
   });
 
-  test("routing section does not include SMS trigger phrase", () => {
+  test("routing section does not include legacy channel trigger phrases", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).not.toContain("set guardian for SMS");
+    // Verify no legacy channel trigger phrases remain in the routing section
+    expect(prompt).not.toContain("set guardian for");
   });
 
   test('routing section includes trigger phrase "verify my Telegram account"', () => {
@@ -311,9 +309,9 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("verify my Telegram account");
   });
 
-  test('routing section includes trigger phrase "verify voice channel"', () => {
+  test('routing section includes trigger phrase "verify phone channel"', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify voice channel");
+    expect(prompt).toContain("verify phone channel");
   });
 
   test('routing section includes trigger phrase "verify my phone number"', () => {
@@ -331,13 +329,12 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("guardian-verify-setup");
   });
 
-  test("routing section mentions voice and telegram channels but not sms", () => {
+  test("routing section mentions phone and telegram channels but not legacy channels", () => {
     const prompt = buildSystemPrompt();
     const routingStart = prompt.indexOf("## Routing: Guardian Verification");
     const routingSection = prompt.substring(routingStart, routingStart + 1000);
-    expect(routingSection).toContain("voice");
+    expect(routingSection).toContain("phone");
     expect(routingSection).toContain("telegram");
-    expect(routingSection).not.toContain("sms");
   });
 
   test("routing section contains exclusivity wording", () => {

@@ -7,7 +7,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import type { GuardianBinding } from "../memory/channel-guardian-store.js";
+import type { GuardianBinding } from "../memory/channel-verification-sessions.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { emitContactChange } from "./contact-events.js";
@@ -180,10 +180,6 @@ export function upsertContactChannel(params: {
         address,
         externalUserId: canonicalId,
         externalChatId: params.externalChatId ?? null,
-        legacyAddress:
-          params.externalUserId && params.externalUserId !== address
-            ? params.externalUserId
-            : undefined,
         status: (params.status as ChannelStatus) ?? undefined,
         policy: (params.policy as ChannelPolicy) ?? undefined,
         inviteId: params.inviteId ?? null,

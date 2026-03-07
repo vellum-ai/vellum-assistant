@@ -99,6 +99,10 @@ function regexToOpenApiPath(escaped: string): string | null {
   // Unescape forward slashes
   let path = escaped.replace(/\\\//g, "/");
 
+  // Zero-width lookarounds constrain which parameter values are accepted,
+  // but they do not change the structural path shape we compare to the schema.
+  path = path.replace(/\(\?(?:=|!|<=|<!).*?\)/g, "");
+
   // Replace capture groups with numbered params.
   // Handles both `([^/]+)` (single segment) and `(.+)` (greedy) patterns.
   let paramIndex = 0;
@@ -121,12 +125,8 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   // Internal-only route, not reachable from the public internet
   "/internal/telegram/reconcile",
 
-  // Duplicate webhook paths for Twilio call routing — the canonical
-  // paths under /webhooks/ are documented instead
-  "/v1/calls/twilio/voice-webhook",
-  "/v1/calls/twilio/status",
-  "/v1/calls/twilio/connect-action",
-  "/v1/calls/relay",
+  // Internal-only route, used only for daemon-triggered Twilio refreshes
+  "/internal/twilio/reconcile",
 
   // Browser relay WebSocket upgrade — handled pre-router, not a REST endpoint
   "/v1/browser-relay",
@@ -254,6 +254,12 @@ describe("route-schema sync guard", () => {
     );
 
     expect(stale).toEqual([]);
+  });
+
+  test("regex route normalization ignores negative lookaheads", () => {
+    expect(
+      regexToOpenApiPath(String.raw`\/v1\/contacts\/(?!invites$)([^/]+)`),
+    ).toBe("/v1/contacts/{param1}");
   });
 });
 

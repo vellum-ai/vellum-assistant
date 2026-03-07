@@ -14,14 +14,12 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Assistant scheduling deep dive | [`assistant/docs/architecture/scheduling.md`](assistant/docs/architecture/scheduling.md) |
 | Assistant security deep dive | [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md) |
 | macOS keychain broker | [`assistant/docs/architecture/keychain-broker.md`](assistant/docs/architecture/keychain-broker.md) |
-| Gateway SMS parity checklist | [`gateway/docs/sms-twilio-parity-checklist.md`](gateway/docs/sms-twilio-parity-checklist.md) |
 | Trusted contact access design | [`assistant/docs/trusted-contact-access.md`](assistant/docs/trusted-contact-access.md) |
 | Trusted contacts operator runbook | [`assistant/docs/runbook-trusted-contacts.md`](assistant/docs/runbook-trusted-contacts.md) |
 
 ## Cross-Cutting Invariants
 
 - Public ingress is gateway-only; external webhook/API routes are implemented in `gateway/` and forwarded internally.
-- Bundled-skill config/status retrieval is CLI-first: `SKILL.md -> bash -> canonical vellum CLI surfaces -> gateway/runtime`. The baseline retrieval path is `assistant config` plus secure secret surfaces (`assistant keys`); domain-specific status reads (for example `assistant integrations ...` or `assistant email ...`) are follow-on surfaces, not a prerequisite for the initial migration. Direct gateway curls are reserved for control-plane writes when no CLI surface exists; keychain lookup commands are not part of bundled skill retrieval guidance.
 - Bundled-skill outbound API calls that require credentials default to proxied execution (`bash` with `network_mode: "proxied"` + `credential_ids`) rather than manual token plumbing.
 - Managed shared-identity channel routing runs in a separate managed-gateway service lane from the per-assistant `gateway/` lane. The deployable managed-gateway runtime is platform-owned; this repo keeps public contracts/fixtures under `gateway-managed/`.
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.
@@ -62,10 +60,9 @@ Each named instance gets its own directory tree under `~/.vellum/instances/<name
 │   └── bob/
 │       └── .vellum/
 │           └── ...               # Same structure as alice
-└── ...                           # Legacy single-instance files (default instance)
 ```
 
-The legacy single-instance layout (`~/.vellum/` directly) continues to work as the default. Named instances are created via `vellum hatch --name <name>` (the `--name` flag triggers multi-instance isolation).
+All instances are created with explicit names via `vellum hatch --name <name>`.
 
 ### Isolation Model
 
@@ -120,7 +117,7 @@ The global lockfile (`~/.vellum.lock.json`) tracks all instances:
 }
 ```
 
-- `resources` (`LocalInstanceResources`): Present on local entries in multi-instance setups. Legacy single-instance entries without `resources` are normalized to default paths at runtime.
+- `resources` (`LocalInstanceResources`): Present on all local entries. Contains per-instance ports, paths, and socket locations.
 - `activeAssistant`: Determines which instance CLI commands target by default.
 - Remote assistants (`cloud: "gcp"`, `"aws"`, etc.) are unaffected and have no `resources` field.
 
@@ -278,7 +275,7 @@ graph TB
             SKILL_CATALOG["Skill Catalog<br/>bundled + managed + workspace + extra"]
             SKILL_MANIFEST["SKILL.md + TOOLS.json<br/>per-skill directory"]
             SKILL_PROJECTION["projectSkillTools()<br/>session-level projection"]
-            SKILL_DERIVE["deriveActiveSkillIds()<br/>scan &lt;loaded_skill&gt; markers"]
+            SKILL_DERIVE["deriveActiveSkills()<br/>scan &lt;loaded_skill&gt; markers"]
             SKILL_FACTORY["SkillToolFactory<br/>manifest → Tool objects"]
             SKILL_HOST_RUNNER["Host Script Runner<br/>in-process import + run()"]
             SKILL_SANDBOX_RUNNER["Sandbox Script Runner<br/>isolated subprocess"]
@@ -324,8 +321,6 @@ graph TB
         GW_TWILIO_STATUS["Twilio Status Webhook<br/>/webhooks/twilio/status"]
         GW_TWILIO_CONNECT["Twilio Connect-Action<br/>/webhooks/twilio/connect-action"]
         GW_TWILIO_RELAY["Twilio Relay WS<br/>/webhooks/twilio/relay<br/>(bidirectional proxy)"]
-        GW_SMS_WEBHOOK["Twilio SMS Webhook<br/>/webhooks/twilio/sms<br/>(HMAC-SHA1 validated)"]
-        GW_SMS_DELIVER["SMS Deliver<br/>/deliver/sms<br/>(internal, from runtime)"]
         GW_WA_WEBHOOK["WhatsApp Webhook<br/>/webhooks/whatsapp<br/>(HMAC-SHA256 validated)"]
         GW_WA_DELIVER["WhatsApp Deliver<br/>/deliver/whatsapp<br/>(internal, from runtime)"]
         GW_SLACK_SOCKET["Slack Socket Mode<br/>WebSocket via<br/>apps.connections.open"]
@@ -468,11 +463,6 @@ graph TB
     GW_TWILIO_STATUS -->|"HTTP"| HTTP_SERVER
     GW_TWILIO_CONNECT -->|"HTTP"| HTTP_SERVER
     GW_TWILIO_RELAY -->|"WebSocket proxy"| HTTP_SERVER
-
-    %% Gateway flow — SMS channel (Twilio SMS webhook → gateway → runtime → gateway → Twilio Messages API)
-    GW_SMS_WEBHOOK -->|"normalize + MessageSid dedup<br/>+ route resolver"| GW_FORWARD
-    HTTP_SERVER -->|"POST /deliver/sms<br/>(via gatewayInternalBaseUrl)"| GW_SMS_DELIVER
-    GW_SMS_DELIVER -->|"Twilio Messages API<br/>(text-only, no MMS in v1)"| GW_SMS_WEBHOOK
 
     %% Gateway flow — WhatsApp channel (Meta Cloud API)
     GW_WA_WEBHOOK -->|"HMAC-SHA256 verify<br/>+ normalize + dedup<br/>+ route resolver"| GW_FORWARD

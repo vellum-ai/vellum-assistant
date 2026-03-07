@@ -352,11 +352,11 @@ export class Session {
       resolveTools,
       resolveSystemPromptCallback,
     );
-    this.contextWindowManager = new ContextWindowManager(
+    this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt,
-      config.contextWindow,
-    );
+      config: config.contextWindow,
+    });
 
     void getHookManager().trigger("session-start", {
       sessionId: this.conversationId,

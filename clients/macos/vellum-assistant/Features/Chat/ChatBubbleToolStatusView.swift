@@ -19,7 +19,6 @@ extension ChatBubble {
     var trailingStatus: some View {
         let inlineToolProgressRenderedInContent = shouldRenderToolProgressInline
         let hasToolCalls = !message.toolCalls.isEmpty
-            && !hideToolCalls
             && !inlineToolProgressRenderedInContent
         let hasStreamingCode = message.isStreaming && message.streamingCodePreview != nil
             && !(message.streamingCodePreview?.isEmpty ?? true)
@@ -37,7 +36,7 @@ extension ChatBubble {
         if hasToolCalls || hasStreamingCode || shouldShowProcessing {
             // Unified progress view handles all tool/streaming/processing states
             AssistantProgressView(
-                toolCalls: hideToolCalls ? [] : message.toolCalls,
+                toolCalls: message.toolCalls,
                 isStreaming: message.isStreaming,
                 hasText: hasText,
                 isProcessing: shouldShowProcessing,

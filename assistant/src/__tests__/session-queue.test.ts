@@ -134,7 +134,7 @@ mock.module("../memory/admin.js", () => ({
   }),
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -155,12 +155,15 @@ mock.module("../memory/conversation-store.js", () => ({
     totalEstimatedCost: 0,
   }),
   createConversation: () => ({ id: "conv-1" }),
-  listConversations: () => [],
   addMessage: (_convId: string, _role: string, _content: string) => {
     return { id: `msg-${Date.now()}` };
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  listConversations: () => [],
 }));
 
 let linkAttachmentShouldThrow = false;
@@ -192,6 +195,9 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    shouldCompact() {
+      return { needed: false, estimatedTokens: 0 };
+    }
     async maybeCompact() {
       return { compacted: false };
     }

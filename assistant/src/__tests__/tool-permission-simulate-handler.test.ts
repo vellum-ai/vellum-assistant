@@ -61,13 +61,13 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-import type { HandlerContext } from "../daemon/handlers.js";
 import { handleToolPermissionSimulate } from "../daemon/handlers/config.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ServerMessage,
   ToolPermissionSimulateRequest,
   ToolPermissionSimulateResponse,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import {
   addRule,
   clearAllRules,

@@ -1,3 +1,4 @@
+import type { CredentialCache } from "../credential-cache.js";
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
@@ -169,17 +170,21 @@ export async function callTelegramApi<T>(
   config: GatewayConfig,
   method: string,
   body: Record<string, unknown>,
+  opts?: { credentials?: CredentialCache },
 ): Promise<T> {
+  let botToken: string | undefined;
+  if (opts?.credentials) {
+    botToken = await opts.credentials.get("credential:telegram:bot_token");
+  }
+  botToken ??= config.telegramBotToken;
+
   return retryableFetch<T>(config, method, () =>
-    fetchImpl(
-      `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(config.telegramTimeoutMs),
-      },
-    ),
+    fetchImpl(`${config.telegramApiBaseUrl}/bot${botToken}/${method}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(config.telegramTimeoutMs),
+    }),
   );
 }
 
@@ -187,15 +192,19 @@ export async function callTelegramApiMultipart<T>(
   config: GatewayConfig,
   method: string,
   form: FormData,
+  opts?: { credentials?: CredentialCache },
 ): Promise<T> {
+  let botToken: string | undefined;
+  if (opts?.credentials) {
+    botToken = await opts.credentials.get("credential:telegram:bot_token");
+  }
+  botToken ??= config.telegramBotToken;
+
   return retryableFetch<T>(config, method, () =>
-    fetchImpl(
-      `${config.telegramApiBaseUrl}/bot${config.telegramBotToken}/${method}`,
-      {
-        method: "POST",
-        body: form,
-        signal: AbortSignal.timeout(config.telegramTimeoutMs),
-      },
-    ),
+    fetchImpl(`${config.telegramApiBaseUrl}/bot${botToken}/${method}`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(config.telegramTimeoutMs),
+    }),
   );
 }

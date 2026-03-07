@@ -1,3 +1,4 @@
+import type { CredentialCache } from "../credential-cache.js";
 import type { GatewayConfig } from "../config.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
@@ -139,6 +140,37 @@ async function retryableWhatsAppFetch<T>(
   throw lastError ?? new Error(`WhatsApp ${operation} failed after retries`);
 }
 
+/** Options bag for optional credential cache injection into WhatsApp API calls. */
+export type WhatsAppApiCaches = {
+  credentials?: CredentialCache;
+};
+
+/**
+ * Resolve WhatsApp credentials from cache (preferred) or config (fallback).
+ * Returns undefined fields if neither source has the value.
+ */
+async function resolveWhatsAppCredentials(
+  config: GatewayConfig,
+  caches?: WhatsAppApiCaches,
+): Promise<{
+  phoneNumberId: string | undefined;
+  accessToken: string | undefined;
+}> {
+  let phoneNumberId: string | undefined;
+  let accessToken: string | undefined;
+  if (caches?.credentials) {
+    phoneNumberId = await caches.credentials.get(
+      "credential:whatsapp:phone_number_id",
+    );
+    accessToken = await caches.credentials.get(
+      "credential:whatsapp:access_token",
+    );
+  }
+  phoneNumberId ??= config.whatsappPhoneNumberId;
+  accessToken ??= config.whatsappAccessToken;
+  return { phoneNumberId, accessToken };
+}
+
 export interface WhatsAppSendMessageResult {
   messaging_product: string;
   contacts: Array<{ input: string; wa_id: string }>;
@@ -153,8 +185,13 @@ export async function sendWhatsAppTextMessage(
   config: GatewayConfig,
   to: string,
   text: string,
+  caches?: WhatsAppApiCaches,
 ): Promise<WhatsAppSendMessageResult> {
-  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
+  const { phoneNumberId, accessToken } = await resolveWhatsAppCredentials(
+    config,
+    caches,
+  );
+  if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
@@ -162,24 +199,21 @@ export async function sendWhatsAppTextMessage(
     config,
     "sendMessage",
     () =>
-      fetchImpl(
-        `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/messages`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${config.whatsappAccessToken}`,
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            recipient_type: "individual",
-            to,
-            type: "text",
-            text: { body: text, preview_url: false },
-          }),
-          signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      fetchImpl(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
-      ),
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to,
+          type: "text",
+          text: { body: text, preview_url: false },
+        }),
+        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      }),
   );
 }
 
@@ -196,8 +230,13 @@ export async function uploadWhatsAppMedia(
   blob: Blob,
   filename: string,
   mimeType: string,
+  caches?: WhatsAppApiCaches,
 ): Promise<WhatsAppMediaUploadResult> {
-  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
+  const { phoneNumberId, accessToken } = await resolveWhatsAppCredentials(
+    config,
+    caches,
+  );
+  if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
@@ -210,17 +249,14 @@ export async function uploadWhatsAppMedia(
       form.set("file", blob, filename);
       form.set("type", mimeType);
 
-      return fetchImpl(
-        `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/media`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.whatsappAccessToken}`,
-          },
-          body: form,
-          signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      return fetchImpl(`${WHATSAPP_API_BASE}/${phoneNumberId}/media`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
         },
-      );
+        body: form,
+        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      });
     },
   );
 }
@@ -238,8 +274,13 @@ export async function sendWhatsAppMediaMessage(
   mediaId: string,
   filename?: string,
   caption?: string,
+  caches?: WhatsAppApiCaches,
 ): Promise<WhatsAppSendMessageResult> {
-  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
+  const { phoneNumberId, accessToken } = await resolveWhatsAppCredentials(
+    config,
+    caches,
+  );
+  if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
@@ -252,24 +293,21 @@ export async function sendWhatsAppMediaMessage(
     config,
     "sendMediaMessage",
     () =>
-      fetchImpl(
-        `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/messages`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${config.whatsappAccessToken}`,
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            recipient_type: "individual",
-            to,
-            type: mediaType,
-            [mediaType]: mediaPayload,
-          }),
-          signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      fetchImpl(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
-      ),
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to,
+          type: mediaType,
+          [mediaType]: mediaPayload,
+        }),
+        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      }),
   );
 }
 
@@ -283,8 +321,13 @@ export async function sendWhatsAppInteractiveMessage(
   to: string,
   bodyText: string,
   buttons: Array<{ id: string; title: string }>,
+  caches?: WhatsAppApiCaches,
 ): Promise<WhatsAppSendMessageResult> {
-  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
+  const { phoneNumberId, accessToken } = await resolveWhatsAppCredentials(
+    config,
+    caches,
+  );
+  if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
@@ -292,33 +335,30 @@ export async function sendWhatsAppInteractiveMessage(
     config,
     "sendInteractiveMessage",
     () =>
-      fetchImpl(
-        `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/messages`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${config.whatsappAccessToken}`,
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            recipient_type: "individual",
-            to,
-            type: "interactive",
-            interactive: {
-              type: "button",
-              body: { text: bodyText },
-              action: {
-                buttons: buttons.map((b) => ({
-                  type: "reply",
-                  reply: { id: b.id, title: b.title },
-                })),
-              },
-            },
-          }),
-          signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      fetchImpl(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
         },
-      ),
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to,
+          type: "interactive",
+          interactive: {
+            type: "button",
+            body: { text: bodyText },
+            action: {
+              buttons: buttons.map((b) => ({
+                type: "reply",
+                reply: { id: b.id, title: b.title },
+              })),
+            },
+          },
+        }),
+        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      }),
   );
 }
 
@@ -338,8 +378,10 @@ export interface WhatsAppMediaMetadata {
 export async function getWhatsAppMediaMetadata(
   config: GatewayConfig,
   mediaId: string,
+  caches?: WhatsAppApiCaches,
 ): Promise<WhatsAppMediaMetadata> {
-  if (!config.whatsappAccessToken) {
+  const { accessToken } = await resolveWhatsAppCredentials(config, caches);
+  if (!accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
@@ -349,7 +391,7 @@ export async function getWhatsAppMediaMetadata(
     () =>
       fetchImpl(`${WHATSAPP_API_BASE}/${mediaId}`, {
         headers: {
-          Authorization: `Bearer ${config.whatsappAccessToken}`,
+          Authorization: `Bearer ${accessToken}`,
         },
         signal: AbortSignal.timeout(config.whatsappTimeoutMs),
       }),
@@ -364,15 +406,17 @@ export async function getWhatsAppMediaMetadata(
 export async function downloadWhatsAppMediaBytes(
   config: GatewayConfig,
   mediaUrl: string,
+  caches?: WhatsAppApiCaches,
 ): Promise<Response> {
-  if (!config.whatsappAccessToken) {
+  const { accessToken } = await resolveWhatsAppCredentials(config, caches);
+  if (!accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
   return retryableWhatsAppRawFetch(config, "downloadMedia", () =>
     fetchImpl(mediaUrl, {
       headers: {
-        Authorization: `Bearer ${config.whatsappAccessToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       signal: AbortSignal.timeout(config.whatsappTimeoutMs),
     }),
@@ -478,26 +522,28 @@ async function retryableWhatsAppRawFetch(
 export async function markWhatsAppMessageRead(
   config: GatewayConfig,
   messageId: string,
+  caches?: WhatsAppApiCaches,
 ): Promise<void> {
-  if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) return;
+  const { phoneNumberId, accessToken } = await resolveWhatsAppCredentials(
+    config,
+    caches,
+  );
+  if (!phoneNumberId || !accessToken) return;
 
   try {
-    await fetchImpl(
-      `${WHATSAPP_API_BASE}/${config.whatsappPhoneNumberId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${config.whatsappAccessToken}`,
-        },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          status: "read",
-          message_id: messageId,
-        }),
-        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+    await fetchImpl(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
       },
-    );
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        status: "read",
+        message_id: messageId,
+      }),
+      signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+    });
   } catch (err) {
     log.debug({ err, messageId }, "Failed to mark WhatsApp message as read");
   }

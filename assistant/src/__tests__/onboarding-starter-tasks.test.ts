@@ -39,9 +39,6 @@ mock.module("../util/platform.js", () => ({
   getClipboardCommand: () => null,
   readSessionToken: () => null,
   removeSocketFile: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
   readLockfile: () => null,
   writeLockfile: () => {},
 }));

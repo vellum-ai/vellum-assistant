@@ -113,7 +113,7 @@ export function handleSkillsList(
 
   const skills = resolved.map((r) => ({
     id: r.summary.id,
-    name: r.summary.name,
+    name: r.summary.displayName,
     description: r.summary.description,
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
@@ -637,7 +637,7 @@ export async function handleSkillDetail(
   if (result.skill) {
     const icon = await ensureSkillIcon(
       result.skill.directoryPath,
-      result.skill.name,
+      result.skill.displayName,
       result.skill.description,
     );
     ctx.send(socket, {

@@ -312,7 +312,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ## Channel-Agnostic Scoped Approval Grants
 
-Scoped approval grants are a channel-agnostic primitive that allows a guardian's approval decision on one channel (e.g., Telegram) to authorize a tool execution on a different channel (e.g., voice). Each grant authorizes exactly one tool execution and is consumed atomically.
+Scoped approval grants are a channel-agnostic primitive that allows a guardian's approval decision on one channel (e.g., Telegram) to authorize a tool execution on a different channel (e.g., phone). Each grant authorizes exactly one tool execution and is consumed atomically.
 
 ### Scope Modes
 

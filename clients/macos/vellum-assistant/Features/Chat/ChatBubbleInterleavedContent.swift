@@ -7,7 +7,7 @@ extension ChatBubble {
     /// Whether tool progress should be rendered inline at tool-call block positions
     /// instead of in the trailing status area.
     var shouldRenderToolProgressInline: Bool {
-        guard !hideToolCalls else { return false }
+        // Tool calls are never hidden; always consider inline rendering.
         guard hasInterleavedContent else { return false }
         return message.contentOrder.contains(where: {
             if case .toolCall = $0 { return true }

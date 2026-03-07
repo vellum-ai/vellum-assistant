@@ -2,8 +2,6 @@ import { z } from "zod";
 
 const VALID_SECRET_ACTIONS = ["redact", "warn", "block", "prompt"] as const;
 const VALID_PERMISSIONS_MODES = ["strict", "workspace"] as const;
-const VALID_SMS_PROVIDERS = ["twilio"] as const;
-
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
     .number({ error: "timeouts.shellMaxTimeoutSec must be a number" })
@@ -238,33 +236,69 @@ export const TwilioConfigSchema = z.object({
   accountSid: z
     .string({ error: "twilio.accountSid must be a string" })
     .default(""),
+  authToken: z
+    .string({ error: "twilio.authToken must be a string" })
+    .default(""),
   phoneNumber: z
     .string({ error: "twilio.phoneNumber must be a string" })
     .default(""),
-});
-
-export const SmsConfigSchema = z.object({
-  enabled: z.boolean({ error: "sms.enabled must be a boolean" }).default(false),
-  provider: z
-    .enum(VALID_SMS_PROVIDERS, {
-      error: `sms.provider must be one of: ${VALID_SMS_PROVIDERS.join(", ")}`,
-    })
-    .default("twilio"),
-  phoneNumber: z
-    .string({ error: "sms.phoneNumber must be a string" })
-    .default(""),
-  assistantPhoneNumbers: z
-    .record(
-      z.string(),
-      z.string({ error: "sms.assistantPhoneNumbers values must be strings" }),
-    )
-    .optional(),
 });
 
 export const WhatsAppConfigSchema = z.object({
   phoneNumber: z
     .string({ error: "whatsapp.phoneNumber must be a string" })
     .default(""),
+  deliverAuthBypass: z
+    .boolean({ error: "whatsapp.deliverAuthBypass must be a boolean" })
+    .default(false),
+  timeoutMs: z
+    .number({ error: "whatsapp.timeoutMs must be a number" })
+    .int("whatsapp.timeoutMs must be an integer")
+    .positive("whatsapp.timeoutMs must be a positive integer")
+    .default(15_000),
+  maxRetries: z
+    .number({ error: "whatsapp.maxRetries must be a number" })
+    .int("whatsapp.maxRetries must be an integer")
+    .nonnegative("whatsapp.maxRetries must be a non-negative integer")
+    .default(3),
+  initialBackoffMs: z
+    .number({ error: "whatsapp.initialBackoffMs must be a number" })
+    .int("whatsapp.initialBackoffMs must be an integer")
+    .positive("whatsapp.initialBackoffMs must be a positive integer")
+    .default(1_000),
+});
+
+export const TelegramConfigSchema = z.object({
+  botUsername: z
+    .string({ error: "telegram.botUsername must be a string" })
+    .default(""),
+  apiBaseUrl: z
+    .string({ error: "telegram.apiBaseUrl must be a string" })
+    .default("https://api.telegram.org"),
+  deliverAuthBypass: z
+    .boolean({ error: "telegram.deliverAuthBypass must be a boolean" })
+    .default(false),
+  timeoutMs: z
+    .number({ error: "telegram.timeoutMs must be a number" })
+    .int("telegram.timeoutMs must be an integer")
+    .positive("telegram.timeoutMs must be a positive integer")
+    .default(15_000),
+  maxRetries: z
+    .number({ error: "telegram.maxRetries must be a number" })
+    .int("telegram.maxRetries must be an integer")
+    .nonnegative("telegram.maxRetries must be a non-negative integer")
+    .default(3),
+  initialBackoffMs: z
+    .number({ error: "telegram.initialBackoffMs must be a number" })
+    .int("telegram.initialBackoffMs must be an integer")
+    .positive("telegram.initialBackoffMs must be a positive integer")
+    .default(1_000),
+});
+
+export const SlackConfigSchema = z.object({
+  deliverAuthBypass: z
+    .boolean({ error: "slack.deliverAuthBypass must be a boolean" })
+    .default(false),
 });
 
 export const IngressWebhookConfigSchema = z.object({
@@ -338,15 +372,7 @@ export const IngressConfigSchema = IngressBaseSchema.default(
   IngressBaseSchema.parse({}),
 ).transform((val) => ({
   ...val,
-  // Backward compatibility: if `enabled` was never explicitly set (undefined),
-  // infer it from whether a publicBaseUrl is configured. Existing users who
-  // have a URL but predate the `enabled` field should not have their webhooks
-  // silently disabled on upgrade.
-  //
-  // When publicBaseUrl is empty and enabled is unset, leave enabled as
-  // undefined so getPublicBaseUrl() can still fall through to the
-  // INGRESS_PUBLIC_BASE_URL env-var fallback (env-only setups).
-  enabled: val.enabled ?? (val.publicBaseUrl ? true : undefined),
+  enabled: val.enabled,
 }));
 
 export const VALID_AVATAR_STRATEGIES = [
@@ -423,12 +449,13 @@ export type ContextOverflowRecoveryConfig = z.infer<
 export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type TwilioConfig = z.infer<typeof TwilioConfigSchema>;
-export type SmsConfig = z.infer<typeof SmsConfigSchema>;
 export type WhatsAppConfig = z.infer<typeof WhatsAppConfigSchema>;
+export type TelegramConfig = z.infer<typeof TelegramConfigSchema>;
 export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
 export type IngressRateLimitConfig = z.infer<
   typeof IngressRateLimitConfigSchema
 >;
 export type DaemonConfig = z.infer<typeof DaemonConfigSchema>;
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;
+export type SlackConfig = z.infer<typeof SlackConfigSchema>;
 export type UiConfig = z.infer<typeof UiConfigSchema>;

@@ -4,6 +4,7 @@
  *
  * Validates:
  * - Strict implicit-default policy for caller identity.
+ * - Voice-ingress preflight blocks doomed outbound calls before Twilio dialing.
  * - Pointer messages are written on successful call start and on failure.
  */
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
@@ -35,6 +36,62 @@ mock.module("../util/logger.js", () => ({
 
 // Track whether the Twilio provider's initiateCall should succeed or throw
 let twilioInitiateCallBehavior: "success" | "error" = "success";
+let twilioInitiateCallCount = 0;
+let twilioInitiateCallArgs: Array<Record<string, unknown>> = [];
+let mockIngressEnabled = true;
+let mockIngressPublicBaseUrl = "https://test.example.com";
+
+interface MockGatewayHealthResult {
+  target: string;
+  healthy: boolean;
+  localDeployment: boolean;
+  error?: string;
+}
+
+interface MockEnsureLocalGatewayReadyResult extends MockGatewayHealthResult {
+  recovered: boolean;
+  recoveryAttempted: boolean;
+  recoverySkipped: boolean;
+}
+
+interface MockGatewayReconcileResult {
+  ok: boolean;
+  status?: number;
+  error?: string;
+}
+
+let probeLocalGatewayHealthResults: MockGatewayHealthResult[] = [];
+let probeLocalGatewayHealthCallCount = 0;
+let ensureLocalGatewayReadyResult: MockEnsureLocalGatewayReadyResult;
+let ensureLocalGatewayReadyCallCount = 0;
+let twilioReconcileResult: MockGatewayReconcileResult = {
+  ok: true,
+  status: 200,
+};
+let twilioReconcileCalls: Array<string | undefined> = [];
+
+function makeGatewayHealthResult(
+  overrides: Partial<MockGatewayHealthResult> = {},
+): MockGatewayHealthResult {
+  return {
+    target: "http://127.0.0.1:7830",
+    healthy: true,
+    localDeployment: true,
+    ...overrides,
+  };
+}
+
+function makeRecoveryResult(
+  overrides: Partial<MockEnsureLocalGatewayReadyResult> = {},
+): MockEnsureLocalGatewayReadyResult {
+  return {
+    ...makeGatewayHealthResult(),
+    recovered: false,
+    recoveryAttempted: false,
+    recoverySkipped: false,
+    ...overrides,
+  };
+}
 
 mock.module("../calls/twilio-config.js", () => ({
   getTwilioConfig: (assistantId?: string) => ({
@@ -55,10 +112,15 @@ mock.module("../calls/twilio-provider.js", () => ({
         reason: `${number} is not eligible as a caller ID`,
       };
     }
-    async initiateCall() {
+    async initiateCall(args: Record<string, unknown>) {
+      twilioInitiateCallCount++;
+      twilioInitiateCallArgs.push(args);
       if (twilioInitiateCallBehavior === "error")
         throw new Error("Twilio unavailable");
       return { callSid: "CA_test_123" };
+    }
+    async endCall() {
+      return;
     }
   },
 }));
@@ -74,6 +136,10 @@ mock.module("../config/loader.js", () => ({
       provider: "twilio",
       callerIdentity: { allowPerCallOverride: true },
     },
+    ingress: {
+      enabled: mockIngressEnabled,
+      publicBaseUrl: mockIngressPublicBaseUrl,
+    },
     memory: { enabled: false },
   }),
   getConfig: () => ({
@@ -82,12 +148,17 @@ mock.module("../config/loader.js", () => ({
       provider: "twilio",
       callerIdentity: { allowPerCallOverride: true },
     },
+    ingress: {
+      enabled: mockIngressEnabled,
+      publicBaseUrl: mockIngressPublicBaseUrl,
+    },
     memory: { enabled: false },
   }),
 }));
 
 mock.module("../inbound/platform-callback-registration.js", () => ({
   resolveCallbackUrl: async (fn: () => string) => fn(),
+  shouldUsePlatformCallbacks: () => false,
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({
@@ -101,13 +172,62 @@ mock.module("../memory/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 
-import { resolveCallerIdentity, startCall } from "../calls/call-domain.js";
+mock.module("../runtime/local-gateway-health.js", () => ({
+  probeLocalGatewayHealth: async () => {
+    probeLocalGatewayHealthCallCount++;
+    const next =
+      probeLocalGatewayHealthResults.shift() ?? makeGatewayHealthResult();
+    return next;
+  },
+  ensureLocalGatewayReady: async () => {
+    ensureLocalGatewayReadyCallCount++;
+    return ensureLocalGatewayReadyResult;
+  },
+}));
+
+mock.module("../daemon/handlers/config-ingress.js", () => ({
+  triggerGatewayTwilioReconcile: async (publicBaseUrl: string | undefined) => {
+    twilioReconcileCalls.push(publicBaseUrl);
+    return twilioReconcileResult;
+  },
+  syncTwilioWebhooks: async () => ({ success: true }),
+}));
+
+import {
+  clearActiveCallLeases,
+  getActiveCallLease,
+  listActiveCallLeases,
+} from "../calls/active-call-lease.js";
+import {
+  cancelCall,
+  resolveCallerIdentity,
+  startCall,
+} from "../calls/call-domain.js";
 import type { AssistantConfig } from "../config/types.js";
-import { getMessages } from "../memory/conversation-store.js";
+import { getMessages } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();
+
+beforeEach(() => {
+  resetTables();
+  clearActiveCallLeases();
+  twilioInitiateCallBehavior = "success";
+  twilioInitiateCallCount = 0;
+  twilioInitiateCallArgs = [];
+  mockIngressEnabled = true;
+  mockIngressPublicBaseUrl = "https://test.example.com";
+  probeLocalGatewayHealthResults = [
+    makeGatewayHealthResult(),
+    makeGatewayHealthResult(),
+  ];
+  probeLocalGatewayHealthCallCount = 0;
+  ensureLocalGatewayReadyResult = makeRecoveryResult();
+  ensureLocalGatewayReadyCallCount = 0;
+  twilioReconcileResult = { ok: true, status: 200 };
+  twilioReconcileCalls = [];
+});
 
 let ensuredConvIds = new Set<string>();
 function ensureConversation(id: string): void {
@@ -288,11 +408,6 @@ describe("resolveCallerIdentity — strict implicit-default policy", () => {
 // ── Pointer message regression tests ──────────────────────────────
 
 describe("startCall — pointer message regression", () => {
-  beforeEach(() => {
-    resetTables();
-    twilioInitiateCallBehavior = "success";
-  });
-
   test("successful call writes a started pointer to the initiating conversation", async () => {
     const convId = "conv-domain-ptr-start";
     ensureConversation(convId);
@@ -304,6 +419,23 @@ describe("startCall — pointer message regression", () => {
     });
 
     expect(result.ok).toBe(true);
+    expect(twilioInitiateCallCount).toBe(1);
+    expect(twilioInitiateCallArgs).toEqual([
+      {
+        from: "+15550001111",
+        to: "+15559876543",
+        webhookUrl: "https://test.example.com/webhooks/twilio/voice/test",
+        statusCallbackUrl: "https://test.example.com/webhooks/twilio/status",
+      },
+    ]);
+    expect(twilioReconcileCalls).toEqual(["https://test.example.com"]);
+    if (result.ok) {
+      expect(getActiveCallLease(result.session.id)).toEqual({
+        callSessionId: result.session.id,
+        providerCallSid: "CA_test_123",
+        updatedAt: expect.any(Number),
+      });
+    }
     // Allow async pointer write to flush
     await new Promise((r) => setTimeout(r, 50));
 
@@ -311,6 +443,101 @@ describe("startCall — pointer message regression", () => {
     expect(text).not.toBeNull();
     expect(text!).toContain("+15559876543");
     expect(text!).toContain("started");
+  });
+
+  test("fails fast when ingress is disabled and never reaches Twilio dialing", async () => {
+    const convId = "conv-domain-ingress-disabled";
+    ensureConversation(convId);
+    mockIngressEnabled = false;
+
+    const result = await startCall({
+      phoneNumber: "+15559876543",
+      task: "Test call",
+      conversationId: convId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(503);
+      expect(result.error).toContain("Public ingress");
+    }
+    expect(probeLocalGatewayHealthCallCount).toBe(0);
+    expect(ensureLocalGatewayReadyCallCount).toBe(0);
+    expect(twilioReconcileCalls).toHaveLength(0);
+    expect(twilioInitiateCallCount).toBe(0);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const text = getLatestAssistantText(convId);
+    expect(text).not.toBeNull();
+    expect(text!).toContain("+15559876543");
+    expect(text!).toContain("failed");
+  });
+
+  test("never dials Twilio when the local callback gateway stays unhealthy", async () => {
+    const convId = "conv-domain-preflight-unhealthy";
+    ensureConversation(convId);
+    probeLocalGatewayHealthResults = [
+      makeGatewayHealthResult({
+        healthy: false,
+        error: "Gateway health check returned HTTP 503",
+      }),
+      makeGatewayHealthResult({
+        healthy: false,
+        error: "Gateway health check returned HTTP 503",
+      }),
+    ];
+    ensureLocalGatewayReadyResult = makeRecoveryResult({
+      healthy: false,
+      error: "Gateway health check returned HTTP 503",
+      recovered: false,
+      recoveryAttempted: true,
+    });
+
+    const result = await startCall({
+      phoneNumber: "+15559876543",
+      task: "Test call",
+      conversationId: convId,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(503);
+      expect(result.error).toContain("still unhealthy");
+    }
+    expect(probeLocalGatewayHealthCallCount).toBe(2);
+    expect(ensureLocalGatewayReadyCallCount).toBe(1);
+    expect(twilioReconcileCalls).toHaveLength(0);
+    expect(twilioInitiateCallCount).toBe(0);
+  });
+
+  test("can recover a local gateway and then place exactly one outbound Twilio call", async () => {
+    const convId = "conv-domain-preflight-recovery";
+    ensureConversation(convId);
+    probeLocalGatewayHealthResults = [
+      makeGatewayHealthResult({
+        healthy: false,
+        error: "Gateway health check returned HTTP 503",
+      }),
+      makeGatewayHealthResult(),
+    ];
+    ensureLocalGatewayReadyResult = makeRecoveryResult({
+      healthy: true,
+      recovered: true,
+      recoveryAttempted: true,
+    });
+
+    const result = await startCall({
+      phoneNumber: "+15559876543",
+      task: "Test call",
+      conversationId: convId,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(probeLocalGatewayHealthCallCount).toBe(2);
+    expect(ensureLocalGatewayReadyCallCount).toBe(1);
+    expect(twilioReconcileCalls).toEqual(["https://test.example.com"]);
+    expect(twilioInitiateCallCount).toBe(1);
   });
 
   test("failed call writes a failed pointer to the initiating conversation", async () => {
@@ -325,6 +552,8 @@ describe("startCall — pointer message regression", () => {
     });
 
     expect(result.ok).toBe(false);
+    expect(twilioInitiateCallCount).toBe(1);
+    expect(listActiveCallLeases()).toHaveLength(0);
     // Allow async pointer write to flush
     await new Promise((r) => setTimeout(r, 50));
 
@@ -332,5 +561,31 @@ describe("startCall — pointer message regression", () => {
     expect(text).not.toBeNull();
     expect(text!).toContain("+15559876543");
     expect(text!).toContain("failed");
+  });
+
+  test("canceling an active call releases its persisted keepalive lease", async () => {
+    const convId = "conv-domain-cancel-releases-lease";
+    ensureConversation(convId);
+
+    const startResult = await startCall({
+      phoneNumber: "+15559876543",
+      task: "Test call",
+      conversationId: convId,
+    });
+
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) {
+      return;
+    }
+
+    expect(getActiveCallLease(startResult.session.id)).not.toBeNull();
+
+    const cancelResult = await cancelCall({
+      callSessionId: startResult.session.id,
+      reason: "User requested",
+    });
+
+    expect(cancelResult.ok).toBe(true);
+    expect(getActiveCallLease(startResult.session.id)).toBeNull();
   });
 });

@@ -3,15 +3,15 @@ import * as net from "node:net";
 import type { ChannelId } from "../../channels/types.js";
 import { isChannelId, isInterfaceId } from "../../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
-import { getLatestStoredPayload } from "../../memory/channel-delivery-store.js";
-import type { GuardianApprovalRequest } from "../../memory/channel-guardian-store.js";
+import { addMessage, getMessages } from "../../memory/conversation-crud.js";
+import { getLatestStoredPayload } from "../../memory/delivery-crud.js";
+import { getBindingByConversation } from "../../memory/external-conversation-store.js";
 import {
   type ApprovalRequestStatus,
+  type GuardianApprovalRequest,
   listPendingApprovalRequests,
   resolveApprovalRequest,
-} from "../../memory/channel-guardian-store.js";
-import { addMessage, getMessages } from "../../memory/conversation-store.js";
-import { getBindingByConversation } from "../../memory/external-conversation-store.js";
+} from "../../memory/guardian-approvals.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../../runtime/auth/token-service.js";
 import { deliverChannelReply } from "../../runtime/gateway-client.js";
@@ -321,7 +321,7 @@ async function executeApprove(
   // The guardian already approved this escalation via the inbox, so we
   // directly set guardian trust. Going through resolveLocalIpcTrustContext
   // would look up the vellum binding's guardian ID and compare it against
-  // a different channel's binding (e.g. telegram/sms), misclassifying the
+  // a different channel's binding (e.g. telegram/voice), misclassifying the
   // actor as 'unknown'.
   session.setTrustContext({
     sourceChannel: sourceChannel ?? "vellum",

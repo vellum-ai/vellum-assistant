@@ -8,7 +8,7 @@ import { getConfig } from "../../../../config/loader.js";
 import {
   addMessage,
   createConversation,
-} from "../../../../memory/conversation-store.js";
+} from "../../../../memory/conversation-crud.js";
 import { getDb } from "../../../../memory/db.js";
 import { indexMessageNow } from "../../../../memory/indexer.js";
 import {

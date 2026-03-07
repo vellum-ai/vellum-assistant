@@ -96,34 +96,47 @@ describe("buildSkillMarkdown", () => {
     expect(result.endsWith("\n")).toBe(true);
   });
 
-  test("includes optional emoji", () => {
+  test("includes optional emoji in metadata.vellum", () => {
     const result = buildSkillMarkdown({
       name: "Emoji Skill",
       description: "Has an emoji",
       bodyMarkdown: "Body.",
       emoji: "🧪",
     });
-    expect(result).toContain('emoji: "🧪"');
+    expect(result).toContain("metadata:");
+    const metadataLine = result
+      .split("\n")
+      .find((l) => l.startsWith("metadata:"));
+    const json = JSON.parse(metadataLine!.slice("metadata: ".length));
+    expect(json.vellum.emoji).toBe("🧪");
   });
 
-  test("includes user-invocable=false when specified", () => {
+  test("includes user-invocable=false in metadata.vellum", () => {
     const result = buildSkillMarkdown({
       name: "Internal",
       description: "Not user invocable",
       bodyMarkdown: "Body.",
       userInvocable: false,
     });
-    expect(result).toContain("user-invocable: false");
+    const metadataLine = result
+      .split("\n")
+      .find((l) => l.startsWith("metadata:"));
+    const json = JSON.parse(metadataLine!.slice("metadata: ".length));
+    expect(json.vellum["user-invocable"]).toBe(false);
   });
 
-  test("includes disable-model-invocation when true", () => {
+  test("includes disable-model-invocation in metadata.vellum", () => {
     const result = buildSkillMarkdown({
       name: "Manual",
       description: "Manual only",
       bodyMarkdown: "Body.",
       disableModelInvocation: true,
     });
-    expect(result).toContain("disable-model-invocation: true");
+    const metadataLine = result
+      .split("\n")
+      .find((l) => l.startsWith("metadata:"));
+    const json = JSON.parse(metadataLine!.slice("metadata: ".length));
+    expect(json.vellum["disable-model-invocation"]).toBe(true);
   });
 
   test("escapes double quotes in name and description", () => {
@@ -188,33 +201,37 @@ describe("buildSkillMarkdown", () => {
     expect(skill!.name).toBe("path\\name");
   });
 
-  test("includes field emits JSON array in frontmatter", () => {
+  test("includes field emits JSON array in metadata.vellum", () => {
     const result = buildSkillMarkdown({
       name: "Parent",
       description: "Has children",
       bodyMarkdown: "Body.",
       includes: ["child-a", "child-b"],
     });
-    expect(result).toContain('includes: ["child-a","child-b"]');
+    const metadataLine = result
+      .split("\n")
+      .find((l) => l.startsWith("metadata:"));
+    const json = JSON.parse(metadataLine!.slice("metadata: ".length));
+    expect(json.vellum.includes).toEqual(["child-a", "child-b"]);
   });
 
-  test("omits includes when not provided", () => {
+  test("omits metadata when no vellum fields provided", () => {
     const result = buildSkillMarkdown({
       name: "Solo",
       description: "No children",
       bodyMarkdown: "Body.",
     });
-    expect(result).not.toContain("includes");
+    expect(result).not.toContain("metadata:");
   });
 
-  test("omits includes when empty array", () => {
+  test("omits metadata when includes is empty array and no other vellum fields", () => {
     const result = buildSkillMarkdown({
       name: "Empty",
       description: "Empty array",
       bodyMarkdown: "Body.",
       includes: [],
     });
-    expect(result).not.toContain("includes:");
+    expect(result).not.toContain("metadata:");
   });
 
   test("includes round-trips through write and catalog load", () => {

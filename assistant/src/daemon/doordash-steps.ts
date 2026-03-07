@@ -6,7 +6,7 @@
  */
 
 import { isPlainObject } from "../util/object.js";
-import type { CardSurfaceData } from "./ipc-contract.js";
+import type { CardSurfaceData } from "./ipc-protocol.js";
 import type { ToolSetupContext } from "./session-tool-setup.js";
 
 interface DoordashStep {

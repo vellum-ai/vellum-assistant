@@ -1,8 +1,8 @@
 ---
-name: "Email Setup"
-description: "Create the assistant's own email address via the Vellum hosted API (one-time setup)"
-user-invocable: true
-metadata: { "vellum": { "emoji": "📧" } }
+name: email-setup
+description: Create the assistant's own email address via the Vellum hosted API (one-time setup)
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"📧","vellum":{"display-name":"Email Setup","user-invocable":true}}
 ---
 
 You are setting up your own personal email address. This is a one-time operation — once you have an email, you do not need to run this again.

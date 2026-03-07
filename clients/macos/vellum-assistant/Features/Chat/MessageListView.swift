@@ -1016,9 +1016,6 @@ private struct MessageCellView: View {
             )
             .id(message.id)
         } else {
-            let nextIsPendingConfirmation = index + 1 < displayMessages.count
-                && displayMessages[index + 1].confirmation?.state == .pending
-
             let nextDecidedConfirmation: ToolConfirmationData? = {
                 guard index + 1 < displayMessages.count,
                       let conf = displayMessages[index + 1].confirmation,
@@ -1030,7 +1027,6 @@ private struct MessageCellView: View {
 
             ChatBubble(
                 message: message,
-                hideToolCalls: nextIsPendingConfirmation,
                 decidedConfirmation: nextDecidedConfirmation,
                 onSurfaceAction: onSurfaceAction,
                 onDismissDocumentWidget: { surfaceId in

@@ -3,11 +3,11 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import type { HandlerContext } from "../daemon/handlers.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ConfirmationResponse,
   UserMessage,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
@@ -151,7 +151,7 @@ mock.module("../runtime/pending-interactions.js", () => ({
   resolve: resolveMock,
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   addMessage: addMessageMock,
 }));
 
@@ -205,10 +205,8 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-import {
-  handleConfirmationResponse,
-  handleUserMessage,
-} from "../daemon/handlers/sessions.js";
+import { handleUserMessage } from "../daemon/handlers/session-user-message.js";
+import { handleConfirmationResponse } from "../daemon/handlers/sessions.js";
 
 interface TestSession {
   messages: Array<{ role: string; content: unknown[] }>;

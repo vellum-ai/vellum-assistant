@@ -299,7 +299,7 @@ describe("voice invite HTTP routes", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
         guardianName: "Bob",
@@ -313,7 +313,7 @@ describe("voice invite HTTP routes", () => {
     expect(res.status).toBe(201);
     expect(body.ok).toBe(true);
     const invite = body.invite as Record<string, unknown>;
-    expect(invite.sourceChannel).toBe("voice");
+    expect(invite.sourceChannel).toBe("phone");
     // Voice code should be returned (6 digits by default)
     expect(typeof invite.voiceCode).toBe("string");
     expect((invite.voiceCode as string).length).toBe(6);
@@ -335,7 +335,7 @@ describe("voice invite HTTP routes", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         friendName: "Alice",
         guardianName: "Bob",
       }),
@@ -354,7 +354,7 @@ describe("voice invite HTTP routes", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         expectedExternalUserId: "not-a-phone-number",
         friendName: "Alice",
         guardianName: "Bob",
@@ -374,7 +374,7 @@ describe("voice invite HTTP routes", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         expectedExternalUserId: "+15551234567",
         guardianName: "Bob",
       }),
@@ -393,7 +393,7 @@ describe("voice invite HTTP routes", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
       }),
@@ -412,7 +412,7 @@ describe("voice invite HTTP routes", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
         guardianName: "Bob",
@@ -435,7 +435,7 @@ describe("voice invite HTTP routes", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         expectedExternalUserId: "+15551234567",
         friendName: "Alice",
         guardianName: "Bob",
@@ -459,7 +459,7 @@ describe("voice invite HTTP routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sourceChannel: "voice",
+          sourceChannel: "phone",
           expectedExternalUserId: "+15551234567",
           friendName: "Alice",
           guardianName: "Bob",
@@ -516,7 +516,7 @@ describe("voice invite HTTP routes", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sourceChannel: "voice",
+          sourceChannel: "phone",
           expectedExternalUserId: "+15551234567",
           friendName: "Alice",
           guardianName: "Bob",

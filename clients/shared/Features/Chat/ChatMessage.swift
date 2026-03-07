@@ -34,9 +34,9 @@ public struct ToolConfirmationData: Equatable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let riskLevel: String
-    public let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
-    public let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
-    public let scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption]
+    public let diff: IPCConfirmationRequestDiff?
+    public let allowlistOptions: [IPCConfirmationRequestAllowlistOption]
+    public let scopeOptions: [IPCConfirmationRequestScopeOption]
     public let executionTarget: String?
     /// When false, hide "Always Allow" and trust-rule persistence controls.
     public let persistentDecisionsAllowed: Bool
@@ -646,7 +646,7 @@ public struct ToolConfirmationData: Equatable {
         }
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestMessage.ConfirmationDiffInfo? = nil, allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption] = [], scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: IPCConfirmationRequestDiff? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption] = [], scopeOptions: [IPCConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
@@ -954,7 +954,7 @@ public struct ToolCallData: Identifiable, Equatable {
             return inputSummary.isEmpty ? "Searched the web" : "Searched for \"\(truncated(inputSummary, to: 50))\""
         case "memory_save", "memory_update":
             return "Saved a memory"
-        case "memory_search":
+        case "memory_recall":
             return inputSummary.isEmpty ? "Recalled memories" : "Recalled info about \"\(truncated(inputSummary, to: 40))\""
         case "task_run":
             return inputSummary.isEmpty ? "Ran a task" : "Ran \"\(truncated(inputSummary, to: 50))\""
@@ -1706,25 +1706,5 @@ public struct ChatMessage: Identifiable, Equatable {
             }
         }
         isContentStripped = true
-    }
-
-    /// Build a default content order from the legacy `arrivedBeforeText` flag.
-    public static func buildDefaultContentOrder(
-        textSegmentCount: Int,
-        toolCallCount: Int,
-        arrivedBeforeText: Bool,
-        surfaceCount: Int = 0
-    ) -> [ContentBlockRef] {
-        var order: [ContentBlockRef] = []
-        if arrivedBeforeText {
-            for i in 0..<toolCallCount { order.append(.toolCall(i)) }
-            for i in 0..<textSegmentCount { order.append(.text(i)) }
-            for i in 0..<surfaceCount { order.append(.surface(i)) }
-        } else {
-            for i in 0..<textSegmentCount { order.append(.text(i)) }
-            for i in 0..<toolCallCount { order.append(.toolCall(i)) }
-            for i in 0..<surfaceCount { order.append(.surface(i)) }
-        }
-        return order
     }
 }

@@ -46,7 +46,8 @@ export type {
   PlatformConfig,
   RateLimitConfig,
   SecretDetectionConfig,
-  SmsConfig,
+  SlackConfig,
+  TelegramConfig,
   ThinkingConfig,
   TimeoutConfig,
   TwilioConfig,
@@ -69,7 +70,8 @@ export {
   PlatformConfigSchema,
   RateLimitConfigSchema,
   SecretDetectionConfigSchema,
-  SmsConfigSchema,
+  SlackConfigSchema,
+  TelegramConfigSchema,
   ThinkingConfigSchema,
   TimeoutConfigSchema,
   TwilioConfigSchema,
@@ -164,7 +166,8 @@ import {
   PlatformConfigSchema,
   RateLimitConfigSchema,
   SecretDetectionConfigSchema,
-  SmsConfigSchema,
+  SlackConfigSchema,
+  TelegramConfigSchema,
   ThinkingConfigSchema,
   TimeoutConfigSchema,
   TwilioConfigSchema,
@@ -270,8 +273,9 @@ export const AssistantConfigSchema = z
     elevenlabs: ElevenLabsConfigSchema.default(
       ElevenLabsConfigSchema.parse({}),
     ),
-    sms: SmsConfigSchema.default(SmsConfigSchema.parse({})),
     whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
+    telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
+    slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),
     ingress: IngressConfigSchema,
     platform: PlatformConfigSchema.default(PlatformConfigSchema.parse({})),
     daemon: DaemonConfigSchema.default(DaemonConfigSchema.parse({})),
@@ -280,12 +284,6 @@ export const AssistantConfigSchema = z
     ),
     avatar: AvatarConfigSchema.default(AvatarConfigSchema.parse({})),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
-    featureFlags: z
-      .record(
-        z.string(),
-        z.boolean({ error: "featureFlags values must be booleans" }),
-      )
-      .default({} as Record<string, boolean>),
     assistantFeatureFlagValues: z
       .record(
         z.string(),

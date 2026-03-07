@@ -1,10 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
-import {
-  defaultLocalResources,
-  resolveTargetAssistant,
-} from "../lib/assistant-config.js";
+import { resolveTargetAssistant } from "../lib/assistant-config.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import { startLocalDaemon, startGateway } from "../lib/local";
 
@@ -38,7 +35,13 @@ export async function wake(): Promise<void> {
     process.exit(1);
   }
 
-  const resources = entry.resources ?? defaultLocalResources();
+  if (!entry.resources) {
+    console.error(
+      `Error: Local assistant '${entry.assistantId}' is missing resource configuration. Re-hatch to fix.`,
+    );
+    process.exit(1);
+  }
+  const resources = entry.resources;
 
   const pidFile = resources.pidFile;
   const socketFile = resources.socketPath;

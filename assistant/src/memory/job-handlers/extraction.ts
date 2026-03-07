@@ -22,7 +22,8 @@ const log = getLogger("memory-jobs-worker");
 
 export async function extractItemsJob(job: MemoryJob): Promise<void> {
   const messageId = asString(job.payload.messageId);
-  if (!messageId) return;
+  const scopeId = asString(job.payload.scopeId);
+  if (!messageId || !scopeId) return;
 
   // If the conversation that owns this message has been marked as failed,
   // skip extraction entirely. This prevents async extraction jobs from
@@ -40,12 +41,6 @@ export async function extractItemsJob(job: MemoryJob): Promise<void> {
     );
     return;
   }
-
-  // Backward compat: old payloads may lack scopeId — default to 'default'
-  const scopeId =
-    typeof job.payload.scopeId === "string" && job.payload.scopeId
-      ? job.payload.scopeId
-      : "default";
 
   await extractAndUpsertMemoryItemsForMessage(
     messageId,

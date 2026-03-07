@@ -60,6 +60,7 @@ async function createDesktopAppFixture(options: FixtureOptions): Promise<Fixture
   const baseDataDir = setupTestDataDir(options.testName);
 
   verifyAppExists(appDisplayName);
+  preApproveScreenCapture();
   logVellumPs();
 
   // Clear any previous onboarding state
@@ -95,6 +96,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   const baseDataDir = setupTestDataDir(options.testName);
 
   verifyAppExists(appDisplayName);
+  preApproveScreenCapture();
   ensureVellumInPath(appDisplayName);
   await ensureAssistantHatched();
   skipAssistantOnboarding();
@@ -145,6 +147,43 @@ function cleanupTestDataDir(dir: string | undefined): void {
 }
 
 // ── Shared Helpers ──────────────────────────────────────────────────
+
+/**
+ * Pre-approve screen recording so the macOS 15+ "requesting to bypass
+ * the system private window picker" dialog never appears during tests.
+ *
+ * Sets the ScreenCaptureApprovals plist last-alerted timestamp far into
+ * the future for the binaries that trigger the prompt (screencapture,
+ * bash, zsh). The CI workflow also grants the underlying TCC entitlement
+ * via sudo; this helper covers local-development runs where the
+ * developer has already approved once but the monthly nag would recur.
+ */
+function preApproveScreenCapture(): void {
+  const approvalsDir = path.join(
+    os.homedir(),
+    "Library",
+    "Group Containers",
+    "group.com.apple.replayd",
+  );
+  mkdirSync(approvalsDir, { recursive: true });
+  const approvalsPlist = path.join(approvalsDir, "ScreenCaptureApprovals");
+  const targets = ["/usr/sbin/screencapture", "/bin/bash", "/bin/zsh"];
+
+  for (const target of targets) {
+    try {
+      // macOS 15.1+ requires both kScreenCaptureApprovalLastAlerted AND
+      // kScreenCaptureApprovalLastUsed in the dict for each entry.
+      execSync(
+        `defaults write ${JSON.stringify(approvalsPlist)} ${JSON.stringify(target)} ` +
+          `-dict kScreenCaptureApprovalLastAlerted -date "4321-01-01 00:00:00 +0000" ` +
+          `kScreenCaptureApprovalLastUsed -date "4321-01-01 00:00:00 +0000"`,
+        { timeout: 5_000 },
+      );
+    } catch {
+      // May fail without Full Disk Access — CI workflow handles this via sudo
+    }
+  }
+}
 
 function verifyAppExists(appDisplayName: string): void {
   const appDir = path.resolve(__dirname, "../../clients/macos/dist");

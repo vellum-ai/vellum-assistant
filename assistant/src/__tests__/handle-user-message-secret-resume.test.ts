@@ -67,7 +67,8 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-const { handleUserMessage } = await import("../daemon/handlers/sessions.js");
+const { handleUserMessage } =
+  await import("../daemon/handlers/session-user-message.js");
 
 describe("handleUserMessage secret redirect continuation", () => {
   test("resumes the request after secure save with redacted continuation text", async () => {

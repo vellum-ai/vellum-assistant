@@ -36,8 +36,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -178,7 +176,7 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
     path: string;
     symbols: string[];
   }> = [
-    // Inbound channel router (Telegram/SMS/WhatsApp)
+    // Inbound channel router (Telegram/WhatsApp)
     {
       path: "runtime/guardian-reply-router.ts",
       symbols: ["applyCanonicalGuardianDecision"],
@@ -525,7 +523,7 @@ describe("routing invariant: code-only messages return clarification", () => {
     const req = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
@@ -559,7 +557,7 @@ describe("routing invariant: code-only messages return clarification", () => {
     const req = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
@@ -843,7 +841,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const answerRequest = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
@@ -857,7 +855,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const approvalRequest = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,

@@ -29,13 +29,24 @@ struct ConversationsListResponse: Decodable {
         let updatedAt: Int
         let threadType: String?
         let source: String?
+        let scheduleJobId: String?
         let channelBinding: IPCChannelBinding?
         let conversationOriginChannel: String?
         let conversationOriginInterface: String?
         let assistantAttention: IPCAssistantAttention?
+        let displayOrder: Double?
+        let isPinned: Bool?
     }
     let sessions: [Session]
     let hasMore: Bool?
+}
+
+private struct HTTPErrorEnvelope: Decodable {
+    struct ErrorBody: Decodable {
+        let message: String
+    }
+
+    let error: ErrorBody
 }
 
 // MARK: - HTTP Transport
@@ -161,6 +172,7 @@ public final class HTTPTransport {
         case guardianActionsPending(conversationId: String)
         case guardianActionsDecision
         case conversationsSeen
+        case conversationsUnread
         case identity
         case featureFlags
         case featureFlagUpdate(key: String)
@@ -172,7 +184,6 @@ public final class HTTPTransport {
         case contactsGet(id: String)
         case contactsDelete(id: String)
         case contactChannelUpdate(contactChannelId: String)
-        case contactChannelVerify(contactChannelId: String)
         case contactsUpsert
         case contactsInvitesCreate
         case channelsReadiness
@@ -235,6 +246,8 @@ public final class HTTPTransport {
             return ("/v1/guardian-actions/decision", nil)
         case .conversationsSeen:
             return ("/v1/conversations/seen", nil)
+        case .conversationsUnread:
+            return ("/v1/conversations/unread", nil)
         case .identity:
             return ("/v1/identity", nil)
         case .featureFlags:
@@ -271,9 +284,6 @@ public final class HTTPTransport {
         case .contactChannelUpdate(let contactChannelId):
             let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
             return ("/v1/contact-channels/\(encoded)", nil)
-        case .contactChannelVerify(let contactChannelId):
-            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
-            return ("/v1/contact-channels/\(encoded)/verify", nil)
         case .contactsUpsert:
             return ("/v1/contacts", nil)
         case .contactsInvitesCreate:
@@ -327,6 +337,8 @@ public final class HTTPTransport {
             return ("\(prefix)/guardian-actions/decision/", nil)
         case .conversationsSeen:
             return ("\(prefix)/conversations/seen/", nil)
+        case .conversationsUnread:
+            return ("\(prefix)/conversations/unread/", nil)
         case .identity:
             return ("\(prefix)/identity/", nil)
         case .featureFlags:
@@ -363,9 +375,6 @@ public final class HTTPTransport {
         case .contactChannelUpdate(let contactChannelId):
             let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
             return ("\(prefix)/contact-channels/\(encoded)/", nil)
-        case .contactChannelVerify(let contactChannelId):
-            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
-            return ("\(prefix)/contact-channels/\(encoded)/verify/", nil)
         case .contactsUpsert:
             return ("\(prefix)/contacts/", nil)
         case .contactsInvitesCreate:
@@ -650,6 +659,14 @@ public final class HTTPTransport {
             Task { await self.fetchHistory(sessionId: msg.sessionId) }
         } else if let msg = message as? IPCConversationSeenSignal {
             Task { await self.sendConversationSeen(msg) }
+        } else if let msg = message as? IPCConversationUnreadSignal {
+            Task {
+                do {
+                    try await self.sendConversationUnread(msg)
+                } catch {
+                    log.error("Conversation unread signal error: \(error.localizedDescription)")
+                }
+            }
         } else if let msg = message as? GuardianActionsPendingRequestMessage {
             Task { await self.fetchGuardianActionsPending(conversationId: msg.conversationId) }
         } else if let msg = message as? GuardianActionDecisionMessage {
@@ -940,6 +957,16 @@ public final class HTTPTransport {
         let prompts: [GuardianDecisionPromptWire]
     }
 
+    /// JSONSerialization cannot encode AnyCodable wrappers directly, so unwrap
+    /// them before inserting arbitrary payloads into request bodies.
+    private func jsonCompatibleDictionary(_ values: [String: AnyCodable]) -> [String: Any] {
+        var jsonCompatible: [String: Any] = [:]
+        for (key, value) in values {
+            jsonCompatible[key] = value.value
+        }
+        return jsonCompatible
+    }
+
     private func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsSeen) else { return }
 
@@ -962,7 +989,7 @@ public final class HTTPTransport {
             body["observedAt"] = observedAt
         }
         if let metadata = signal.metadata {
-            body["metadata"] = metadata
+            body["metadata"] = jsonCompatibleDictionary(metadata)
         }
 
         do {
@@ -982,6 +1009,79 @@ public final class HTTPTransport {
         } catch {
             log.error("Conversation seen signal error: \(error.localizedDescription)")
         }
+    }
+
+    func sendConversationUnread(_ signal: IPCConversationUnreadSignal, isRetry: Bool = false) async throws {
+        guard let url = buildURL(for: .conversationsUnread) else {
+            throw HTTPTransportError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "conversationId": signal.conversationId,
+            "sourceChannel": signal.sourceChannel,
+            "signalType": signal.signalType,
+            "confidence": signal.confidence,
+            "source": signal.source
+        ]
+        if let evidenceText = signal.evidenceText {
+            body["evidenceText"] = evidenceText
+        }
+        if let observedAt = signal.observedAt {
+            body["observedAt"] = observedAt
+        }
+        if let metadata = signal.metadata {
+            body["metadata"] = jsonCompatibleDictionary(metadata)
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else {
+                throw HTTPTransportError.healthCheckFailed
+            }
+
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                switch refreshResult {
+                case .success:
+                    try await sendConversationUnread(signal, isRetry: true)
+                    return
+                case .transientFailure:
+                    throw HTTPTransportError.authenticationFailed(
+                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication refresh failed"
+                    )
+                case .terminalFailure:
+                    throw HTTPTransportError.authenticationFailed(
+                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication failed"
+                    )
+                }
+            }
+
+            guard http.statusCode == 200 else {
+                throw HTTPTransportError.requestFailed(
+                    statusCode: http.statusCode,
+                    message: decodeHTTPErrorMessage(from: data)
+                )
+            }
+        } catch {
+            throw error
+        }
+    }
+
+    private func decodeHTTPErrorMessage(from data: Data) -> String? {
+        if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
+            return envelope.error.message
+        }
+        guard let body = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !body.isEmpty else { return nil }
+        return body
     }
 
     // MARK: - Contacts
@@ -1388,29 +1488,6 @@ public final class HTTPTransport {
         return result
     }
 
-    // MARK: - Channel Verification
-
-    /// Send a verification code to a contact's channel via the gateway.
-    func verifyContactChannel(contactChannelId: String, isRetry: Bool = false) async throws -> DaemonClient.ChannelVerificationResult? {
-        guard let url = buildURL(for: .contactChannelVerify(contactChannelId: contactChannelId)) else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    return try await verifyContactChannel(contactChannelId: contactChannelId, isRetry: true)
-                }
-                return nil
-            }
-            guard (200...299).contains(http.statusCode) else { return nil }
-        }
-        return try JSONDecoder().decode(DaemonClient.ChannelVerificationResult.self, from: data)
-    }
-
     // MARK: - Surface Actions
 
     private func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
@@ -1427,12 +1504,7 @@ public final class HTTPTransport {
             "actionId": action.actionId,
         ]
         if let data = action.data {
-            // Convert [String: AnyCodable] to [String: Any] for JSONSerialization
-            var dataDict: [String: Any] = [:]
-            for (key, value) in data {
-                dataDict[key] = value.value
-            }
-            body["data"] = dataDict
+            body["data"] = jsonCompatibleDictionary(data)
         }
 
         do {
@@ -1666,7 +1738,7 @@ public final class HTTPTransport {
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
-                    IPCSessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention)
+                    IPCSessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {
@@ -2066,16 +2138,10 @@ public final class HTTPTransport {
         // Parse the 401 body to check for terminal (non-refreshable) error codes.
         // The server's auth middleware returns errors in a standard envelope:
         //   { "error": { "code": "...", "message": "..." } }
-        // We also accept a top-level "code" for forward compatibility.
         let terminalCodes: Set<String> = ["credentials_revoked"]
         if let data = responseData,
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            let code: String? = {
-                if let errorObj = json["error"] as? [String: Any] {
-                    return errorObj["code"] as? String
-                }
-                return json["code"] as? String
-            }()
+            let code = (json["error"] as? [String: Any])?["code"] as? String
             if let code, terminalCodes.contains(code) {
                 // Explicitly terminal — no refresh possible
                 log.error("Terminal 401 code: \(code) — re-auth required")
@@ -2224,6 +2290,8 @@ public final class HTTPTransport {
     enum HTTPTransportError: Error, LocalizedError {
         case healthCheckFailed
         case invalidURL
+        case requestFailed(statusCode: Int, message: String?)
+        case authenticationFailed(message: String)
 
         var errorDescription: String? {
             switch self {
@@ -2231,6 +2299,10 @@ public final class HTTPTransport {
                 return "Remote assistant health check failed"
             case .invalidURL:
                 return "Invalid remote assistant URL"
+            case .requestFailed(let statusCode, let message):
+                return message ?? "HTTP request failed (\(statusCode))"
+            case .authenticationFailed(let message):
+                return message
             }
         }
     }

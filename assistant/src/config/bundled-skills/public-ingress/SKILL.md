@@ -1,8 +1,8 @@
 ---
-name: "Public Ingress"
-description: "Set up and manage ngrok-based public ingress for webhooks and OAuth callbacks via ingress.publicBaseUrl"
-user-invocable: true
-metadata: { "vellum": { "emoji": "🌍" } }
+name: public-ingress
+description: Set up and manage ngrok-based public ingress for webhooks and OAuth callbacks via ingress.publicBaseUrl
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🌍","vellum":{"display-name":"Public Ingress","user-invocable":true}}
 ---
 
 You are setting up and managing a public ingress tunnel so that external services (Telegram webhooks, OAuth callbacks, etc.) can reach the local Vellum gateway. This skill uses ngrok to create a secure tunnel and persists the public URL as `ingress.publicBaseUrl`.
@@ -22,14 +22,16 @@ This skill installs ngrok, configures authentication, starts a tunnel, discovers
 First, check whether ingress is already configured:
 
 ```bash
-assistant integrations ingress config --json
+assistant config get ingress.publicBaseUrl
+assistant config get ingress.enabled
 ```
 
-The response includes:
+Note: The local gateway target is `$INTERNAL_GATEWAY_BASE_URL` (e.g. `http://127.0.0.1:7830`).
 
-- `publicBaseUrl` — currently configured public ingress URL (if any)
-- `enabled` — whether ingress is enabled
-- `localGatewayTarget` — local gateway URL ngrok should forward to
+The commands return:
+
+- `ingress.publicBaseUrl` — currently configured public ingress URL (if any)
+- `ingress.enabled` — whether ingress is enabled
 
 If `publicBaseUrl` is already set and the tunnel is running (check via `curl -s http://127.0.0.1:4040/api/tunnels`), tell the user the current status and ask if they want to reconfigure or if this is sufficient.
 
@@ -115,7 +117,7 @@ sleep 1
 Start ngrok in the background, tunneling to the local gateway target:
 
 ```bash
-nohup ngrok http "<localGatewayTarget from Step 1>" --log=stdout > /tmp/ngrok.log 2>&1 &
+nohup ngrok http "$INTERNAL_GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1 &
 echo $! > /tmp/ngrok.pid
 ```
 
@@ -124,6 +126,42 @@ Wait a few seconds for the tunnel to establish:
 ```bash
 sleep 3
 ```
+
+## Step 4b: Verify Port Alignment
+
+Before discovering the public URL, verify that ngrok is forwarding to the same port the gateway is actually listening on. A mismatch here causes silent failures — webhooks appear to be delivered but never reach the gateway.
+
+Query the ngrok tunnel's target port and the gateway's configured port, then compare them:
+
+```bash
+curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "
+import sys, json, re
+
+data = json.load(sys.stdin)
+tunnels = data.get('tunnels', [])
+if not tunnels:
+    print('ERROR: no active ngrok tunnel found')
+    sys.exit(1)
+
+addr = tunnels[0].get('config', {}).get('addr', '')
+match = re.search(r':(\d+)$', addr)
+if not match:
+    print(f'ERROR: could not extract port from ngrok tunnel addr: {addr}')
+    sys.exit(1)
+
+print(match.group(1))
+"
+```
+
+```bash
+echo "$INTERNAL_GATEWAY_BASE_URL" | grep -oE '[0-9]+$'
+```
+
+Compare the two port numbers. If they differ, warn the user:
+
+> **Port mismatch detected:** ngrok is forwarding to port **X** but the gateway is listening on port **Y** (from `$INTERNAL_GATEWAY_BASE_URL`). Webhooks will not reach the gateway. Stop ngrok (`pkill -f ngrok`), then re-run this skill to start ngrok on the correct port.
+
+If the ports match, proceed silently to Step 5.
 
 ## Step 5: Discover the Public URL
 
@@ -163,7 +201,8 @@ assistant config set ingress.enabled true
 Verify it was saved:
 
 ```bash
-assistant integrations ingress config --json
+assistant config get ingress.publicBaseUrl
+assistant config get ingress.enabled
 ```
 
 ## Step 7: Report Completion
@@ -171,14 +210,14 @@ assistant integrations ingress config --json
 Summarize the setup:
 
 - **Public URL:** `<the-url>` (this is your `ingress.publicBaseUrl`)
-- **Local gateway target:** `<localGatewayTarget from assistant integrations ingress config --json>`
+- **Local gateway target:** `$INTERNAL_GATEWAY_BASE_URL`
 - **ngrok dashboard:** http://127.0.0.1:4040
 
 Provide useful follow-up commands:
 
 - **Check tunnel status:** `curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "import sys,json; [print(t['public_url']) for t in json.load(sys.stdin)['tunnels']]"`
 - **View ngrok logs:** `cat /tmp/ngrok.log`
-- **Restart tunnel:** `pkill -f ngrok; sleep 1; nohup ngrok http "<localGatewayTarget>" --log=stdout > /tmp/ngrok.log 2>&1 &`
+- **Restart tunnel:** `pkill -f ngrok; sleep 1; nohup ngrok http "$INTERNAL_GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1 &`
 - **Stop tunnel:** `pkill -f ngrok`
 - **Rotate URL:** Stop and restart ngrok (free tier assigns a new URL each time; update `ingress.publicBaseUrl` afterward)
 
@@ -200,8 +239,16 @@ The ngrok process may not be running. Check with `ps aux | grep ngrok`. If not r
 
 ### Gateway not reachable on local target
 
-Re-check local gateway target with `assistant integrations ingress config --json`, then run `curl -s "<localGatewayTarget>/healthz"`. If the gateway is not running, start the assistant first.
+Re-check the local gateway target with `echo "$INTERNAL_GATEWAY_BASE_URL"`. Run `curl -s "$INTERNAL_GATEWAY_BASE_URL/healthz"` to verify it is reachable. If the gateway is not running, start the assistant first.
 
 ### "Too many connections" or tunnel limit errors
 
 ngrok's free tier allows one tunnel at a time. Stop any other ngrok tunnels before starting a new one.
+
+### ngrok port doesn't match gateway port
+
+**Symptom:** Webhooks return connection refused or timeouts even though both ngrok and the gateway appear to be running.
+
+**Cause:** ngrok is forwarding to a different port than the gateway is listening on. This can happen if the gateway port was changed after ngrok was started, or if ngrok was started manually with a hardcoded port.
+
+**Fix:** Stop ngrok (`pkill -f ngrok`), verify the gateway URL with `echo "$INTERNAL_GATEWAY_BASE_URL"`, then re-run this skill to start ngrok on the correct port.

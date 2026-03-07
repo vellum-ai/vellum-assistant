@@ -147,7 +147,7 @@ describe("scaffold_managed_skill tool", () => {
     // Each frontmatter line must start with a known key -- no injected keys
     for (const line of fmLines) {
       expect(line).toMatch(
-        /^(name|description|emoji|user-invocable|disable-model-invocation):\s/,
+        /^(name|description|emoji|user-invocable|disable-model-invocation|metadata):\s/,
       );
     }
   });
@@ -167,7 +167,7 @@ describe("scaffold_managed_skill tool", () => {
     expect(result.isError).toBe(false);
     const skillFile = join(TEST_DIR, "skills", "parent-skill", "SKILL.md");
     const content = readFileSync(skillFile, "utf-8");
-    expect(content).toContain('includes: ["child-a","child-b"]');
+    expect(content).toContain('"includes":["child-a","child-b"]');
   });
 
   test("normalizes includes — trims and deduplicates", async () => {
@@ -185,7 +185,7 @@ describe("scaffold_managed_skill tool", () => {
     expect(result.isError).toBe(false);
     const skillFile = join(TEST_DIR, "skills", "norm-skill", "SKILL.md");
     const content = readFileSync(skillFile, "utf-8");
-    expect(content).toContain('includes: ["child-a","child-b"]');
+    expect(content).toContain('"includes":["child-a","child-b"]');
   });
 
   test("rejects includes with non-string elements", async () => {
@@ -295,7 +295,7 @@ describe("scaffold_managed_skill tool", () => {
     const parentSkillFile = join(TEST_DIR, "skills", "e2e-parent", "SKILL.md");
     expect(existsSync(parentSkillFile)).toBe(true);
     const parentContent = readFileSync(parentSkillFile, "utf-8");
-    expect(parentContent).toContain('includes: ["e2e-child"]');
+    expect(parentContent).toContain('"includes":["e2e-child"]');
 
     const indexContent = readFileSync(
       join(TEST_DIR, "skills", "SKILLS.md"),

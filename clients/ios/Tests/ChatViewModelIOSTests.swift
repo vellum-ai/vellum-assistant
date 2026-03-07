@@ -127,7 +127,8 @@ final class ChatViewModelIOSTests: XCTestCase {
     // MARK: - Session Info
 
     func testSessionInfoStoresSessionId() {
-        let info = SessionInfoMessage(sessionId: "ios-sess-123", title: "iOS Test")
+        viewModel.bootstrapCorrelationId = "corr-1"
+        let info = SessionInfoMessage(sessionId: "ios-sess-123", title: "iOS Test", correlationId: "corr-1")
         viewModel.handleServerMessage(.sessionInfo(info))
         XCTAssertEqual(viewModel.sessionId, "ios-sess-123")
     }
@@ -377,7 +378,8 @@ final class ChatViewModelIOSTests: XCTestCase {
             capturedSessionId = sessionId
         }
 
-        let info = SessionInfoMessage(sessionId: "callback-sess", title: "Test")
+        viewModel.bootstrapCorrelationId = "corr-cb"
+        let info = SessionInfoMessage(sessionId: "callback-sess", title: "Test", correlationId: "corr-cb")
         viewModel.handleServerMessage(.sessionInfo(info))
 
         XCTAssertEqual(capturedSessionId, "callback-sess")
