@@ -7,7 +7,7 @@ export const guardianActionRequests = sqliteTable(
   {
     id: text("id").primaryKey(),
     kind: text("kind").notNull(), // 'ask_guardian'
-    sourceChannel: text("source_channel").notNull(), // 'voice'
+    sourceChannel: text("source_channel").notNull(), // 'phone'
     sourceConversationId: text("source_conversation_id").notNull(),
     callSessionId: text("call_session_id")
       .notNull()

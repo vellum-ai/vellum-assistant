@@ -67,6 +67,7 @@ import {
   migrateRenameGuardianVerificationValues,
   migrateRenameVerificationSessionIdColumn,
   migrateRenameVerificationTable,
+  migrateRenameVoiceToPhone,
   migrateSchemaIndexesAndColumns,
   migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
@@ -319,6 +320,9 @@ export function initializeDb(): void {
 
   // 47. Rename persisted guardian_verification call_mode and event_type values
   migrateRenameGuardianVerificationValues(database);
+
+  // 48. Rename stored "voice" channel values to "phone" across all channel text columns
+  migrateRenameVoiceToPhone(database);
 
   validateMigrationState(database);
 

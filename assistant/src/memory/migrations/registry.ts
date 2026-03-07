@@ -165,6 +165,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Rename persisted guardian_verification call_mode and guardian_voice_verification_* event_type values to drop the guardian_ prefix",
   },
+  {
+    key: "migration_rename_voice_to_phone_v1",
+    version: 24,
+    description:
+      'Rename stored "voice" channel values to "phone" across all tables with channel text columns',
+  },
 ];
 
 export interface MigrationValidationResult {

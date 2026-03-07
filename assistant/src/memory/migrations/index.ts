@@ -85,6 +85,7 @@ export { migrateBackfillUsageCacheAccounting } from "./140-backfill-usage-cache-
 export { migrateRenameVerificationTable } from "./141-rename-verification-table.js";
 export { migrateRenameVerificationSessionIdColumn } from "./142-rename-verification-session-id-column.js";
 export { migrateRenameGuardianVerificationValues } from "./143-rename-guardian-verification-values.js";
+export { migrateRenameVoiceToPhone } from "./144-rename-voice-to-phone.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
