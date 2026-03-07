@@ -3,6 +3,27 @@ import SwiftUI
 import UIKit
 import VellumAssistantShared
 
+func sortThreadsForDisplay(
+    _ threads: [IOSThread],
+    isConnectedMode: Bool
+) -> [IOSThread] {
+    guard isConnectedMode else { return threads }
+
+    return threads.sorted { a, b in
+        if a.isPinned && b.isPinned {
+            return (a.displayOrder ?? 0) < (b.displayOrder ?? 0)
+        }
+        if a.isPinned { return true }
+        if b.isPinned { return false }
+        if a.displayOrder == nil && b.displayOrder == nil {
+            return a.lastActivityAt > b.lastActivityAt
+        }
+        if a.displayOrder == nil { return true }
+        if b.displayOrder == nil { return false }
+        return a.displayOrder! < b.displayOrder!
+    }
+}
+
 // MARK: - Tab Entry Point
 
 /// The tab-level Chats entry point. Switches between connected and disconnected
@@ -70,7 +91,10 @@ struct ThreadListView: View {
     private var activeThreads: [IOSThread] {
         // Exclude private threads — they are managed separately via the Private Threads
         // settings panel and must not appear in the main chat list.
-        store.threads.filter { !$0.isArchived && !$0.isPrivate }
+        sortThreadsForDisplay(
+            store.threads.filter { !$0.isArchived && !$0.isPrivate },
+            isConnectedMode: store.isConnectedMode
+        )
     }
 
     /// Active threads that are NOT from a schedule.
@@ -112,7 +136,10 @@ struct ThreadListView: View {
     }
 
     private var archivedThreads: [IOSThread] {
-        store.threads.filter { $0.isArchived && !$0.isPrivate }
+        sortThreadsForDisplay(
+            store.threads.filter { $0.isArchived && !$0.isPrivate },
+            isConnectedMode: store.isConnectedMode
+        )
     }
 
     private var filteredActiveThreads: [IOSThread] {
