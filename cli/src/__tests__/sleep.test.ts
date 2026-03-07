@@ -20,7 +20,10 @@ const assistantRootDir = join(testDir, ".vellum");
 process.env.BASE_DATA_DIR = testDir;
 
 const stopProcessByPidFileMock = mock(async () => true);
-const isProcessAliveMock = mock(() => ({ alive: false, pid: null }));
+const isProcessAliveMock = mock((): { alive: boolean; pid: number | null } => ({
+  alive: false,
+  pid: null,
+}));
 
 mock.module("../lib/process.js", () => ({
   isProcessAlive: isProcessAliveMock,
@@ -59,8 +62,8 @@ function writeLockfile(): void {
         activeAssistant: "sleep-test",
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 }
 
@@ -78,8 +81,8 @@ function writeLeaseFile(callSessionIds: string[]): void {
         })),
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 }
 
@@ -112,12 +115,12 @@ describe("sleep command", () => {
       throw new Error(`process.exit:${code}`);
     });
     const originalExit = process.exit;
-    process.exit = (exitMock as unknown) as typeof process.exit;
+    process.exit = exitMock as unknown as typeof process.exit;
 
     try {
       await expect(sleep()).rejects.toThrow("process.exit:1");
       expect(consoleError).toHaveBeenCalledWith(
-        expect.stringContaining("vellum sleep --force")
+        expect.stringContaining("vellum sleep --force"),
       );
     } finally {
       process.exit = originalExit;
@@ -160,14 +163,14 @@ describe("sleep command", () => {
       1,
       join(assistantRootDir, "vellum.pid"),
       "assistant",
-      [join(assistantRootDir, "vellum.sock")]
+      [join(assistantRootDir, "vellum.sock")],
     );
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
       2,
       join(assistantRootDir, "gateway.pid"),
       "gateway",
       undefined,
-      7000
+      7000,
     );
   });
 });
