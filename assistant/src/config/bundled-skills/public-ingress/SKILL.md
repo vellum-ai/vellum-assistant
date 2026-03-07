@@ -125,6 +125,53 @@ Wait a few seconds for the tunnel to establish:
 sleep 3
 ```
 
+## Step 4b: Verify Port Alignment
+
+Before discovering the public URL, verify that ngrok is forwarding to the same port the gateway is actually listening on. A mismatch here causes silent failures — webhooks appear to be delivered but never reach the gateway.
+
+Query the ngrok tunnel's target port and the gateway's configured port, then compare them:
+
+```bash
+curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "
+import sys, json, re
+
+data = json.load(sys.stdin)
+tunnels = data.get('tunnels', [])
+if not tunnels:
+    print('ERROR: no active ngrok tunnel found')
+    sys.exit(1)
+
+addr = tunnels[0].get('config', {}).get('addr', '')
+match = re.search(r':(\d+)$', addr)
+if not match:
+    print(f'ERROR: could not extract port from ngrok tunnel addr: {addr}')
+    sys.exit(1)
+
+print(match.group(1))
+"
+```
+
+```bash
+assistant integrations ingress config --json | python3 -c "
+import sys, json, re
+
+data = json.load(sys.stdin)
+target = data.get('localGatewayTarget', '')
+match = re.search(r':(\d+)', target)
+if not match:
+    print(f'ERROR: could not extract port from localGatewayTarget: {target}')
+    sys.exit(1)
+
+print(match.group(1))
+"
+```
+
+Compare the two port numbers. If they differ, warn the user:
+
+> **Port mismatch detected:** ngrok is forwarding to port **X** but the gateway is listening on port **Y**. Webhooks will not reach the gateway. Stop ngrok (`pkill -f ngrok`), then re-run this skill to start ngrok on the correct port. Alternatively, update `GATEWAY_PORT` to match the port ngrok is forwarding to and restart the gateway.
+
+If the ports match, proceed silently to Step 5.
+
 ## Step 5: Discover the Public URL
 
 Query the ngrok local API for the tunnel's public URL:
@@ -205,3 +252,11 @@ Re-check local gateway target with `assistant integrations ingress config --json
 ### "Too many connections" or tunnel limit errors
 
 ngrok's free tier allows one tunnel at a time. Stop any other ngrok tunnels before starting a new one.
+
+### ngrok port doesn't match gateway port
+
+**Symptom:** Webhooks return connection refused or timeouts even though both ngrok and the gateway appear to be running.
+
+**Cause:** ngrok is forwarding to a different port than the gateway is listening on. This can happen if `GATEWAY_PORT` was changed after ngrok was started, or if ngrok was started manually with a hardcoded port.
+
+**Fix:** Stop ngrok (`pkill -f ngrok`), verify the gateway port with `assistant integrations ingress config --json`, then re-run this skill to start ngrok on the correct port.
