@@ -123,6 +123,7 @@ import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
 import { integrationRouteDefinitions } from "./routes/integration-routes.js";
 import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
+import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
@@ -875,6 +876,7 @@ export class RuntimeHttpServer {
       // contacts/:id catch-all must follow invite routes to avoid shadowing
       ...contactCatchAllRouteDefinitions(),
 
+      ...telegramRouteDefinitions(),
       ...integrationRouteDefinitions(),
       ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
