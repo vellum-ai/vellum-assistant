@@ -1,31 +1,5 @@
 import type { ToolDefinition } from "../../providers/types.js";
 
-export const memorySearchDefinition: ToolDefinition = {
-  name: "memory_search",
-  description:
-    "Search your memory for previously saved facts, preferences, decisions, and other information. Use this when you need to recall something from past conversations.",
-  input_schema: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description:
-          "Natural language search query describing what you want to recall",
-      },
-      limit: {
-        type: "number",
-        description: "Maximum number of results to return (default: 5)",
-      },
-      reason: {
-        type: "string",
-        description:
-          "Brief non-technical explanation of what you are looking up and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
-      },
-    },
-    required: ["query"],
-  },
-};
-
 export const memoryRecallDefinition: ToolDefinition = {
   name: "memory_recall",
   description:

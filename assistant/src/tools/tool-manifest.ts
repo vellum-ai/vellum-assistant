@@ -12,7 +12,6 @@ import {
   memoryDeleteTool,
   memoryRecallTool,
   memorySaveTool,
-  memorySearchTool,
   memoryUpdateTool,
 } from "./memory/register.js";
 import type { LazyToolDescriptor } from "./registry.js";
@@ -81,7 +80,6 @@ export const eagerModuleToolNames: string[] = [
 // relying on import side effects.
 
 export const explicitTools: Tool[] = [
-  memorySearchTool,
   memorySaveTool,
   memoryUpdateTool,
   memoryDeleteTool,
