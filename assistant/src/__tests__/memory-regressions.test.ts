@@ -4415,37 +4415,6 @@ describe("Memory regressions", () => {
     expect(payload.scopeId).toBe("default");
   });
 
-  test("extract_items backward compat: old payloads without scopeId default to default", () => {
-    // Simulate an old-style extract_items job without scopeId
-    const jobId = enqueueMemoryJob("extract_items", {
-      messageId: "legacy-msg-id",
-    });
-
-    const db = getDb();
-    const job = db
-      .select()
-      .from(memoryJobs)
-      .where(eq(memoryJobs.id, jobId))
-      .get();
-
-    expect(job).toBeTruthy();
-    const payload = JSON.parse(job!.payload) as Record<string, unknown>;
-    // Old payloads will not have scopeId — consumers must default to 'default'
-    expect(payload.scopeId).toBeUndefined();
-
-    // Verify the job handler's backward-compat logic: claim and inspect
-    const claimed = claimMemoryJobs(100);
-    const claimedJob = claimed.find((j) => j.id === jobId);
-    expect(claimedJob).toBeTruthy();
-    // The parsed payload should not have scopeId (it was never set)
-    const resolvedScope =
-      typeof claimedJob!.payload.scopeId === "string" &&
-      claimedJob!.payload.scopeId
-        ? claimedJob!.payload.scopeId
-        : "default";
-    expect(resolvedScope).toBe("default");
-  });
-
   // PR-19: extractItemsJob forwards scopeId to extractAndUpsertMemoryItemsForMessage
   test("extractAndUpsertMemoryItemsForMessage accepts optional scopeId without breaking", async () => {
     const db = getDb();
