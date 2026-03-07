@@ -12,7 +12,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { startVerificationCall } from "../calls/call-domain.js";
 import type { ChannelId } from "../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
-import { getCredentialMetadata } from "../tools/credentials/metadata-store.js";
+import { getTelegramBotUsername } from "../telegram/bot-username.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -73,22 +73,6 @@ function isTelegramChatId(destination: string): boolean {
 export function normalizeTelegramDestination(destination: string): string {
   if (isTelegramChatId(destination)) return destination;
   return destination.replace(/^@/, "").toLowerCase();
-}
-
-/**
- * Get the Telegram bot username from credential metadata.
- * Falls back to process.env.TELEGRAM_BOT_USERNAME.
- */
-function getTelegramBotUsername(): string | undefined {
-  const meta = getCredentialMetadata("telegram", "bot_token");
-  if (
-    meta?.accountInfo &&
-    typeof meta.accountInfo === "string" &&
-    meta.accountInfo.trim().length > 0
-  ) {
-    return meta.accountInfo.trim();
-  }
-  return process.env.TELEGRAM_BOT_USERNAME || undefined;
 }
 
 // ---------------------------------------------------------------------------
