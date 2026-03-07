@@ -29,6 +29,7 @@ import {
   lexicalSearch,
   recencySearch,
 } from "./search/lexical.js";
+import { buildFTSQuery, expandQueryForFTS } from "./search/query-expansion.js";
 import {
   applySourceCaps,
   markItemUsage,
@@ -194,11 +195,20 @@ async function collectAndMergeCandidates(
   const lexicalTopK = semanticUnavailable
     ? config.memory.retrieval.lexicalTopK * 2
     : config.memory.retrieval.lexicalTopK;
+
+  // When semantic search is unavailable, expand the conversational query
+  // into meaningful keywords for better FTS recall. This compensates for
+  // the lack of vector-based semantic matching.
+  const expandedFtsQuery = semanticUnavailable
+    ? buildFTSQuery(expandQueryForFTS(query))
+    : undefined;
+
   const lexical = lexicalSearch(
     query,
     lexicalTopK,
     excludeMessageIds,
     scopeIds,
+    expandedFtsQuery,
   );
 
   const baseRecencyLimit = Math.max(
