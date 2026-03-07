@@ -340,6 +340,15 @@ export function drainDirectiveDisplayBuffer(
         (nextChar === "\n" || nextChar === "\r")
       ) {
         emitText = emitText.slice(0, -1); // trim \n
+      } else if (
+        nextChar !== undefined &&
+        !/\s/.test(emitText[emitText.length - 1] ?? "") &&
+        !/\s/.test(nextChar)
+      ) {
+        // Inline directive with no surrounding whitespace — insert a space
+        // so the text on either side doesn't get smashed together (e.g.
+        // "down.Let" → "down. Let").
+        emitText += " ";
       }
     }
 
