@@ -51,27 +51,21 @@ export function getClipboardCommand(): string | null {
 }
 
 /**
- * Read and parse the lockfile, trying the primary path (~/.vellum.lock.json)
- * first, then falling back to the legacy path (~/.vellum.lockfile.json).
+ * Read and parse the lockfile (~/.vellum.lock.json).
  * Respects BASE_DATA_DIR for non-standard home directories.
- * Returns null if neither file exists or both are malformed.
+ * Returns null if the file doesn't exist or is malformed.
  */
 export function readLockfile(): Record<string, unknown> | null {
   const base = getBaseDataDir() || homedir();
-  const candidates = [
-    join(base, ".vellum.lock.json"),
-    join(base, ".vellum.lockfile.json"),
-  ];
-  for (const lockPath of candidates) {
-    if (!existsSync(lockPath)) continue;
-    try {
-      const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
-      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-        return raw as Record<string, unknown>;
-      }
-    } catch {
-      // malformed JSON — try next
+  const lockPath = join(base, ".vellum.lock.json");
+  if (!existsSync(lockPath)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>;
     }
+  } catch {
+    // malformed JSON
   }
   return null;
 }
