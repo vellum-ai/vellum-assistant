@@ -88,7 +88,7 @@ describe("assistant ID boundary", () => {
     // should now use DAEMON_INTERNAL_ASSISTANT_ID instead.
     const daemonScopingFiles = [
       "runtime/actor-trust-resolver.ts",
-      "runtime/guardian-outbound-actions.ts",
+      "runtime/verification-outbound-actions.ts",
       "daemon/handlers/config-channels.ts",
       "runtime/routes/channel-route-shared.ts",
       "calls/relay-server.ts",
@@ -376,7 +376,7 @@ describe("assistant ID boundary", () => {
       import.meta.dir,
       "..",
       "runtime",
-      "guardian-outbound-actions.ts",
+      "verification-outbound-actions.ts",
     );
     const content = readFileSync(actionsPath, "utf-8");
 
@@ -390,7 +390,7 @@ describe("assistant ID boundary", () => {
       const idx = content.indexOf(name);
       expect(
         idx,
-        `Expected to find ${name} in guardian-outbound-actions.ts`,
+        `Expected to find ${name} in verification-outbound-actions.ts`,
       ).toBeGreaterThan(-1);
 
       const blockStart = content.indexOf("{", idx);

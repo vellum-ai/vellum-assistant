@@ -2,9 +2,9 @@
  * Re-export hub for channel guardian store modules.
  *
  * The implementation has been split into focused modules:
- * - guardian-verification.ts — verification challenge/session management
- * - guardian-approvals.ts   — approval request tracking
- * - guardian-rate-limits.ts — verification rate limiting
+ * - channel-verification-sessions.ts — verification session management
+ * - guardian-approvals.ts             — approval request tracking
+ * - guardian-rate-limits.ts           — verification rate limiting
  *
  * Guardian binding types (GuardianBinding, BindingStatus) are defined locally
  * here.
@@ -38,6 +38,26 @@ export interface GuardianBinding {
 // ---------------------------------------------------------------------------
 
 export {
+  bindSessionIdentity,
+  consumeSession,
+  countRecentSendsToDestination,
+  createInboundSession,
+  createVerificationSession,
+  findActiveSession,
+  findPendingSessionByHash,
+  findPendingSessionForChannel,
+  findSessionByBootstrapTokenHash,
+  findSessionByIdentity,
+  type IdentityBindingStatus,
+  type InboundSessionStatus,
+  revokePendingSessions,
+  type SessionStatus,
+  updateSessionDelivery,
+  updateSessionStatus,
+  type VerificationPurpose,
+  type VerificationSession,
+} from "./channel-verification-sessions.js";
+export {
   type ApprovalRequestStatus,
   countPendingByConversation,
   // @internal — test-only helpers; production code uses canonical-guardian-store
@@ -61,23 +81,3 @@ export {
   resetRateLimit,
   type VerificationRateLimit,
 } from "./guardian-rate-limits.js";
-export {
-  bindSessionIdentity,
-  type ChallengeStatus,
-  consumeChallenge,
-  countRecentSendsToDestination,
-  createChallenge,
-  createVerificationSession,
-  findActiveSession,
-  findPendingChallengeByHash,
-  findPendingChallengeForChannel,
-  findSessionByBootstrapTokenHash,
-  findSessionByIdentity,
-  type IdentityBindingStatus,
-  revokePendingChallenges,
-  type SessionStatus,
-  updateSessionDelivery,
-  updateSessionStatus,
-  type VerificationChallenge,
-  type VerificationPurpose,
-} from "./guardian-verification.js";

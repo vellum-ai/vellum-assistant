@@ -109,7 +109,7 @@ let mockGuardianBinding: Record<string, unknown> | null = {
   status: "active",
 };
 
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: (assistantId: string, channel: string) => {
     if (
       assistantId === "self" &&
@@ -126,12 +126,12 @@ mock.module("../runtime/channel-guardian-service.js", () => ({
   }),
   bindSessionIdentity: () => {},
   findActiveSession: () => null,
-  getPendingChallenge: () => null,
+  getPendingSession: () => null,
   isGuardian: () => false,
   resolveBootstrapToken: () => null,
   updateSessionDelivery: () => {},
   updateSessionStatus: () => {},
-  validateAndConsumeChallenge: () => ({
+  validateAndConsumeVerification: () => ({
     success: false,
     reason: "no_challenge",
   }),

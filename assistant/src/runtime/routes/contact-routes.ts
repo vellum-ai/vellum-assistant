@@ -39,21 +39,21 @@ import {
   countRecentSendsToDestination,
   createOutboundSession,
   updateSessionDelivery,
-} from "../channel-guardian-service.js";
+} from "../channel-verification-service.js";
+import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 import {
   deliverVerificationSlack,
   deliverVerificationTelegram,
   DESTINATION_RATE_WINDOW_MS,
   MAX_SENDS_PER_DESTINATION_WINDOW,
   normalizeTelegramDestination,
-} from "../guardian-outbound-actions.js";
+} from "../verification-outbound-actions.js";
 import {
   composeVerificationSlack,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../guardian-verification-templates.js";
-import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+} from "../verification-templates.js";
 
 function withGuardianNameOverride<
   T extends { role: string; displayName: string },

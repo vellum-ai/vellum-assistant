@@ -218,7 +218,7 @@ All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`. Skills an
 
 **Shared Business Logic:**
 
-The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `guardian-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across SMS, Telegram, and voice channels. It returns `OutboundActionResult` objects that the transport layer (gateway-forwarded HTTP or IPC) maps to its respective response format.
+The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `verification-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across SMS, Telegram, and voice channels. It returns `OutboundActionResult` objects that the transport layer (gateway-forwarded HTTP or IPC) maps to its respective response format.
 
 **Chat-First Orchestration Flow:**
 
@@ -232,7 +232,7 @@ The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`
 
 | File                                                       | Purpose                                                                                                           |
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `src/runtime/guardian-outbound-actions.ts`                 | Shared business logic for start/resend/cancel outbound verification                                               |
+| `src/runtime/verification-outbound-actions.ts`             | Shared business logic for start/resend/cancel outbound verification                                               |
 | `src/runtime/routes/integration-routes.ts`                 | HTTP route handlers for unified guardian session API (`/v1/integrations/guardian/sessions`, `/revoke`, `/status`) |
 | `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                                                             |
 | `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat                                |
@@ -423,7 +423,7 @@ External users who are not the guardian can gain access to the assistant through
 1. Unknown user messages the assistant on any channel.
 2. Ingress ACL (`inbound-message-handler.ts`) rejects the message and emits an `ingress.access_request` notification signal to the guardian.
 3. Guardian approves or denies via callback button or conversational intent (routed through `guardian-approval-interception.ts`).
-4. On approval, an identity-bound verification session with a 6-digit code is created (`access-request-decision.ts` → `channel-guardian-service.ts`).
+4. On approval, an identity-bound verification session with a 6-digit code is created (`access-request-decision.ts` → `channel-verification-service.ts`).
 5. Guardian gives the code to the requester out-of-band.
 6. Requester enters the code; identity binding is verified, the challenge is consumed, and an active contact channel is created in the contacts table.
 7. All subsequent messages are accepted through the ingress ACL.
@@ -457,7 +457,7 @@ External users who are not the guardian can gain access to the assistant through
 | `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, unknown-contact rejection, verification code interception        |
 | `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                             |
 | `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
-| `src/runtime/channel-guardian-service.ts`              | Verification challenge lifecycle, identity binding, rate limiting             |
+| `src/runtime/channel-verification-service.ts`          | Verification session lifecycle, identity binding, rate limiting               |
 | `src/runtime/routes/contact-routes.ts`                 | HTTP API handlers for contact and channel management                          |
 | `src/runtime/routes/invite-routes.ts`                  | HTTP API handlers for invite management                                       |
 | `src/runtime/invite-service.ts`                        | Business logic for invite operations                                          |

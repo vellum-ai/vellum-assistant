@@ -84,7 +84,7 @@ mock.module("../notifications/emit-signal.js", () => ({
 }));
 
 // Mock channel guardian service — provide a guardian binding for 'self' + 'telegram'
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: (assistantId: string, channel: string) => {
     if (assistantId === "self" && channel === "telegram") {
       return {

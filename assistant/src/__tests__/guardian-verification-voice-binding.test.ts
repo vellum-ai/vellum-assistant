@@ -76,7 +76,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   isGuardian: () => false,
 }));
 

@@ -28,7 +28,7 @@ import type {
 /**
  * Resolve the Telegram bot username from credential metadata, falling back
  * to the TELEGRAM_BOT_USERNAME environment variable. Mirrors the resolution
- * strategy used in `guardian-outbound-actions.ts`.
+ * strategy used in `verification-outbound-actions.ts`.
  */
 function getTelegramBotUsername(): string | undefined {
   const meta = getCredentialMetadata("telegram", "bot_token");

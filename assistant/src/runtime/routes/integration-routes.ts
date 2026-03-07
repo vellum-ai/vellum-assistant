@@ -40,15 +40,15 @@ import {
   setupTelegram,
 } from "../../daemon/handlers/config-telegram.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
-import { revokePendingChallenges } from "../channel-guardian-service.js";
+import { revokePendingSessions } from "../channel-verification-service.js";
+import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
 import {
   cancelOutbound,
   normalizeTelegramDestination,
   resendOutbound,
   startOutbound,
-} from "../guardian-outbound-actions.js";
-import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+} from "../verification-outbound-actions.js";
 import { guardianVerificationLimiter } from "../verification-rate-limiter.js";
 
 /**
@@ -280,7 +280,7 @@ export async function handleCancelGuardianSession(
   // Cancel any active outbound session
   cancelOutbound({ channel: body.channel });
   // Cancel any pending inbound challenge
-  revokePendingChallenges(body.channel);
+  revokePendingSessions(body.channel);
 
   return Response.json({ success: true, channel: body.channel });
 }
@@ -299,7 +299,7 @@ export async function handleRevokeGuardianBinding(
     channel?: ChannelId;
   };
 
-  // revokeGuardianForChannel already handles cancelOutbound + revokePendingChallenges + binding revocation
+  // revokeGuardianForChannel already handles cancelOutbound + revokePendingSessions + binding revocation
   const result = revokeGuardianForChannel(body.channel);
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });

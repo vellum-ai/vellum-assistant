@@ -11,22 +11,22 @@ import type { ChannelStatus } from "../../contacts/types.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
-  createVerificationChallenge,
-  findActiveSession,
-  getGuardianBinding,
-  getPendingChallenge,
-  revokeBinding,
-  revokePendingChallenges,
-} from "../../runtime/channel-guardian-service.js";
-import {
   type ChannelReadinessService,
   createReadinessService,
 } from "../../runtime/channel-readiness-service.js";
 import {
+  createVerificationChallenge,
+  findActiveSession,
+  getGuardianBinding,
+  getPendingSession,
+  revokeBinding,
+  revokePendingSessions,
+} from "../../runtime/channel-verification-service.js";
+import {
   cancelOutbound,
   resendOutbound,
   startOutbound,
-} from "../../runtime/guardian-outbound-actions.js";
+} from "../../runtime/verification-outbound-actions.js";
 import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
@@ -50,7 +50,7 @@ export {
   MAX_SENDS_PER_DESTINATION_WINDOW,
   MAX_SENDS_PER_SESSION,
   RESEND_COOLDOWN_MS,
-} from "../../runtime/guardian-outbound-actions.js";
+} from "../../runtime/verification-outbound-actions.js";
 
 // ---------------------------------------------------------------------------
 // Readiness service singleton
@@ -126,7 +126,7 @@ export function getGuardianStatus(
       guardianUsername = ext.username;
     }
   }
-  const hasPendingChallenge = getPendingChallenge(resolvedChannel) != null;
+  const hasPendingChallenge = getPendingSession(resolvedChannel) != null;
 
   // Include active outbound session state so the UI can resume
   // after app restart and detect bootstrap completion.
@@ -172,7 +172,7 @@ export function revokeGuardianForChannel(
   // Always revoke pending challenges first — the macOS app uses
   // action: "revoke" to cancel an in-flight challenge even before
   // a binding exists (e.g. during verification setup).
-  revokePendingChallenges(resolvedChannel);
+  revokePendingSessions(resolvedChannel);
 
   // Capture binding before revoking so we can revoke the guardian's
   // contact record — without this, the guardian would still pass
@@ -260,7 +260,7 @@ export async function handleGuardianVerification(
       });
     } else if (msg.action === "cancel_session") {
       cancelOutbound({ channel });
-      revokePendingChallenges(channel);
+      revokePendingSessions(channel);
       ctx.send(socket, {
         type: "channel_verification_session_response",
         success: true,

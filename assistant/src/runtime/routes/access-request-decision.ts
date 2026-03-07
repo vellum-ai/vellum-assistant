@@ -10,7 +10,7 @@ import {
   resolveApprovalRequest,
 } from "../../memory/channel-guardian-store.js";
 import { getLogger } from "../../util/logger.js";
-import { createOutboundSession } from "../channel-guardian-service.js";
+import { createOutboundSession } from "../channel-verification-service.js";
 import { deliverChannelReply } from "../gateway-client.js";
 
 const log = getLogger("access-request-decision");

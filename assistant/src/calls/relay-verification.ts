@@ -10,13 +10,13 @@
 
 import {
   getGuardianBinding,
-  validateAndConsumeChallenge,
-} from "../runtime/channel-guardian-service.js";
+  validateAndConsumeVerification,
+} from "../runtime/channel-verification-service.js";
+import { redeemVoiceInviteCode } from "../runtime/invite-service.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../runtime/guardian-verification-templates.js";
-import { redeemVoiceInviteCode } from "../runtime/invite-service.js";
+} from "../runtime/verification-templates.js";
 import type { CallEventType } from "./types.js";
 
 // ── parseDigitsFromSpeech ──────────────────────────────────────────────
@@ -125,7 +125,7 @@ export function attemptGuardianCodeVerification(
     verificationMaxAttempts,
   } = params;
 
-  const result = validateAndConsumeChallenge(
+  const result = validateAndConsumeVerification(
     "voice",
     enteredCode,
     guardianVerificationFromNumber,

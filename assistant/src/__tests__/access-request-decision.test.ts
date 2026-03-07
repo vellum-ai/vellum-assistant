@@ -62,7 +62,7 @@ import {
   getApprovalRequestById,
 } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { findActiveSession } from "../runtime/channel-guardian-service.js";
+import { findActiveSession } from "../runtime/channel-verification-service.js";
 import {
   deliverVerificationCodeToGuardian,
   handleAccessRequestDecision,

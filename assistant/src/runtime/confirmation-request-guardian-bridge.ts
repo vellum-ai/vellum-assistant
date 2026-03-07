@@ -22,7 +22,7 @@ import type { NotificationSourceChannel } from "../notifications/signal.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
-import { getGuardianBinding } from "./channel-guardian-service.js";
+import { getGuardianBinding } from "./channel-verification-service.js";
 
 const log = getLogger("confirmation-request-guardian-bridge");
 

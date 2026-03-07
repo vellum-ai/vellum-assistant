@@ -24,13 +24,13 @@ import {
 import { getLogger } from "../../../util/logger.js";
 import { hashVoiceCode } from "../../../util/voice-code.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
+import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
 import {
   createOutboundSession,
   findActiveSession,
-  getPendingChallenge,
+  getPendingSession,
   resolveBootstrapToken,
-} from "../../channel-guardian-service.js";
-import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
+} from "../../channel-verification-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import {
   redeemInvite,
@@ -190,8 +190,8 @@ export async function enforceIngressAcl(
         // outbound session.  The !hasActiveBinding guard is intentionally
         // omitted: rebind sessions create a consumable challenge while a
         // binding already exists, and the identity check inside
-        // validateAndConsumeChallenge prevents unauthorized takeovers.
-        const hasPendingChallenge = !!getPendingChallenge(sourceChannel);
+        // validateAndConsumeVerification prevents unauthorized takeovers.
+        const hasPendingChallenge = !!getPendingSession(sourceChannel);
         const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
         if (hasPendingChallenge || hasActiveOutboundSession) {
           denyNonMember = false;
@@ -408,7 +408,7 @@ export async function enforceIngressAcl(
         // revoked/blocked — otherwise the user can never re-verify.
         let denyInactiveMember = true;
         if (isGuardianVerifyCode) {
-          const hasPendingChallenge = !!getPendingChallenge(sourceChannel);
+          const hasPendingChallenge = !!getPendingSession(sourceChannel);
           const hasActiveOutboundSession = !!findActiveSession(sourceChannel);
           if (hasPendingChallenge || hasActiveOutboundSession) {
             denyInactiveMember = false;
@@ -1083,7 +1083,7 @@ function initiateSlackVerificationChallenge(params: {
   // this sender to avoid flooding them with duplicate codes. We scope by
   // sender identity (expectedExternalUserId) so that a pending session for
   // user A does not suppress challenges for user B.
-  const existingChallenge = getPendingChallenge(sourceChannel);
+  const existingChallenge = getPendingSession(sourceChannel);
   const existingSession = findActiveSession(sourceChannel);
   const senderHasPending =
     (existingChallenge &&

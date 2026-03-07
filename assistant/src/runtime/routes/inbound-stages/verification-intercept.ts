@@ -7,7 +7,7 @@
  * This is the dispatch point for channel-based post-verification side
  * effects. Voice verification has its own dispatch in relay-server.ts.
  * Both guardian and trusted-contact flows converge here after
- * validateAndConsumeChallenge() returns success.
+ * validateAndConsumeVerification() returns success.
  *
  * Verification code messages are short-circuited here and NEVER enter the
  * agent pipeline. This prevents verification codes from producing
@@ -28,14 +28,14 @@ import { getLogger } from "../../../util/logger.js";
 import {
   findActiveSession,
   getGuardianBinding,
-  getPendingChallenge,
-  validateAndConsumeChallenge,
-} from "../../channel-guardian-service.js";
+  getPendingSession,
+  validateAndConsumeVerification,
+} from "../../channel-verification-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../../guardian-verification-templates.js";
+} from "../../verification-templates.js";
 import { stripVerificationFailurePrefix } from "../channel-route-shared.js";
 
 const log = getLogger("runtime-http");
@@ -96,8 +96,7 @@ export async function handleVerificationIntercept(
   // Only intercept when there is a pending challenge or active outbound session
   const shouldIntercept =
     guardianVerifyCode !== undefined &&
-    (!!getPendingChallenge(sourceChannel) ||
-      !!findActiveSession(sourceChannel));
+    (!!getPendingSession(sourceChannel) || !!findActiveSession(sourceChannel));
 
   if (
     isDuplicate ||
@@ -108,7 +107,7 @@ export async function handleVerificationIntercept(
     return null;
   }
 
-  const verifyResult = validateAndConsumeChallenge(
+  const verifyResult = validateAndConsumeVerification(
     sourceChannel,
     guardianVerifyCode,
     canonicalSenderId ?? rawSenderId,
@@ -155,7 +154,7 @@ export async function handleVerificationIntercept(
     });
 
     // Guardian-specific side effect: create/update the guardian binding.
-    // This was previously inside validateAndConsumeChallenge but is now
+    // This was previously inside validateAndConsumeVerification but is now
     // handled here so both verification types have symmetric dispatch.
     if (verifyResult.verificationType === "guardian") {
       // Reject if a different user already holds the guardian binding
