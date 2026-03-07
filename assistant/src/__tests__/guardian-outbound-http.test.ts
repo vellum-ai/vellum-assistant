@@ -60,14 +60,14 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 // Voice call mock
 const voiceCallInitCalls: Array<{
   phoneNumber: string;
-  guardianVerificationSessionId: string;
+  verificationSessionId: string;
   assistantId?: string;
   originConversationId?: string;
 }> = [];
 mock.module("../calls/call-domain.js", () => ({
   startGuardianVerificationCall: async (input: {
     phoneNumber: string;
-    guardianVerificationSessionId: string;
+    verificationSessionId: string;
     assistantId?: string;
     originConversationId?: string;
   }) => {

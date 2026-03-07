@@ -201,7 +201,7 @@ export class RelayConnection {
   private guardianVerificationFromNumber: string | null = null;
 
   // Outbound guardian verification state (system calls the guardian)
-  private outboundGuardianVerificationSessionId: string | null = null;
+  private outboundVerificationSessionId: string | null = null;
 
   // Inbound voice invite redemption state
   private inviteRedemptionActive = false;
@@ -878,11 +878,11 @@ export class RelayConnection {
    */
   private startOutboundGuardianVerification(
     assistantId: string,
-    guardianVerificationSessionId: string,
+    verificationSessionId: string,
     toNumber: string,
   ): void {
     this.guardianVerificationActive = true;
-    this.outboundGuardianVerificationSessionId = guardianVerificationSessionId;
+    this.outboundVerificationSessionId = verificationSessionId;
     this.guardianChallengeAssistantId = assistantId;
     // For outbound guardian calls, the "to" number is the guardian's phone
     this.guardianVerificationFromNumber = toNumber;
@@ -897,7 +897,7 @@ export class RelayConnection {
       "outbound_guardian_voice_verification_started",
       {
         assistantId,
-        guardianVerificationSessionId,
+        verificationSessionId,
         maxAttempts: this.verificationMaxAttempts,
       },
     );
@@ -912,7 +912,7 @@ export class RelayConnection {
       {
         callSessionId: this.callSessionId,
         assistantId,
-        guardianVerificationSessionId,
+        verificationSessionId,
       },
       "Outbound guardian voice verification started",
     );
@@ -931,7 +931,7 @@ export class RelayConnection {
       return;
     }
 
-    const isOutbound = this.outboundGuardianVerificationSessionId != null;
+    const isOutbound = this.outboundVerificationSessionId != null;
     const assistantId = this.guardianChallengeAssistantId;
     const fromNumber = this.guardianVerificationFromNumber;
 

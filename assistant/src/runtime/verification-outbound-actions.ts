@@ -191,7 +191,7 @@ export function deliverVerificationTelegram(
  */
 function initiateGuardianVoiceCall(
   phoneNumber: string,
-  guardianVerificationSessionId: string,
+  verificationSessionId: string,
   assistantId: string,
   originConversationId?: string,
 ): void {
@@ -199,7 +199,7 @@ function initiateGuardianVoiceCall(
     try {
       const result = await startGuardianVerificationCall({
         phoneNumber,
-        guardianVerificationSessionId,
+        verificationSessionId,
         assistantId,
         originConversationId,
       });
@@ -207,20 +207,20 @@ function initiateGuardianVoiceCall(
         log.info(
           {
             phoneNumber,
-            guardianVerificationSessionId,
+            verificationSessionId,
             callSid: result.callSid,
           },
           "Guardian verification call initiated",
         );
       } else {
         log.error(
-          { phoneNumber, guardianVerificationSessionId, error: result.error },
+          { phoneNumber, verificationSessionId, error: result.error },
           "Failed to initiate guardian verification call",
         );
       }
     } catch (err) {
       log.error(
-        { err, phoneNumber, guardianVerificationSessionId },
+        { err, phoneNumber, verificationSessionId },
         "Failed to initiate guardian verification call",
       );
     }

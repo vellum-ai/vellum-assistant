@@ -22,7 +22,7 @@ export const callSessions = sqliteTable(
     task: text("task"),
     status: text("status").notNull().default("initiated"),
     callMode: text("call_mode"),
-    guardianVerificationSessionId: text("guardian_verification_session_id"),
+    verificationSessionId: text("verification_session_id"),
     callerIdentityMode: text("caller_identity_mode"),
     callerIdentitySource: text("caller_identity_source"),
     initiatedFromConversationId: text("initiated_from_conversation_id"),

@@ -131,16 +131,16 @@ describe("TwiML parameter propagation", () => {
     voice: "en-US-Standard-A",
   };
 
-  test("includes guardianVerificationSessionId as Parameter when provided", () => {
+  test("includes verificationSessionId as Parameter when provided", () => {
     const twiml = generateTwiML(
       "session-123",
       "wss://example.com/v1/calls/relay",
       null,
       defaultProfile,
       undefined,
-      { guardianVerificationSessionId: "gv-session-456" },
+      { verificationSessionId: "gv-session-456" },
     );
-    expect(twiml).toContain('name="guardianVerificationSessionId"');
+    expect(twiml).toContain('name="verificationSessionId"');
     expect(twiml).toContain('value="gv-session-456"');
     expect(twiml).toContain("<Parameter");
   });
@@ -173,7 +173,7 @@ describe("TwiML parameter propagation", () => {
 // ---------------------------------------------------------------------------
 
 describe("Call session mode metadata", () => {
-  test("createCallSession persists callMode and guardianVerificationSessionId", async () => {
+  test("createCallSession persists callMode and verificationSessionId", async () => {
     // Dynamic import to avoid circular dependency issues
     const { createCallSession, getCallSession } =
       await import("../calls/call-store.js");
@@ -187,17 +187,17 @@ describe("Call session mode metadata", () => {
       fromNumber: "+15551234567",
       toNumber: "+15559876543",
       callMode: "guardian_verification",
-      guardianVerificationSessionId: "gv-session-test",
+      verificationSessionId: "gv-session-test",
     });
 
     expect(session.callMode).toBe("guardian_verification");
-    expect(session.guardianVerificationSessionId).toBe("gv-session-test");
+    expect(session.verificationSessionId).toBe("gv-session-test");
 
     // Verify it persists to DB
     const loaded = getCallSession(session.id);
     expect(loaded).not.toBeNull();
     expect(loaded!.callMode).toBe("guardian_verification");
-    expect(loaded!.guardianVerificationSessionId).toBe("gv-session-test");
+    expect(loaded!.verificationSessionId).toBe("gv-session-test");
   });
 
   test("createCallSession defaults callMode to null when not provided", async () => {
@@ -217,12 +217,12 @@ describe("Call session mode metadata", () => {
     });
 
     expect(session.callMode).toBeNull();
-    expect(session.guardianVerificationSessionId).toBeNull();
+    expect(session.verificationSessionId).toBeNull();
 
     const loaded = getCallSession(session.id);
     expect(loaded).not.toBeNull();
     expect(loaded!.callMode).toBeNull();
-    expect(loaded!.guardianVerificationSessionId).toBeNull();
+    expect(loaded!.verificationSessionId).toBeNull();
   });
 });
 

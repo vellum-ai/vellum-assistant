@@ -70,7 +70,7 @@ export interface CallSession {
   task: string | null;
   status: CallStatus;
   callMode: CallMode | null;
-  guardianVerificationSessionId: string | null;
+  verificationSessionId: string | null;
   callerIdentityMode: string | null;
   callerIdentitySource: string | null;
   initiatedFromConversationId?: string | null;

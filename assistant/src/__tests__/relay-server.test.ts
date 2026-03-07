@@ -1938,7 +1938,7 @@ describe("relay-server", () => {
       fromNumber: "+15551111111",
       toNumber: "+15559999999",
       callMode: "guardian_verification",
-      guardianVerificationSessionId: "gv-session-ptr-success",
+      verificationSessionId: "gv-session-ptr-success",
       initiatedFromConversationId: "conv-gv-pointer-success-origin",
     });
 
@@ -1956,7 +1956,7 @@ describe("relay-server", () => {
         from: "+15551111111",
         to: "+15559999999",
         customParameters: {
-          guardianVerificationSessionId: "gv-session-ptr-success",
+          verificationSessionId: "gv-session-ptr-success",
         },
       }),
     );
@@ -1993,7 +1993,7 @@ describe("relay-server", () => {
       fromNumber: "+15551111111",
       toNumber: "+15559999999",
       callMode: "guardian_verification",
-      guardianVerificationSessionId: "gv-session-ptr-fail",
+      verificationSessionId: "gv-session-ptr-fail",
       initiatedFromConversationId: "conv-gv-pointer-fail-origin",
     });
 
@@ -2008,7 +2008,7 @@ describe("relay-server", () => {
         from: "+15551111111",
         to: "+15559999999",
         customParameters: {
-          guardianVerificationSessionId: "gv-session-ptr-fail",
+          verificationSessionId: "gv-session-ptr-fail",
         },
       }),
     );

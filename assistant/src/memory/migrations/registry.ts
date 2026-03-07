@@ -153,6 +153,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Rename channel_guardian_verification_challenges table to channel_verification_sessions and update indexes",
   },
+  {
+    key: "migration_rename_verification_session_id_column_v1",
+    version: 22,
+    description:
+      "Rename guardian_verification_session_id column in call_sessions to verification_session_id",
+  },
 ];
 
 export interface MigrationValidationResult {
