@@ -489,7 +489,7 @@ public final class SettingsStore: ObservableObject {
                 ?? LockfileAssistant.loadLatest()
             if let assistant, assistant.isRemote {
                 self.localGatewayTarget = LockfilePaths.resolveGatewayUrl(
-                    connectedAssistantId: connectedId
+                    connectedAssistantId: assistant.assistantId
                 )
             } else {
                 self.localGatewayTarget = response.localGatewayTarget
