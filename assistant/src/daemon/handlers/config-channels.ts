@@ -315,7 +315,9 @@ export async function verifyTrustedContact(
   const effectiveDestination =
     verificationChannel === "telegram"
       ? normalizeTelegramDestination(destination)
-      : destination;
+      : verificationChannel === "phone"
+        ? (normalizePhoneNumber(destination) ?? destination)
+        : destination;
 
   const recentSendCount = countRecentSendsToDestination(
     verificationChannel,
