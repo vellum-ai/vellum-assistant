@@ -129,6 +129,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "conversations", scopes: ["chat.read"] },
   { endpoint: "conversations/attention", scopes: ["chat.read"] },
   { endpoint: "conversations/seen", scopes: ["chat.write"] },
+  { endpoint: "conversations/unread", scopes: ["chat.write"] },
   { endpoint: "search", scopes: ["chat.read"] },
   { endpoint: "search/global", scopes: ["chat.read"] },
   { endpoint: "suggestion", scopes: ["chat.read"] },

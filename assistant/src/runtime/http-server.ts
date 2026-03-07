@@ -38,6 +38,7 @@ import { PairingStore } from "../daemon/pairing-store.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
+  markConversationUnread,
   recordConversationSeenSignal,
   type SignalType,
 } from "../memory/conversation-attention-store.js";
@@ -47,6 +48,7 @@ import {
   consumeCallback,
   consumeCallbackError,
 } from "../security/oauth-callback-registry.js";
+import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
@@ -826,6 +828,34 @@ export class RuntimeHttpServer {
             return httpError(
               "INTERNAL_ERROR",
               "Failed to record seen signal",
+              500,
+            );
+          }
+        },
+      },
+
+      {
+        endpoint: "conversations/unread",
+        method: "POST",
+        handler: async ({ req }) => {
+          const body = (await req.json()) as Record<string, unknown>;
+          const conversationId = body.conversationId as string | undefined;
+          if (!conversationId)
+            return httpError("BAD_REQUEST", "Missing conversationId", 400);
+          try {
+            markConversationUnread(conversationId);
+            return Response.json({ ok: true });
+          } catch (err) {
+            if (err instanceof UserError) {
+              return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
+            }
+            log.error(
+              { err, conversationId },
+              "POST /v1/conversations/unread: failed",
+            );
+            return httpError(
+              "INTERNAL_ERROR",
+              "Failed to mark conversation unread",
               500,
             );
           }
