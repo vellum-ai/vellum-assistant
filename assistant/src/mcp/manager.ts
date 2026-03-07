@@ -1,4 +1,4 @@
-import type { McpConfig, McpServerConfig } from "../config/mcp-schema.js";
+import type { McpConfig, McpServerConfig } from "../config/schemas/mcp.js";
 import { getLogger } from "../util/logger.js";
 import { McpClient, type McpToolInfo } from "./client.js";
 

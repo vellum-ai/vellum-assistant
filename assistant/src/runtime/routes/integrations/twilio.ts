@@ -18,12 +18,8 @@ import {
   releasePhoneNumber,
   searchAvailableNumbers,
 } from "../../../calls/twilio-rest.js";
-import { getIngressPublicBaseUrl } from "../../../config/env.js";
 import { loadRawConfig, saveRawConfig } from "../../../config/loader.js";
-import {
-  syncTwilioWebhooks,
-  triggerGatewayTwilioReconcile,
-} from "../../../daemon/handlers/config-ingress.js";
+import { syncTwilioWebhooks } from "../../../daemon/handlers/config-ingress.js";
 import type { IngressConfig } from "../../../inbound/public-ingress-urls.js";
 import {
   deleteSecureKeyAsync,
@@ -61,17 +57,6 @@ function pruneAssistantPhoneNumbers(
       delete twilio.assistantPhoneNumbers;
     }
   }
-}
-
-function refreshGatewayTwilioState(): void {
-  const raw = loadRawConfig();
-  const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
-  const fromConfig = (ingress.publicBaseUrl as string)
-    ?.trim()
-    ?.replace(/\/+$/, "");
-  const isEnabled = ingress.enabled !== false;
-  const url = isEnabled ? fromConfig || getIngressPublicBaseUrl() : undefined;
-  void triggerGatewayTwilioReconcile(url || undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -212,8 +197,6 @@ export async function handleSetTwilioCredentials(
   });
   upsertCredentialMetadata("twilio", "auth_token", {});
 
-  refreshGatewayTwilioState();
-
   return Response.json({ success: true, hasCredentials: true });
 }
 
@@ -242,8 +225,6 @@ export async function handleClearTwilioCredentials(): Promise<Response> {
 
   deleteCredentialMetadata("twilio", "account_sid");
   deleteCredentialMetadata("twilio", "auth_token");
-
-  refreshGatewayTwilioState();
 
   return Response.json({ success: true, hasCredentials: false });
 }
@@ -335,7 +316,6 @@ export async function handleProvisionTwilioNumber(
     authToken,
     loadRawConfig() as IngressConfig,
   );
-  refreshGatewayTwilioState();
 
   return Response.json({
     success: true,
@@ -397,7 +377,6 @@ export async function handleAssignTwilioNumber(
     );
     webhookWarning = webhookResult.warning;
   }
-  refreshGatewayTwilioState();
 
   return Response.json({
     success: true,
@@ -451,8 +430,6 @@ export async function handleReleaseTwilioNumber(
   if (storedPhone === phoneNumber) {
     await deleteSecureKeyAsync("credential:twilio:phone_number");
   }
-
-  refreshGatewayTwilioState();
 
   return Response.json({
     success: true,

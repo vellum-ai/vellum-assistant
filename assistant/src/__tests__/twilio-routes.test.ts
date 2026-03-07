@@ -26,8 +26,6 @@ import {
 } from "bun:test";
 
 let mockIngressPublicBaseUrl = "https://ingress.example.com";
-let mockGatewayInternalBaseUrl = "http://gateway.internal:7830";
-let mockMintedToken = "test-delivery-token";
 let mockRawConfigStore: Record<string, unknown> = {};
 let mockSecureKeyStore: Record<string, string | undefined> = {};
 let mockAvailableNumbers = [{ phoneNumber: "+15556667777" }];
@@ -41,13 +39,6 @@ let updatePhoneNumberWebhookCalls: Array<{
     statusCallbackUrl: string;
   };
 }> = [];
-let reconcileCalls: Array<{
-  url: string;
-  method: string;
-  headers: Record<string, string>;
-  body: string;
-}> = [];
-let reconcileShouldFail = false;
 let mockTwilioApiValidationStatus = 200;
 let mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_test" });
 const originalFetch = globalThis.fetch;
@@ -90,7 +81,7 @@ function resolveIngressBaseUrlFromConfig(ingressConfig: unknown): string {
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getCallWelcomeGreeting: () => process.env.CALL_WELCOME_GREETING || undefined,
-  getGatewayInternalBaseUrl: () => mockGatewayInternalBaseUrl,
+  getGatewayInternalBaseUrl: () => "http://gateway.internal:7830",
   getIngressPublicBaseUrl: () => mockIngressPublicBaseUrl,
   setIngressPublicBaseUrl: (value: string | undefined) => {
     mockIngressPublicBaseUrl = value ?? "";
@@ -256,31 +247,8 @@ mock.module("../calls/twilio-rest.js", () => ({
 }));
 
 mock.module("../daemon/handlers/config-ingress.js", () => ({
-  triggerGatewayTwilioReconcile: async (
-    ingressPublicBaseUrl: string | undefined,
-  ) => {
-    reconcileCalls.push({
-      url: `${mockGatewayInternalBaseUrl}/internal/twilio/reconcile`,
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${mockMintedToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ingressPublicBaseUrl: ingressPublicBaseUrl ?? "",
-      }),
-    });
-
-    if (reconcileShouldFail) {
-      return {
-        ok: false,
-        error:
-          "Gateway Twilio state reconcile failed: ECONNREFUSED: gateway unavailable",
-      };
-    }
-
-    return { ok: true, status: 200 };
-  },
+  computeGatewayTarget: () => "http://gateway.internal:7830",
+  handleIngressConfig: async () => {},
   syncTwilioWebhooks: async (
     phoneNumber: string,
     accountSid: string,
@@ -327,7 +295,7 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
 }));
 
 mock.module("../runtime/auth/token-service.js", () => ({
-  mintDaemonDeliveryToken: () => mockMintedToken,
+  mintDaemonDeliveryToken: () => "test-delivery-token",
 }));
 
 mock.module("../tools/credentials/metadata-store.js", () => ({
@@ -454,10 +422,6 @@ function makeInboundVoiceRequest(params: Record<string, string>): Request {
   });
 }
 
-async function flushReconcileWork(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("twilio webhook routes", () => {
@@ -465,8 +429,6 @@ describe("twilio webhook routes", () => {
     resetTables();
     clearActiveCallLeases();
     mockIngressPublicBaseUrl = "https://ingress.example.com";
-    mockGatewayInternalBaseUrl = "http://gateway.internal:7830";
-    mockMintedToken = "test-delivery-token";
     mockRawConfigStore = {
       twilio: { accountSid: "AC_existing", phoneNumber: "+15550001111" },
     };
@@ -478,8 +440,6 @@ describe("twilio webhook routes", () => {
     mockAvailableNumbers = [{ phoneNumber: "+15556667777" }];
     mockProvisionedNumber = { phoneNumber: "+15556667777" };
     updatePhoneNumberWebhookCalls = [];
-    reconcileCalls = [];
-    reconcileShouldFail = false;
     mockTwilioApiValidationStatus = 200;
     mockTwilioApiValidationBody = JSON.stringify({ sid: "AC_validated" });
     delete process.env.CALL_WELCOME_GREETING;
@@ -499,27 +459,6 @@ describe("twilio webhook routes", () => {
         return new Response(mockTwilioApiValidationBody, {
           status: mockTwilioApiValidationStatus,
         });
-      }
-
-      if (urlStr.includes("/internal/twilio/reconcile")) {
-        const headers: Record<string, string> = {};
-        if (init?.headers) {
-          for (const [key, value] of Object.entries(
-            init.headers as Record<string, string>,
-          )) {
-            headers[key] = value;
-          }
-        }
-        reconcileCalls.push({
-          url: urlStr,
-          method: init?.method ?? "GET",
-          headers,
-          body: (init?.body as string) ?? "",
-        });
-        if (reconcileShouldFail) {
-          throw new Error("ECONNREFUSED: gateway unavailable");
-        }
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
 
       return originalFetch(url, init);
@@ -1129,11 +1068,10 @@ describe("twilio webhook routes", () => {
     });
   });
 
-  describe("Twilio control-plane reconcile hooks", () => {
-    test("setting credentials posts to internal Twilio reconcile with bearer auth and ingress URL", async () => {
+  describe("Twilio control-plane credential and number operations", () => {
+    test("setting credentials stores them and returns success", async () => {
       mockRawConfigStore = {};
       mockSecureKeyStore = {};
-      mockIngressPublicBaseUrl = "https://effective-ingress.example.com";
 
       const res = await handleSetTwilioCredentials(
         new Request("http://127.0.0.1/v1/integrations/twilio/credentials", {
@@ -1153,28 +1091,9 @@ describe("twilio webhook routes", () => {
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
       expect(json.hasCredentials).toBe(true);
-
-      await flushReconcileWork();
-
-      expect(reconcileCalls).toHaveLength(1);
-      expect(reconcileCalls[0]!.url).toBe(
-        "http://gateway.internal:7830/internal/twilio/reconcile",
-      );
-      expect(reconcileCalls[0]!.method).toBe("POST");
-      expect(reconcileCalls[0]!.headers["Authorization"]).toBe(
-        "Bearer test-delivery-token",
-      );
-      expect(reconcileCalls[0]!.headers["Content-Type"]).toBe(
-        "application/json",
-      );
-      expect(JSON.parse(reconcileCalls[0]!.body)).toEqual({
-        ingressPublicBaseUrl: "https://effective-ingress.example.com",
-      });
     });
 
-    test("clearing credentials still succeeds when Twilio reconcile fails", async () => {
-      reconcileShouldFail = true;
-
+    test("clearing credentials succeeds", async () => {
       const res = await handleClearTwilioCredentials();
       const json = (await res.json()) as {
         success: boolean;
@@ -1183,16 +1102,9 @@ describe("twilio webhook routes", () => {
 
       expect(res.status).toBe(200);
       expect(json).toEqual({ success: true, hasCredentials: false });
-
-      await flushReconcileWork();
-
-      expect(reconcileCalls).toHaveLength(1);
-      expect(JSON.parse(reconcileCalls[0]!.body)).toEqual({
-        ingressPublicBaseUrl: "https://ingress.example.com",
-      });
     });
 
-    test("provisioning a number syncs Twilio webhooks and triggers reconcile", async () => {
+    test("provisioning a number syncs Twilio webhooks", async () => {
       mockIngressPublicBaseUrl = "https://numbers.example.com";
       mockAvailableNumbers = [{ phoneNumber: "+15557778888" }];
       mockProvisionedNumber = { phoneNumber: "+15557778888" };
@@ -1226,17 +1138,9 @@ describe("twilio webhook routes", () => {
         voiceUrl: "https://numbers.example.com/webhooks/twilio/voice",
         statusCallbackUrl: "https://numbers.example.com/webhooks/twilio/status",
       });
-
-      await flushReconcileWork();
-
-      expect(reconcileCalls).toHaveLength(1);
-      expect(JSON.parse(reconcileCalls[0]!.body)).toEqual({
-        ingressPublicBaseUrl: "https://numbers.example.com",
-      });
     });
 
-    test("assigning a number keeps the success payload when Twilio reconcile fails", async () => {
-      reconcileShouldFail = true;
+    test("assigning a number syncs Twilio webhooks", async () => {
       mockIngressPublicBaseUrl = "https://assign.example.com";
 
       const res = await handleAssignTwilioNumber(
@@ -1258,13 +1162,6 @@ describe("twilio webhook routes", () => {
       expect(json.hasCredentials).toBe(true);
       expect(json.phoneNumber).toBe("+15558889999");
       expect(updatePhoneNumberWebhookCalls).toHaveLength(1);
-
-      await flushReconcileWork();
-
-      expect(reconcileCalls).toHaveLength(1);
-      expect(JSON.parse(reconcileCalls[0]!.body)).toEqual({
-        ingressPublicBaseUrl: "https://assign.example.com",
-      });
     });
   });
 });

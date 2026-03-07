@@ -20,7 +20,6 @@ export {
   computeGatewayTarget,
   handleIngressConfig,
   syncTwilioWebhooks,
-  triggerGatewayReconcile,
 } from "./config-ingress.js";
 export {
   handleTwitterIntegrationConfig,

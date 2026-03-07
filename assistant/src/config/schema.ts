@@ -14,23 +14,6 @@ export {
   WorkspaceGitConfigSchema,
 } from "./agent-schema.js";
 export type {
-  CallerIdentityConfig,
-  CallsConfig,
-  CallsDisclosureConfig,
-  CallsSafetyConfig,
-  CallsVerificationConfig,
-  CallsVoiceConfig,
-} from "./calls-schema.js";
-export {
-  CallerIdentityConfigSchema,
-  CallsConfigSchema,
-  CallsDisclosureConfigSchema,
-  CallsSafetyConfigSchema,
-  CallsVerificationConfigSchema,
-  CallsVoiceConfigSchema,
-  VALID_CALLER_IDENTITY_MODES,
-} from "./calls-schema.js";
-export type {
   AuditLogConfig,
   AvatarConfig,
   ContextOverflowRecoveryConfig,
@@ -78,17 +61,6 @@ export {
   UiConfigSchema,
   WhatsAppConfigSchema,
 } from "./core-schema.js";
-export type { ElevenLabsConfig } from "./elevenlabs-schema.js";
-export {
-  DEFAULT_ELEVENLABS_VOICE_ID,
-  ElevenLabsConfigSchema,
-} from "./elevenlabs-schema.js";
-export type { McpConfig, McpServerConfig, McpTransport } from "./mcp-schema.js";
-export {
-  McpConfigSchema,
-  McpServerConfigSchema,
-  McpTransportSchema,
-} from "./mcp-schema.js";
 export type {
   MemoryCleanupConfig,
   MemoryConfig,
@@ -123,10 +95,42 @@ export {
   MemorySummarizationConfigSchema,
   QdrantConfigSchema,
 } from "./memory-schema.js";
-export type { NotificationsConfig } from "./notifications-schema.js";
-export { NotificationsConfigSchema } from "./notifications-schema.js";
-export type { SandboxConfig } from "./sandbox-schema.js";
-export { SandboxConfigSchema } from "./sandbox-schema.js";
+export type {
+  CallerIdentityConfig,
+  CallsConfig,
+  CallsDisclosureConfig,
+  CallsSafetyConfig,
+  CallsVerificationConfig,
+  CallsVoiceConfig,
+} from "./schemas/calls.js";
+export {
+  CallerIdentityConfigSchema,
+  CallsConfigSchema,
+  CallsDisclosureConfigSchema,
+  CallsSafetyConfigSchema,
+  CallsVerificationConfigSchema,
+  CallsVoiceConfigSchema,
+  VALID_CALLER_IDENTITY_MODES,
+} from "./schemas/calls.js";
+export type { ElevenLabsConfig } from "./schemas/elevenlabs.js";
+export {
+  DEFAULT_ELEVENLABS_VOICE_ID,
+  ElevenLabsConfigSchema,
+} from "./schemas/elevenlabs.js";
+export type {
+  McpConfig,
+  McpServerConfig,
+  McpTransport,
+} from "./schemas/mcp.js";
+export {
+  McpConfigSchema,
+  McpServerConfigSchema,
+  McpTransportSchema,
+} from "./schemas/mcp.js";
+export type { NotificationsConfig } from "./schemas/notifications.js";
+export { NotificationsConfigSchema } from "./schemas/notifications.js";
+export type { SandboxConfig } from "./schemas/sandbox.js";
+export { SandboxConfigSchema } from "./schemas/sandbox.js";
 export type {
   RemotePolicyConfig,
   RemoteProviderConfig,
@@ -135,7 +139,7 @@ export type {
   SkillsConfig,
   SkillsInstallConfig,
   SkillsLoadConfig,
-} from "./skills-schema.js";
+} from "./schemas/skills.js";
 export {
   RemotePolicyConfigSchema,
   RemoteProviderConfigSchema,
@@ -144,7 +148,7 @@ export {
   SkillsConfigSchema,
   SkillsInstallConfigSchema,
   SkillsLoadConfigSchema,
-} from "./skills-schema.js";
+} from "./schemas/skills.js";
 
 // Imports for AssistantConfigSchema composition
 import {
@@ -152,7 +156,6 @@ import {
   SwarmConfigSchema,
   WorkspaceGitConfigSchema,
 } from "./agent-schema.js";
-import { CallsConfigSchema } from "./calls-schema.js";
 import {
   AuditLogConfigSchema,
   AvatarConfigSchema,
@@ -174,12 +177,13 @@ import {
   UiConfigSchema,
   WhatsAppConfigSchema,
 } from "./core-schema.js";
-import { ElevenLabsConfigSchema } from "./elevenlabs-schema.js";
-import { McpConfigSchema } from "./mcp-schema.js";
 import { MemoryConfigSchema } from "./memory-schema.js";
-import { NotificationsConfigSchema } from "./notifications-schema.js";
-import { SandboxConfigSchema } from "./sandbox-schema.js";
-import { SkillsConfigSchema } from "./skills-schema.js";
+import { CallsConfigSchema } from "./schemas/calls.js";
+import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
+import { McpConfigSchema } from "./schemas/mcp.js";
+import { NotificationsConfigSchema } from "./schemas/notifications.js";
+import { SandboxConfigSchema } from "./schemas/sandbox.js";
+import { SkillsConfigSchema } from "./schemas/skills.js";
 
 const VALID_PROVIDERS = [
   "anthropic",
