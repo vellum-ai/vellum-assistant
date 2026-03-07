@@ -5,18 +5,20 @@ compatibility: "Designed for Vellum personal assistants"
 metadata: {"emoji":"💬","vellum":{"display-name":"Slack App Setup","user-invocable":true,"includes":["guardian-verify-setup"]}}
 ---
 
-You are helping your user connect a Slack bot to the Vellum Assistant gateway via Socket Mode. The gateway manages the Socket Mode connection — it never hits the assistant runtime directly. When this skill is invoked, walk through each step below using only existing tools.
+You are helping your user connect a Slack bot to the Vellum Assistant via Socket Mode. Walk through each step below.
 
-## Prerequisites — Check Before Starting
+## Value Classification
 
-Before beginning setup, verify these conditions are met:
+| Value     | Type       | Storage method            | Secret? |
+| --------- | ---------- | ------------------------- | ------- |
+| App Token | Credential | `credential_store` prompt | **Yes** |
+| Bot Token | Credential | `credential_store` prompt | **Yes** |
 
-1. **Gateway API base URL is set and reachable:** Use the injected `INTERNAL_GATEWAY_BASE_URL`, then run `curl -sf "$INTERNAL_GATEWAY_BASE_URL/healthz"` — it should return gateway health JSON (for example `{"status":"ok"}`). If it fails, tell the user to start the assistant with `vellum wake` and wait for it to become healthy before continuing.
-2. **Use gateway control-plane routes only.** Slack setup/config actions in this skill must call gateway endpoints under `/v1/integrations/slack/channel/*` — never call the assistant runtime port directly.
+- Both tokens are secrets. Always collect via `credential_store` prompt — never accept them pasted in plaintext chat.
 
-## Setup Steps
+# Setup Steps
 
-### Step 1: Generate Manifest & Create Slack App
+## Step 1: Generate Manifest & Create Slack App
 
 Ask the user what they'd like to name their Slack bot and optionally provide a short description. Use their answers (or sensible defaults) to generate a pre-configured Slack app manifest.
 
@@ -80,11 +82,9 @@ https://api.slack.com/apps?new_app=1&manifest_json=<url_encoded_manifest>
 
 Present the link to the user: "Click this link to create your Slack app. It's pre-configured with all the right permissions, events, and Socket Mode. Just select your workspace and click **Create**."
 
-The manifest pre-configures everything needed: Socket Mode, 9 minimal bot scopes, 4 event subscriptions, bot user, App Home, and interactivity. No manual scope or event configuration is needed.
-
 Wait for the user to confirm they've created the app before proceeding.
 
-### Step 2: Generate App Token & Collect It
+## Step 2: Generate App Token & Collect It
 
 Tell the user to navigate to **Settings > Basic Information > App-Level Tokens** in their newly created Slack app, then:
 
@@ -93,13 +93,11 @@ Tell the user to navigate to **Settings > Basic Information > App-Level Tokens**
 3. Add scope: `connections:write`
 4. Click **Generate**
 
-**Immediately** collect the app token securely:
+Collect the app token securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
 
-**IMPORTANT — Secure credential collection only:** Never accept tokens pasted in plaintext chat. If the user pastes a token in the conversation, inform them that for security reasons you cannot use tokens shared in chat and must collect it through the secure prompt instead.
-
-### Step 3: Install App & Collect Bot Token
+## Step 3: Install App & Collect Bot Token
 
 Tell the user to navigate to **Settings > Install App** in the sidebar, then click **Install to Workspace** and authorize the requested permissions (already pre-configured from the manifest).
 
@@ -107,93 +105,41 @@ After installation, collect the bot token securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "Paste the Bot User OAuth Token shown after installing"`
 
-**IMPORTANT — Secure credential collection only:** Never accept tokens pasted in plaintext chat. Always collect through the secure prompt.
-
-### Step 4: Validate & Connect
-
-After both tokens are collected, submit them to the gateway for validation and storage:
+## Step 4: Validate Bot Token
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/slack/channel/config" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"botToken": "<bot_token>", "appToken": "<app_token>"}'
+BOT_TOKEN=$(assistant credentials reveal slack_channel:bot_token)
+AUTH_RESPONSE=$(curl -sf -X POST "https://slack.com/api/auth.test" \
+  -H "Authorization: Bearer $BOT_TOKEN")
+echo "$AUTH_RESPONSE" | jq .
 ```
 
-The endpoint validates the bot token via Slack's `auth.test` API and stores both tokens in the secure key store.
+If `ok` is `true`, report the bot username and workspace from the response. If `ok` is `false`, the token is invalid — ask the user to re-enter (repeat Step 3).
 
-**On success** (`success: true`, `connected: true`):
+Socket Mode connects automatically once both credentials are stored — no further action needed.
 
-- Report the bot username and workspace name to the user
-- Proceed to Step 5
+## Step 5: Guardian Verification (Optional)
 
-**On failure:**
+Link the user's Slack account as the trusted guardian. Load the **guardian-verify-setup** skill:
 
-| Error                    | Action                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------ |
-| `invalid_auth`           | Bot token is invalid — re-prompt for the correct token (repeat Step 3 collection)    |
-| Missing scopes           | Tell the user which scopes to add in the Slack app configuration                     |
-| Socket Mode not enabled  | Instruct the user to enable Socket Mode in the app settings                          |
-| App token format invalid | Must start with `xapp-` — re-prompt for the correct token (repeat Step 2 collection) |
+- Call `skill_load` with `skill: "guardian-verify-setup"`.
 
-### Step 5: Guardian Verification
+If the user declines, skip and continue.
 
-Tell the user: "Now let's verify your identity as the trusted guardian for Slack."
+## Step 6: Report Success
 
-Load the **guardian-verify-setup** skill to handle the verification flow:
-
-- Call `skill_load` with `skill: "guardian-verify-setup"` to load the dependency skill.
-
-The guardian-verify-setup skill manages the full outbound verification flow for Slack, including:
-
-- Collecting the user's Slack user ID as the destination
-- Starting the outbound verification session via `assistant channel-verification-sessions create --channel slack --destination <dest> --json`
-- Sending a verification code via Slack DM
-- Auto-polling for completion (the guardian-verify-setup skill handles this)
-- Checking guardian status to confirm the binding was created
-
-Tell the user: _"I've loaded the guardian verification guide. It will walk you through linking your Slack account as the trusted guardian."_
-
-After the guardian-verify-setup skill completes (or the user skips), continue to Step 6.
-
-**Note:** Guardian verification is optional but recommended. If the user declines or wants to skip, proceed to Step 6 without blocking.
-
-### Step 6: Verify Connection & Report Success
-
-Check the final connection status:
-
-```bash
-curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/slack/channel/config" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN"
-```
-
-Check guardian binding status:
-
-```bash
-assistant channel-verification-sessions status --channel slack --json
-```
-
-The Settings > Channels > Slack card auto-refreshes on view appear via `fetchSlackChannelConfig()`, so the user will see the "Connected" status badge when they open or re-open that page.
-
-Summarize what was done:
+Summarize:
 
 - Bot connected: {username} in {workspace}
-- Socket Mode: active
-- Guardian: {verified | not configured}
-- Usage: "@{botUsername} in any channel, or DM the bot directly"
+- Socket Mode: active (gateway auto-connects when credentials are stored)
+- Guardian: {verified | skipped}
+- Usage: @{botUsername} in any channel, or DM the bot directly
 
-Tell the user: "Your Slack bot is now connected! Open **Settings > Channels** to see it reflected there."
+# Clearing Credentials
 
-## Automated vs Manual Steps
+To disconnect Slack:
 
-| Step                    | Status                       | Details                                                       |
-| ----------------------- | ---------------------------- | ------------------------------------------------------------- |
-| App manifest generation | Automated                    | Skill generates manifest JSON with all scopes/events/settings |
-| App creation            | Manual (one-click)           | User clicks manifest URL, selects workspace, creates          |
-| App token generation    | Manual                       | User generates in Slack settings (can't be automated)         |
-| App installation        | Manual                       | User clicks "Install to Workspace"                            |
-| Token collection        | Manual (secure prompt)       | Via `credential_store` — never plaintext                      |
-| Token validation        | Automated                    | `auth.test` validates bot token on submission                 |
-| Socket Mode connection  | Automated                    | Gateway connects when tokens are stored                       |
-| Routing                 | Automated (single-assistant) | CLI sets defaults                                             |
-| Guardian verification   | Semi-automated               | Via `guardian-verify-setup` skill                             |
+```bash
+assistant credentials delete slack_channel:bot_token
+assistant credentials delete slack_channel:app_token
+```
