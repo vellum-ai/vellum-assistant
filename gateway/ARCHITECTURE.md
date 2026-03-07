@@ -728,7 +728,7 @@ sequenceDiagram
         WS->>WS: extract speaker metadata + map speaker identity
         WS->>Ctrl: handleCallerUtterance(transcript, speakerContext)
         Ctrl->>Bridge: startVoiceTurn()
-        Bridge->>RunOrch: startRun(conversationId, content, {sourceChannel: 'voice', eventSink})
+        Bridge->>RunOrch: startRun(conversationId, content, {sourceChannel: 'phone', eventSink})
         RunOrch->>Session: route to session pipeline
         Session->>LLM: agent loop (tools, memory, skills)
         LLM-->>Session: text tokens (streaming)
@@ -810,7 +810,7 @@ sequenceDiagram
     WS->>WS: detect isInbound (`session.initiatedFromConversationId == null`)
 
     alt Pending voice guardian challenge exists
-        WS->>GuardianSvc: getPendingSession(assistantId, 'voice')
+        WS->>GuardianSvc: getPendingSession(assistantId, 'phone')
         WS->>WS: enter verification_pending state
         WS->>Caller: TTS "Please enter your six-digit verification code"
         loop DTMF / spoken digit attempts (max 3)
@@ -832,7 +832,7 @@ sequenceDiagram
     end
 
     Ctrl->>Bridge: startVoiceTurn([CALL_OPENING])
-    Bridge->>RunOrch: startRun(conversationId, [CALL_OPENING], {sourceChannel: 'voice', eventSink})
+    Bridge->>RunOrch: startRun(conversationId, [CALL_OPENING], {sourceChannel: 'phone', eventSink})
     RunOrch->>Session: route to session pipeline
     Note over Session: Session runtime assembly injects<br/>voice channel context + system prompt
     Session->>LLM: agent loop (initial greeting turn)
@@ -845,7 +845,7 @@ sequenceDiagram
         Caller->>WS: prompt (caller utterance)
         WS->>Ctrl: handleCallerUtterance(transcript, speakerContext)
         Ctrl->>Bridge: startVoiceTurn()
-        Bridge->>RunOrch: startRun(conversationId, content, {sourceChannel: 'voice', eventSink})
+        Bridge->>RunOrch: startRun(conversationId, content, {sourceChannel: 'phone', eventSink})
         RunOrch->>Session: route to session pipeline
         Session->>LLM: agent loop (tools, memory, skills)
         LLM-->>Session: text tokens (streaming)

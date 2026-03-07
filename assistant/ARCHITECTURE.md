@@ -2014,7 +2014,7 @@ Producer → NotificationSignal → Candidate Generation → Decision Engine (LL
 - **`conversationStrategy`** — how the notification pipeline materializes conversations for the channel:
   - `start_new_conversation` — creates a fresh conversation per delivery (e.g. vellum desktop/mobile threads)
   - `continue_existing_conversation` — intended to append to an existing channel-scoped conversation; currently materializes a background audit conversation per delivery (e.g. Telegram)
-  - `not_deliverable` — channel cannot receive notifications (e.g. voice)
+  - `not_deliverable` — channel cannot receive notifications (e.g. phone)
 
 Helper functions: `getDeliverableChannels()`, `getChannelPolicy()`, `isNotificationDeliverable()`, `getConversationStrategy()`.
 

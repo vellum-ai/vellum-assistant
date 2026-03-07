@@ -36,7 +36,7 @@ curl -s "$BASE/v1/contacts?channelType=telegram" \
   -H "Authorization: Bearer $TOKEN" | jq
 
 # Voice contacts only
-curl -s "$BASE/v1/contacts?channelType=voice" \
+curl -s "$BASE/v1/contacts?channelType=phone" \
   -H "Authorization: Bearer $TOKEN" | jq
 ```
 
