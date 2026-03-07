@@ -5,7 +5,7 @@ user-invocable: true
 metadata: { "vellum": { "emoji": "\ud83d\udc65" } }
 ---
 
-Manage the user's contacts, relationship graph, access control (trusted contacts), and invite links. This skill covers contact CRUD with multi-channel tracking, controlling who can message the assistant through external channels (Telegram, voice), and creating/managing invite links that grant access.
+Manage the user's contacts, relationship graph, access control (trusted contacts), and invite links. This skill covers contact CRUD with multi-channel tracking, controlling who can message the assistant through external channels (Telegram, phone), and creating/managing invite links that grant access.
 
 ## Prerequisites
 
@@ -74,7 +74,7 @@ Trusted contacts control who is allowed to send messages to the assistant throug
 - **Contact channel**: A user identity (external user ID or chat ID) on a specific messaging platform, stored as an entry in a contact's `channels` array. Each channel entry has its own `status` and `policy`.
 - **Policy**: Controls what the contact channel can do -- `allow` (can message freely) or `deny` (blocked from messaging).
 - **Status**: The channel's lifecycle state -- `active` (currently effective), `revoked` (access removed), or `blocked` (explicitly denied).
-- **Channel type**: The messaging platform (e.g., `telegram`, `voice`).
+- **Channel type**: The messaging platform (e.g., `telegram`, `phone`).
 
 ### List trusted contacts
 
@@ -103,7 +103,7 @@ The response contains `{ ok: true, contacts: [...] }` where each contact has:
 - `displayName` -- human-readable name
 - `channels` -- array of channel entries, each with:
   - `id` -- channel ID (needed for status/policy changes)
-  - `channel` -- the channel type (e.g., `telegram`, `voice`)
+  - `channel` -- the channel type (e.g., `telegram`, `phone`)
   - `externalUserId` -- the user's ID on that channel
   - `externalChatId` -- the chat ID on that channel
   - `displayName` -- channel-specific display name
@@ -174,7 +174,7 @@ assistant channels readiness --json
 
 The response contains `{ success: true, snapshots: [...] }` where each snapshot has:
 
-- `channel` -- the channel type (e.g., `telegram`, `email`, `whatsapp`, `slack`, `voice`)
+- `channel` -- the channel type (e.g., `telegram`, `email`, `whatsapp`, `slack`, `phone`)
 - `ready` -- boolean indicating whether the channel is fully operational
 - `checkedAt` -- timestamp (ms since epoch) of when readiness was evaluated
 - `stale` -- boolean indicating whether cached remote check data is outdated
@@ -268,12 +268,12 @@ Use this when the guardian wants to authorize a specific phone number to call th
 **Important**: The response includes a `voiceCode` field that is only returned at creation time and cannot be retrieved later. Extract and present it clearly.
 
 ```bash
-assistant contacts invites create --source-channel voice --expected-external-user-id "<phone_E164>" --friend-name "<invitee_name>" --guardian-name "<guardian_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
+assistant contacts invites create --source-channel phone --expected-external-user-id "<phone_E164>" --friend-name "<invitee_name>" --guardian-name "<guardian_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
 ```
 
 Required flags:
 
-- `--source-channel` -- must be `voice`
+- `--source-channel` -- must be `phone`
 - `--expected-external-user-id` -- the invitee's phone number in E.164 format (e.g., `+15551234567`)
 - `--friend-name` -- the invitee's display name (e.g., "Mom", "Dr. Smith"). Used during the voice verification call to personalize the experience.
 - `--guardian-name` -- the guardian's display name (e.g., "Alex"). Used during the voice verification call so the invitee knows who invited them.
@@ -401,7 +401,7 @@ assistant contacts invites list --source-channel telegram --json
 For voice invites:
 
 ```bash
-assistant contacts invites list --source-channel voice --json
+assistant contacts invites list --source-channel phone --json
 ```
 
 For email, WhatsApp, or Slack invites:
@@ -414,7 +414,7 @@ assistant contacts invites list --source-channel slack --json
 
 Optional query parameters:
 
-- `--source-channel` -- filter by channel (e.g., `telegram`, `voice`, `email`, `whatsapp`, `slack`)
+- `--source-channel` -- filter by channel (e.g., `telegram`, `phone`, `email`, `whatsapp`, `slack`)
 - `--status` -- filter by status (`active`, `revoked`, `redeemed`, `expired`)
 
 The response contains `{ ok: true, invites: [...] }` where each invite has:
@@ -520,10 +520,10 @@ Each channel has:
 
 **"Revoke invite"** / **"Cancel invite link"** -- List invites to identify the target, confirm, then revoke with `assistant contacts invites revoke <invite_id> --json`.
 
-**"Create a voice invite for +15551234567"** -- Create a voice invite with `assistant contacts invites create --source-channel voice --expected-external-user-id "+15551234567" --friend-name "<name>" --guardian-name "<name>"`. Present the invite code and instructions: the person must call from that number and enter the code.
+**"Create a voice invite for +15551234567"** -- Create a voice invite with `assistant contacts invites create --source-channel phone --expected-external-user-id "+15551234567" --friend-name "<name>" --guardian-name "<name>"`. Present the invite code and instructions: the person must call from that number and enter the code.
 
-**"Let my mom call in"** / **"Invite someone by phone"** -- Ask for the phone number in E.164 format, create a voice invite with `assistant contacts invites create --source-channel voice`, and present the code + calling instructions.
+**"Let my mom call in"** / **"Invite someone by phone"** -- Ask for the phone number in E.164 format, create a voice invite with `assistant contacts invites create --source-channel phone`, and present the code + calling instructions.
 
-**"Show my voice invites"** / **"List phone invites"** -- List invites with `assistant contacts invites list --source-channel voice --json`, present active invites with bound phone number and expiration info.
+**"Show my voice invites"** / **"List phone invites"** -- List invites with `assistant contacts invites list --source-channel phone --json`, present active invites with bound phone number and expiration info.
 
 **"Revoke voice invite"** / **"Cancel the phone invite for +15551234567"** -- List voice invites, identify the target by phone number or note, confirm, then revoke with `assistant contacts invites revoke <invite_id> --json`.

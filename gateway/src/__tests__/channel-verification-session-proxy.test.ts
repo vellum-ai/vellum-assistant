@@ -90,7 +90,7 @@ describe("channel verification session proxy", () => {
     );
     await handler.handleGetVerificationStatus(
       new Request(
-        "http://localhost:7830/v1/channel-verification-sessions/status?channel=voice",
+        "http://localhost:7830/v1/channel-verification-sessions/status?channel=phone",
         { method: "GET" },
       ),
     );
@@ -113,7 +113,7 @@ describe("channel verification session proxy", () => {
 
     expect(captured).toEqual([
       "http://localhost:7821/v1/channel-verification-sessions",
-      "http://localhost:7821/v1/channel-verification-sessions/status?channel=voice",
+      "http://localhost:7821/v1/channel-verification-sessions/status?channel=phone",
       "http://localhost:7821/v1/channel-verification-sessions",
       "http://localhost:7821/v1/channel-verification-sessions/resend",
       "http://localhost:7821/v1/channel-verification-sessions",
@@ -195,7 +195,7 @@ describe("channel verification session proxy", () => {
     );
     const res = await handler.handleGetVerificationStatus(
       new Request(
-        "http://localhost:7830/v1/channel-verification-sessions/status?channel=voice",
+        "http://localhost:7830/v1/channel-verification-sessions/status?channel=phone",
       ),
     );
 
@@ -211,7 +211,7 @@ describe("channel verification session proxy", () => {
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGetVerificationStatus(
       new Request(
-        "http://localhost:7830/v1/channel-verification-sessions/status?channel=voice",
+        "http://localhost:7830/v1/channel-verification-sessions/status?channel=phone",
       ),
     );
 

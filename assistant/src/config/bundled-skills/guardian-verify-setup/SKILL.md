@@ -1,11 +1,11 @@
 ---
 name: "Guardian Verify Setup"
-description: "Set up channel verification for voice, Telegram, or Slack channels via outbound verification flow"
+description: "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow"
 user-invocable: true
 metadata: { "vellum": { "emoji": "\ud83d\udd10" } }
 ---
 
-You are helping your user set up channel verification for a messaging channel (voice, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `assistant integrations guardian status` for status reads.
+You are helping your user set up channel verification for a messaging channel (phone, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `assistant integrations guardian status` for status reads.
 
 ## Prerequisites
 
@@ -29,7 +29,7 @@ If the user's intent already specifies a channel (e.g. "verify my phone number f
 
 Based on the chosen channel, ask for the required destination:
 
-- **Voice**: Ask for their phone number. Accept any common format (e.g. +15551234567, (555) 123-4567, 555-123-4567). The API normalizes it to E.164.
+- **Phone**: Ask for their phone number. Accept any common format (e.g. +15551234567, (555) 123-4567, 555-123-4567). The API normalizes it to E.164.
 - **Telegram**: Ask for their Telegram chat ID (numeric) or @handle. Explain:
   - If they know their numeric chat ID, provide it directly. The bot will send the code to that chat.
   - If they only know their @handle, the flow uses a bootstrap deep-link that they must click first.
@@ -52,7 +52,7 @@ Replace `<channel>` with `phone`, `telegram`, or `slack`, and `<destination>` wi
 
 Report the exact next action based on the channel:
 
-- **Voice**: The response includes a `secret` field with the verification code. Tell the user the code BEFORE the call connects: "I'm calling [number] now. Your verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `POST /v1/channel-verification-sessions` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
+- **Phone**: The response includes a `secret` field with the verification code. Tell the user the code BEFORE the call connects: "I'm calling [number] now. Your verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `POST /v1/channel-verification-sessions` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
 - **Telegram with chat ID** (no `telegramBootstrapUrl` in response): The response includes a `secret` field. Show it in the current chat: "Your verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and reply with that 6-digit code to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3 or resend (Step 4).
 - **Telegram with handle** (`telegramBootstrapUrl` present in response): "Tap this deep-link first: [telegramBootstrapUrl]. After Telegram binds your identity, I'll send your verification code."
 - **Slack**: The response includes a `secret` field with the verification code. Show it in the current chat: "Your verification code is **[secret]**. I've also sent it to you as a Slack DM. Open the DM from the Vellum bot in Slack and reply with that 6-digit code to complete verification." The DM channel ID is captured automatically during this process for future message delivery. If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3 or resend (Step 4). **After delivering the code, immediately begin the Slack auto-check polling loop** (see [Slack Auto-Check Polling](#slack-auto-check-polling) below).
@@ -85,7 +85,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/channel-verification-sessions/res
 
 On success, report the next action based on the channel:
 
-- **Voice**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `POST /v1/channel-verification-sessions/resend` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
+- **Phone**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `POST /v1/channel-verification-sessions/resend` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
 - **Telegram**: The resend response includes a fresh `secret` field. Show the new code in the current chat: "Your new verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and reply with that 6-digit code to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3.
 - **Slack**: The resend response includes a fresh `secret` field. Show the new code in the current chat: "Your new verification code is **[secret]**. I've also sent it to you as a Slack DM. Reply to the DM with that 6-digit code to complete verification. (resent)" If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3. **After delivering the code, immediately begin the Slack auto-check polling loop** (see [Slack Auto-Check Polling](#slack-auto-check-polling) below).
 
