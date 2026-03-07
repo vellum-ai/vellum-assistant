@@ -32,6 +32,7 @@ struct ComposerView: View {
     var onEndVoiceMode: (() -> Void)? = nil
     var placeholderText: String = "What would you like to do?"
     var composerCompactHeight: CGFloat = 34
+    var threadId: UUID?
 
     @Environment(\.conversationZoomScale) private var zoomScale
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
@@ -127,6 +128,9 @@ struct ComposerView: View {
             composerFocus = true
             let identity = IdentityInfo.load()
             avatarSeed = identity?.name ?? "default"
+        }
+        .onChange(of: threadId) {
+            composerFocus = true
         }
     }
 
