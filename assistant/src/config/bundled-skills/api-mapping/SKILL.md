@@ -1,8 +1,8 @@
 ---
-name: "API Mapping"
-description: "Record and analyze API surfaces of web services"
-user-invocable: true
-metadata: {"vellum": {"emoji": "🗺️"}}
+name: api-mapping
+description: Record and analyze API surfaces of web services
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🗺️","vellum":{"display-name":"API Mapping","user-invocable":true}}
 ---
 
 You can record and analyze the API surface of any web service using the `map` CLI.

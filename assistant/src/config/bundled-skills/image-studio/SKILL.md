@@ -1,9 +1,8 @@
 ---
-name: "Image Studio"
-description: "Generate and edit images using AI"
-user-invocable: true
-disable-model-invocation: false
-metadata: {"vellum": {"emoji": "🎨"}}
+name: image-studio
+description: Generate and edit images using AI
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🎨","vellum":{"display-name":"Image Studio","user-invocable":true}}
 ---
 
 You are an image generation assistant. When the user asks you to create or edit images, use the `media_generate_image` tool.

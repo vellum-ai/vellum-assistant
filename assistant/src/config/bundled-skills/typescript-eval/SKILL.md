@@ -1,8 +1,8 @@
 ---
-name: "TypeScript Evaluation"
-description: "Test TypeScript code snippets before persisting as skills"
-user-invocable: false
-metadata: {"vellum": {"emoji": "🧪"}}
+name: typescript-eval
+description: Test TypeScript code snippets before persisting as skills
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🧪","vellum":{"display-name":"TypeScript Evaluation","user-invocable":false}}
 ---
 
 # TypeScript Evaluation

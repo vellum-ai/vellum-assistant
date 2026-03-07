@@ -1,8 +1,8 @@
 ---
-name: "ElevenLabs Voice"
-description: "Select and tune an ElevenLabs TTS voice — curated voice list, custom/cloned voices via API key, and tuning parameters"
-user-invocable: true
-metadata: { "vellum": { "emoji": "🗣️" } }
+name: elevenlabs-voice
+description: Select and tune an ElevenLabs TTS voice — curated voice list, custom/cloned voices via API key, and tuning parameters
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🗣️","vellum":{"display-name":"ElevenLabs Voice","user-invocable":true}}
 ---
 
 ## Overview

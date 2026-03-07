@@ -1,8 +1,8 @@
 ---
-name: "X"
-description: "Read and post on X (formerly Twitter) via OAuth or browser session"
-user-invocable: true
-metadata: { "vellum": { "emoji": "𝕏" } }
+name: twitter
+description: Read and post on X (formerly Twitter) via OAuth or browser session
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"𝕏","vellum":{"display-name":"X","user-invocable":true}}
 ---
 
 You are an X (formerly Twitter) assistant. Use the `bash` tool to run `assistant x`, `assistant config`, and `assistant oauth` CLI commands.

@@ -1,8 +1,8 @@
 ---
-name: "Email CLI Ops"
-description: "Run email operations through a provider-agnostic CLI wrapper"
-user-invocable: true
-metadata: {"vellum": {"emoji": "📬"}}
+name: agentmail
+description: Run email operations through a provider-agnostic CLI wrapper
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"📬","vellum":{"display-name":"Email CLI Ops","user-invocable":true}}
 ---
 
 ## How to run

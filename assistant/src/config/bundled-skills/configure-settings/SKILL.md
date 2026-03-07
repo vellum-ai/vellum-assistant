@@ -1,8 +1,8 @@
 ---
-name: "Configure Settings"
-description: "Read, update, or reset assistant configuration values using the assistant config CLI"
-user-invocable: true
-metadata: { "vellum": { "emoji": "⚙️" } }
+name: configure-settings
+description: Read, update, or reset assistant configuration values using the assistant config CLI
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"⚙️","vellum":{"display-name":"Configure Settings","user-invocable":true}}
 ---
 
 You are helping the user view or change assistant configuration through the `vellum` CLI. Treat CLI commands as the canonical interface. Do **not** read or edit config files directly.

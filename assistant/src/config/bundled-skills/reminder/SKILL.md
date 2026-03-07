@@ -1,7 +1,8 @@
 ---
-name: "Reminder"
-description: "One-time time-based reminders that fire at a specific future time"
-metadata: {"vellum": {"emoji": "🔔"}}
+name: reminder
+description: One-time time-based reminders that fire at a specific future time
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🔔","vellum":{"display-name":"Reminder"}}
 ---
 
 Create, list, and cancel one-time reminders. Reminders fire at a specific future time and either notify the user or execute a message through the assistant.

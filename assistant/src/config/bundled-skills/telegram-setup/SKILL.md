@@ -1,9 +1,8 @@
 ---
-name: "Telegram Setup"
-description: "Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage"
-user-invocable: true
-includes: ["public-ingress"]
-metadata: { "vellum": { "emoji": "\ud83e\udd16" } }
+name: telegram-setup
+description: Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🤖","vellum":{"display-name":"Telegram Setup","user-invocable":true,"includes":["public-ingress"]}}
 ---
 
 You are helping your user connect a Telegram bot to the Vellum Assistant gateway. Telegram webhooks are received exclusively by the gateway (the public ingress boundary) — they never hit the assistant runtime directly. When this skill is invoked, walk through each step below using only existing tools.
