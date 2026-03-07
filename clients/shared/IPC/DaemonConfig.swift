@@ -107,25 +107,6 @@ public struct DaemonConfig {
     public let featureFlagToken: String?
 
     #if os(macOS)
-    /// Socket path, for backwards compatibility.
-    /// Returns the socket path if using socket transport, otherwise the default path.
-    public var socketPath: String {
-        switch transport {
-        case .socket(let path):
-            return path
-        case .http, .tcp:
-            return resolveSocketPath()
-        }
-    }
-
-    /// Convenience initializer for socket transport (backwards compatible).
-    public init(socketPath: String, instanceDir: String? = nil) {
-        self.transport = .socket(path: socketPath)
-        self.transportMetadata = .defaultLocal
-        self.instanceDir = instanceDir
-        self.featureFlagToken = instanceDir.map { readFeatureFlagToken(environment: ["BASE_DATA_DIR": $0]) } ?? readFeatureFlagToken()
-    }
-
     public static var `default`: DaemonConfig {
         return DaemonConfig(transport: .socket(path: resolveSocketPath()))
     }
