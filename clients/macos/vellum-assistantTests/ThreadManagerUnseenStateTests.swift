@@ -9,6 +9,21 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
     private var threadManager: ThreadManager!
     private var sentMessages: [Any] = []
 
+    private func makeSessionListResponse(
+        sessions: [[String: Any]],
+        hasMore: Bool? = nil
+    ) -> SessionListResponseMessage {
+        var payload: [String: Any] = [
+            "type": "session_list_response",
+            "sessions": sessions,
+        ]
+        if let hasMore {
+            payload["hasMore"] = hasMore
+        }
+        let data = try! JSONSerialization.data(withJSONObject: payload)
+        return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
+    }
+
     override func setUp() {
         super.setUp()
         daemonClient = DaemonClient()
@@ -17,6 +32,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
             self?.sentMessages.append(message)
         }
         threadManager = ThreadManager(daemonClient: daemonClient)
+        threadManager.createThread()
     }
 
     override func tearDown() {
@@ -326,6 +342,34 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
 
         let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
         XCTAssertEqual(seenSignals.last?.conversationId, "session-active")
+    }
+
+    func testAppendThreadsPreservesAssistantAttentionTimestamps() {
+        let response = makeSessionListResponse(
+            sessions: [[
+                "id": "session-paginated",
+                "title": "Paginated thread",
+                "createdAt": 5_000,
+                "updatedAt": 6_000,
+                "assistantAttention": [
+                    "hasUnseenLatestAssistantMessage": false,
+                    "latestAssistantMessageAt": 9_000,
+                    "lastSeenAssistantMessageAt": 9_000,
+                ],
+            ]],
+            hasMore: false
+        )
+
+        threadManager.appendThreads(from: response)
+
+        guard let appendedThread = threadManager.threads.first(where: { $0.sessionId == "session-paginated" }) else {
+            XCTFail("Expected appended thread")
+            return
+        }
+
+        XCTAssertFalse(appendedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(appendedThread.latestAssistantMessageAt?.timeIntervalSince1970, 9.0)
+        XCTAssertEqual(appendedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 9.0)
     }
 
     private func waitForPropagation() {

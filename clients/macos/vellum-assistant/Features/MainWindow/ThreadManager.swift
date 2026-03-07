@@ -602,6 +602,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 threads[existingIdx].isPinned = isPinned
                 threads[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil
                 threads[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
+                threads[existingIdx].hasUnseenLatestAssistantMessage = session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+                threads[existingIdx].latestAssistantMessageAt = session.assistantAttention?.latestAssistantMessageAt.map {
+                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+                }
+                threads[existingIdx].lastSeenAssistantMessageAt = session.assistantAttention?.lastSeenAssistantMessageAt.map {
+                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+                }
                 if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }
                 continue
             }
@@ -620,7 +627,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 kind: session.threadType == "private" ? .private : .standard,
                 source: session.source,
                 scheduleJobId: session.scheduleJobId,
-                hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+                hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
+                latestAssistantMessageAt: session.assistantAttention?.latestAssistantMessageAt.map {
+                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+                },
+                lastSeenAssistantMessageAt: session.assistantAttention?.lastSeenAssistantMessageAt.map {
+                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+                }
             )
             if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }
             // VM creation is lazy — getOrCreateViewModel() will instantiate
