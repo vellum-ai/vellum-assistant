@@ -555,7 +555,7 @@ class IOSThreadStore: ObservableObject {
             } else {
                 // Case 3: User is active (VMs exist or local threads present).
                 // Do not clear locallyEditedSessionIds — title/archive edits persist until
-                // reconnect or rebind (which clears at IOSThreadStore:390 and :408).
+                // rebind (which resets all local-edit tracking).
                 // Deduplicate: only prepend restored threads whose sessionId
                 // doesn't already exist in the current thread list.
                 let existingSessionIds: Set<String> = Set(
