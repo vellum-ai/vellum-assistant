@@ -334,8 +334,14 @@ export async function collectAndMergeCandidates(
   // not query-match relevance. Common tokens can produce many high-confidence
   // but weakly relevant items that would skip semantic search exactly when
   // it's needed most. Instead, check lexical score (query-match relevance).
+  //
+  // Disable early termination when semantic search is unavailable: boosted
+  // limits inflate cheap candidate counts, making this gate trigger more
+  // easily. Skipping entity retrieval on top of losing semantic search
+  // would reduce recall quality further.
   const canTerminateEarly =
     etConfig.enabled &&
+    !semanticUnavailable &&
     cheapCandidates.length >= etConfig.minCandidates &&
     cheapCandidates.filter((c) => c.lexical >= etConfig.confidenceThreshold)
       .length >= etConfig.minHighConfidence;
@@ -444,6 +450,7 @@ export async function collectAndMergeCandidates(
     relationExpandedItemCount,
     earlyTerminated: canTerminateEarly,
     semanticSearchFailed,
+    semanticUnavailable,
     merged,
   };
 }
@@ -814,11 +821,17 @@ export async function buildMemoryRecall(
     });
   }
 
-  // Propagate semantic search failure into degradation state
-  if (collected.semanticSearchFailed) {
+  // Propagate semantic search failure or breaker-based unavailability into
+  // degradation state. This ensures results computed with boosted limits
+  // are marked degraded and excluded from the recall cache — preventing
+  // stale boosted results from being served after the breaker closes.
+  if (collected.semanticSearchFailed || collected.semanticUnavailable) {
     embeddingResult.degraded = true;
     embeddingResult.reason =
-      embeddingResult.reason ?? "memory.semantic_search_failure";
+      embeddingResult.reason ??
+      (collected.semanticUnavailable
+        ? "memory.qdrant_circuit_open"
+        : "memory.semantic_search_failure");
     if (!embeddingResult.degradation) {
       embeddingResult.degradation = buildDegradationStatus(
         "qdrant_unavailable",

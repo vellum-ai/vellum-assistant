@@ -110,6 +110,8 @@ export interface CollectedCandidates {
   earlyTerminated: boolean;
   /** True when semantic search was attempted but threw an error. */
   semanticSearchFailed: boolean;
+  /** True when semantic search was known to be unavailable before retrieval (no vector or breaker open). */
+  semanticUnavailable: boolean;
   merged: Candidate[];
 }
 
