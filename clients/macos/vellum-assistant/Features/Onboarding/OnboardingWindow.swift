@@ -10,6 +10,8 @@ final class OnboardingWindow {
     let daemonClient: DaemonClientProtocol
     let authManager: AuthManager
     var onComplete: ((OnboardingState) -> Void)?
+    /// Called when the user closes the window before completing onboarding.
+    var onDismiss: (() -> Void)?
 
     init(daemonClient: DaemonClientProtocol, authManager: AuthManager) {
         self.daemonClient = daemonClient
@@ -74,8 +76,9 @@ final class OnboardingWindow {
         // Make the app a regular app so the window gets focus
         NSApp.setActivationPolicy(.regular)
 
-        // Trigger onComplete when the window is closed via the title bar
-        // close button so AppDelegate can clean up and transition the app.
+        // When the user closes the window via the title bar close button,
+        // only proceed if onboarding actually completed. Closing before
+        // completion should not trigger daemon hatching.
         closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
@@ -84,7 +87,12 @@ final class OnboardingWindow {
             guard let self else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.onComplete?(self.state)
+                let completed = self.state.hatchCompleted || self.authManager.isAuthenticated
+                if completed {
+                    self.onComplete?(self.state)
+                } else {
+                    self.onDismiss?()
+                }
                 if let observer = self.closeObserver {
                     NotificationCenter.default.removeObserver(observer)
                 }
