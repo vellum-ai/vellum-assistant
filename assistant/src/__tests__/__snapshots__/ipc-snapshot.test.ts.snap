@@ -1115,6 +1115,12 @@ exports[`IPC message snapshots ClientMessage types reorder_threads serializes to
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types mcp_reload_request serializes to expected JSON 1`] = `
+{
+  "type": "mcp_reload_request",
+}
+`;
+
 exports[`IPC message snapshots ServerMessage types auth_result serializes to expected JSON 1`] = `
 {
   "success": true,
@@ -3039,5 +3045,26 @@ exports[`IPC message snapshots ServerMessage types guardian_action_decision_resp
   "applied": true,
   "requestId": "req-guardian-001",
   "type": "guardian_action_decision_response",
+}
+`;
+
+exports[`IPC message snapshots ServerMessage types mcp_reload_response serializes to expected JSON 1`] = `
+{
+  "serverCount": 2,
+  "servers": [
+    {
+      "connected": true,
+      "id": "test-server",
+      "toolCount": 3,
+      "tools": [
+        "tool1",
+        "tool2",
+        "tool3",
+      ],
+    },
+  ],
+  "success": true,
+  "toolCount": 5,
+  "type": "mcp_reload_response",
 }
 `;

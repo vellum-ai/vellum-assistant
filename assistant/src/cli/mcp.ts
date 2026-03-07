@@ -12,6 +12,7 @@ import {
   McpOAuthProvider,
 } from "../mcp/mcp-oauth-provider.js";
 import { getCliLogger } from "../util/logger.js";
+import { sendOneMessage } from "./ipc-client.js";
 
 const log = getCliLogger("cli");
 
@@ -247,6 +248,47 @@ Examples:
     });
 
   mcp
+    .command("reload")
+    .description("Reload MCP server connections in the running daemon")
+    .action(async () => {
+      log.info("Sending reload request to daemon...");
+      try {
+        const response = await sendOneMessage({ type: "mcp_reload_request" });
+        if (response.type === "mcp_reload_response") {
+          if (response.success) {
+            log.info(
+              `MCP servers reloaded: ${response.serverCount} server(s), ${response.toolCount} tool(s)\n`,
+            );
+            if (response.servers && response.servers.length > 0) {
+              for (const server of response.servers) {
+                const status = server.connected
+                  ? "\u2713 Connected"
+                  : "\u2717 Not connected";
+                log.info(`  ${server.id}`);
+                log.info(`    Status: ${status}`);
+                log.info(
+                  `    Tools:  ${server.toolCount > 0 ? server.tools.join(", ") : "(none)"}`,
+                );
+                log.info("");
+              }
+            }
+          } else {
+            log.error(`Failed to reload: ${response.error}`);
+            process.exitCode = 1;
+          }
+        } else {
+          log.error(`Unexpected response: ${JSON.stringify(response)}`);
+          process.exitCode = 1;
+        }
+      } catch (err) {
+        log.error(
+          `Failed to send reload request: ${err instanceof Error ? err.message : err}`,
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  mcp
     .command("add <name>")
     .description("Add an MCP server configuration")
     .requiredOption(
@@ -360,9 +402,7 @@ Examples:
 
         saveRawConfig(raw);
         log.info(`Added MCP server "${name}" (${opts.transportType})`);
-        log.info(
-          "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
-        );
+        log.info("Run 'vellum mcp reload' to apply changes.");
       },
     );
 
@@ -543,9 +583,7 @@ Examples:
       provider.stopCallbackServer();
 
       log.info(`Authentication successful for "${name}".`);
-      log.info(
-        "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
-      );
+      log.info("Run 'vellum mcp reload' to apply changes.");
       process.exit(0);
     });
 
@@ -597,8 +635,6 @@ Examples:
       delete servers[name];
       saveRawConfig(raw);
       log.info(`Removed MCP server "${name}".`);
-      log.info(
-        "Restart the assistant for changes to take effect: vellum sleep && vellum wake",
-      );
+      log.info("Run 'vellum mcp reload' to apply changes.");
     });
 }

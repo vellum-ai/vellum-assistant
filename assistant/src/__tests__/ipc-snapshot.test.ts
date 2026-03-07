@@ -679,6 +679,9 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
       { sessionId: "sess-002", displayOrder: 1, isPinned: true },
     ],
   },
+  mcp_reload_request: {
+    type: "mcp_reload_request",
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -2008,6 +2011,21 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     reason: undefined,
     requestId: "req-guardian-001",
     userText: undefined,
+  },
+  mcp_reload_response: {
+    type: "mcp_reload_response",
+    success: true,
+    serverCount: 2,
+    toolCount: 5,
+    servers: [
+      {
+        id: "test-server",
+        connected: true,
+        toolCount: 3,
+        tools: ["tool1", "tool2", "tool3"],
+      },
+    ],
+    error: undefined,
   },
 };
 

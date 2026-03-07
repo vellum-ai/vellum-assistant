@@ -2704,6 +2704,49 @@ public struct IPCListSurfaceData: Codable, Sendable {
     }
 }
 
+/// Request to reload all MCP server connections with fresh config/tokens.
+public struct IPCMcpReloadRequest: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
+/// Response after reloading MCP servers.
+public struct IPCMcpReloadResponse: Codable, Sendable {
+    public let type: String
+    public let success: Bool
+    public let serverCount: Int?
+    public let toolCount: Int?
+    public let servers: [IPCMcpReloadServerResult]?
+    public let error: String?
+
+    public init(type: String, success: Bool, serverCount: Int? = nil, toolCount: Int? = nil, servers: [IPCMcpReloadServerResult]? = nil, error: String? = nil) {
+        self.type = type
+        self.success = success
+        self.serverCount = serverCount
+        self.toolCount = toolCount
+        self.servers = servers
+        self.error = error
+    }
+}
+
+/// Per-server reload result.
+public struct IPCMcpReloadServerResult: Codable, Sendable {
+    public let id: String
+    public let connected: Bool
+    public let toolCount: Int
+    public let tools: [String]
+
+    public init(id: String, connected: Bool, toolCount: Int, tools: [String]) {
+        self.id = id
+        self.connected = connected
+        self.toolCount = toolCount
+        self.tools = tools
+    }
+}
+
 public struct IPCMemoryRecalled: Codable, Sendable {
     public let type: String
     public let provider: String

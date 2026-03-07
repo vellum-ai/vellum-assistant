@@ -18,6 +18,7 @@ import { browserHandlers } from "./browser.js";
 import { computerUseHandlers } from "./computer-use.js";
 import { configHandlers } from "./config-dispatch.js";
 import { inboxInviteHandlers } from "./config-inbox.js";
+import { mcpHandlers } from "./config-mcp.js";
 import { contactsHandlers } from "./contacts.js";
 import { diagnosticsHandlers } from "./diagnostics.js";
 import { dictationHandlers } from "./dictation.js";
@@ -187,6 +188,7 @@ const handlers = {
   ...pairingHandlers,
   ...recordingHandlers,
   ...inlineHandlers,
+  ...mcpHandlers,
 } satisfies DispatchMap;
 
 export function handleMessage(

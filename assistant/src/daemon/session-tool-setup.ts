@@ -27,7 +27,10 @@ import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerSessionSender } from "../tools/browser/browser-screencast.js";
 import { requestComputerControlTool } from "../tools/computer-use/request-computer-control.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import { getAllToolDefinitions } from "../tools/registry.js";
+import {
+  getAllToolDefinitions,
+  getMcpToolDefinitions,
+} from "../tools/registry.js";
 import type {
   ProxyApprovalCallback,
   ProxyApprovalRequest,
@@ -493,12 +496,32 @@ export interface SkillProjectionContext {
  * dynamically projected skill tools on each agent turn. Also updates
  * allowedToolNames so newly-activated skill tools aren't blocked by
  * the executor's stale gate.
+ *
+ * Core (non-MCP) tool definitions are captured at session creation and
+ * reused on each turn. MCP tool definitions are re-read from the global
+ * registry on each turn so that tools registered after session creation
+ * (e.g. via `vellum mcp reload`) are automatically picked up without
+ * requiring session disposal or app restart.
  */
 export function createResolveToolsCallback(
   toolDefs: ToolDefinition[],
   ctx: SkillProjectionContext,
 ): ((history: Message[]) => ToolDefinition[]) | undefined {
   if (toolDefs.length === 0) return undefined;
+
+  // Separate the initial tool defs into core (stable) and MCP (dynamic).
+  // We keep core tools from the snapshot and re-read MCP tools each turn.
+  const initialMcpDefs = getMcpToolDefinitions();
+  const initialMcpNames = new Set(initialMcpDefs.map((d) => d.name));
+  const coreToolDefs = toolDefs.filter((d) => !initialMcpNames.has(d.name));
+  log.debug(
+    {
+      coreCount: coreToolDefs.length,
+      mcpCount: initialMcpDefs.length,
+      mcpTools: initialMcpDefs.map((d) => d.name),
+    },
+    "Session tool resolver initialized",
+  );
 
   return (history: Message[]) => {
     // When tools are explicitly disabled (e.g. during pointer generation),
@@ -509,6 +532,18 @@ export function createResolveToolsCallback(
       return [];
     }
 
+    // Re-read MCP tool definitions from the registry each turn so sessions
+    // automatically pick up tools added/removed by `vellum mcp reload`.
+    const currentMcpDefs = getMcpToolDefinitions();
+    log.debug(
+      {
+        mcpCount: currentMcpDefs.length,
+        mcpTools: currentMcpDefs.map((d) => d.name),
+      },
+      "MCP tools resolved for turn",
+    );
+    const allBaseDefs = [...coreToolDefs, ...currentMcpDefs];
+
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
       ...(ctx.preactivatedSkillIds ?? []),
@@ -518,11 +553,11 @@ export function createResolveToolsCallback(
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
     });
-    const turnAllowed = new Set(ctx.coreToolNames);
+    const turnAllowed = new Set(allBaseDefs.map((d) => d.name));
     for (const name of projection.allowedToolNames) {
       turnAllowed.add(name);
     }
     ctx.allowedToolNames = turnAllowed;
-    return [...toolDefs, ...projection.toolDefinitions];
+    return [...allBaseDefs, ...projection.toolDefinitions];
   };
 }

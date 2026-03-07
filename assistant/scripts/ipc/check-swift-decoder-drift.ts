@@ -62,6 +62,8 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Contact management — not yet consumed by the macOS client
   "contacts_response",
   "contacts_changed",
+  // MCP reload — CLI-only, not consumed by the macOS client
+  "mcp_reload_response",
 ]);
 
 /**

@@ -43,12 +43,37 @@ export interface GenerateAvatarResponse {
   error?: string;
 }
 
+/** Request to reload all MCP server connections with fresh config/tokens. */
+export interface McpReloadRequest {
+  type: "mcp_reload_request";
+}
+
+/** Per-server reload result. */
+export interface McpReloadServerResult {
+  id: string;
+  connected: boolean;
+  toolCount: number;
+  tools: string[];
+}
+
+/** Response after reloading MCP servers. */
+export interface McpReloadResponse {
+  type: "mcp_reload_response";
+  success: boolean;
+  serverCount?: number;
+  toolCount?: number;
+  servers?: McpReloadServerResult[];
+  error?: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _SettingsClientMessages =
   | VoiceConfigUpdateRequest
-  | GenerateAvatarRequest;
+  | GenerateAvatarRequest
+  | McpReloadRequest;
 export type _SettingsServerMessages =
   | ClientSettingsUpdate
   | AvatarUpdated
-  | GenerateAvatarResponse;
+  | GenerateAvatarResponse
+  | McpReloadResponse;
