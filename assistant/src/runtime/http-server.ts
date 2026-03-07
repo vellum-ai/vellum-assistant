@@ -118,6 +118,7 @@ import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
 import { integrationRouteDefinitions } from "./routes/integration-routes.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
+import { mcpRouteDefinitions } from "./routes/mcp-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 import {
@@ -686,6 +687,7 @@ export class RuntimeHttpServer {
       ...secretRouteDefinitions(),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
+      ...mcpRouteDefinitions(),
       ...usageRouteDefinitions(),
 
       // Browser relay — not extracted into a domain module because
