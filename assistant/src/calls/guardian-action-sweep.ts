@@ -9,7 +9,7 @@
  * 4. Adds an expiry message to mac guardian thread conversations
  */
 
-import { addMessage } from "../memory/conversation-store.js";
+import { addMessage } from "../memory/conversation-crud.js";
 import {
   expireGuardianActionRequest,
   getDeliveriesByRequestId,

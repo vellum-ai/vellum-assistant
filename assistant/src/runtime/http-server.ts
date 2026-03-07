@@ -42,7 +42,10 @@ import {
   recordConversationSeenSignal,
   type SignalType,
 } from "../memory/conversation-attention-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import {
+  countConversations,
+  listConversations,
+} from "../memory/conversation-queries.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
 import {
   consumeCallback,
@@ -716,12 +719,8 @@ export class RuntimeHttpServer {
         handler: ({ url }) => {
           const limit = Number(url.searchParams.get("limit") ?? 50);
           const offset = Number(url.searchParams.get("offset") ?? 0);
-          const conversations = conversationStore.listConversations(
-            limit,
-            false,
-            offset,
-          );
-          const totalCount = conversationStore.countConversations();
+          const conversations = listConversations(limit, false, offset);
+          const totalCount = countConversations();
           const conversationIds = conversations.map((c) => c.id);
           const bindings =
             externalConversationStore.getBindingsForConversations(

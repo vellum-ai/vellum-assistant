@@ -7,7 +7,7 @@
  */
 
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
-import { getMessages } from "../memory/conversation-store.js";
+import { getMessages } from "../memory/conversation-crud.js";
 import type { ScheduleMessageProcessor } from "../schedule/scheduler.js";
 import { getLogger } from "../util/logger.js";
 import { recordEvent } from "./analytics.js";

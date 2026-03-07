@@ -21,7 +21,7 @@ import {
   addMessage,
   createConversation,
   getConversation,
-} from "../memory/conversation-store.js";
+} from "../memory/conversation-crud.js";
 import {
   getBindingByChannelChat,
   upsertOutboundBinding,

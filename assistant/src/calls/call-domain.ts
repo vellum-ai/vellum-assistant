@@ -14,8 +14,8 @@ import {
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
 } from "../inbound/public-ingress-urls.js";
+import { getConversation } from "../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { getConversation } from "../memory/conversation-store.js";
 import { queueGenerateConversationTitle } from "../memory/conversation-title-service.js";
 import { upsertBinding } from "../memory/external-conversation-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
