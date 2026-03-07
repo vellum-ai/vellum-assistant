@@ -217,6 +217,9 @@ mock.module("../memory/retriever.js", () => ({
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    shouldCompact() {
+      return false;
+    }
     async maybeCompact() {
       return { compacted: false };
     }

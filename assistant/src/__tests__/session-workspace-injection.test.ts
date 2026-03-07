@@ -172,6 +172,9 @@ mock.module("../memory/retrieval-budget.js", () => ({
 }));
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
+    shouldCompact() {
+      return false;
+    }
     async maybeCompact() {
       return { compacted: false };
     }

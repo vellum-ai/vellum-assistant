@@ -370,6 +370,7 @@ function makeCtx(
     systemPrompt: "system prompt",
 
     contextWindowManager: {
+      shouldCompact: () => false,
       maybeCompact: async () => ({ compacted: false }),
     } as unknown as AgentLoopSessionContext["contextWindowManager"],
     contextCompactedMessageCount: 0,
@@ -799,6 +800,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => false,
           // Compaction succeeds but context is still too large
           maybeCompact: async () => ({
             compacted: true,
@@ -1035,6 +1037,7 @@ describe("session-agent-loop", () => {
         agentLoopRun,
         hasNoClient: true,
         contextWindowManager: {
+          shouldCompact: () => false,
           maybeCompact: async () => ({
             compacted: true,
             messages: [

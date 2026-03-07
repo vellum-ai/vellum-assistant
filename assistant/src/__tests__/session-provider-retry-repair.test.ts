@@ -199,6 +199,9 @@ let forceCompactionEnabled = false;
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    shouldCompact() {
+      return false;
+    }
     async maybeCompact(
       messages: Message[],
       _signal?: AbortSignal,
