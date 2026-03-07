@@ -143,7 +143,7 @@ describe("channel verification session proxy", () => {
           host: "localhost:7830",
         },
         body: JSON.stringify({
-          channel: "voice",
+          channel: "phone",
           destination: "+15551234567",
         }),
       }),
@@ -151,7 +151,7 @@ describe("channel verification session proxy", () => {
 
     expect(res.status).toBe(200);
     expect(capturedBody).toBe(
-      '{"channel":"voice","destination":"+15551234567"}',
+      '{"channel":"phone","destination":"+15551234567"}',
     );
     expect(capturedHeaders?.get("authorization")).toMatch(/^Bearer ey/);
     expect(capturedHeaders?.has("host")).toBe(false);
