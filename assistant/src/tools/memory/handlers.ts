@@ -3,7 +3,10 @@ import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../../memory/db.js";
-import { getMemoryBackendStatus } from "../../memory/embedding-backend.js";
+import {
+  getMemoryBackendStatus,
+  logMemoryEmbeddingWarning,
+} from "../../memory/embedding-backend.js";
 import { computeMemoryFingerprint } from "../../memory/fingerprint.js";
 import { formatRecallText } from "../../memory/format-recall.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
@@ -368,9 +371,9 @@ export async function handleMemoryRecall(
         queryVector = embedded.vectors[0] ?? null;
         provider = embedded.provider;
         model = embedded.model;
-      } catch {
-        // Gracefully degrade to non-semantic retrieval
-        degraded = true;
+      } catch (err) {
+        logMemoryEmbeddingWarning(err, "query");
+        degraded = !!config.memory.embeddings.required;
       }
     } else {
       degraded = backendStatus.degraded;
