@@ -4,6 +4,10 @@
 !assistant/**
 !cli/
 !cli/**
+!gateway/
+!gateway/**
+!meta/
+!meta/**
 
 # Exclude local dependencies and build outputs from included packages.
 assistant/node_modules/
@@ -19,3 +23,17 @@ cli/out/
 cli/build/
 cli/.env
 cli/.env.*
+
+gateway/node_modules/
+gateway/dist/
+gateway/out/
+gateway/build/
+gateway/.env
+gateway/.env.*
+
+meta/node_modules/
+meta/dist/
+meta/out/
+meta/build/
+meta/.env
+meta/.env.*
