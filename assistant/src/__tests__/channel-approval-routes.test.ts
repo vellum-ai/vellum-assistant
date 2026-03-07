@@ -1075,7 +1075,7 @@ describe("telegram guardian verify intercept", () => {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("verified");
+    expect(body.verificationOutcome).toBe("verified");
 
     expect(deliverSpy).toHaveBeenCalled();
     const replyArgs = deliverSpy.mock.calls[0];
@@ -1119,7 +1119,7 @@ describe("telegram guardian verify intercept", () => {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("failed");
+    expect(body.verificationOutcome).toBe("failed");
 
     expect(deliverSpy).toHaveBeenCalled();
     const replyArgs = deliverSpy.mock.calls[0];
@@ -1171,7 +1171,7 @@ describe("telegram guardian verify intercept", () => {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("verified");
+    expect(body.verificationOutcome).toBe("verified");
     expect(processMessageCalled).toBe(false);
   });
 });
@@ -1515,7 +1515,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("verified");
+    expect(body.verificationOutcome).toBe("verified");
 
     deliverSpy.mockRestore();
   });
@@ -1547,7 +1547,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("verified");
+    expect(body.verificationOutcome).toBe("verified");
 
     const bindingX = getGuardianBinding("self", "telegram");
     expect(bindingX).not.toBeNull();
@@ -1581,7 +1581,7 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
-    expect(body.guardianVerification).toBe("verified");
+    expect(body.verificationOutcome).toBe("verified");
 
     deliverSpy.mockRestore();
   });

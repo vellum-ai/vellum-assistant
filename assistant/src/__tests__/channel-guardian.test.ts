@@ -53,7 +53,7 @@ const voiceCallInitCalls: Array<{
   assistantId?: string;
 }> = [];
 mock.module("../calls/call-domain.js", () => ({
-  startGuardianVerificationCall: async (input: {
+  startVerificationCall: async (input: {
     phoneNumber: string;
     verificationSessionId: string;
     assistantId?: string;

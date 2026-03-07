@@ -79,5 +79,5 @@ export class VerificationRateLimiter {
   }
 }
 
-/** Singleton rate limiter for guardian verification endpoint failures. */
-export const guardianVerificationLimiter = new VerificationRateLimiter();
+/** Singleton rate limiter for verification endpoint failures. */
+export const verificationRateLimiter = new VerificationRateLimiter();

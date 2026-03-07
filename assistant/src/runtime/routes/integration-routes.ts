@@ -50,7 +50,7 @@ import {
   resendOutbound,
   startOutbound,
 } from "../verification-outbound-actions.js";
-import { guardianVerificationLimiter } from "../verification-rate-limiter.js";
+import { verificationRateLimiter } from "../verification-rate-limiter.js";
 
 /**
  * GET /v1/integrations/telegram/config
@@ -209,7 +209,7 @@ export async function handleCreateVerificationSession(
       }
     }
 
-    if (rateLimitKey && guardianVerificationLimiter.isBlocked(rateLimitKey)) {
+    if (rateLimitKey && verificationRateLimiter.isBlocked(rateLimitKey)) {
       return httpError(
         "RATE_LIMITED",
         "Too many verification attempts for this identity. Please try again later.",
@@ -225,7 +225,7 @@ export async function handleCreateVerificationSession(
     });
 
     if (!result.success && rateLimitKey) {
-      guardianVerificationLimiter.recordFailure(rateLimitKey);
+      verificationRateLimiter.recordFailure(rateLimitKey);
     }
 
     const status = result.success

@@ -65,7 +65,7 @@ const voiceCallInitCalls: Array<{
   originConversationId?: string;
 }> = [];
 mock.module("../calls/call-domain.js", () => ({
-  startGuardianVerificationCall: async (input: {
+  startVerificationCall: async (input: {
     phoneNumber: string;
     verificationSessionId: string;
     assistantId?: string;
@@ -289,7 +289,7 @@ describe("startOutbound", () => {
     expect(result.sendCount).toBe(1);
   });
 
-  test("voice: passes originConversationId to startGuardianVerificationCall", async () => {
+  test("voice: passes originConversationId to startVerificationCall", async () => {
     voiceCallInitCalls.length = 0;
     const result = await startOutbound({
       channel: "voice",
