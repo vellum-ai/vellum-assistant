@@ -71,10 +71,6 @@ When you need to **send** content to Slack proactively (e.g. a scheduled digest,
 
 For setting up recurring digests, load the `slack-digest-setup` skill which covers the full configuration, scheduling, and delivery protocol.
 
-## Watcher Integration
-
-For real-time monitoring (not just on-demand scanning), the user can set up a Slack watcher using the watcher skill with the same channel IDs. Mention this if the user wants ongoing monitoring.
-
 ## Connection
 
 Before using any Slack tool, verify that Slack is connected. If not connected, guide the user through the Slack setup flow described in the messaging skill.
