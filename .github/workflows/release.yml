@@ -1702,7 +1702,7 @@ jobs:
             playwright/test-results/
           retention-days: 30
 
-  notify:
+  notify-release:
     name: Slack Notification (Release)
     if: always() && !cancelled()
     needs: [bump-and-tag, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, build-ios, release-ios, push-assistant-manifest, push-gateway-manifest, register-release, release, update-platform, ci-assistant, ci-cli, ci-gateway, ci-playwright]

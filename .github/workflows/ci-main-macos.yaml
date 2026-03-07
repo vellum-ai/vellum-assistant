@@ -38,7 +38,7 @@ jobs:
         working-directory: clients/macos
         run: ./build.sh test
 
-  notify:
+  notify-macos:
     name: Slack Notification (macOS)
     needs: [test]
     if: always()

@@ -49,7 +49,7 @@ jobs:
         working-directory: clients/ios
         run: ./build.sh test
 
-  notify:
+  notify-ios:
     name: Slack Notification (iOS)
     needs: [build]
     if: always()

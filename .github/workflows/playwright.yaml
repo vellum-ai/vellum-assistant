@@ -361,7 +361,7 @@ jobs:
         if: steps.tests.outcome == 'failure'
         run: exit 1
 
-  notify:
+  notify-playwright:
     name: Slack Notification (Playwright)
     needs: [prepare, build, playwright]
     if: always() && github.event_name == 'schedule'

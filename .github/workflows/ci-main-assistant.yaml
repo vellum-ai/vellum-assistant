@@ -126,7 +126,7 @@ jobs:
           path: assistant/.test-durations
           key: test-durations-${{ github.run_id }}
 
-  notify:
+  notify-assistant:
     name: Slack Notification (Assistant)
     needs: [lint, typecheck, test]
     if: always()

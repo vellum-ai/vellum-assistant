@@ -38,7 +38,7 @@ jobs:
       - name: Test
         run: bun run test
 
-  notify:
+  notify-gateway:
     name: Slack Notification (Gateway)
     needs: [checks]
     if: always()
