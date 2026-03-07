@@ -44,7 +44,7 @@ import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../../runtime/verification-templates.js";
-import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
+import { getTelegramBotUsername } from "../../telegram/bot-username.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
 import type {
   ChannelVerificationSessionRequest,
@@ -246,18 +246,6 @@ function toVerificationChannel(channelType: string): ChannelId | null {
     default:
       return null;
   }
-}
-
-function getTelegramBotUsername(): string | undefined {
-  const meta = getCredentialMetadata("telegram", "bot_token");
-  if (
-    meta?.accountInfo &&
-    typeof meta.accountInfo === "string" &&
-    meta.accountInfo.trim().length > 0
-  ) {
-    return meta.accountInfo.trim();
-  }
-  return process.env.TELEGRAM_BOT_USERNAME || undefined;
 }
 
 /**
