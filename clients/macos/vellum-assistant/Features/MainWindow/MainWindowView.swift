@@ -87,12 +87,6 @@ struct MainWindowView: View {
     /// but requires complex window geometry inspection.
     let trafficLightPadding: CGFloat = 78
 
-    /// When a generated surface is expanded into the workspace, hide the
-    /// global sidebar toggle so workspace controls own the top-left slot.
-    private var isGeneratedWorkspaceOpen: Bool {
-        windowState.isDynamicExpanded
-    }
-
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
     /// When true, the client shows a chat-only interface — no Home Base dashboard.
     private var isBootstrapOnboardingActive: Bool {
