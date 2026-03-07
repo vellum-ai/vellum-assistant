@@ -648,48 +648,17 @@ function formatRecallResult(
     ),
   );
 
-  // Reserve token budget for the degradation notice so it doesn't push
-  // injected text over maxInjectTokens when appended after trimming.
-  const degradationNotice = collected.semanticSearchFailed
-    ? buildDegradationNotice(embedding.degradation)
-    : undefined;
-  const noticeOnlyTokenCost = degradationNotice
-    ? estimateTextTokens(degradationNotice)
-    : 0;
-  // +2 for '\n\n' separator — only needed when candidates are also present
-  const noticeTokenCost = noticeOnlyTokenCost + (degradationNotice ? 2 : 0);
-  // When the notice alone exceeds the budget, skip it entirely so
-  // injectedText never exceeds maxInjectTokens.
-  const budgetForNotice = noticeTokenCost <= maxInjectTokens;
-  const candidateBudget = budgetForNotice
-    ? maxInjectTokens - noticeTokenCost
-    : maxInjectTokens;
-
   const selected = trimToTokenBudget(
     merged,
-    candidateBudget,
+    maxInjectTokens,
     config.memory.retrieval.injectionFormat,
   );
   markItemUsage(selected);
 
-  let injectedText = buildInjectedText(
+  const injectedText = buildInjectedText(
     selected,
     config.memory.retrieval.injectionFormat,
   );
-
-  // Show the notice if it fits: when candidates are present the separator
-  // cost was already reserved; when no candidates were selected, the notice
-  // alone (without separator) may still fit even if the full cost didn't.
-  const canShowNotice =
-    degradationNotice &&
-    (budgetForNotice ||
-      (selected.length === 0 && noticeOnlyTokenCost <= maxInjectTokens));
-  if (canShowNotice) {
-    injectedText =
-      injectedText.length > 0
-        ? injectedText + "\n\n" + degradationNotice
-        : degradationNotice;
-  }
 
   const topCandidates: MemoryRecallCandiateDebug[] = selected
     .slice(0, 10)
@@ -1092,30 +1061,6 @@ export async function searchMemoryItems(
       recency: c.recency,
     },
   }));
-}
-
-/**
- * Build a user-facing degradation notice that explains specifically
- * what retrieval capability is unavailable and what fallbacks are active.
- */
-function buildDegradationNotice(
-  degradation: DegradationStatus | undefined,
-): string {
-  if (!degradation) {
-    return "[Note: Semantic memory search is currently unavailable. Memory recall is limited to keyword and recency matching — results may be incomplete or miss semantically relevant memories.]";
-  }
-
-  const sourceLabels: Record<FallbackSource, string> = {
-    lexical: "keyword",
-    recency: "recency",
-    direct_item: "direct item",
-    entity: "entity graph",
-  };
-  const fallbackList = degradation.fallbackSources
-    .map((s) => sourceLabels[s])
-    .join(", ");
-
-  return `[Note: Semantic memory search unavailable — using ${fallbackList} search only. Results may be incomplete or miss semantically relevant memories.]`;
 }
 
 function emptyResult(
