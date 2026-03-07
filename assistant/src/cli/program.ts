@@ -7,7 +7,6 @@ import { registerAmazonCommand } from "./commands/amazon.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
-import { registerChannelsCommand } from "./commands/channels.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { registerContactsCommand } from "./commands/contacts.js";
@@ -52,7 +51,6 @@ export function buildCliProgram(): Command {
   registerMcpCommand(program);
   registerEmailCommand(program);
   registerContactsCommand(program);
-  registerChannelsCommand(program);
   registerChannelVerificationSessionsCommand(program);
   registerAmazonCommand(program);
   registerAutonomyCommand(program);

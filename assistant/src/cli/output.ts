@@ -17,17 +17,3 @@ export function writeOutput(cmd: Command, payload: unknown): void {
       : JSON.stringify(payload, null, 2) + "\n",
   );
 }
-
-export async function runRead(
-  cmd: Command,
-  reader: () => Promise<unknown>,
-): Promise<void> {
-  try {
-    const result = await reader();
-    writeOutput(cmd, result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    writeOutput(cmd, { ok: false, error: message });
-    process.exitCode = 1;
-  }
-}
