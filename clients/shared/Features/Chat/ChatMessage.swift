@@ -34,9 +34,9 @@ public struct ToolConfirmationData: Equatable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let riskLevel: String
-    public let diff: ConfirmationRequestMessage.ConfirmationDiffInfo?
-    public let allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption]
-    public let scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption]
+    public let diff: IPCConfirmationRequestDiff?
+    public let allowlistOptions: [IPCConfirmationRequestAllowlistOption]
+    public let scopeOptions: [IPCConfirmationRequestScopeOption]
     public let executionTarget: String?
     /// When false, hide "Always Allow" and trust-rule persistence controls.
     public let persistentDecisionsAllowed: Bool
@@ -646,7 +646,7 @@ public struct ToolConfirmationData: Equatable {
         }
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestMessage.ConfirmationDiffInfo? = nil, allowlistOptions: [ConfirmationRequestMessage.ConfirmationAllowlistOption] = [], scopeOptions: [ConfirmationRequestMessage.ConfirmationScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: IPCConfirmationRequestDiff? = nil, allowlistOptions: [IPCConfirmationRequestAllowlistOption] = [], scopeOptions: [IPCConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input

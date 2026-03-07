@@ -435,7 +435,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
             actions: nil,
             display: nil
         )
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(
                 id: nil,
                 role: "assistant",
@@ -480,7 +480,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
             actions: nil,
             display: nil
         )
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(
                 id: nil,
                 role: "assistant",

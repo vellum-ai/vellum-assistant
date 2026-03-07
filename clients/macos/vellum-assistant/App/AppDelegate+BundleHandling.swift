@@ -101,8 +101,8 @@ extension AppDelegate {
 
     func unpackAndLoadBundle(
         filePath: String,
-        manifest: OpenBundleResponseMessage.Manifest,
-        signatureResult: OpenBundleResponseMessage.SignatureResult,
+        manifest: IPCOpenBundleResponseManifest,
+        signatureResult: IPCOpenBundleResponseSignatureResult,
         bundleSizeBytes: Int,
         onSuccess: (() -> Void)? = nil,
         onError: ((String) -> Void)? = nil

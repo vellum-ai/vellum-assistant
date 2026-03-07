@@ -1770,7 +1770,7 @@ final class ChatViewModelTests: XCTestCase {
             id: "hist-att-1", filename: "chart.png", mimeType: "image/png",
             data: "iVBORw0KGgo=", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(id: nil, role: "user", text: "Show me a chart", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
             IPCHistoryResponseMessage(id: nil, role: "assistant", text: "Here is your chart", timestamp: 2000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
@@ -1789,7 +1789,7 @@ final class ChatViewModelTests: XCTestCase {
             id: "hist-att-2", filename: "report.pdf", mimeType: "application/pdf",
             data: "JVBER", extractedText: nil, sizeBytes: nil, thumbnailData: nil
         )
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: [attachment], textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
@@ -1803,7 +1803,7 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testPopulateFromHistorySkipsEmptyMessagesWithNoAttachments() {
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(id: nil, role: "assistant", text: "", timestamp: 1000, toolCalls: nil, toolCallsBeforeText: nil, attachments: nil, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil),
         ]
 
@@ -1864,7 +1864,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testPopulateFromHistoryUsesTextSegments() {
         let toolCall = IPCHistoryResponseToolCall(name: "memory_save", input: ["key": AnyCodable("task")], result: "saved", isError: nil, imageData: nil)
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(
                 id: nil,
                 role: "assistant",
@@ -1890,7 +1890,7 @@ final class ChatViewModelTests: XCTestCase {
 
     func testPopulateFromHistoryFallsBackToLegacy() {
         let toolCall = IPCHistoryResponseToolCall(name: "bash", input: ["command": AnyCodable("ls")], result: "file.txt", isError: nil, imageData: nil)
-        let historyItems: [HistoryResponseMessage.HistoryMessageItem] = [
+        let historyItems: [IPCHistoryResponseMessage] = [
             IPCHistoryResponseMessage(
                 id: nil,
                 role: "assistant",

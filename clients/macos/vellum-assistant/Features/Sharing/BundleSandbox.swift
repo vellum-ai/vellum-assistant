@@ -39,8 +39,8 @@ enum BundleSandbox {
     /// Returns the UUID and the directory URL where the contents were extracted.
     static func unpack(
         filePath: String,
-        manifest: OpenBundleResponseMessage.Manifest,
-        signatureResult: OpenBundleResponseMessage.SignatureResult,
+        manifest: IPCOpenBundleResponseManifest,
+        signatureResult: IPCOpenBundleResponseSignatureResult,
         bundleSizeBytes: Int
     ) throws -> (uuid: String, directory: URL) {
         let uuid = UUID().uuidString.lowercased()

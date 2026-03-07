@@ -2125,7 +2125,7 @@ public final class ChatViewModel: ObservableObject {
     ///     (older page fetched on demand). When `false`, the standard initial-load
     ///     or reconnect-catch-up logic applies.
     public func populateFromHistory(
-        _ historyMessages: [HistoryResponseMessage.HistoryMessageItem],
+        _ historyMessages: [IPCHistoryResponseMessage],
         hasMore: Bool = false,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
