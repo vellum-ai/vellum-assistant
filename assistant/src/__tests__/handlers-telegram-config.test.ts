@@ -1276,7 +1276,7 @@ describe("Guardian verification IPC actions", () => {
   test("create_challenge action returns a secret and instruction", () => {
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
-      action: "create_challenge",
+      action: "create_session",
       channel: "telegram",
     };
 

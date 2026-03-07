@@ -1986,7 +1986,7 @@ describe("IPC handler voice guardian verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
-      action: "create_challenge",
+      action: "create_session",
       channel: "voice",
     };
 
@@ -2572,7 +2572,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
-      action: "start_outbound",
+      action: "create_session",
       channel: "sms",
       destination: "+15551234567",
     };
@@ -2608,7 +2608,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
-      action: "start_outbound",
+      action: "create_session",
       channel: "sms",
       destination: "+15559876543",
       rebind: false,
@@ -2634,7 +2634,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: GuardianVerificationRequest = {
       type: "guardian_verification",
-      action: "start_outbound",
+      action: "create_session",
       channel: "sms",
       destination: "+15559876543",
       rebind: true,
@@ -2654,7 +2654,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "sms",
         destination: "+15551234567",
       },
@@ -2667,7 +2667,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "resend_outbound",
+        action: "resend_session",
         channel: "sms",
       },
       mockSocket,
@@ -2686,7 +2686,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "sms",
         destination: "+15551234567",
       },
@@ -2712,7 +2712,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "resend_outbound",
+        action: "resend_session",
         channel: "sms",
       },
       mockSocket,
@@ -2732,7 +2732,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "sms",
         destination: "+15551234567",
       },
@@ -2755,7 +2755,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "resend_outbound",
+        action: "resend_session",
         channel: "sms",
       },
       mockSocket,
@@ -2774,7 +2774,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "sms",
         destination: "+15551234567",
       },
@@ -2791,7 +2791,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "cancel_outbound",
+        action: "cancel_session",
         channel: "sms",
       },
       mockSocket,
@@ -2885,7 +2885,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "email",
         destination: "user@example.com",
       },
@@ -2904,7 +2904,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "sms",
         // no destination
       },
@@ -2923,7 +2923,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "sms",
         destination: "not-a-phone",
       },
@@ -2942,7 +2942,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "sms",
         destination: "(555) 123-4567",
       },
@@ -2986,7 +2986,7 @@ describe("outbound SMS verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "cancel_outbound",
+        action: "cancel_session",
         channel: "sms",
       },
       mockSocket,
@@ -3014,7 +3014,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "@someuser",
       },
@@ -3049,7 +3049,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "someuser",
       },
@@ -3071,7 +3071,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "123456789",
       },
@@ -3112,7 +3112,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "@someuser",
       },
@@ -3138,7 +3138,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "@newuser",
         rebind: false,
@@ -3302,7 +3302,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "123456789",
       },
@@ -3324,7 +3324,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "resend_outbound",
+        action: "resend_session",
         channel: "telegram",
       },
       mockSocket,
@@ -3348,7 +3348,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "@someuser",
       },
@@ -3360,7 +3360,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "resend_outbound",
+        action: "resend_session",
         channel: "telegram",
       },
       mockSocket,
@@ -3379,7 +3379,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "123456789",
       },
@@ -3394,7 +3394,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "cancel_outbound",
+        action: "cancel_session",
         channel: "telegram",
       },
       mockSocket,
@@ -3443,7 +3443,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
       },
       mockSocket,
@@ -3462,7 +3462,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "123456789",
       },
@@ -3485,7 +3485,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "resend_outbound",
+        action: "resend_session",
         channel: "telegram",
       },
       mockSocket,
@@ -3504,7 +3504,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "123456789",
       },
@@ -3517,7 +3517,7 @@ describe("outbound Telegram verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "resend_outbound",
+        action: "resend_session",
         channel: "telegram",
       },
       mockSocket,
@@ -3545,7 +3545,7 @@ describe("outbound voice verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "voice",
         destination: "+15551234567",
       },
@@ -3589,7 +3589,7 @@ describe("outbound voice verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "voice",
         destination: "not-a-phone",
       },
@@ -3608,7 +3608,7 @@ describe("outbound voice verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "voice",
         destination: "555-123-4567",
       },
@@ -3651,7 +3651,7 @@ describe("outbound voice verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "voice",
         destination: "+15559876543",
         rebind: false,
@@ -3672,7 +3672,7 @@ describe("outbound voice verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "voice",
         destination: "+15551234567",
       },
@@ -3685,7 +3685,7 @@ describe("outbound voice verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "resend_outbound",
+        action: "resend_session",
         channel: "voice",
       },
       mockSocket,
@@ -3704,7 +3704,7 @@ describe("outbound voice verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "voice",
         destination: "+15551234567",
       },
@@ -3717,7 +3717,7 @@ describe("outbound voice verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "cancel_outbound",
+        action: "cancel_session",
         channel: "voice",
       },
       mockSocket,
@@ -3759,7 +3759,7 @@ describe("outbound voice verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "voice",
         destination: "+15551234567",
       },
@@ -3778,7 +3778,7 @@ describe("outbound voice verification", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "voice",
       },
       mockSocket,
@@ -3814,7 +3814,7 @@ describe("M1–M4 hardening coverage", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "sms",
         destination: "+15551234567",
       },
@@ -3838,7 +3838,7 @@ describe("M1–M4 hardening coverage", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "sms",
         destination: "+15551234567",
       },
@@ -3861,7 +3861,7 @@ describe("M1–M4 hardening coverage", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "resend_outbound",
+        action: "resend_session",
         channel: "sms",
       },
       mockSocket,
@@ -3883,7 +3883,7 @@ describe("M1–M4 hardening coverage", () => {
     await handleGuardianVerification(
       {
         type: "guardian_verification",
-        action: "start_outbound",
+        action: "create_session",
         channel: "telegram",
         destination: "@someuser",
       },

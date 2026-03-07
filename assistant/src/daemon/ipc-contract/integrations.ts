@@ -55,12 +55,11 @@ export interface TelegramConfigRequest {
 export interface GuardianVerificationRequest {
   type: "guardian_verification";
   action:
-    | "create_challenge"
+    | "create_session"
     | "status"
+    | "cancel_session"
     | "revoke"
-    | "start_outbound"
-    | "resend_outbound"
-    | "cancel_outbound";
+    | "resend_session";
   channel?: ChannelId; // Defaults to 'telegram'
   sessionId?: string;
   rebind?: boolean; // When true, allows creating a challenge even if a binding already exists

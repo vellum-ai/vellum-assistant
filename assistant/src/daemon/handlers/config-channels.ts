@@ -229,35 +229,42 @@ export async function handleGuardianVerification(
   const channel = msg.channel ?? "telegram";
 
   try {
-    if (msg.action === "create_challenge") {
-      const result = createGuardianChallenge(
-        channel,
-        msg.rebind,
-        msg.sessionId,
-      );
-      ctx.send(socket, { type: "guardian_verification_response", ...result });
+    if (msg.action === "create_session") {
+      if (msg.destination) {
+        const result = await startOutbound({
+          channel,
+          destination: msg.destination,
+          rebind: msg.rebind,
+          originConversationId: msg.originConversationId,
+        });
+        ctx.send(socket, { type: "guardian_verification_response", ...result });
+      } else {
+        const result = createGuardianChallenge(
+          channel,
+          msg.rebind,
+          msg.sessionId,
+        );
+        ctx.send(socket, { type: "guardian_verification_response", ...result });
+      }
     } else if (msg.action === "status") {
       const result = getGuardianStatus(channel);
       ctx.send(socket, { type: "guardian_verification_response", ...result });
+    } else if (msg.action === "cancel_session") {
+      cancelOutbound({ channel });
+      revokePendingChallenges(channel);
+      ctx.send(socket, {
+        type: "guardian_verification_response",
+        success: true,
+        channel,
+      });
     } else if (msg.action === "revoke") {
       const result = revokeGuardianForChannel(channel);
       ctx.send(socket, { type: "guardian_verification_response", ...result });
-    } else if (msg.action === "start_outbound") {
-      const result = await startOutbound({
-        channel,
-        destination: msg.destination,
-        rebind: msg.rebind,
-        originConversationId: msg.originConversationId,
-      });
-      ctx.send(socket, { type: "guardian_verification_response", ...result });
-    } else if (msg.action === "resend_outbound") {
+    } else if (msg.action === "resend_session") {
       const result = resendOutbound({
         channel,
         originConversationId: msg.originConversationId,
       });
-      ctx.send(socket, { type: "guardian_verification_response", ...result });
-    } else if (msg.action === "cancel_outbound") {
-      const result = cancelOutbound({ channel });
       ctx.send(socket, { type: "guardian_verification_response", ...result });
     } else {
       ctx.send(socket, {
