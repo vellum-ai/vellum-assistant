@@ -1,11 +1,11 @@
 ---
 name: "Guardian Verify Setup"
-description: "Set up guardian verification for voice, Telegram, or Slack channels via outbound verification flow"
+description: "Set up channel verification for voice, Telegram, or Slack channels via outbound verification flow"
 user-invocable: true
 metadata: { "vellum": { "emoji": "\ud83d\udd10" } }
 ---
 
-You are helping your user set up guardian verification for a messaging channel (voice, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `assistant integrations guardian status` for status reads.
+You are helping your user set up channel verification for a messaging channel (voice, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `assistant integrations guardian status` for status reads.
 
 ## Prerequisites
 
@@ -57,7 +57,7 @@ Report the exact next action based on the channel:
 - **Telegram with handle** (`telegramBootstrapUrl` present in response): "Tap this deep-link first: [telegramBootstrapUrl]. After Telegram binds your identity, I'll send your verification code."
 - **Slack**: The response includes a `secret` field with the verification code. Show it in the current chat: "Your verification code is **[secret]**. I've also sent it to you as a Slack DM. Open the DM from the Vellum bot in Slack and reply with that 6-digit code to complete verification." The DM channel ID is captured automatically during this process for future message delivery. If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3 or resend (Step 4). **After delivering the code, immediately begin the Slack auto-check polling loop** (see [Slack Auto-Check Polling](#slack-auto-check-polling) below).
 
-After reporting the bootstrap URL for Telegram handle flows, wait for the user to confirm they clicked the link. Then check guardian status (Step 6) to see if the bootstrap completed and a code was sent.
+After reporting the bootstrap URL for Telegram handle flows, wait for the user to confirm they clicked the link. Then check verification status (Step 6) to see if the bootstrap completed and a code was sent.
 
 ### On error (`success: false`)
 
@@ -175,7 +175,7 @@ When in a **rebind flow** (i.e., the session creation request included `"rebind"
 - Do NOT require the user to ask "did it work?" — the whole point is proactive confirmation.
 - If the user sends a message while polling is in progress, handle their message normally.
 
-## Step 6: Check Guardian Status
+## Step 6: Check Verification Status
 
 After the user reports entering the code, verify the binding was created:
 
@@ -184,7 +184,7 @@ CHANNEL="<channel>"
 assistant integrations guardian status --channel "$CHANNEL" --json
 ```
 
-If the response shows the guardian is bound, confirm success: "Guardian verified! Your [channel] identity is now the trusted guardian."
+If the response shows the channel is bound, confirm success: "Verification complete! Your [channel] identity is now the trusted guardian."
 
 If not yet bound, offer to resend (Step 4) or generate a new session (Step 3).
 
@@ -213,6 +213,6 @@ The response includes `bound: false` after the operation completes. Check the pr
 - Verification codes expire after 10 minutes. If the session expires, start a new one.
 - The resend cooldown is 15 seconds between sends, with a maximum of 5 sends per session.
 - Per-destination rate limiting allows up to 10 sends within a 1-hour rolling window.
-- Guardian verification is identity-bound: the code can only be consumed by the identity matching the destination provided at start time.
+- Channel verification is identity-bound: the code can only be consumed by the identity matching the destination provided at start time.
 - **Missing `secret` guardrail**: For voice, Telegram chat-ID, and Slack flows, the API response MUST include a `secret` field. If `secret` is unexpectedly absent from a start or resend response that otherwise indicates success, treat this as a control-plane error. Do NOT fabricate a code or tell the user to proceed without one. Instead, tell the user something went wrong and ask them to retry the start (Step 3) or resend (Step 4).
 - **Revoking a guardian**: To remove the current guardian from a channel, use the revoke API (Step 7). This revokes the binding AND revokes the guardian's contact record, so they lose access to the channel. A new guardian can then be verified for that channel.
