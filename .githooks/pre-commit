@@ -97,7 +97,7 @@ declare -a SAFE_LINE_PATTERNS=(
     "[.?]+[a-zA-Z0-9_]*[Cc]lient[Ss]ecret([^\"'/]*$|[^\"'/]*//.*)$"
     # TS/JS: secret/key variable assigned from a function call.
     # E.g. `const clientSecret = getSecureKey(keyVault)` or
-    # `getSecureKey('credential:integration:twitter:oauth_client_secret')`.
+    # `getSecureKey('credential:integration:twitter:client_secret')`.
     # Allows either no quoted args, or quoted args containing `:` (key paths).
     # Raw alphanumeric strings like `"sk_live_..."` are still rejected.
     "(client[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey)[[:space:]]*=[[:space:]]*(get[A-Za-z]*|create[A-Za-z]*|load[A-Za-z]*|read[A-Za-z]*|delete[A-Za-z]*|set[A-Za-z]*)\(([^\"']*$|[^\"']*[\"'][^\"']*:[^\"']*[\"'][^\"']*$)"
@@ -243,9 +243,9 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_FUNC_CALL_SECRET='const clientSecret = getSecureKey(keyVault)'
     SAFE_CREATE_PRIVATE_KEY='const key = createPrivateKey(keyPem)'
     # Function-call with quoted key path (colon-separated identifier) — must be whitelisted
-    SAFE_FUNC_CALL_KEY_PATH="const clientSecret = getSecureKey('credential:integration:twitter:oauth_client_secret') || undefined;"
+    SAFE_FUNC_CALL_KEY_PATH="const clientSecret = getSecureKey('credential:integration:twitter:client_secret') || undefined;"
     # Function-call with key path followed by a hardcoded secret fallback — must NOT be whitelisted
-    UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK="const clientSecret = getSecureKey('credential:integration:twitter:oauth_client_secret') || \"sk_live_12345678901234567890\""
+    UNSAFE_FUNC_CALL_KEY_PATH_FALLBACK="const clientSecret = getSecureKey('credential:integration:twitter:client_secret') || \"sk_live_12345678901234567890\""
     # Function-call with literal secret in args — must NOT be whitelisted
     UNSAFE_FUNC_CALL_LITERAL='const clientSecret = getSecureKey("sk_live_12345678901234567890")'
     UNSAFE_FUNC_CALL_SINGLE_QUOTE="const privateKey = loadPrivateKey('real_secret_key_value_12345')"

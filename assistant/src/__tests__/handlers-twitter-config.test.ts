@@ -258,7 +258,7 @@ describe("Twitter integration config handler", () => {
 
   test("get action returns correct status when configured and connected", () => {
     rawConfigStore = { twitter: { integrationMode: "local_byo" } };
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] =
+    secureKeyStore["credential:integration:twitter:client_id"] =
       "test-client-id";
     secureKeyStore["credential:integration:twitter:access_token"] =
       "test-access-token";
@@ -336,12 +336,12 @@ describe("Twitter integration config handler", () => {
     expect(res.success).toBe(true);
     expect(res.localClientConfigured).toBe(true);
 
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_id"],
-    ).toBe("my-client-id");
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_secret"],
-    ).toBe("my-client-secret");
+    expect(secureKeyStore["credential:integration:twitter:client_id"]).toBe(
+      "my-client-id",
+    );
+    expect(secureKeyStore["credential:integration:twitter:client_secret"]).toBe(
+      "my-client-secret",
+    );
   });
 
   test("set_local_client without clientId returns error", async () => {
@@ -360,9 +360,8 @@ describe("Twitter integration config handler", () => {
   });
 
   test("clear_local_client removes credentials", async () => {
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] =
-      "my-client-id";
-    secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
+    secureKeyStore["credential:integration:twitter:client_id"] = "my-client-id";
+    secureKeyStore["credential:integration:twitter:client_secret"] =
       "my-client-secret";
 
     const msg: TwitterIntegrationConfigRequest = {
@@ -385,16 +384,15 @@ describe("Twitter integration config handler", () => {
     expect(res.connected).toBe(false);
 
     expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_id"],
+      secureKeyStore["credential:integration:twitter:client_id"],
     ).toBeUndefined();
     expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_secret"],
+      secureKeyStore["credential:integration:twitter:client_secret"],
     ).toBeUndefined();
   });
 
   test("clear_local_client also disconnects if connected", async () => {
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] =
-      "my-client-id";
+    secureKeyStore["credential:integration:twitter:client_id"] = "my-client-id";
     secureKeyStore["credential:integration:twitter:access_token"] =
       "test-token";
     secureKeyStore["credential:integration:twitter:refresh_token"] =
@@ -435,8 +433,7 @@ describe("Twitter integration config handler", () => {
   });
 
   test("disconnect removes tokens and metadata", async () => {
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] =
-      "my-client-id";
+    secureKeyStore["credential:integration:twitter:client_id"] = "my-client-id";
     secureKeyStore["credential:integration:twitter:access_token"] =
       "test-token";
     secureKeyStore["credential:integration:twitter:refresh_token"] =
@@ -473,9 +470,9 @@ describe("Twitter integration config handler", () => {
       secureKeyStore["credential:integration:twitter:refresh_token"],
     ).toBeUndefined();
     // Client credentials should still be present after disconnect
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_id"],
-    ).toBe("my-client-id");
+    expect(secureKeyStore["credential:integration:twitter:client_id"]).toBe(
+      "my-client-id",
+    );
     expect(deletedMetadata).toContainEqual({
       service: "integration:twitter",
       field: "access_token",
@@ -542,8 +539,8 @@ describe("Twitter integration config handler", () => {
 
   test("set_local_client without secret clears stale secret", async () => {
     // Pre-populate an old client secret
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] = "old-id";
-    secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
+    secureKeyStore["credential:integration:twitter:client_id"] = "old-id";
+    secureKeyStore["credential:integration:twitter:client_secret"] =
       "old-secret";
 
     const msg: TwitterIntegrationConfigRequest = {
@@ -564,12 +561,12 @@ describe("Twitter integration config handler", () => {
     expect(res.success).toBe(true);
     expect(res.localClientConfigured).toBe(true);
 
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_id"],
-    ).toBe("new-id");
+    expect(secureKeyStore["credential:integration:twitter:client_id"]).toBe(
+      "new-id",
+    );
     // Stale secret should be cleared
     expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_secret"],
+      secureKeyStore["credential:integration:twitter:client_secret"],
     ).toBeUndefined();
   });
 
@@ -652,18 +649,18 @@ describe("Twitter integration config handler", () => {
     expect(res.success).toBe(true);
     expect(res.localClientConfigured).toBe(true);
 
+    expect(secureKeyStore["credential:integration:twitter:client_id"]).toBe(
+      "id-only",
+    );
     expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_id"],
-    ).toBe("id-only");
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_secret"],
+      secureKeyStore["credential:integration:twitter:client_secret"],
     ).toBeUndefined();
   });
 
   test("set_local_client overwrites existing credentials", async () => {
     // Set initial credentials
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] = "old-id";
-    secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
+    secureKeyStore["credential:integration:twitter:client_id"] = "old-id";
+    secureKeyStore["credential:integration:twitter:client_secret"] =
       "old-secret";
 
     const msg: TwitterIntegrationConfigRequest = {
@@ -686,12 +683,12 @@ describe("Twitter integration config handler", () => {
     expect(res.localClientConfigured).toBe(true);
 
     // Verify overwritten values
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_id"],
-    ).toBe("new-id");
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_secret"],
-    ).toBe("new-secret");
+    expect(secureKeyStore["credential:integration:twitter:client_id"]).toBe(
+      "new-id",
+    );
+    expect(secureKeyStore["credential:integration:twitter:client_secret"]).toBe(
+      "new-secret",
+    );
   });
 
   test("clear_local_client when no credentials exist (idempotent)", async () => {
@@ -719,9 +716,8 @@ describe("Twitter integration config handler", () => {
 
   test("disconnect when not connected (idempotent) preserves client credentials", async () => {
     // Only client credentials, no access token
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] =
-      "my-client-id";
-    secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
+    secureKeyStore["credential:integration:twitter:client_id"] = "my-client-id";
+    secureKeyStore["credential:integration:twitter:client_secret"] =
       "my-client-secret";
 
     const msg: TwitterIntegrationConfigRequest = {
@@ -744,19 +740,18 @@ describe("Twitter integration config handler", () => {
     expect(res.connected).toBe(false);
     // Client credentials should NOT be removed by disconnect
     expect(res.localClientConfigured).toBe(true);
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_id"],
-    ).toBe("my-client-id");
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_secret"],
-    ).toBe("my-client-secret");
+    expect(secureKeyStore["credential:integration:twitter:client_id"]).toBe(
+      "my-client-id",
+    );
+    expect(secureKeyStore["credential:integration:twitter:client_secret"]).toBe(
+      "my-client-secret",
+    );
   });
 
   test("disconnect preserves client credentials when access token exists", async () => {
     // Set up both client credentials and tokens
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] =
-      "my-client-id";
-    secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
+    secureKeyStore["credential:integration:twitter:client_id"] = "my-client-id";
+    secureKeyStore["credential:integration:twitter:client_secret"] =
       "my-client-secret";
     secureKeyStore["credential:integration:twitter:access_token"] =
       "active-token";
@@ -795,12 +790,12 @@ describe("Twitter integration config handler", () => {
       secureKeyStore["credential:integration:twitter:refresh_token"],
     ).toBeUndefined();
     // Client credentials preserved
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_id"],
-    ).toBe("my-client-id");
-    expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_secret"],
-    ).toBe("my-client-secret");
+    expect(secureKeyStore["credential:integration:twitter:client_id"]).toBe(
+      "my-client-id",
+    );
+    expect(secureKeyStore["credential:integration:twitter:client_secret"]).toBe(
+      "my-client-secret",
+    );
     // Metadata deleted
     expect(deletedMetadata).toContainEqual({
       service: "integration:twitter",
@@ -810,9 +805,8 @@ describe("Twitter integration config handler", () => {
 
   test("clear_local_client cascades to remove tokens and metadata", async () => {
     // Set up client credentials, tokens, and metadata
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] =
-      "my-client-id";
-    secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
+    secureKeyStore["credential:integration:twitter:client_id"] = "my-client-id";
+    secureKeyStore["credential:integration:twitter:client_secret"] =
       "my-client-secret";
     secureKeyStore["credential:integration:twitter:access_token"] =
       "active-token";
@@ -845,10 +839,10 @@ describe("Twitter integration config handler", () => {
 
     // Everything should be gone
     expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_id"],
+      secureKeyStore["credential:integration:twitter:client_id"],
     ).toBeUndefined();
     expect(
-      secureKeyStore["credential:integration:twitter:oauth_client_secret"],
+      secureKeyStore["credential:integration:twitter:client_secret"],
     ).toBeUndefined();
     expect(
       secureKeyStore["credential:integration:twitter:access_token"],
@@ -892,8 +886,7 @@ describe("Twitter integration config handler", () => {
 
   test("get status reflects localClientConfigured when only clientId exists", () => {
     // Only clientId, no secret
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] =
-      "id-only";
+    secureKeyStore["credential:integration:twitter:client_id"] = "id-only";
 
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
@@ -945,9 +938,9 @@ describe("Twitter integration config handler", () => {
 
   test("response messages never contain raw credential values", () => {
     // Set up credentials and tokens
-    secureKeyStore["credential:integration:twitter:oauth_client_id"] =
+    secureKeyStore["credential:integration:twitter:client_id"] =
       "secret-client-id-abc123";
-    secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
+    secureKeyStore["credential:integration:twitter:client_secret"] =
       "secret-client-secret-xyz789";
     secureKeyStore["credential:integration:twitter:access_token"] =
       "secret-access-token-def456";

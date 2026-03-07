@@ -33,12 +33,12 @@ import { toPolicyFromInput, validatePolicyInput } from "./policy-validate.js";
 const log = getLogger("credential-vault");
 
 /**
- * Look up a stored client_id or client_secret for a service.
- * Checks common field names across both the canonical and alias service names.
+ * Look up a stored OAuth field (e.g. client_id or client_secret) for a service.
+ * Checks both the canonical and alias service names.
  */
 function findStoredOAuthField(
   service: string,
-  fieldNames: string[],
+  field: string,
 ): string | undefined {
   const servicesToCheck = [service];
   // Also check the alias if the input is the canonical name, or vice versa
@@ -47,30 +47,9 @@ function findStoredOAuthField(
     if (alias === service) servicesToCheck.push(canonical);
   }
   for (const svc of servicesToCheck) {
-    for (const field of fieldNames) {
-      const value = getSecureKey(`credential:${svc}:${field}`);
-      if (value) return value;
-    }
+    const value = getSecureKey(`credential:${svc}:${field}`);
+    if (value) return value;
   }
-
-  // Legacy fallback: check credential metadata on the access_token record.
-  // Older OAuth2 flows stored client_id/client_secret only in metadata JSON.
-  // New flows persist them in the keychain (checked above) for defense in depth.
-  const metadataKey = fieldNames.some((f) => f.includes("client_id"))
-    ? ("oauth2ClientId" as const)
-    : ("oauth2ClientSecret" as const);
-  for (const svc of servicesToCheck) {
-    const meta = getCredentialMetadata(svc, "access_token");
-    const value = meta?.[metadataKey];
-    if (value) {
-      log.debug(
-        { service: svc, field: metadataKey },
-        "OAuth client credential resolved from metadata (legacy fallback)",
-      );
-      return value;
-    }
-  }
-
   return undefined;
 }
 
@@ -781,13 +760,10 @@ class CredentialStoreTool implements Tool {
         // Look up client_id/client_secret from stored credentials if not provided
         const clientId =
           (input.client_id as string | undefined) ??
-          findStoredOAuthField(service, ["client_id", "oauth_client_id"]);
+          findStoredOAuthField(service, "client_id");
         const clientSecret =
           (input.client_secret as string | undefined) ??
-          findStoredOAuthField(service, [
-            "client_secret",
-            "oauth_client_secret",
-          ]);
+          findStoredOAuthField(service, "client_secret");
 
         // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
         const inputScopes = input.scopes as string[] | undefined;

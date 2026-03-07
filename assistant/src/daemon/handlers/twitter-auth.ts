@@ -66,10 +66,7 @@ export async function handleTwitterAuthStart(
       return;
     }
 
-    // Read canonical key first, fall back to legacy for backward compatibility
-    const clientId =
-      getSecureKey("credential:integration:twitter:client_id") ??
-      getSecureKey("credential:integration:twitter:oauth_client_id");
+    const clientId = getSecureKey("credential:integration:twitter:client_id");
     if (!clientId) {
       ctx.send(socket, {
         type: "twitter_auth_result",
@@ -81,9 +78,7 @@ export async function handleTwitterAuthStart(
     }
 
     const clientSecret =
-      (getSecureKey("credential:integration:twitter:client_secret") ??
-        getSecureKey("credential:integration:twitter:oauth_client_secret")) ||
-      undefined;
+      getSecureKey("credential:integration:twitter:client_secret") || undefined;
 
     // Fail fast if no public ingress URL is configured — Twitter OAuth
     // callbacks must route through the gateway, never via loopback.

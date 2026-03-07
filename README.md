@@ -325,7 +325,7 @@ Twitter integration supports two operation paths: **OAuth** (X API v2) and **Bro
 
 **Available tools**: `twitter_post` — posts a tweet via the strategy router (OAuth or CDP depending on configuration). Read operations (timeline, search, etc.) use the browser path.
 
-**Setup**: For OAuth posting, store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:oauth_client_id`), optionally store a Client Secret, and initiate the OAuth2 flow from the Settings UI. For browser operations, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
+**Setup**: For OAuth posting, store your Twitter app's Client ID via the credential vault (`credential:integration:twitter:client_id`), optionally store a Client Secret, and initiate the OAuth2 flow from the Settings UI. For browser operations, ensure Chrome is running with remote debugging enabled and an authenticated x.com tab.
 
 </details>
 

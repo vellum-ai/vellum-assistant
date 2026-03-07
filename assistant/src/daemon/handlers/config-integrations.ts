@@ -96,12 +96,9 @@ export async function handleVercelApiConfig(
   }
 }
 
-/** Check whether a Twitter client ID has been stored (canonical key first, legacy fallback). */
+/** Check whether a Twitter client ID has been stored. */
 function hasTwitterClientId(): boolean {
-  return !!(
-    getSecureKey("credential:integration:twitter:client_id") ??
-    getSecureKey("credential:integration:twitter:oauth_client_id")
-  );
+  return !!getSecureKey("credential:integration:twitter:client_id");
 }
 
 export async function handleTwitterIntegrationConfig(
@@ -223,10 +220,9 @@ export async function handleTwitterIntegrationConfig(
         });
         return;
       }
-      // Read previous value from canonical key first, fall back to legacy
-      const previousClientId =
-        getSecureKey("credential:integration:twitter:client_id") ??
-        getSecureKey("credential:integration:twitter:oauth_client_id");
+      const previousClientId = getSecureKey(
+        "credential:integration:twitter:client_id",
+      );
       // Write canonical key (async — writes broker + encrypted store)
       const storedId = await setSecureKeyAsync(
         "credential:integration:twitter:client_id",
@@ -243,11 +239,6 @@ export async function handleTwitterIntegrationConfig(
         });
         return;
       }
-      // Also write legacy key for backward compatibility
-      await setSecureKeyAsync(
-        "credential:integration:twitter:oauth_client_id",
-        msg.clientId,
-      );
       if (msg.clientSecret) {
         // Write canonical key
         const storedSecret = await setSecureKeyAsync(
@@ -261,16 +252,9 @@ export async function handleTwitterIntegrationConfig(
               "credential:integration:twitter:client_id",
               previousClientId,
             );
-            await setSecureKeyAsync(
-              "credential:integration:twitter:oauth_client_id",
-              previousClientId,
-            );
           } else {
             await deleteSecureKeyAsync(
               "credential:integration:twitter:client_id",
-            );
-            await deleteSecureKeyAsync(
-              "credential:integration:twitter:oauth_client_id",
             );
           }
           ctx.send(socket, {
@@ -283,18 +267,10 @@ export async function handleTwitterIntegrationConfig(
           });
           return;
         }
-        // Also write legacy key for backward compatibility
-        await setSecureKeyAsync(
-          "credential:integration:twitter:oauth_client_secret",
-          msg.clientSecret,
-        );
       } else {
         // Clear any stale secret when updating client without a secret (e.g. switching to PKCE)
         await deleteSecureKeyAsync(
           "credential:integration:twitter:client_secret",
-        );
-        await deleteSecureKeyAsync(
-          "credential:integration:twitter:oauth_client_secret",
         );
       }
       ctx.send(socket, {
@@ -321,23 +297,13 @@ export async function handleTwitterIntegrationConfig(
           ),
         );
       }
-      // Remove both canonical and legacy client credential keys
+      // Remove client credential keys
       deleteResults.push(
         await deleteSecureKeyAsync("credential:integration:twitter:client_id"),
       );
       deleteResults.push(
         await deleteSecureKeyAsync(
           "credential:integration:twitter:client_secret",
-        ),
-      );
-      deleteResults.push(
-        await deleteSecureKeyAsync(
-          "credential:integration:twitter:oauth_client_id",
-        ),
-      );
-      deleteResults.push(
-        await deleteSecureKeyAsync(
-          "credential:integration:twitter:oauth_client_secret",
         ),
       );
       const hasDeleteError = deleteResults.some((r) => r === "error");
@@ -366,7 +332,7 @@ export async function handleTwitterIntegrationConfig(
       const dr2 = await deleteSecureKeyAsync(
         "credential:integration:twitter:refresh_token",
       );
-      // Client credentials (client_id, oauth_client_id, etc.) are intentionally
+      // Client credentials (client_id, client_secret) are intentionally
       // preserved so the user can re-connect without reconfiguring.
       const disconnectFailed = dr1 === "error" || dr2 === "error";
       if (!disconnectFailed) {

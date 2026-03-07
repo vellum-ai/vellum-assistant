@@ -264,9 +264,9 @@ describe("Twitter auth handler", () => {
 
     test("succeeds with valid config (mock orchestrator)", async () => {
       rawConfigStore = { twitter: { integrationMode: "local_byo" } };
-      secureKeyStore["credential:integration:twitter:oauth_client_id"] =
+      secureKeyStore["credential:integration:twitter:client_id"] =
         "test-client-id";
-      secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
+      secureKeyStore["credential:integration:twitter:client_secret"] =
         "test-client-secret";
 
       orchestratorResult = {
@@ -298,9 +298,9 @@ describe("Twitter auth handler", () => {
 
     test("delegates to orchestrateOAuthConnect with correct options", async () => {
       rawConfigStore = { twitter: { integrationMode: "local_byo" } };
-      secureKeyStore["credential:integration:twitter:oauth_client_id"] =
+      secureKeyStore["credential:integration:twitter:client_id"] =
         "test-client-id";
-      secureKeyStore["credential:integration:twitter:oauth_client_secret"] =
+      secureKeyStore["credential:integration:twitter:client_secret"] =
         "test-client-secret";
 
       orchestratorResult = {
@@ -327,7 +327,7 @@ describe("Twitter auth handler", () => {
 
     test("fails fast with actionable error when no ingress URL is configured", async () => {
       rawConfigStore = { twitter: { integrationMode: "local_byo" } };
-      secureKeyStore["credential:integration:twitter:oauth_client_id"] =
+      secureKeyStore["credential:integration:twitter:client_id"] =
         "test-client-id";
       mockIngressPublicBaseUrl = undefined;
 
@@ -364,7 +364,7 @@ describe("Twitter auth handler", () => {
 
     test("maps orchestrator error result to twitter_auth_result", async () => {
       rawConfigStore = { twitter: { integrationMode: "local_byo" } };
-      secureKeyStore["credential:integration:twitter:oauth_client_id"] =
+      secureKeyStore["credential:integration:twitter:client_id"] =
         "test-client-id";
 
       orchestratorResult = {
@@ -394,7 +394,7 @@ describe("Twitter auth handler", () => {
     describe("auth hardening", () => {
       test("OAuth cancel path returns sanitized failure", async () => {
         rawConfigStore = { twitter: { integrationMode: "local_byo" } };
-        secureKeyStore["credential:integration:twitter:oauth_client_id"] =
+        secureKeyStore["credential:integration:twitter:client_id"] =
           "test-client-id";
 
         orchestratorError = new Error(
@@ -419,7 +419,7 @@ describe("Twitter auth handler", () => {
 
       test("OAuth timeout path returns sanitized failure", async () => {
         rawConfigStore = { twitter: { integrationMode: "local_byo" } };
-        secureKeyStore["credential:integration:twitter:oauth_client_id"] =
+        secureKeyStore["credential:integration:twitter:client_id"] =
           "test-client-id";
 
         orchestratorError = new Error(
@@ -446,7 +446,7 @@ describe("Twitter auth handler", () => {
 
       test("error payload never includes secrets or raw provider bodies", async () => {
         rawConfigStore = { twitter: { integrationMode: "local_byo" } };
-        secureKeyStore["credential:integration:twitter:oauth_client_id"] =
+        secureKeyStore["credential:integration:twitter:client_id"] =
           "test-client-id";
 
         orchestratorError = new Error(
@@ -481,7 +481,7 @@ describe("Twitter auth handler", () => {
 
       test("succeeds even when identity verification returns no accountInfo", async () => {
         rawConfigStore = { twitter: { integrationMode: "local_byo" } };
-        secureKeyStore["credential:integration:twitter:oauth_client_id"] =
+        secureKeyStore["credential:integration:twitter:client_id"] =
           "test-client-id";
 
         // Identity verification is non-fatal in the orchestrator — accountInfo may be undefined
