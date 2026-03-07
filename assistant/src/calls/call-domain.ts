@@ -885,9 +885,9 @@ export async function relayInstruction(
   return { ok: true };
 }
 
-// ── Guardian verification call ───────────────────────────────────────
+// ── Verification call ─────────────────────────────────────────────────
 
-export type StartGuardianVerificationCallInput = {
+export type StartVerificationCallInput = {
   phoneNumber: string;
   verificationSessionId: string;
   assistantId?: string;
@@ -895,7 +895,7 @@ export type StartGuardianVerificationCallInput = {
   originConversationId?: string;
 };
 
-export type StartGuardianVerificationCallResult =
+export type StartVerificationCallResult =
   | { ok: true; callSessionId: string; callSid: string }
   | CallError;
 
@@ -906,9 +906,9 @@ export type StartGuardianVerificationCallResult =
  * passes `verificationSessionId` as a custom parameter so the
  * relay server can detect this is a guardian verification call.
  */
-export async function startGuardianVerificationCall(
-  input: StartGuardianVerificationCallInput,
-): Promise<StartGuardianVerificationCallResult> {
+export async function startVerificationCall(
+  input: StartVerificationCallInput,
+): Promise<StartVerificationCallResult> {
   const { phoneNumber, verificationSessionId, originConversationId } = input;
 
   if (!phoneNumber || !E164_REGEX.test(phoneNumber)) {

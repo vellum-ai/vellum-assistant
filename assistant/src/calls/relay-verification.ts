@@ -68,9 +68,9 @@ export function parseDigitsFromSpeech(transcript: string): string {
 
 // ── Guardian code verification ─────────────────────────────────────────
 
-export interface GuardianVerificationParams {
+export interface VerificationCallParams {
   guardianChallengeAssistantId: string;
-  guardianVerificationFromNumber: string;
+  verificationFromNumber: string;
   enteredCode: string;
   isOutbound: boolean;
   codeDigits: number;
@@ -78,7 +78,7 @@ export interface GuardianVerificationParams {
   verificationMaxAttempts: number;
 }
 
-export type GuardianVerificationResult =
+export type VerificationCallResult =
   | {
       outcome: "success";
       verificationType: "guardian" | "trusted_contact";
@@ -112,12 +112,12 @@ export type GuardianVerificationResult =
  * so the caller can apply side-effects (state mutations, TTS, session
  * updates) without this function needing access to the relay connection.
  */
-export function attemptGuardianCodeVerification(
-  params: GuardianVerificationParams,
-): GuardianVerificationResult {
+export function attemptVerificationCode(
+  params: VerificationCallParams,
+): VerificationCallResult {
   const {
     guardianChallengeAssistantId,
-    guardianVerificationFromNumber,
+    verificationFromNumber,
     enteredCode,
     isOutbound,
     codeDigits,
@@ -128,8 +128,8 @@ export function attemptGuardianCodeVerification(
   const result = validateAndConsumeVerification(
     "voice",
     enteredCode,
-    guardianVerificationFromNumber,
-    guardianVerificationFromNumber,
+    verificationFromNumber,
+    verificationFromNumber,
   );
 
   if (result.success) {
@@ -148,8 +148,7 @@ export function attemptGuardianCodeVerification(
       );
       if (
         existingBinding &&
-        existingBinding.guardianExternalUserId !==
-          guardianVerificationFromNumber
+        existingBinding.guardianExternalUserId !== verificationFromNumber
       ) {
         bindingConflict = {
           existingGuardian: existingBinding.guardianExternalUserId,
@@ -161,7 +160,7 @@ export function attemptGuardianCodeVerification(
           "vellum",
         );
         canonicalPrincipal =
-          vellumBinding?.guardianPrincipalId ?? guardianVerificationFromNumber;
+          vellumBinding?.guardianPrincipalId ?? verificationFromNumber;
       }
     }
 

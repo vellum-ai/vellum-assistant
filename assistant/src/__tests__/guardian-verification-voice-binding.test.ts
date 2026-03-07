@@ -111,7 +111,7 @@ mock.module("../memory/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 
-import { startGuardianVerificationCall } from "../calls/call-domain.js";
+import { startVerificationCall } from "../calls/call-domain.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { initializeDb, resetDb } from "../memory/db.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
@@ -127,7 +127,7 @@ afterAll(() => {
   }
 });
 
-describe("startGuardianVerificationCall — voice binding", () => {
+describe("startVerificationCall — voice binding", () => {
   beforeEach(() => {
     mockPreflightResult = {
       ok: true as const,
@@ -141,7 +141,7 @@ describe("startGuardianVerificationCall — voice binding", () => {
 
   test("creates a voice channel binding for the guardian verification conversation", async () => {
     const sessionId = "gv-session-001";
-    const result = await startGuardianVerificationCall({
+    const result = await startVerificationCall({
       phoneNumber: "+15559999999",
       verificationSessionId: sessionId,
     });
@@ -165,7 +165,7 @@ describe("startGuardianVerificationCall — voice binding", () => {
       status: 503,
     };
 
-    const result = await startGuardianVerificationCall({
+    const result = await startVerificationCall({
       phoneNumber: "+15559999999",
       verificationSessionId: "gv-session-preflight-fail",
     });

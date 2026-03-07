@@ -321,7 +321,7 @@ export async function handleVerificationIntercept(
         accepted: true,
         duplicate: false,
         eventId,
-        guardianVerification: guardianVerifyOutcome,
+        verificationOutcome: guardianVerifyOutcome,
         deliveryPending: true,
       });
     }
@@ -331,6 +331,6 @@ export async function handleVerificationIntercept(
     accepted: true,
     duplicate: false,
     eventId,
-    guardianVerification: guardianVerifyOutcome,
+    verificationOutcome: guardianVerifyOutcome,
   });
 }

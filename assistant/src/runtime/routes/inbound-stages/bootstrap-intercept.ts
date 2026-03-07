@@ -123,7 +123,7 @@ export async function handleBootstrapIntercept(
     accepted: true,
     duplicate: false,
     eventId,
-    guardianVerification: "bootstrap_bound",
+    verificationOutcome: "bootstrap_bound",
   });
 }
 

@@ -9,7 +9,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { startGuardianVerificationCall } from "../calls/call-domain.js";
+import { startVerificationCall } from "../calls/call-domain.js";
 import type { ChannelId } from "../channels/types.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { getCredentialMetadata } from "../tools/credentials/metadata-store.js";
@@ -197,7 +197,7 @@ function initiateGuardianVoiceCall(
 ): void {
   (async () => {
     try {
-      const result = await startGuardianVerificationCall({
+      const result = await startVerificationCall({
         phoneNumber,
         verificationSessionId,
         assistantId,

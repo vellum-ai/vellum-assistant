@@ -338,6 +338,6 @@ describe("Slack inbound trusted contact verification", () => {
     const verifyJson = (await verifyResp.json()) as Record<string, unknown>;
 
     expect(verifyJson.accepted).toBe(true);
-    expect(verifyJson.guardianVerification).toBe("verified");
+    expect(verifyJson.verificationOutcome).toBe("verified");
   });
 });

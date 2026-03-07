@@ -1355,7 +1355,7 @@ describe("relay-server", () => {
     );
 
     // Should be in verification-pending state
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
 
     // Verify TTS prompt was sent asking for code
@@ -1374,7 +1374,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verification should have succeeded
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding should have been created
@@ -1431,7 +1431,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Speak the code as individual digit characters
     const spokenCode = secret.split("").join(" ");
@@ -1447,7 +1447,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verification should have succeeded
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Binding created
@@ -1744,7 +1744,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter a wrong code via DTMF
     for (const digit of "000000") {
@@ -1752,7 +1752,7 @@ describe("relay-server", () => {
     }
 
     // Should still be in verification-pending state (retry allowed)
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
 
     // Should have sent a retry prompt
@@ -1788,7 +1788,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter wrong codes 3 times (max attempts = 3)
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -1862,7 +1862,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Should NOT be in guardian verification state
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Should have started normal greeting
@@ -1898,7 +1898,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Speak only 3 digits
     await relay.handleMessage(
@@ -1911,7 +1911,7 @@ describe("relay-server", () => {
     );
 
     // Should still be in verification state
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Should have prompted for more digits
     const textMessages = ws.sentMessages
@@ -1961,7 +1961,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter the correct code via DTMF
     for (const digit of secret) {
@@ -1969,7 +1969,7 @@ describe("relay-server", () => {
     }
 
     // Verification should have succeeded
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
 
     // Origin conversation should have a pointer message
     const originText = getLatestAssistantText("conv-gv-pointer-success-origin");
@@ -2013,7 +2013,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter wrong codes 3 times (max attempts = 3)
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -3906,7 +3906,7 @@ describe("relay-server", () => {
     );
 
     // Should be in verification-pending state
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
 
     // Enter the correct code via DTMF
@@ -3917,7 +3917,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Verification should have succeeded — call remains connected
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Deterministic handoff copy should have been sent (not a fresh greeting)
@@ -3975,7 +3975,7 @@ describe("relay-server", () => {
       }),
     );
 
-    expect(relay.isGuardianVerificationActive()).toBe(true);
+    expect(relay.isVerificationSessionActive()).toBe(true);
 
     // Enter the correct code
     for (const digit of secret) {
@@ -3985,7 +3985,7 @@ describe("relay-server", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     // Should have transitioned to connected with normal greeting (not handoff copy)
-    expect(relay.isGuardianVerificationActive()).toBe(false);
+    expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding should have been created

@@ -302,7 +302,7 @@ describe("Verification control messages are deterministic (guard)", () => {
       const body = (await response.json()) as Record<string, unknown>;
 
       // Verification should have been handled
-      expect(body.guardianVerification).toBeDefined();
+      expect(body.verificationOutcome).toBeDefined();
 
       // processMessage must NOT have been called — this is the guard
       expect(processMessageCalled).toBe(false);
@@ -391,7 +391,7 @@ describe("Verification control messages are deterministic (guard)", () => {
       const body = (await response.json()) as Record<string, unknown>;
 
       // Bootstrap should have been handled deterministically
-      expect(body.guardianVerification).toBe("bootstrap_bound");
+      expect(body.verificationOutcome).toBe("bootstrap_bound");
       expect(body.accepted).toBe(true);
 
       // processMessage must NOT have been called — deterministic handling
