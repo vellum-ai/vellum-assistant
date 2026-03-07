@@ -25,12 +25,12 @@ mock.module("../util/logger.js", () => ({
 }));
 
 // Mock destination-resolver to return a destination for every requested channel.
-// External channels (sms, telegram, slack) include bindingContext.
+// External channels (telegram, slack) include bindingContext.
 mock.module("../notifications/destination-resolver.js", () => ({
   resolveDestinations: (channels: string[]) => {
     const m = new Map();
     for (const ch of channels) {
-      const isExternal = ch === "sms" || ch === "telegram" || ch === "slack";
+      const isExternal = ch === "telegram" || ch === "slack";
       m.set(ch, {
         channel: ch,
         endpoint: `mock-${ch}`,
@@ -418,23 +418,23 @@ describe("notification broadcaster", () => {
   // ── Destination binding context ────────────────────────────────────
 
   test("SMS delivery carries destination binding context into pairing", async () => {
-    const smsAdapter = new MockAdapter("sms");
+    const smsAdapter = new MockAdapter("telegram");
     const broadcaster = new NotificationBroadcaster([smsAdapter]);
 
     const signal = makeSignal();
     const decision = makeDecision({
-      selectedChannels: ["sms"],
+      selectedChannels: ["telegram"],
       renderedCopy: {
-        sms: { title: "SMS Alert", body: "Something happened" },
+        telegram: { title: "SMS Alert", body: "Something happened" },
       },
     });
 
     await broadcaster.broadcastDecision(signal, decision);
 
-    const smsCall = pairingCalls.find((c) => c.channel === "sms");
+    const smsCall = pairingCalls.find((c) => c.channel === "telegram");
     expect(smsCall).toBeDefined();
     expect(smsCall!.options?.bindingContext).toEqual({
-      sourceChannel: "sms",
+      sourceChannel: "telegram",
       externalChatId: "ext-chat-sms",
       externalUserId: "ext-user-sms",
     });

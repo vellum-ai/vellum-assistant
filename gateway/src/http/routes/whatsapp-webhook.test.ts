@@ -100,7 +100,6 @@ const baseConfig: GatewayConfig = {
   twilioAuthToken: undefined,
   twilioAccountSid: undefined,
   twilioPhoneNumber: undefined,
-  smsDeliverAuthBypass: false,
   ingressPublicBaseUrl: undefined,
   unmappedPolicy: "default",
   whatsappPhoneNumberId: "phone-id",

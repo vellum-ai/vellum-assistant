@@ -16,25 +16,6 @@ export function buildTelegramTransportMetadata(): {
   };
 }
 
-export const SMS_CHANNEL_TRANSPORT_HINTS = [
-  "chat-first-medium",
-  "channel-safe-onboarding",
-  "defer-dashboard-only-tasks",
-  "sms-character-limits",
-] as const;
-export const SMS_CHANNEL_TRANSPORT_UX_BRIEF =
-  "SMS is text-only with carrier-imposed message length limits. Keep responses concise and defer rich-media tasks to desktop.";
-
-export function buildSmsTransportMetadata(): {
-  hints: string[];
-  uxBrief: string;
-} {
-  return {
-    hints: [...SMS_CHANNEL_TRANSPORT_HINTS],
-    uxBrief: SMS_CHANNEL_TRANSPORT_UX_BRIEF,
-  };
-}
-
 export const SLACK_CHANNEL_TRANSPORT_HINTS = [
   "chat-first-medium",
   "threaded-channel",

@@ -47,17 +47,12 @@ export type GatewayConfig = {
   telegramWebhookSecret: string | undefined;
   /** Twilio auth token for validating webhook signatures at the gateway boundary. */
   twilioAuthToken: string | undefined;
-  /** Twilio account SID for sending SMS via the Messages API. */
+  /** Twilio account SID for API calls (voice, compliance). */
   twilioAccountSid: string | undefined;
-  /** Twilio phone number (E.164) used as the "From" for outbound SMS. */
+  /** Twilio phone number (E.164) used as the "From" for outbound voice calls. */
   twilioPhoneNumber: string | undefined;
   /** Per-assistant phone number mapping (assistantId -> E.164 phone number). */
   assistantPhoneNumbers?: Record<string, string>;
-  /**
-   * When true, the /deliver/sms endpoint allows unauthenticated access
-   * even when no bearer token is configured. Intended for local development only.
-   */
-  smsDeliverAuthBypass: boolean;
   /** Canonical public ingress base URL, used for webhook signature reconstruction. */
   ingressPublicBaseUrl: string | undefined;
   /** The assistant's own email address, persisted by the email setup skill. */
@@ -424,18 +419,6 @@ export async function loadConfig(): Promise<GatewayConfig> {
   }
   let slackDeliverAuthBypass = slackDeliverAuthBypassRaw === "true";
 
-  const smsDeliverAuthBypassRaw = process.env.GATEWAY_SMS_DELIVER_AUTH_BYPASS;
-  if (
-    smsDeliverAuthBypassRaw !== undefined &&
-    smsDeliverAuthBypassRaw !== "true" &&
-    smsDeliverAuthBypassRaw !== "false"
-  ) {
-    throw new Error(
-      `GATEWAY_SMS_DELIVER_AUTH_BYPASS must be "true" or "false", got "${smsDeliverAuthBypassRaw}"`,
-    );
-  }
-  let smsDeliverAuthBypass = smsDeliverAuthBypassRaw === "true";
-
   // Production guard: auth bypass flags must never be active outside dev mode.
   // Fail closed: treat missing APP_VERSION as production, since the gateway
   // release pipeline does not inject it (unlike the daemon build).
@@ -448,13 +431,6 @@ export async function loadConfig(): Promise<GatewayConfig> {
         appVersion,
       );
       telegramDeliverAuthBypass = false;
-    }
-    if (smsDeliverAuthBypass) {
-      log.warn(
-        "GATEWAY_SMS_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)",
-        appVersion,
-      );
-      smsDeliverAuthBypass = false;
     }
     if (whatsappDeliverAuthBypass) {
       log.warn(
@@ -520,7 +496,6 @@ export async function loadConfig(): Promise<GatewayConfig> {
       assistantPhoneNumberCount: assistantPhoneNumbers
         ? Object.keys(assistantPhoneNumbers).length
         : 0,
-      smsDeliverAuthBypass,
       ingressPublicBaseUrl,
       hasWhatsAppPhoneNumberId: !!whatsappPhoneNumberId,
       hasWhatsAppAccessToken: !!whatsappAccessToken,
@@ -562,7 +537,6 @@ export async function loadConfig(): Promise<GatewayConfig> {
     twilioAccountSid,
     twilioPhoneNumber,
     assistantPhoneNumbers,
-    smsDeliverAuthBypass,
     ingressPublicBaseUrl,
     assistantEmail,
     unmappedPolicy,

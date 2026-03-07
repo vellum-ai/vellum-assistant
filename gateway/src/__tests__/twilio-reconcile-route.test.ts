@@ -84,7 +84,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     twilioAuthToken: "initial-auth-token",
     twilioAccountSid: "AC-initial",
     twilioPhoneNumber: "+15550000000",
-    smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: "https://initial.example.com",
     unmappedPolicy: "reject",
     whatsappPhoneNumberId: undefined,

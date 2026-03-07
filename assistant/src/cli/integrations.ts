@@ -15,7 +15,7 @@ import {
   mintEdgeRelayToken,
 } from "../runtime/auth/token-service.js";
 
-type GuardianChannel = "telegram" | "voice" | "sms";
+type GuardianChannel = "telegram" | "voice";
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

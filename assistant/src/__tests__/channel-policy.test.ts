@@ -99,7 +99,7 @@ describe("channel policy registry", () => {
     const expectedStrategies: [ChannelId, ConversationStrategy][] = [
       ["vellum", "start_new_conversation"],
       ["telegram", "continue_existing_conversation"],
-      ["sms", "continue_existing_conversation"],
+      ["voice", "continue_existing_conversation"],
       ["voice", "not_deliverable"],
     ];
 
@@ -124,12 +124,12 @@ describe("channel policy registry", () => {
   // ── SMS channel policy ───────────────────────────────────────────────
 
   test("SMS is a deliverable notification channel", () => {
-    expect(isNotificationDeliverable("sms")).toBe(true);
-    expect(getDeliverableChannels()).toContain("sms");
+    expect(isNotificationDeliverable("voice")).toBe(true);
+    expect(getDeliverableChannels()).toContain("voice");
   });
 
   test("SMS uses continue_existing_conversation strategy", () => {
-    expect(getConversationStrategy("sms")).toBe(
+    expect(getConversationStrategy("voice")).toBe(
       "continue_existing_conversation",
     );
   });
@@ -138,7 +138,7 @@ describe("channel policy registry", () => {
     const deliverable = getDeliverableChannels();
     expect(deliverable).toContain("vellum");
     expect(deliverable).toContain("telegram");
-    expect(deliverable).toContain("sms");
+    expect(deliverable).toContain("voice");
   });
 
   // ── Consistency checks ────────────────────────────────────────────────

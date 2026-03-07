@@ -225,22 +225,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
     endpoint: "integrations/twilio/numbers/release",
     scopes: ["settings.write"],
   },
-  { endpoint: "integrations/twilio/sms/compliance", scopes: ["settings.read"] },
-  {
-    endpoint: "integrations/twilio/sms/compliance/tollfree",
-    scopes: ["settings.write"],
-  },
-  {
-    endpoint: "integrations/twilio/sms/compliance/tollfree:PATCH",
-    scopes: ["settings.write"],
-  },
-  {
-    endpoint: "integrations/twilio/sms/compliance/tollfree:DELETE",
-    scopes: ["settings.write"],
-  },
-  { endpoint: "integrations/twilio/sms/test", scopes: ["settings.write"] },
-  { endpoint: "integrations/twilio/sms/doctor", scopes: ["settings.write"] },
-
   // Slack share
   { endpoint: "slack/channels", scopes: ["settings.read"] },
   { endpoint: "slack/share", scopes: ["settings.write"] },

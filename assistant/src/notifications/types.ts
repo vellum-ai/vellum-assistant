@@ -61,7 +61,7 @@ export interface ChannelDestination {
  * conversations keyed by (sourceChannel, externalChatId).
  */
 export interface DestinationBindingContext {
-  /** The channel this binding belongs to (e.g. "telegram", "sms", "slack"). */
+  /** The channel this binding belongs to (e.g. "telegram", "slack"). */
   sourceChannel: NotificationChannel;
   /** The channel-specific chat/thread identifier (e.g. Telegram chat ID, phone number). */
   externalChatId: string;
