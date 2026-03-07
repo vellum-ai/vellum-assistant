@@ -23,8 +23,8 @@ export type PointerEvent =
   | "started"
   | "completed"
   | "failed"
-  | "guardian_verification_succeeded"
-  | "guardian_verification_failed";
+  | "verification_succeeded"
+  | "verification_failed";
 
 export type PointerAudienceMode = "auto" | "trusted" | "untrusted";
 
@@ -145,8 +145,8 @@ export async function addPointerMessage(
     started: "started",
     completed: "completed",
     failed: "failed",
-    guardian_verification_succeeded: "succeeded",
-    guardian_verification_failed: "failed",
+    verification_succeeded: "succeeded",
+    verification_failed: "failed",
   };
   const outcomeKeyword = eventOutcomeKeywords[event];
   if (outcomeKeyword) requiredFacts.push(outcomeKeyword);

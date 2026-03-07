@@ -159,6 +159,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Rename guardian_verification_session_id column in call_sessions to verification_session_id",
   },
+  {
+    key: "migration_rename_guardian_verification_values_v1",
+    version: 23,
+    description:
+      "Rename persisted guardian_verification call_mode and guardian_voice_verification_* event_type values to drop the guardian_ prefix",
+  },
 ];
 
 export interface MigrationValidationResult {

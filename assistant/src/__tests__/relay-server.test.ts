@@ -1392,13 +1392,11 @@ describe("relay-server", () => {
     // Verify events recorded
     const guardianEvents = getCallEvents(session.id);
     expect(
-      guardianEvents.some(
-        (e) => e.eventType === "guardian_voice_verification_started",
-      ),
+      guardianEvents.some((e) => e.eventType === "voice_verification_started"),
     ).toBe(true);
     expect(
       guardianEvents.some(
-        (e) => e.eventType === "guardian_voice_verification_succeeded",
+        (e) => e.eventType === "voice_verification_succeeded",
       ),
     ).toBe(true);
 
@@ -1816,7 +1814,7 @@ describe("relay-server", () => {
     // Verify events
     const events = getCallEvents(session.id);
     expect(
-      events.some((e) => e.eventType === "guardian_voice_verification_failed"),
+      events.some((e) => e.eventType === "voice_verification_failed"),
     ).toBe(true);
 
     // Let the delayed endSession callback flush
@@ -1937,7 +1935,7 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559999999",
-      callMode: "guardian_verification",
+      callMode: "verification",
       verificationSessionId: "gv-session-ptr-success",
       initiatedFromConversationId: "conv-gv-pointer-success-origin",
     });
@@ -1992,7 +1990,7 @@ describe("relay-server", () => {
       provider: "twilio",
       fromNumber: "+15551111111",
       toNumber: "+15559999999",
-      callMode: "guardian_verification",
+      callMode: "verification",
       verificationSessionId: "gv-session-ptr-fail",
       initiatedFromConversationId: "conv-gv-pointer-fail-origin",
     });

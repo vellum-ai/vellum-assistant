@@ -69,7 +69,7 @@ export function parseDigitsFromSpeech(transcript: string): string {
 // ── Guardian code verification ─────────────────────────────────────────
 
 export interface VerificationCallParams {
-  guardianChallengeAssistantId: string;
+  verificationAssistantId: string;
   verificationFromNumber: string;
   enteredCode: string;
   isOutbound: boolean;
@@ -116,7 +116,7 @@ export function attemptVerificationCode(
   params: VerificationCallParams,
 ): VerificationCallResult {
   const {
-    guardianChallengeAssistantId,
+    verificationAssistantId,
     verificationFromNumber,
     enteredCode,
     isOutbound,
@@ -134,8 +134,8 @@ export function attemptVerificationCode(
 
   if (result.success) {
     const eventName = isOutbound
-      ? "outbound_guardian_voice_verification_succeeded"
-      : "guardian_voice_verification_succeeded";
+      ? "outbound_voice_verification_succeeded"
+      : "voice_verification_succeeded";
 
     // Resolve binding conflict and canonical principal for guardian type
     let bindingConflict: { existingGuardian: string } | undefined;
@@ -143,7 +143,7 @@ export function attemptVerificationCode(
 
     if (result.verificationType === "guardian") {
       const existingBinding = getGuardianBinding(
-        guardianChallengeAssistantId,
+        verificationAssistantId,
         "voice",
       );
       if (
@@ -156,7 +156,7 @@ export function attemptVerificationCode(
       } else {
         // Resolve canonical principal from the vellum channel binding
         const vellumBinding = getGuardianBinding(
-          guardianChallengeAssistantId,
+          verificationAssistantId,
           "vellum",
         );
         canonicalPrincipal =
@@ -187,8 +187,8 @@ export function attemptVerificationCode(
 
   if (newAttempts >= verificationMaxAttempts) {
     const failEventName = isOutbound
-      ? "outbound_guardian_voice_verification_failed"
-      : "guardian_voice_verification_failed";
+      ? "outbound_voice_verification_failed"
+      : "voice_verification_failed";
 
     const failureText = isOutbound
       ? composeVerificationVoice(GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_FAILURE, {
