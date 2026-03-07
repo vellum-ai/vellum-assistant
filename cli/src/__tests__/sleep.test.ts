@@ -11,35 +11,65 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// Create a temp directory that acts as a fake home so the real
+// assistant-config module reads/writes here instead of ~/.vellum.
 const testDir = mkdtempSync(join(tmpdir(), "sleep-command-test-"));
 const assistantRootDir = join(testDir, ".vellum");
+process.env.BASE_DATA_DIR = testDir;
+
+// Mock homedir() so defaultLocalResources() resolves to testDir.
+const realOs = await import("node:os");
+mock.module("node:os", () => ({
+  ...realOs,
+  homedir: () => testDir,
+}));
+mock.module("os", () => ({
+  ...realOs,
+  homedir: () => testDir,
+}));
 
 const stopProcessByPidFileMock = mock(async () => true);
-
-const mockEntry = {
-  assistantId: "sleep-test",
-  runtimeUrl: "http://127.0.0.1:7777",
-  cloud: "local",
-  resources: {
-    instanceDir: testDir,
-    daemonPort: 7777,
-    gatewayPort: 7830,
-    qdrantPort: 6333,
-    socketPath: join(assistantRootDir, "vellum.sock"),
-    pidFile: join(assistantRootDir, "vellum.pid"),
-  },
-};
-
-mock.module("../lib/assistant-config.js", () => ({
-  defaultLocalResources: () => mockEntry.resources,
-  resolveTargetAssistant: () => mockEntry,
-}));
 
 mock.module("../lib/process.js", () => ({
   stopProcessByPidFile: stopProcessByPidFileMock,
 }));
 
 import { sleep } from "../commands/sleep.js";
+import {
+  DEFAULT_DAEMON_PORT,
+  DEFAULT_GATEWAY_PORT,
+  DEFAULT_QDRANT_PORT,
+} from "../lib/constants.js";
+
+// Write a lockfile entry so the real resolveTargetAssistant() finds our test
+// assistant without needing to mock the entire assistant-config module.
+function writeLockfile(): void {
+  writeFileSync(
+    join(testDir, ".vellum.lock.json"),
+    JSON.stringify(
+      {
+        assistants: [
+          {
+            assistantId: "sleep-test",
+            runtimeUrl: `http://127.0.0.1:${DEFAULT_DAEMON_PORT}`,
+            cloud: "local",
+            resources: {
+              instanceDir: testDir,
+              daemonPort: DEFAULT_DAEMON_PORT,
+              gatewayPort: DEFAULT_GATEWAY_PORT,
+              qdrantPort: DEFAULT_QDRANT_PORT,
+              socketPath: join(assistantRootDir, "vellum.sock"),
+              pidFile: join(assistantRootDir, "vellum.pid"),
+            },
+          },
+        ],
+        activeAssistant: "sleep-test",
+      },
+      null,
+      2,
+    ),
+  );
+}
 
 function writeLeaseFile(callSessionIds: string[]): void {
   mkdirSync(assistantRootDir, { recursive: true });
@@ -68,11 +98,13 @@ describe("sleep command", () => {
     stopProcessByPidFileMock.mockReset();
     stopProcessByPidFileMock.mockResolvedValue(true);
     rmSync(assistantRootDir, { recursive: true, force: true });
+    writeLockfile();
   });
 
   afterAll(() => {
     process.argv = originalArgv;
     rmSync(testDir, { recursive: true, force: true });
+    delete process.env.BASE_DATA_DIR;
   });
 
   test("refuses normal sleep while an active call lease exists", async () => {
