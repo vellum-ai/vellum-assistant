@@ -66,16 +66,16 @@ describe("reminder-store", () => {
       fireAt: Date.now() + 60_000,
       mode: "notify",
       routingIntent: "all_channels",
-      routingHints: { preferred: ["telegram", "telegram"] },
+      routingHints: { preferred: ["telegram", "whatsapp"] },
     });
 
     expect(r.routingIntent).toBe("all_channels");
-    expect(r.routingHints).toEqual({ preferred: ["telegram", "telegram"] });
+    expect(r.routingHints).toEqual({ preferred: ["telegram", "whatsapp"] });
 
     const fetched = getReminder(r.id);
     expect(fetched!.routingIntent).toBe("all_channels");
     expect(fetched!.routingHints).toEqual({
-      preferred: ["telegram", "telegram"],
+      preferred: ["telegram", "whatsapp"],
     });
   });
 

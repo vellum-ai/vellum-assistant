@@ -436,7 +436,7 @@ describe("pairDeliveryWithConversation", () => {
       unknown
     >;
     expect(upsertArgs.conversationId).toBe("conv-001");
-    expect(upsertArgs.sourceChannel).toBe("notification:whatsapp");
+    expect(upsertArgs.sourceChannel).toBe("notification:telegram");
   });
 
   test("falls back to new conversation when bound conversation no longer exists", async () => {
@@ -567,7 +567,7 @@ describe("pairDeliveryWithConversation", () => {
       unknown
     >;
     expect(upsertArgs.conversationId).toBe("conv-001");
-    expect(upsertArgs.sourceChannel).toBe("notification:whatsapp");
+    expect(upsertArgs.sourceChannel).toBe("notification:telegram");
     expect(upsertArgs.externalChatId).toBe("+15559876543");
   });
 

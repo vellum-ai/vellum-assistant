@@ -31,7 +31,7 @@ mock.module("../notifications/destination-resolver.js", () => ({
     const m = new Map();
     for (const ch of channels) {
       const isExternal =
-        ch === "telegram" || ch === "telegram" || ch === "slack";
+        ch === "telegram" || ch === "whatsapp" || ch === "slack";
       m.set(ch, {
         channel: ch,
         endpoint: `mock-${ch}`,
