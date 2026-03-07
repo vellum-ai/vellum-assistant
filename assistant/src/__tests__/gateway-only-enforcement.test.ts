@@ -76,7 +76,7 @@ mock.module("../config/loader.js", () => ({
     ingress: {
       publicBaseUrl: "https://test.example.com",
     },
-    sms: {
+    twilio: {
       phoneNumber: "+15550001111",
     },
   }),
@@ -90,7 +90,7 @@ mock.module("../config/loader.js", () => ({
     ingress: {
       publicBaseUrl: "https://test.example.com",
     },
-    sms: {
+    twilio: {
       phoneNumber: "+15550001111",
     },
   }),

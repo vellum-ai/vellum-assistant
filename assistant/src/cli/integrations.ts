@@ -121,9 +121,9 @@ function readTwilioConfig(): {
     ? getTwilioCredentials().accountSid
     : undefined;
   const raw = loadRawConfig();
-  const sms = asRecord(raw.sms);
+  const twilio = asRecord(raw.twilio);
   const phoneNumber =
-    typeof sms.phoneNumber === "string" ? sms.phoneNumber.trim() : "";
+    typeof twilio.phoneNumber === "string" ? twilio.phoneNumber.trim() : "";
 
   return {
     success: true,

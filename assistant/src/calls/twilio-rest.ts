@@ -246,15 +246,13 @@ export async function fetchMessageStatus(
 export interface WebhookUrls {
   voiceUrl: string;
   statusCallbackUrl: string;
-  smsUrl: string;
 }
 
 /**
  * Update the webhook URLs on a Twilio IncomingPhoneNumber.
  *
- * Configures voice webhook, voice status callback, and SMS webhook so
- * that Twilio routes inbound calls and messages to the assistant's
- * gateway endpoints.
+ * Configures voice webhook and voice status callback so that Twilio
+ * routes inbound calls to the assistant's gateway endpoints.
  */
 export async function updatePhoneNumberWebhooks(
   accountSid: string,
@@ -304,8 +302,6 @@ export async function updatePhoneNumberWebhooks(
     VoiceMethod: "POST",
     StatusCallback: webhooks.statusCallbackUrl,
     StatusCallbackMethod: "POST",
-    SmsUrl: webhooks.smsUrl,
-    SmsMethod: "POST",
   });
 
   const updateRes = await fetch(

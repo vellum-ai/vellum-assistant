@@ -40,7 +40,6 @@ let updatePhoneNumberWebhookCalls: Array<{
   urls: {
     voiceUrl: string;
     statusCallbackUrl: string;
-    smsUrl: string;
   };
 }> = [];
 let reconcileCalls: Array<{
@@ -67,10 +66,10 @@ function readMockTwilioAuthToken(): string | undefined {
 }
 
 function readMockTwilioPhoneNumber(): string | undefined {
-  const sms = (mockRawConfigStore.sms ?? {}) as Record<string, unknown>;
+  const twilio = (mockRawConfigStore.twilio ?? {}) as Record<string, unknown>;
   return (
     mockSecureKeyStore["credential:twilio:phone_number"] ??
-    (sms.phoneNumber as string | undefined)
+    (twilio.phoneNumber as string | undefined)
   );
 }
 
@@ -283,8 +282,6 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
     `${resolveIngressBaseUrlFromConfig(ingressConfig)}/webhooks/twilio/voice`,
   getTwilioStatusCallbackUrl: (ingressConfig: unknown) =>
     `${resolveIngressBaseUrlFromConfig(ingressConfig)}/webhooks/twilio/status`,
-  getTwilioSmsWebhookUrl: (ingressConfig: unknown) =>
-    `${resolveIngressBaseUrlFromConfig(ingressConfig)}/webhooks/twilio/sms`,
 }));
 
 mock.module("../runtime/auth/token-service.js", () => ({
@@ -426,8 +423,7 @@ describe("twilio webhook routes", () => {
     mockGatewayInternalBaseUrl = "http://gateway.internal:7830";
     mockMintedToken = "test-delivery-token";
     mockRawConfigStore = {
-      twilio: { accountSid: "AC_existing" },
-      sms: { phoneNumber: "+15550001111" },
+      twilio: { accountSid: "AC_existing", phoneNumber: "+15550001111" },
     };
     mockSecureKeyStore = {
       "credential:twilio:account_sid": "AC_existing",
@@ -1169,7 +1165,6 @@ describe("twilio webhook routes", () => {
       mockProvisionedNumber = { phoneNumber: "+15557778888" };
       mockRawConfigStore = {
         twilio: { accountSid: "AC_existing" },
-        sms: {},
       };
 
       const res = await handleProvisionTwilioNumber(
@@ -1197,7 +1192,6 @@ describe("twilio webhook routes", () => {
       expect(updatePhoneNumberWebhookCalls[0]!.urls).toEqual({
         voiceUrl: "https://numbers.example.com/webhooks/twilio/voice",
         statusCallbackUrl: "https://numbers.example.com/webhooks/twilio/status",
-        smsUrl: "https://numbers.example.com/webhooks/twilio/sms",
       });
 
       await flushReconcileWork();

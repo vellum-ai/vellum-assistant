@@ -25,7 +25,7 @@ import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/ac
  * interacting.  Used to gate UI-specific references and permission asks.
  */
 export interface ChannelCapabilities {
-  /** The raw channel identifier (e.g. "vellum", "telegram", "sms"). */
+  /** The raw channel identifier (e.g. "vellum", "telegram"). */
   channel: string;
   /** Whether this channel can render the dashboard UI (apps, dynamic pages). */
   dashboardCapable: boolean;
@@ -362,7 +362,6 @@ export function resolveChannelCapabilities(
       };
     }
     case "telegram":
-    case "sms":
     case "voice":
     case "whatsapp":
     case "slack":

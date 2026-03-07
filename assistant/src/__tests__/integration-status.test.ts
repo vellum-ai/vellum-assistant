@@ -31,7 +31,7 @@ describe("integration-status", () => {
         { name: "Gmail", category: "email", connected: false },
         { name: "Twitter", category: "social", connected: false },
         { name: "Slack", category: "messaging", connected: false },
-        { name: "SMS", category: "messaging", connected: false },
+        { name: "Twilio", category: "telephony", connected: false },
         { name: "Telegram", category: "messaging", connected: false },
       ]);
     });
@@ -66,7 +66,7 @@ describe("integration-status", () => {
       );
 
       expect(connected.map((s: { name: string }) => s.name)).toEqual([
-        "SMS",
+        "Twilio",
         "Telegram",
       ]);
       expect(disconnected.map((s: { name: string }) => s.name)).toEqual([
@@ -76,11 +76,11 @@ describe("integration-status", () => {
       ]);
     });
 
-    test("SMS disconnected when only account_sid is set (missing auth_token)", () => {
+    test("Twilio disconnected when only account_sid is set (missing auth_token)", () => {
       mockTwilioAccountSid = "sid";
 
       const summary = getIntegrationSummary();
-      const sms = summary.find((s: { name: string }) => s.name === "SMS");
+      const sms = summary.find((s: { name: string }) => s.name === "Twilio");
       expect(sms?.connected).toBe(false);
     });
 
@@ -104,14 +104,14 @@ describe("integration-status", () => {
 
       const result = formatIntegrationSummary();
       expect(result).toBe(
-        "Gmail \u2717 | Twitter \u2717 | Slack \u2717 | SMS \u2713 | Telegram \u2713",
+        "Gmail \u2717 | Twitter \u2717 | Slack \u2717 | Twilio \u2713 | Telegram \u2713",
       );
     });
 
     test("all disconnected", () => {
       const result = formatIntegrationSummary();
       expect(result).toBe(
-        "Gmail \u2717 | Twitter \u2717 | Slack \u2717 | SMS \u2717 | Telegram \u2717",
+        "Gmail \u2717 | Twitter \u2717 | Slack \u2717 | Twilio \u2717 | Telegram \u2717",
       );
     });
 
@@ -126,7 +126,7 @@ describe("integration-status", () => {
 
       const result = formatIntegrationSummary();
       expect(result).toBe(
-        "Gmail \u2713 | Twitter \u2713 | Slack \u2713 | SMS \u2713 | Telegram \u2713",
+        "Gmail \u2713 | Twitter \u2713 | Slack \u2713 | Twilio \u2713 | Telegram \u2713",
       );
     });
   });

@@ -42,11 +42,11 @@ import type { RouteDefinition } from "../http-router.js";
 
 /** Helper to clear stale assistant phone number mappings. */
 function pruneAssistantPhoneNumbers(
-  sms: Record<string, unknown>,
+  twilio: Record<string, unknown>,
   keepNumber: string,
   mode: "keep" | "remove",
 ): void {
-  const mappings = sms.assistantPhoneNumbers as
+  const mappings = twilio.assistantPhoneNumbers as
     | Record<string, string>
     | undefined;
   if (mappings && typeof mappings === "object") {
@@ -58,7 +58,7 @@ function pruneAssistantPhoneNumbers(
       }
     }
     if (Object.keys(mappings).length === 0) {
-      delete sms.assistantPhoneNumbers;
+      delete twilio.assistantPhoneNumbers;
     }
   }
 }
@@ -80,8 +80,8 @@ export function handleGetTwilioConfig(): Response {
     ? getTwilioCredentials().accountSid
     : undefined;
   const raw = loadRawConfig();
-  const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-  const phoneNumber = (sms.phoneNumber as string) ?? "";
+  const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
+  const phoneNumber = (twilio.phoneNumber as string) ?? "";
 
   return Response.json({
     success: true,
@@ -314,10 +314,10 @@ export async function handleProvisionTwilioNumber(
   }
 
   const raw = loadRawConfig();
-  const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-  sms.phoneNumber = purchased.phoneNumber;
-  pruneAssistantPhoneNumbers(sms, purchased.phoneNumber, "keep");
-  saveRawConfig({ ...raw, sms });
+  const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
+  twilio.phoneNumber = purchased.phoneNumber;
+  pruneAssistantPhoneNumbers(twilio, purchased.phoneNumber, "keep");
+  saveRawConfig({ ...raw, twilio });
 
   // Best-effort webhook configuration
   const webhookResult = await syncTwilioWebhooks(
@@ -370,10 +370,10 @@ export async function handleAssignTwilioNumber(
   }
 
   const raw = loadRawConfig();
-  const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-  sms.phoneNumber = body.phoneNumber;
-  pruneAssistantPhoneNumbers(sms, body.phoneNumber, "keep");
-  saveRawConfig({ ...raw, sms });
+  const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
+  twilio.phoneNumber = body.phoneNumber;
+  pruneAssistantPhoneNumbers(twilio, body.phoneNumber, "keep");
+  saveRawConfig({ ...raw, twilio });
 
   // Best-effort webhook configuration when credentials are available
   let webhookWarning: string | undefined;
@@ -416,8 +416,8 @@ export async function handleReleaseTwilioNumber(
 
   const body = (await req.json().catch(() => ({}))) as { phoneNumber?: string };
   const raw = loadRawConfig();
-  const sms = (raw?.sms ?? {}) as Record<string, unknown>;
-  const phoneNumber = body.phoneNumber || (sms.phoneNumber as string) || "";
+  const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
+  const phoneNumber = body.phoneNumber || (twilio.phoneNumber as string) || "";
 
   if (!phoneNumber) {
     return Response.json({
@@ -432,11 +432,11 @@ export async function handleReleaseTwilioNumber(
 
   await releasePhoneNumber(accountSid, authToken, phoneNumber);
 
-  if (sms.phoneNumber === phoneNumber) {
-    delete sms.phoneNumber;
+  if (twilio.phoneNumber === phoneNumber) {
+    delete twilio.phoneNumber;
   }
-  pruneAssistantPhoneNumbers(sms, phoneNumber, "remove");
-  saveRawConfig({ ...raw, sms });
+  pruneAssistantPhoneNumbers(twilio, phoneNumber, "remove");
+  saveRawConfig({ ...raw, twilio });
 
   const storedPhone = getSecureKey("credential:twilio:phone_number");
   if (storedPhone === phoneNumber) {

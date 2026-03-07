@@ -1,5 +1,5 @@
 /**
- * Template-only copy for outbound guardian verification messages (SMS, Telegram, and voice).
+ * Template-only copy for outbound guardian verification messages (Telegram, Slack, and voice).
  *
  * All outbound verification messages are composed from these templates
  * to prevent free-form caller/user text injection. Only typed variables
@@ -11,10 +11,6 @@
 // ---------------------------------------------------------------------------
 
 export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
-  /** Initial outbound SMS with verification code. */
-  CHALLENGE_REQUEST: "guardian_verify.sms.challenge_request",
-  /** Resend SMS with verification code. */
-  RESEND: "guardian_verify.sms.resend",
   /** Response when the user is already verified. */
   ALREADY_VERIFIED: "guardian_verify.already_verified",
   /** Initial outbound Telegram verification prompt (code is not included). */
@@ -49,10 +45,8 @@ export const GUARDIAN_VERIFY_TEMPLATE_KEYS = {
 export type GuardianVerifyTemplateKey =
   (typeof GUARDIAN_VERIFY_TEMPLATE_KEYS)[keyof typeof GUARDIAN_VERIFY_TEMPLATE_KEYS];
 
-/** Template keys for SMS/Telegram/Slack text-based verification messages. */
+/** Template keys for Telegram/Slack text-based verification messages. */
 type TextVerifyTemplateKey =
-  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST
-  | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST
   | typeof GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_RESEND
@@ -97,14 +91,6 @@ const templates: Record<
   TextVerifyTemplateKey,
   (vars: GuardianVerifyTemplateVars) => string
 > = {
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST]: (_vars) => {
-    return "Vellum assistant guardian verification requested. Reply with the 6-digit code you were given.";
-  },
-
-  [GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND]: (_vars) => {
-    return "Vellum assistant guardian verification requested. Reply with the 6-digit code you were given. (resent)";
-  },
-
   [GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED]: (_vars) => {
     return "This channel is already verified. No further action is needed.";
   },
@@ -133,18 +119,6 @@ const templates: Record<
     return `Vellum assistant verification: your code is ${vars.code}. Reply with this code to verify your identity. It expires in ${vars.expiresInMinutes} minutes. (resent)`;
   },
 };
-
-/**
- * Compose an outbound verification SMS body from a template key and typed variables.
- * Returns plain string content suitable for SMS delivery.
- */
-export function composeVerificationSms(
-  templateKey: TextVerifyTemplateKey,
-  vars: GuardianVerifyTemplateVars,
-): string {
-  const composer = templates[templateKey];
-  return composer(vars);
-}
 
 /**
  * Compose an outbound verification Slack DM from a template key and typed variables.

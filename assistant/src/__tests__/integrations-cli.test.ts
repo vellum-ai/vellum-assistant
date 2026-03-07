@@ -324,7 +324,7 @@ describe("assistant integrations CLI", () => {
 
   test("reads twilio config without gateway fetch", async () => {
     rawConfig = {
-      sms: {
+      twilio: {
         phoneNumber: "+15550001111",
       },
     };

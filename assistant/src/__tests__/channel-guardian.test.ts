@@ -145,7 +145,6 @@ import {
   validateAndConsumeChallenge,
 } from "../runtime/channel-guardian-service.js";
 import {
-  composeVerificationSms,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/guardian-verification-templates.js";
@@ -2837,29 +2836,6 @@ describe("outbound SMS verification", () => {
     }
   });
 
-  test("template composer returns expected SMS format", () => {
-    const challengeSms = composeVerificationSms(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
-      { code: "123456", expiresInMinutes: 10 },
-    );
-    // Code should NOT appear in the message — user sees it in the app
-    expect(challengeSms).not.toContain("123456");
-    expect(challengeSms).toContain("code you were given");
-
-    const resendSms = composeVerificationSms(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.RESEND,
-      { code: "ABCDEF", expiresInMinutes: 5 },
-    );
-    expect(resendSms).not.toContain("ABCDEF");
-    expect(resendSms).toContain("resent");
-
-    const alreadySms = composeVerificationSms(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.ALREADY_VERIFIED,
-      { code: "unused", expiresInMinutes: 0 },
-    );
-    expect(alreadySms).toContain("already verified");
-  });
-
   test("start_outbound rejects unsupported channels", async () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
@@ -2949,16 +2925,6 @@ describe("outbound SMS verification", () => {
     expect(voiceCallInitCalls.length).toBeGreaterThanOrEqual(1);
     const lastCall = voiceCallInitCalls[voiceCallInitCalls.length - 1];
     expect(lastCall.phoneNumber).toBe("+15551234567");
-  });
-
-  test("template composer includes Vellum assistant prefix", () => {
-    const sms = composeVerificationSms(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
-      { code: "999999", expiresInMinutes: 10, assistantName: "MyBot" },
-    );
-    expect(sms).toContain("Vellum assistant");
-    // Code should NOT appear in the message
-    expect(sms).not.toContain("999999");
   });
 
   test("cancel_session succeeds even when no active session (idempotent)", async () => {

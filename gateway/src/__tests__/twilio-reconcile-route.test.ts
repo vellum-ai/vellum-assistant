@@ -144,8 +144,6 @@ describe("POST /internal/twilio/reconcile", () => {
     writeWorkspaceConfig({
       twilio: {
         accountSid: "AC-config",
-      },
-      sms: {
         phoneNumber: "+15553334444",
       },
     });

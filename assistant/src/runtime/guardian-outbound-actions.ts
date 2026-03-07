@@ -37,7 +37,7 @@ const log = getLogger("guardian-outbound-actions");
 // Rate limit constants for outbound verification
 // ---------------------------------------------------------------------------
 
-/** Maximum SMS sends per verification session. */
+/** Maximum sends per verification session. */
 export const MAX_SENDS_PER_SESSION = 5;
 
 /** Cooldown between resends in milliseconds (15 seconds). */

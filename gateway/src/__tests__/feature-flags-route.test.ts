@@ -194,7 +194,7 @@ describe("GET /v1/feature-flags handler", () => {
   test("returns all declared flags even when config has no persisted values", async () => {
     writeFileSync(
       configPath,
-      JSON.stringify({ sms: { phoneNumber: "+1234" } }),
+      JSON.stringify({ twilio: { phoneNumber: "+1234" } }),
     );
 
     const handler = createFeatureFlagsGetHandler();
@@ -305,7 +305,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     writeFileSync(
       configPath,
       JSON.stringify({
-        sms: { phoneNumber: "+1234567890" },
+        twilio: { phoneNumber: "+1234567890" },
         email: { address: "test@example.com" },
         assistantFeatureFlagValues: { "feature_flags.twitter.enabled": true },
       }),
@@ -325,7 +325,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     );
 
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    expect(config.sms).toEqual({ phoneNumber: "+1234567890" });
+    expect(config.twilio).toMatchObject({ phoneNumber: "+1234567890" });
     expect(config.email).toEqual({ address: "test@example.com" });
     // New section should have both old and new values
     expect(
@@ -539,7 +539,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
   test("atomic write does not corrupt config on successful write", async () => {
     // Write initial config
     const initial = {
-      sms: { phoneNumber: "+1234" },
+      twilio: { phoneNumber: "+1234" },
       assistantFeatureFlagValues: { "feature_flags.browser.enabled": true },
     };
     writeFileSync(configPath, JSON.stringify(initial));
@@ -560,7 +560,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     // Verify the file is valid JSON and contains all expected data
     const raw = readFileSync(configPath, "utf-8");
     const config = JSON.parse(raw);
-    expect(config.sms).toEqual({ phoneNumber: "+1234" });
+    expect(config.twilio).toMatchObject({ phoneNumber: "+1234" });
     expect(
       config.assistantFeatureFlagValues["feature_flags.browser.enabled"],
     ).toBe(true);
