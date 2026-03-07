@@ -108,7 +108,7 @@ export async function handleApprovalInterception(
       bearerToken,
       assistantId,
       approvalCopyGenerator,
-      approvalConversationGenerator,
+      approvalConversationGenerator: approvalConversationGenerator!,
     });
     if (guardianResult) {
       return guardianResult;

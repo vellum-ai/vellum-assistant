@@ -51,7 +51,7 @@ export interface GuardianCallbackDecisionParams {
   bearerToken?: string;
   assistantId: string;
   approvalCopyGenerator?: ApprovalCopyGenerator;
-  approvalConversationGenerator?: ApprovalConversationGenerator;
+  approvalConversationGenerator: ApprovalConversationGenerator;
 }
 
 export interface ApprovalInterceptionResult {
@@ -211,7 +211,7 @@ export async function handleGuardianCallbackDecision(
   const effectivePending =
     senderPending.length > 0 ? senderPending : allGuardianPending;
 
-  if (effectivePending.length > 0 && approvalConversationGenerator && content) {
+  if (effectivePending.length > 0 && content) {
     return handleConversationalDecision({
       guardianApproval,
       allGuardianPending,
