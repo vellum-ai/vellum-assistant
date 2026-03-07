@@ -61,6 +61,7 @@ import {
   handleHistoryRequest,
   handleMessageContentRequest,
 } from "./session-history.js";
+import { handleUserMessage } from "./session-user-message.js";
 import {
   defineHandlers,
   type HandlerContext,
@@ -68,9 +69,6 @@ import {
   pendingStandaloneSecrets,
   wireEscalationHandler,
 } from "./shared.js";
-// Re-export for backward compatibility — tests and other consumers import from sessions.js
-export { handleUserMessage } from "./session-user-message.js";
-import { handleUserMessage } from "./session-user-message.js";
 
 /**
  * Extract a valid ChannelId from a binding's sourceChannel, which may carry a

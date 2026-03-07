@@ -205,10 +205,8 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-import {
-  handleConfirmationResponse,
-  handleUserMessage,
-} from "../daemon/handlers/sessions.js";
+import { handleUserMessage } from "../daemon/handlers/session-user-message.js";
+import { handleConfirmationResponse } from "../daemon/handlers/sessions.js";
 
 interface TestSession {
   messages: Array<{ role: string; content: unknown[] }>;

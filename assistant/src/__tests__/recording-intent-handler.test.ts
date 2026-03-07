@@ -831,7 +831,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -863,7 +863,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -898,7 +898,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -929,7 +929,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -963,7 +963,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -994,7 +994,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -1025,7 +1025,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -1060,7 +1060,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -1090,7 +1090,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -1118,7 +1118,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
@@ -1143,7 +1143,7 @@ describe("recording intent handler integration — handleUserMessage", () => {
     const { ctx, sent, fakeSocket } = createCtx();
 
     const { handleUserMessage } =
-      await import("../daemon/handlers/sessions.js");
+      await import("../daemon/handlers/session-user-message.js");
     await handleUserMessage(
       {
         type: "user_message",
