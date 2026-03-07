@@ -1,9 +1,12 @@
+import { hostname } from "os";
+
 import {
   findAssistantByName,
   getActiveAssistant,
   loadLatestAssistant,
 } from "../lib/assistant-config";
 import { GATEWAY_PORT, type Species } from "../lib/constants";
+import { getLocalLanIPv4, getMacLocalHostname } from "../lib/local";
 
 const ANSI = {
   reset: "\x1b[0m",
@@ -104,13 +107,57 @@ function parseArgs(): ParsedArgs {
   }
 
   return {
-    runtimeUrl: runtimeUrl.replace(/\/+$/, ""),
+    runtimeUrl: maybeSwapToLocalhost(runtimeUrl.replace(/\/+$/, "")),
     assistantId,
     species,
     bearerToken,
     project: entry?.project,
     zone: entry?.zone,
   };
+}
+
+/**
+ * If the hostname in `url` matches this machine's local DNS name, LAN IP, or
+ * raw hostname, replace it with 127.0.0.1 so the client avoids mDNS round-trips
+ * when talking to an assistant running on the same machine.
+ */
+function maybeSwapToLocalhost(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+
+  const urlHost = parsed.hostname.toLowerCase();
+
+  const localNames: string[] = [];
+
+  const host = hostname();
+  if (host) {
+    localNames.push(host.toLowerCase());
+    // Also consider the bare name without .local suffix
+    if (host.toLowerCase().endsWith(".local")) {
+      localNames.push(host.toLowerCase().slice(0, -".local".length));
+    }
+  }
+
+  const macHost = getMacLocalHostname();
+  if (macHost) {
+    localNames.push(macHost.toLowerCase());
+  }
+
+  const lanIp = getLocalLanIPv4();
+  if (lanIp) {
+    localNames.push(lanIp);
+  }
+
+  if (localNames.includes(urlHost)) {
+    parsed.hostname = "127.0.0.1";
+    return parsed.toString().replace(/\/+$/, "");
+  }
+
+  return url;
 }
 
 function printUsage(): void {

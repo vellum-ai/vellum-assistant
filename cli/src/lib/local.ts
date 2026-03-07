@@ -572,7 +572,7 @@ async function discoverPublicUrl(port?: number): Promise<string | undefined> {
  * Returns the macOS Bonjour/mDNS `.local` hostname (e.g. "Vargass-Mac-Mini.local"),
  * or undefined if not running on macOS or the hostname cannot be determined.
  */
-function getMacLocalHostname(): string | undefined {
+export function getMacLocalHostname(): string | undefined {
   const host = hostname();
   if (!host) return undefined;
   // macOS hostnames already end with .local when Bonjour is active
@@ -593,7 +593,7 @@ function getMacLocalHostname(): string | undefined {
  * Skips link-local addresses (169.254.x.x) and IPv6.
  * Returns undefined if no suitable address is found.
  */
-function getLocalLanIPv4(): string | undefined {
+export function getLocalLanIPv4(): string | undefined {
   const ifaces = networkInterfaces();
 
   // Priority interfaces in order
