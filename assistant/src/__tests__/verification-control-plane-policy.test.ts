@@ -107,11 +107,11 @@ mock.module("../tools/terminal/sandbox.js", () => ({
 
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
+import type { ToolContext } from "../tools/types.js";
 import {
   enforceVerificationControlPlanePolicy,
   isVerificationControlPlaneInvocation,
 } from "../tools/verification-control-plane-policy.js";
-import type { ToolContext } from "../tools/types.js";
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
@@ -250,9 +250,9 @@ describe("isVerificationControlPlaneInvocation", () => {
     });
 
     test("handles missing url field gracefully", () => {
-      expect(
-        isVerificationControlPlaneInvocation("network_request", {}),
-      ).toBe(false);
+      expect(isVerificationControlPlaneInvocation("network_request", {})).toBe(
+        false,
+      );
     });
   });
 
