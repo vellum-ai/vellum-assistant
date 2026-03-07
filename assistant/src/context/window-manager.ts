@@ -71,12 +71,55 @@ export interface ContextWindowCompactOptions {
   targetInputTokensOverride?: number;
 }
 
+export interface ContextWindowManagerOptions {
+  provider: Provider;
+  systemPrompt: string;
+  config: ContextWindowConfig;
+  /**
+   * Called just before compaction replaces messages with a summary.
+   * Receives the messages about to be compacted and the boundary index.
+   * Errors are caught and logged — compaction proceeds regardless.
+   */
+  onBeforeCompact?: (
+    messages: Message[],
+    compactionBoundary: number,
+    signal?: AbortSignal,
+  ) => Promise<void>;
+}
+
 export class ContextWindowManager {
+  private readonly provider: Provider;
+  private readonly systemPrompt: string;
+  private readonly config: ContextWindowConfig;
+  readonly onBeforeCompact?: ContextWindowManagerOptions["onBeforeCompact"];
+
+  constructor(options: ContextWindowManagerOptions);
+  /** @deprecated Use the options-object constructor instead. */
   constructor(
-    private readonly provider: Provider,
-    private readonly systemPrompt: string,
-    private readonly config: ContextWindowConfig,
-  ) {}
+    provider: Provider,
+    systemPrompt: string,
+    config: ContextWindowConfig,
+  );
+  constructor(
+    providerOrOptions: Provider | ContextWindowManagerOptions,
+    systemPrompt?: string,
+    config?: ContextWindowConfig,
+  ) {
+    if (
+      typeof providerOrOptions === "object" &&
+      "provider" in providerOrOptions &&
+      "config" in providerOrOptions
+    ) {
+      this.provider = providerOrOptions.provider;
+      this.systemPrompt = providerOrOptions.systemPrompt;
+      this.config = providerOrOptions.config;
+      this.onBeforeCompact = providerOrOptions.onBeforeCompact;
+    } else {
+      this.provider = providerOrOptions as Provider;
+      this.systemPrompt = systemPrompt!;
+      this.config = config!;
+    }
+  }
 
   async maybeCompact(
     messages: Message[],
@@ -291,6 +334,21 @@ export class ContextWindowManager {
         summaryText: existingSummary ?? "",
         reason: "insufficient compactable persisted messages",
       };
+    }
+
+    if (this.onBeforeCompact) {
+      try {
+        await this.onBeforeCompact(
+          compactableMessages,
+          keepPlan.keepFromIndex,
+          signal,
+        );
+      } catch (err) {
+        log.warn(
+          { err },
+          "onBeforeCompact callback failed, proceeding with compaction",
+        );
+      }
     }
 
     const chunks = chunkMessages(
