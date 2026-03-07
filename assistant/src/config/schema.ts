@@ -4,16 +4,6 @@ import { getDataDir } from "../util/platform.js";
 
 // Re-export all domain schemas
 export type {
-  HeartbeatConfig,
-  SwarmConfig,
-  WorkspaceGitConfig,
-} from "./agent-schema.js";
-export {
-  HeartbeatConfigSchema,
-  SwarmConfigSchema,
-  WorkspaceGitConfigSchema,
-} from "./agent-schema.js";
-export type {
   AuditLogConfig,
   AvatarConfig,
   ContextOverflowRecoveryConfig,
@@ -117,6 +107,8 @@ export {
   DEFAULT_ELEVENLABS_VOICE_ID,
   ElevenLabsConfigSchema,
 } from "./schemas/elevenlabs.js";
+export type { HeartbeatConfig } from "./schemas/heartbeat.js";
+export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 export type {
   McpConfig,
   McpServerConfig,
@@ -149,13 +141,12 @@ export {
   SkillsInstallConfigSchema,
   SkillsLoadConfigSchema,
 } from "./schemas/skills.js";
+export type { SwarmConfig } from "./schemas/swarm.js";
+export { SwarmConfigSchema } from "./schemas/swarm.js";
+export type { WorkspaceGitConfig } from "./schemas/workspace-git.js";
+export { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 // Imports for AssistantConfigSchema composition
-import {
-  HeartbeatConfigSchema,
-  SwarmConfigSchema,
-  WorkspaceGitConfigSchema,
-} from "./agent-schema.js";
 import {
   AuditLogConfigSchema,
   AvatarConfigSchema,
@@ -180,10 +171,13 @@ import {
 import { MemoryConfigSchema } from "./memory-schema.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
+import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import { McpConfigSchema } from "./schemas/mcp.js";
 import { NotificationsConfigSchema } from "./schemas/notifications.js";
 import { SandboxConfigSchema } from "./schemas/sandbox.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
+import { SwarmConfigSchema } from "./schemas/swarm.js";
+import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 const VALID_PROVIDERS = [
   "anthropic",
