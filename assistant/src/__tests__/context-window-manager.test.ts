@@ -650,6 +650,59 @@ describe("ContextWindowManager", () => {
     );
   });
 
+  test("shouldCompact returns false when below threshold", () => {
+    const provider = createProvider(() => {
+      throw new Error("should not be called");
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig(),
+    });
+    const history = [message("user", "hello"), message("assistant", "hi")];
+    expect(manager.shouldCompact(history)).toBe(false);
+  });
+
+  test("shouldCompact returns true when above threshold", () => {
+    const provider = createProvider(() => {
+      throw new Error("should not be called");
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig(),
+    });
+    const long = "x".repeat(240);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+    expect(manager.shouldCompact(history)).toBe(true);
+  });
+
+  test("shouldCompact returns false when compaction is disabled", () => {
+    const provider = createProvider(() => {
+      throw new Error("should not be called");
+    });
+    const long = "x".repeat(240);
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ enabled: false }),
+    });
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+    ];
+    expect(manager.shouldCompact(history)).toBe(false);
+  });
+
   test("targetInputTokensOverride reduces retained turns beyond normal compaction", async () => {
     const provider = createProvider(() => ({
       content: [{ type: "text", text: "## Goals\n- tight fit summary" }],

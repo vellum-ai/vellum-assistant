@@ -426,13 +426,15 @@ export async function runAgentLoopImpl(
 
     const isFirstMessage = ctx.messages.length === 1;
 
-    ctx.emitActivityState(
-      "thinking",
-      "thinking_delta",
-      "assistant_turn",
-      reqId,
-      "Compacting context",
-    );
+    if (ctx.contextWindowManager.shouldCompact(ctx.messages)) {
+      ctx.emitActivityState(
+        "thinking",
+        "thinking_delta",
+        "assistant_turn",
+        reqId,
+        "Compacting context",
+      );
+    }
     const compacted = await ctx.contextWindowManager.maybeCompact(
       ctx.messages,
       abortController.signal,

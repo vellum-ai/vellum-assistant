@@ -88,6 +88,22 @@ export class ContextWindowManager {
     this.config = options.config;
   }
 
+  /**
+   * Cheap pre-check: returns true when the estimated token count exceeds
+   * the compaction threshold, so callers can show a status indicator
+   * only when compaction is likely to run.
+   */
+  shouldCompact(messages: Message[]): boolean {
+    if (!this.config.enabled) return false;
+    const estimated = estimatePromptTokens(messages, this.systemPrompt, {
+      providerName: this.provider.name,
+    });
+    const threshold = Math.floor(
+      this.config.maxInputTokens * this.config.compactThreshold,
+    );
+    return estimated >= threshold;
+  }
+
   async maybeCompact(
     messages: Message[],
     signal?: AbortSignal,
