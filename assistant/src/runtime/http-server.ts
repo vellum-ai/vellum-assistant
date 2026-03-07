@@ -122,6 +122,7 @@ import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
 import { integrationRouteDefinitions } from "./routes/integration-routes.js";
+import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
 import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
 import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
 import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
@@ -878,6 +879,7 @@ export class RuntimeHttpServer {
 
       ...telegramRouteDefinitions(),
       ...integrationRouteDefinitions(),
+      ...slackChannelRouteDefinitions(),
       ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
