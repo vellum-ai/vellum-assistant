@@ -15,6 +15,7 @@ import {
   getTwilioVoiceWebhookUrl,
 } from "../inbound/public-ingress-urls.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
+import { getConversation } from "../memory/conversation-store.js";
 import { queueGenerateConversationTitle } from "../memory/conversation-title-service.js";
 import { upsertBinding } from "../memory/external-conversation-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
@@ -40,10 +41,26 @@ import { activeRelayConnections } from "./relay-server.js";
 import { getTwilioConfig } from "./twilio-config.js";
 import { TwilioConversationRelayProvider } from "./twilio-provider.js";
 import type { CallSession } from "./types.js";
+import { preflightVoiceIngress } from "./voice-ingress-preflight.js";
 
 const log = getLogger("call-domain");
 
 const E164_REGEX = /^\+\d+$/;
+
+function postFailedCallPointer(
+  conversationId: string,
+  phoneNumber: string,
+  reason: string,
+): void {
+  addPointerMessage(conversationId, "failed", phoneNumber, {
+    reason,
+  }).catch((pointerErr) => {
+    log.warn(
+      { conversationId, err: pointerErr },
+      "Failed to post call-failed pointer message",
+    );
+  });
+}
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -387,18 +404,34 @@ export async function startCall(
   let sessionId: string | null = null;
 
   try {
-    const ingressConfig = loadConfig();
-    const provider = new TwilioConversationRelayProvider();
+    const config = loadConfig();
 
     // Resolve which phone number to use as caller ID
     const identityResult = await resolveCallerIdentity(
-      ingressConfig,
+      config,
       callerIdentityMode,
     );
     if (!identityResult.ok) {
       return { ok: false, error: identityResult.error, status: 400 };
     }
     const fromNumber = identityResult.fromNumber;
+
+    if (!getConversation(conversationId)) {
+      return {
+        ok: false,
+        error: `Invalid conversationId: no conversation found with ID ${conversationId}`,
+        status: 400,
+      };
+    }
+
+    const preflightResult = await preflightVoiceIngress();
+    if (!preflightResult.ok) {
+      postFailedCallPointer(conversationId, phoneNumber, preflightResult.error);
+      return preflightResult;
+    }
+
+    const ingressConfig = preflightResult.ingressConfig;
+    const provider = new TwilioConversationRelayProvider();
 
     const session = createCallSession({
       conversationId,
@@ -531,15 +564,7 @@ export async function startCall(
       });
     }
 
-    // Post a failure pointer message in the initiating conversation
-    addPointerMessage(conversationId, "failed", phoneNumber, {
-      reason: msg,
-    }).catch((pointerErr) => {
-      log.warn(
-        { conversationId, err: pointerErr },
-        "Failed to post call-failed pointer message",
-      );
-    });
+    postFailedCallPointer(conversationId, phoneNumber, msg);
 
     return { ok: false, error: `Error initiating call: ${msg}`, status: 500 };
   }

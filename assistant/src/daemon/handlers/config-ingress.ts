@@ -49,7 +49,13 @@ export function computeGatewayTarget(): string {
   return getGatewayInternalBaseUrl();
 }
 
-function triggerGatewayInternalReconcile(
+export interface GatewayInternalReconcileResult {
+  ok: boolean;
+  status?: number;
+  error?: string;
+}
+
+async function triggerGatewayInternalReconcile(
   endpointPath: string,
   ingressPublicBaseUrl: string | undefined,
   messages: {
@@ -57,8 +63,9 @@ function triggerGatewayInternalReconcile(
     nonOk: string;
     unavailable: string;
     unavailableLogLevel: "debug" | "warn";
+    unavailableErrorPrefix: string;
   },
-): void {
+): Promise<GatewayInternalReconcileResult> {
   const gatewayBase = computeGatewayTarget();
   const token = mintDaemonDeliveryToken();
 
@@ -67,29 +74,41 @@ function triggerGatewayInternalReconcile(
     ingressPublicBaseUrl: ingressPublicBaseUrl ?? "",
   });
 
-  fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body,
-    signal: AbortSignal.timeout(5_000),
-  })
-    .then((res) => {
-      if (res.ok) {
-        log.info(messages.success);
-      } else {
-        log.warn({ status: res.status }, messages.nonOk);
-      }
-    })
-    .catch((err) => {
-      if (messages.unavailableLogLevel === "warn") {
-        log.warn({ err }, messages.unavailable);
-      } else {
-        log.debug({ err }, messages.unavailable);
-      }
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body,
+      signal: AbortSignal.timeout(5_000),
     });
+
+    if (res.ok) {
+      log.info(messages.success);
+      return { ok: true, status: res.status };
+    }
+
+    log.warn({ status: res.status }, messages.nonOk);
+    return {
+      ok: false,
+      status: res.status,
+      error: `${messages.unavailableErrorPrefix} (HTTP ${res.status})`,
+    };
+  } catch (err) {
+    if (messages.unavailableLogLevel === "warn") {
+      log.warn({ err }, messages.unavailable);
+    } else {
+      log.debug({ err }, messages.unavailable);
+    }
+    return {
+      ok: false,
+      error: `${messages.unavailableErrorPrefix}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
 }
 
 /**
@@ -100,7 +119,7 @@ function triggerGatewayInternalReconcile(
 export function triggerGatewayReconcile(
   ingressPublicBaseUrl: string | undefined,
 ): void {
-  triggerGatewayInternalReconcile(
+  void triggerGatewayInternalReconcile(
     "/internal/telegram/reconcile",
     ingressPublicBaseUrl,
     {
@@ -109,6 +128,7 @@ export function triggerGatewayReconcile(
       unavailable:
         "Gateway Telegram webhook reconcile failed (gateway may not be running)",
       unavailableLogLevel: "debug",
+      unavailableErrorPrefix: "Gateway Telegram webhook reconcile failed",
     },
   );
 }
@@ -120,8 +140,8 @@ export function triggerGatewayReconcile(
  */
 export function triggerGatewayTwilioReconcile(
   ingressPublicBaseUrl: string | undefined,
-): void {
-  triggerGatewayInternalReconcile(
+): Promise<GatewayInternalReconcileResult> {
+  return triggerGatewayInternalReconcile(
     "/internal/twilio/reconcile",
     ingressPublicBaseUrl,
     {
@@ -130,6 +150,7 @@ export function triggerGatewayTwilioReconcile(
       unavailable:
         "Gateway Twilio state reconcile failed (gateway may not be running)",
       unavailableLogLevel: "warn",
+      unavailableErrorPrefix: "Gateway Twilio state reconcile failed",
     },
   );
 }
@@ -295,7 +316,7 @@ export async function handleIngressConfig(
       }
 
       triggerGatewayReconcile(effectiveUrl);
-      triggerGatewayTwilioReconcile(effectiveUrl);
+      void triggerGatewayTwilioReconcile(effectiveUrl);
 
       // Best-effort Twilio webhook reconciliation: when ingress is being
       // enabled/updated and Twilio numbers are assigned with valid credentials,

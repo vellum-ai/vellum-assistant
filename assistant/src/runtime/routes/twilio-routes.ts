@@ -64,7 +64,7 @@ function pruneAssistantPhoneNumbers(
 }
 
 function refreshGatewayTwilioState(): void {
-  triggerGatewayTwilioReconcile(getIngressPublicBaseUrl());
+  void triggerGatewayTwilioReconcile(getIngressPublicBaseUrl());
 }
 
 // ---------------------------------------------------------------------------
