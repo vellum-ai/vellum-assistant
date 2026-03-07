@@ -55,7 +55,7 @@ describe("guardian-verify-setup skill — voice auto-followup", () => {
         .split("## Voice Auto-Check Polling")[1]
         ?.split("## Step 6")[0] ?? "";
     expect(pollingSection).toContain(
-      "assistant integrations guardian status --channel phone --json",
+      "assistant channel-verification-sessions status --channel phone --json",
     );
   });
 
