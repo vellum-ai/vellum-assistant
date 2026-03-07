@@ -7,18 +7,13 @@ metadata: {"emoji":"🤖","vellum":{"display-name":"Telegram Setup","user-invoca
 
 You are helping your user connect a Telegram bot to the Vellum Assistant gateway. Walk through each step below.
 
-## Prerequisites
-
-1. **Gateway is running:** `curl -sf "$INTERNAL_GATEWAY_BASE_URL/healthz"` should return `{"status":"ok"}`. If not, tell the user to run `vellum wake`.
-2. **Public ingress is configured.** If not, load the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`).
-
 ## Value Classification
 
 | Value          | Type       | Storage method                              | Secret? |
 | -------------- | ---------- | ------------------------------------------- | ------- |
 | Bot Token      | Credential | `credential_store` prompt                   | **Yes** |
 | Bot Username   | Config     | `assistant config set telegram.botUsername` | No      |
-| Webhook Secret | Credential | `assistant credentials set`                 | No      |
+| Webhook Secret | Credential | `assistant credentials set`                 | **Yes** |
 
 - **Bot Token** is a secret. Always collect via `credential_store` prompt — never accept it pasted in plaintext chat.
 - **Bot Username** is derived from the token via the Telegram API and stored as config.
@@ -44,15 +39,27 @@ assistant config set telegram.botUsername "$BOT_USERNAME"
 
 If the `curl` call fails, the token is invalid — ask the user to re-enter (repeat Step 1).
 
-## Step 3: Generate Webhook Secret
 
-Skip if one already exists (`assistant credentials inspect telegram:webhook_secret`).
+## Step 3: Set Up Public Ingress and Webhooks
+
+### Verify Public Ingress is Set Up
+
+Telegram needs a publicly reachable URL to send webhook events to. Load the `public-ingress` skill to determine whether a public ingress has been configured and walk the user through setting one up if not.
+
+### Generate Webhook Secret
+
+Check to see if one already exists:
+```bash
+assistant credentials inspect telegram:webhook_secret
+```
+
+If not, generate and set one:
 
 ```bash
 assistant credentials set telegram:webhook_secret "$(uuidgen)"
 ```
 
-## Step 4: Register Platform Callback Route
+### Register Platform Callback Route
 
 ```bash
 assistant platform callback-routes register --path webhooks/telegram --type telegram --json
@@ -60,7 +67,7 @@ assistant platform callback-routes register --path webhooks/telegram --type tele
 
 Only needed for containerized deployments. A "not available" error is expected locally — ignore it.
 
-## Step 5: Register Bot Commands
+## Step 4: Register Bot Commands
 
 ```bash
 BOT_TOKEN=$(assistant credentials reveal telegram:bot_token)
@@ -71,9 +78,9 @@ curl -sf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
 
 Non-critical — warn on failure but don't block setup.
 
-## Step 6: Guardian Verification (Optional)
+## Step 5: Guardian Verification (Optional)
 
-Link the user's Telegram account as the trusted guardian. Load the **guardian-verify-setup** skill:
+Link the user's Telegram account as a trusted guardian. Load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"`.
 
@@ -87,7 +94,7 @@ Summarize:
 - Bot commands registered: /new, /help
 - Guardian identity: {verified | skipped}
 
-## Clearing Credentials
+# Clearing Credentials
 
 To disconnect Telegram:
 
