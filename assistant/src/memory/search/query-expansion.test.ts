@@ -32,6 +32,11 @@ describe("expandQueryForFTS", () => {
     const result = expandQueryForFTS("what is the");
     expect(result).toEqual(["what", "is", "the"]);
   });
+
+  test("splits punctuation-delimited words into separate tokens", () => {
+    const result = expandQueryForFTS("error-handling config.yaml");
+    expect(result).toEqual(["error", "handling", "config", "yaml"]);
+  });
 });
 
 describe("buildFTSQuery", () => {
