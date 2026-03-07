@@ -370,10 +370,17 @@ function parseFrontmatter(
           metadata = parsedMeta.vellum as VellumMetadata;
         }
       } else {
+        // Zod validation failed — fall back to raw JSON so we don't lose
+        // all metadata because of a single bad field value.
         log.warn(
           { err: result.error, skillFilePath },
-          "Metadata failed schema validation",
+          "Metadata failed schema validation; falling back to raw JSON",
         );
+        parsedMeta = json;
+        vellum = json?.vellum;
+        if (json?.vellum && typeof json.vellum === "object") {
+          metadata = json.vellum as VellumMetadata;
+        }
       }
     } catch (err) {
       log.warn(
