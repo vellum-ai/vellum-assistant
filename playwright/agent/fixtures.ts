@@ -98,21 +98,16 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   verifyAppExists(appDisplayName);
   preApproveScreenCapture();
   ensureVellumInPath(appDisplayName);
+  publishBaseDataDir(baseDataDir);
   await ensureAssistantHatched();
   skipAssistantOnboarding();
   ensureApiKeyInDefaults();
-
-  // The macOS app discovers the daemon via the lockfile at ~/.
-  // When BASE_DATA_DIR is set to a per-test temp dir, the hatch CLI
-  // writes the lockfile there instead. Copy it to the home directory
-  // so the app can find the hatched assistant.
-  const copiedLockfile = publishLockfileToHome(baseDataDir);
 
   return {
     teardown: async () => {
       retireAssistant();
       quitApp(appDisplayName);
-      removeCopiedLockfile(copiedLockfile);
+      unpublishBaseDataDir();
       collectHatchLogs();
       cleanupTestDataDir(baseDataDir);
     },
@@ -127,28 +122,29 @@ function getBaseDir(): string {
 }
 
 /**
- * Copies the lockfile from a per-test BASE_DATA_DIR to the home directory
- * so the macOS app (which doesn't inherit BASE_DATA_DIR) can discover
- * the hatched assistant's socket path and gateway port.
+ * Publishes BASE_DATA_DIR into the macOS launchd environment so that
+ * GUI apps (the desktop assistant) inherit it and read the lockfile
+ * from the same per-test directory the CLI writes to.
  */
-function publishLockfileToHome(baseDataDir: string | undefined): string | undefined {
-  if (!baseDataDir) return undefined;
-  const srcLockfile = path.join(baseDataDir, ".vellum.lock.json");
-  const homeLockfile = path.join(os.homedir(), ".vellum.lock.json");
-  if (existsSync(srcLockfile)) {
-    copyFileSync(srcLockfile, homeLockfile);
-    return homeLockfile;
+function publishBaseDataDir(baseDataDir: string | undefined): void {
+  if (!baseDataDir) return;
+  try {
+    execSync(`launchctl setenv BASE_DATA_DIR ${JSON.stringify(baseDataDir)}`, {
+      timeout: 5_000,
+      shell: "/bin/bash",
+    });
+  } catch {
+    // Best-effort — the app will fall back to ~/
   }
-  return undefined;
 }
 
-/** Removes a lockfile copy placed in the home directory during setup. */
-function removeCopiedLockfile(lockfilePath: string | undefined): void {
-  if (!lockfilePath) return;
+/** Removes BASE_DATA_DIR from the launchd environment during teardown. */
+function unpublishBaseDataDir(): void {
   try {
-    if (existsSync(lockfilePath)) {
-      unlinkSync(lockfilePath);
-    }
+    execSync("launchctl unsetenv BASE_DATA_DIR", {
+      timeout: 5_000,
+      shell: "/bin/bash",
+    });
   } catch {
     // Best-effort cleanup
   }
