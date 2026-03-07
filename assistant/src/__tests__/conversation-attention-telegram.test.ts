@@ -39,7 +39,7 @@ mock.module("../security/secret-ingress.js", () => ({
 }));
 
 // Mock render to return the raw content as text
-mock.module("../daemon/handlers.js", () => ({
+mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: (content: unknown) => ({
     text: typeof content === "string" ? content : JSON.stringify(content),
   }),

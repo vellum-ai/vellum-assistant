@@ -91,7 +91,7 @@ mock.module("../memory/attachments-store.js", () => ({
     attachmentsByMessageId.get(messageId) ?? [],
 }));
 
-mock.module("../daemon/handlers.js", () => ({
+mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: () => renderedHistoryContent,
 }));
 
