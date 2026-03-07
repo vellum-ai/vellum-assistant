@@ -58,10 +58,10 @@ import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
-import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import * as deliveryChannels from "../memory/delivery-channels.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
@@ -252,7 +252,7 @@ describe("WhatsApp channel ingress attachment resolution", () => {
       "contact_channels",
       "contacts",
     );
-    channelDeliveryStore.resetAllRunDeliveryClaims();
+    deliveryChannels.resetAllRunDeliveryClaims();
     pendingInteractions.clear();
   }
 

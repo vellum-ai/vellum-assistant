@@ -27,23 +27,25 @@ mock.module("../util/logger.js", () => ({
 import { eq } from "drizzle-orm";
 
 import {
-  acknowledgeDelivery,
-  clearPayload,
-  findMessageBySourceId,
-  getDeadLetterEvents,
-  getRetryableEvents,
-  linkMessage,
-  markProcessed,
-  recordInbound,
-  recordProcessingFailure,
-  replayDeadLetters,
-  storePayload,
-} from "../memory/channel-delivery-store.js";
-import {
   getConversationByKey,
   setConversationKey,
 } from "../memory/conversation-key-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import {
+  clearPayload,
+  findMessageBySourceId,
+  linkMessage,
+  recordInbound,
+  storePayload,
+} from "../memory/delivery-crud.js";
+import {
+  acknowledgeDelivery,
+  getDeadLetterEvents,
+  getRetryableEvents,
+  markProcessed,
+  recordProcessingFailure,
+  replayDeadLetters,
+} from "../memory/delivery-status.js";
 import { RETRY_MAX_ATTEMPTS } from "../memory/job-utils.js";
 import {
   channelInboundEvents,

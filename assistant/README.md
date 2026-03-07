@@ -146,7 +146,7 @@ When the assistant needs tool-use confirmation during a channel session (e.g., T
 
 ### Delivery Semantics
 
-**Single final output guarantee (deliver-once guard):** Both the main poll (`processChannelMessageWithApprovals`) and the post-decision poll (`schedulePostDecisionDelivery`) race to deliver the final assistant reply when a run reaches terminal state. The `claimRunDelivery()` function in `channel-delivery-store.ts` ensures at-most-one delivery per run using an in-memory `Set<string>`. The first caller to claim the run ID proceeds with delivery; the other silently skips. This guard is sufficient because both racing pollers execute within the same process.
+**Single final output guarantee (deliver-once guard):** Both the main poll (`processChannelMessageWithApprovals`) and the post-decision poll (`schedulePostDecisionDelivery`) race to deliver the final assistant reply when a run reaches terminal state. The `claimRunDelivery()` function in `delivery-channels.ts` ensures at-most-one delivery per run using an in-memory `Set<string>`. The first caller to claim the run ID proceeds with delivery; the other silently skips. This guard is sufficient because both racing pollers execute within the same process.
 
 **Stale callback blocking:** When inbound callback data (e.g., a Telegram button press) does not match any pending approval, the runtime returns `stale_ignored` and does not process the payload as a regular message. This prevents stale button presses from old approval prompts from triggering unrelated agent loops.
 

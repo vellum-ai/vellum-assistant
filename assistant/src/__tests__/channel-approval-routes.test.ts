@@ -59,12 +59,12 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import {
   createApprovalRequest,
   getAllPendingApprovalsByGuardianChat,
 } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import * as deliveryChannels from "../memory/delivery-channels.js";
 import {
   conversations,
   externalConversationBindings,
@@ -124,7 +124,7 @@ function resetTables(): void {
     "contact_channels",
     "contacts",
   );
-  channelDeliveryStore.resetAllRunDeliveryClaims();
+  deliveryChannels.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }
 
@@ -1467,27 +1467,27 @@ describe("expired guardian approval auto-denies via sweep", () => {
 describe("deliver-once idempotency guard", () => {
   test("claimRunDelivery returns true on first call, false on subsequent calls", () => {
     const runId = "run-idem-unit";
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(false);
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(false);
-    channelDeliveryStore.resetRunDeliveryClaim(runId);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(true);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(false);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(false);
+    deliveryChannels.resetRunDeliveryClaim(runId);
   });
 
   test("different run IDs are independent", () => {
-    expect(channelDeliveryStore.claimRunDelivery("run-a")).toBe(true);
-    expect(channelDeliveryStore.claimRunDelivery("run-b")).toBe(true);
-    expect(channelDeliveryStore.claimRunDelivery("run-a")).toBe(false);
-    expect(channelDeliveryStore.claimRunDelivery("run-b")).toBe(false);
-    channelDeliveryStore.resetRunDeliveryClaim("run-a");
-    channelDeliveryStore.resetRunDeliveryClaim("run-b");
+    expect(deliveryChannels.claimRunDelivery("run-a")).toBe(true);
+    expect(deliveryChannels.claimRunDelivery("run-b")).toBe(true);
+    expect(deliveryChannels.claimRunDelivery("run-a")).toBe(false);
+    expect(deliveryChannels.claimRunDelivery("run-b")).toBe(false);
+    deliveryChannels.resetRunDeliveryClaim("run-a");
+    deliveryChannels.resetRunDeliveryClaim("run-b");
   });
 
   test("resetRunDeliveryClaim allows re-claim", () => {
     const runId = "run-idem-reset";
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
-    channelDeliveryStore.resetRunDeliveryClaim(runId);
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
-    channelDeliveryStore.resetRunDeliveryClaim(runId);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(true);
+    deliveryChannels.resetRunDeliveryClaim(runId);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(true);
+    deliveryChannels.resetRunDeliveryClaim(runId);
   });
 });
 

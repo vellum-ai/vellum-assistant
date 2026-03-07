@@ -9,7 +9,7 @@
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { createCanonicalGuardianRequest } from "../../../memory/canonical-guardian-store.js";
-import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
+import * as deliveryCrud from "../../../memory/delivery-crud.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { getLogger } from "../../../util/logger.js";
@@ -93,7 +93,7 @@ export function handleEscalationIntercept(
 
   // Persist the raw payload so the decide handler can recover the original
   // message content when the escalation is approved.
-  channelDeliveryStore.storePayload(eventId, {
+  deliveryCrud.storePayload(eventId, {
     sourceChannel,
     interface: sourceInterface,
     externalChatId: conversationExternalId,
