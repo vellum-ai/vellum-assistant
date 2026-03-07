@@ -115,7 +115,7 @@ import {
   handleCancelVerificationSession,
   handleCreateVerificationSession,
   handleResendVerificationSession,
-} from "../runtime/routes/integration-routes.js";
+} from "../runtime/routes/channel-verification-routes.js";
 import {
   cancelOutbound,
   resendOutbound,

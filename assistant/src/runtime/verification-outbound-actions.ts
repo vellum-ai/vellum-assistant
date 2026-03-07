@@ -4,7 +4,7 @@
  * These pure functions encapsulate the business logic for starting, resending,
  * and cancelling outbound verification flows (Telegram, voice, Slack).
  * They return transport-agnostic result objects and are consumed by both the
- * IPC handler (config-channels.ts) and the HTTP route layer (integration-routes.ts).
+ * IPC handler (config-channels.ts) and the HTTP route layer (channel-verification-routes.ts).
  */
 
 import { createHash, randomBytes } from "node:crypto";

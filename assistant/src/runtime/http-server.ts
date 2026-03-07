@@ -107,6 +107,7 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
+import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
 import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
@@ -121,7 +122,6 @@ import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
-import { integrationRouteDefinitions } from "./routes/integration-routes.js";
 import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
 import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
 import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
@@ -878,7 +878,7 @@ export class RuntimeHttpServer {
       ...contactCatchAllRouteDefinitions(),
 
       ...telegramRouteDefinitions(),
-      ...integrationRouteDefinitions(),
+      ...channelVerificationRouteDefinitions(),
       ...slackChannelRouteDefinitions(),
       ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),

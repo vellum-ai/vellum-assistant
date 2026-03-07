@@ -219,7 +219,7 @@ All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`. Skills an
 
 **Shared Business Logic:**
 
-The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `verification-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across Telegram and voice channels. It returns `OutboundActionResult` objects that the transport layer (gateway-forwarded HTTP or IPC) maps to its respective response format.
+The HTTP route handlers (`channel-verification-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `verification-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across Telegram and voice channels. It returns `OutboundActionResult` objects that the transport layer (gateway-forwarded HTTP or IPC) maps to its respective response format.
 
 **Chat-First Orchestration Flow:**
 
@@ -234,7 +234,7 @@ The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`
 | File                                                       | Purpose                                                                                                              |
 | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `src/runtime/verification-outbound-actions.ts`             | Shared business logic for start/resend/cancel outbound verification                                                  |
-| `src/runtime/routes/integration-routes.ts`                 | HTTP route handlers for unified verification session API (`/v1/channel-verification-sessions`, `/revoke`, `/status`) |
+| `src/runtime/routes/channel-verification-routes.ts`        | HTTP route handlers for unified verification session API (`/v1/channel-verification-sessions`, `/revoke`, `/status`) |
 | `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                                                                |
 | `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate channel verification via chat                                    |
 
@@ -369,10 +369,10 @@ Both `GET` and `POST` endpoints report `connected: true` only when both `hasBotT
 
 **Key source files:**
 
-| File                                          | Purpose                                                         |
-| --------------------------------------------- | --------------------------------------------------------------- |
-| `src/daemon/handlers/config-slack-channel.ts` | Business logic for get/set/clear Slack channel config           |
-| `src/runtime/routes/integration-routes.ts`    | HTTP route handlers for `/v1/integrations/slack/channel/config` |
+| File                                                | Purpose                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| `src/daemon/handlers/config-slack-channel.ts`       | Business logic for get/set/clear Slack channel config         |
+| `src/runtime/routes/channel-verification-routes.ts` | HTTP route handlers for `/v1/channel-verification-sessions/*` |
 
 ### Trusted Contact Access (Channel-Agnostic)
 

@@ -324,17 +324,17 @@ Guardian verification and ingress contact management are complementary but indep
 
 ### Key Modules
 
-| File                                            | Purpose                                                                                                                          |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `src/runtime/channel-verification-service.ts`   | Verification lifecycle: `createInboundVerificationSession`, `validateAndConsumeVerification`, `getGuardianBinding`, `isGuardian` |
-| `src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel                                                          |
-| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation                                                        |
-| `src/contacts/contact-store.ts`                 | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                           |
-| `src/memory/invite-store.ts`                    | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                              |
-| `src/memory/channel-verification-sessions.ts`   | Guardian binding types and verification challenge persistence                                                                    |
-| `src/memory/guardian-approvals.ts`              | Approval request persistence                                                                                                     |
-| `src/runtime/verification-outbound-actions.ts`  | Shared business logic for outbound verification (start/resend/cancel)                                                            |
-| `src/runtime/routes/integration-routes.ts`      | HTTP route handlers for outbound guardian verification endpoints                                                                 |
+| File                                                | Purpose                                                                                                                          |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/channel-verification-service.ts`       | Verification lifecycle: `createInboundVerificationSession`, `validateAndConsumeVerification`, `getGuardianBinding`, `isGuardian` |
+| `src/runtime/trust-context-resolver.ts`             | Actor role classification: guardian / non-guardian / unverified_channel                                                          |
+| `src/runtime/routes/inbound-message-handler.ts`     | Ingress ACL enforcement, verification-code intercept, escalation creation                                                        |
+| `src/contacts/contact-store.ts`                     | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                           |
+| `src/memory/invite-store.ts`                        | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                              |
+| `src/memory/channel-verification-sessions.ts`       | Guardian binding types and verification challenge persistence                                                                    |
+| `src/memory/guardian-approvals.ts`                  | Approval request persistence                                                                                                     |
+| `src/runtime/verification-outbound-actions.ts`      | Shared business logic for outbound verification (start/resend/cancel)                                                            |
+| `src/runtime/routes/channel-verification-routes.ts` | HTTP route handlers for outbound guardian verification endpoints                                                                 |
 
 ### Chat-Initiated Guardian Verification
 

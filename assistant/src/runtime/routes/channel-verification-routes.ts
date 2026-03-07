@@ -1,7 +1,6 @@
 /**
- * Route handlers for integration config endpoints.
+ * Route handlers for channel verification session endpoints.
  *
- * Channel verification (unified session API):
  * POST   /v1/channel-verification-sessions        — create session (inbound challenge, outbound verification, or trusted contact)
  * POST   /v1/channel-verification-sessions/resend  — resend outbound verification code
  * DELETE /v1/channel-verification-sessions         — cancel all active sessions (inbound + outbound)
@@ -225,7 +224,7 @@ export async function handleRevokeVerificationBinding(
 // Route definitions
 // ---------------------------------------------------------------------------
 
-export function integrationRouteDefinitions(): RouteDefinition[] {
+export function channelVerificationRouteDefinitions(): RouteDefinition[] {
   return [
     // Channel verification (unified session API)
     {
