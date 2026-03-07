@@ -190,7 +190,7 @@ export async function hatchDocker(
   // The inner hatch spawns daemon and gateway as background processes, then
   // exits. Keep the container alive afterward so those processes continue
   // running and the container stays visible in `docker ps`.
-  const hatchArgs = watch ? "hatch --watch" : "hatch";
+  const hatchArgs = watch ? `hatch ${species} --watch` : `hatch ${species}`;
   const containerCmd = ["sh", "-c", `vellum ${hatchArgs}; exec sleep infinity`];
 
   if (detached) {
