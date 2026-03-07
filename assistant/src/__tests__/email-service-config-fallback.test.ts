@@ -40,7 +40,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Stub guardrails (imported by service.ts but not relevant here)
-mock.module("../cli/email-guardrails.js", () => ({
+mock.module("../email/guardrails.js", () => ({
   addAddressRule: () => ({}),
   checkSendGuardrails: () => null,
   getGuardrailsStatus: () => ({}),
