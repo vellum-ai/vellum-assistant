@@ -80,7 +80,6 @@ assistant/src/tools/skills/ @awlevin
 # Guardian approvals (Noa) — overrides tools/, routes/, memory/, notifications/, bundled-skills/
 assistant/src/approvals/ @noanflaherty
 assistant/src/runtime/channel-approvals.ts @noanflaherty
-assistant/src/runtime/channel-approval-parser.ts @noanflaherty
 assistant/src/runtime/channel-approval-types.ts @noanflaherty
 assistant/src/runtime/channel-verification-service.ts @noanflaherty
 assistant/src/runtime/guardian-*.ts @noanflaherty

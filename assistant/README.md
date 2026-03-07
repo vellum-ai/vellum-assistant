@@ -164,14 +164,13 @@ Channels that do not support rich inline approval UI (e.g., inline keyboards) re
 
 ### Key modules
 
-| File                                     | Purpose                                                                                                                           |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `src/runtime/channel-approvals.ts`       | Orchestration: `getChannelApprovalPrompt`, `buildApprovalUIMetadata`, `handleChannelDecision`, `buildReminderPrompt`              |
-| `src/runtime/channel-approval-parser.ts` | Plain-text decision parser — matches phrases like `yes`, `approve`, `always`, `no`, `reject`, `deny`, `cancel` (case-insensitive) |
-| `src/runtime/channel-approval-types.ts`  | Shared types: `ApprovalAction`, `ChannelApprovalPrompt`, `ApprovalUIMetadata`, `ApprovalDecisionResult`                           |
-| `src/runtime/routes/channel-routes.ts`   | Integration point: `handleApprovalInterception` and `processChannelMessageWithApprovals` in the channel inbound handler           |
-| `src/runtime/gateway-client.ts`          | `deliverApprovalPrompt()` — sends the approval payload (text + UI metadata) to the gateway for rendering                          |
-| `src/memory/runs-store.ts`               | `getPendingConfirmationsByConversation` — queries runs in `needs_confirmation` state                                              |
+| File                                    | Purpose                                                                                                                 |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/channel-approvals.ts`      | Orchestration: `getChannelApprovalPrompt`, `buildApprovalUIMetadata`, `handleChannelDecision`, `buildReminderPrompt`    |
+| `src/runtime/channel-approval-types.ts` | Shared types: `ApprovalAction`, `ChannelApprovalPrompt`, `ApprovalUIMetadata`, `ApprovalDecisionResult`                 |
+| `src/runtime/routes/channel-routes.ts`  | Integration point: `handleApprovalInterception` and `processChannelMessageWithApprovals` in the channel inbound handler |
+| `src/runtime/gateway-client.ts`         | `deliverApprovalPrompt()` — sends the approval payload (text + UI metadata) to the gateway for rendering                |
+| `src/memory/runs-store.ts`              | `getPendingConfirmationsByConversation` — queries runs in `needs_confirmation` state                                    |
 
 ### Enabling
 
