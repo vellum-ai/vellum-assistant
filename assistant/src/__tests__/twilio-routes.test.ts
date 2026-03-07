@@ -9,7 +9,6 @@
  * - Duplicate callback replay (idempotency)
  * - Unknown status and malformed payload handling
  * - Status mapping and completion notifications
- * - resolveRelayUrl unit behavior
  * - Voice webhook TwiML relay URL generation
  * - Handler-level idempotency concurrency (concurrent duplicates, failure-retry)
  */
@@ -190,17 +189,13 @@ mock.module("../calls/twilio-provider.js", () => ({
   },
 }));
 
-// Configurable mock Twilio config — tests can override wssBaseUrl
-let mockWssBaseUrl: string = "wss://test.example.com";
-let mockWebhookBaseUrl: string = "https://test.example.com";
-
 mock.module("../calls/twilio-config.js", () => ({
   getTwilioConfig: () => ({
     accountSid: "AC_test",
     authToken: "test-auth-token-for-webhooks",
     phoneNumber: "+15550001111",
-    webhookBaseUrl: mockWebhookBaseUrl,
-    wssBaseUrl: mockWssBaseUrl,
+    webhookBaseUrl: "https://test.example.com",
+    wssBaseUrl: "wss://test.example.com",
   }),
   resolveTwilioPhoneNumber: () => readMockTwilioPhoneNumber(),
 }));
@@ -320,8 +315,10 @@ mock.module("../inbound/platform-callback-registration.js", () => ({
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({
-  getTwilioRelayUrl: () => {
-    throw new Error("ingress unavailable in call-route tests");
+  getTwilioRelayUrl: (ingressConfig: unknown) => {
+    const base = resolveIngressBaseUrlFromConfig(ingressConfig);
+    const wsBase = base.replace(/^http(s?)/, "ws$1");
+    return `${wsBase}/webhooks/twilio/relay`;
   },
   getTwilioVoiceWebhookUrl: (ingressConfig: unknown) =>
     `${resolveIngressBaseUrlFromConfig(ingressConfig)}/webhooks/twilio/voice`,
@@ -363,7 +360,6 @@ import {
   buildWelcomeGreeting,
   handleStatusCallback,
   handleVoiceWebhook,
-  resolveRelayUrl,
 } from "../calls/twilio-routes.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
@@ -468,8 +464,6 @@ describe("twilio webhook routes", () => {
   beforeEach(() => {
     resetTables();
     clearActiveCallLeases();
-    mockWssBaseUrl = "wss://test.example.com";
-    mockWebhookBaseUrl = "https://test.example.com";
     mockIngressPublicBaseUrl = "https://ingress.example.com";
     mockGatewayInternalBaseUrl = "http://gateway.internal:7830";
     mockMintedToken = "test-delivery-token";
@@ -844,59 +838,6 @@ describe("twilio webhook routes", () => {
     });
   });
 
-  // ── resolveRelayUrl unit tests ──────────────────────────────────────
-
-  describe("resolveRelayUrl", () => {
-    test("uses wssBaseUrl when explicitly set", () => {
-      const url = resolveRelayUrl(
-        "wss://ws.example.com",
-        "https://web.example.com",
-      );
-      expect(url).toBe("wss://ws.example.com/v1/calls/relay");
-    });
-
-    test("falls back to webhookBaseUrl when wssBaseUrl is empty", () => {
-      const url = resolveRelayUrl("", "https://web.example.com");
-      expect(url).toBe("wss://web.example.com/v1/calls/relay");
-    });
-
-    test("falls back to webhookBaseUrl when wssBaseUrl is whitespace-only", () => {
-      const url = resolveRelayUrl("   ", "https://web.example.com");
-      expect(url).toBe("wss://web.example.com/v1/calls/relay");
-    });
-
-    test("normalizes http to ws in webhookBaseUrl fallback", () => {
-      const url = resolveRelayUrl("", "http://localhost:3000");
-      expect(url).toBe("ws://localhost:3000/v1/calls/relay");
-    });
-
-    test("normalizes https to wss in webhookBaseUrl fallback", () => {
-      const url = resolveRelayUrl("", "https://gateway.example.com");
-      expect(url).toBe("wss://gateway.example.com/v1/calls/relay");
-    });
-
-    test("strips trailing slash from wssBaseUrl", () => {
-      const url = resolveRelayUrl(
-        "wss://ws.example.com/",
-        "https://web.example.com",
-      );
-      expect(url).toBe("wss://ws.example.com/v1/calls/relay");
-    });
-
-    test("strips trailing slash from webhookBaseUrl fallback", () => {
-      const url = resolveRelayUrl("", "https://web.example.com/");
-      expect(url).toBe("wss://web.example.com/v1/calls/relay");
-    });
-
-    test("preserves wss scheme in explicitly set wssBaseUrl", () => {
-      const url = resolveRelayUrl(
-        "wss://custom-relay.example.com",
-        "https://web.example.com",
-      );
-      expect(url).toBe("wss://custom-relay.example.com/v1/calls/relay");
-    });
-  });
-
   describe("buildWelcomeGreeting", () => {
     test("returns empty by default so orchestrator drives first opener", () => {
       const greeting = buildWelcomeGreeting("check store hours for tomorrow");
@@ -916,9 +857,7 @@ describe("twilio webhook routes", () => {
   // Call handleVoiceWebhook directly since direct routes are blocked.
 
   describe("voice webhook TwiML relay URL", () => {
-    test("TwiML uses explicit wssBaseUrl when set", async () => {
-      mockWssBaseUrl = "wss://explicit-ws.example.com";
-
+    test("TwiML relay URL is sourced from getTwilioRelayUrl", async () => {
       const session = createTestSession("conv-twiml-1", "CA_twiml_1");
       const req = makeVoiceRequest(session.id, { CallSid: "CA_twiml_1" });
 
@@ -926,21 +865,9 @@ describe("twilio webhook routes", () => {
 
       expect(res.status).toBe(200);
       const twiml = await res.text();
-      expect(twiml).toContain("wss://explicit-ws.example.com/v1/calls/relay");
-    });
-
-    test("TwiML falls back to webhookBaseUrl when wssBaseUrl is empty", async () => {
-      mockWssBaseUrl = "";
-      mockWebhookBaseUrl = "https://gateway.example.com";
-
-      const session = createTestSession("conv-twiml-2", "CA_twiml_2");
-      const req = makeVoiceRequest(session.id, { CallSid: "CA_twiml_2" });
-
-      const res = await handleVoiceWebhook(req);
-
-      expect(res.status).toBe(200);
-      const twiml = await res.text();
-      expect(twiml).toContain("wss://gateway.example.com/v1/calls/relay");
+      expect(twiml).toContain(
+        "wss://ingress.example.com/webhooks/twilio/relay",
+      );
     });
 
     test("TwiML omits welcome greeting by default so call opener is model-driven", async () => {

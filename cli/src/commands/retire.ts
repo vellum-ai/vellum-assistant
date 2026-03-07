@@ -45,11 +45,8 @@ function extractHostFromUrl(url: string): string {
 async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
 
-  // Use entry resources when available; for legacy entries, derive paths
-  // from baseDataDir (which may differ from homedir if BASE_DATA_DIR was set).
   const resources = entry.resources ?? defaultLocalResources();
-  const legacyDir = entry.baseDataDir;
-  const vellumDir = legacyDir ?? join(resources.instanceDir, ".vellum");
+  const vellumDir = join(resources.instanceDir, ".vellum");
 
   // Check whether another local assistant shares the same data directory.
   // Legacy entries without `resources` all resolve to ~/.vellum/ — if we
@@ -58,9 +55,10 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   const otherSharesDir = loadAllAssistants().some((other) => {
     if (other.cloud !== "local") return false;
     if (other.assistantId === name) return false;
-    const otherVellumDir =
-      other.baseDataDir ??
-      join((other.resources ?? defaultLocalResources()).instanceDir, ".vellum");
+    const otherVellumDir = join(
+      (other.resources ?? defaultLocalResources()).instanceDir,
+      ".vellum",
+    );
     return otherVellumDir === vellumDir;
   });
 
@@ -72,14 +70,8 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
     return;
   }
 
-  // Stop daemon via PID file — prefer resources paths, but for legacy entries
-  // with a custom baseDataDir, derive from that directory instead.
-  const daemonPidFile = legacyDir
-    ? join(legacyDir, "vellum.pid")
-    : resources.pidFile;
-  const socketFile = legacyDir
-    ? join(legacyDir, "vellum.sock")
-    : resources.socketPath;
+  const daemonPidFile = resources.pidFile;
+  const socketFile = resources.socketPath;
   const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [
     socketFile,
   ]);

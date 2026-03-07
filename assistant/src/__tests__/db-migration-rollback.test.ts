@@ -16,7 +16,6 @@ import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../memory/db-connection.js";
-import * as schema from "../memory/schema.js";
 import {
   migrateJobDeferrals,
   migrateMemoryEntityRelationDedup,
@@ -24,7 +23,8 @@ import {
   MIGRATION_REGISTRY,
   type MigrationValidationResult,
   validateMigrationState,
-} from "../memory/schema-migration.js";
+} from "../memory/migrations/index.js";
+import * as schema from "../memory/schema.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

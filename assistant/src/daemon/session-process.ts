@@ -24,8 +24,11 @@ import { createPreference } from "../notifications/preferences-store.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { getLogger } from "../util/logger.js";
-import type { UsageStats } from "./ipc-contract.js";
-import type { ServerMessage, UserMessageAttachment } from "./ipc-protocol.js";
+import type {
+  ServerMessage,
+  UsageStats,
+  UserMessageAttachment,
+} from "./ipc-protocol.js";
 import type { MessageQueue } from "./session-queue-manager.js";
 import type { QueueDrainReason } from "./session-queue-manager.js";
 import type { TrustContext } from "./session-runtime-assembly.js";

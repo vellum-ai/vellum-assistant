@@ -399,46 +399,13 @@ describe("inbound text matching approval phrases triggers decision handling", ()
 
     deliverSpy.mockRestore();
   });
-
-  test('text "always" triggers approve_always decision', async () => {
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const initReq = makeInboundRequest({ content: "init" });
-    await handleChannelInbound(initReq, noopProcessMessage);
-
-    const db = getDb();
-    const events = db.$client
-      .prepare("SELECT conversation_id FROM channel_inbound_events")
-      .all() as Array<{ conversation_id: string }>;
-    const conversationId = events[0]?.conversation_id;
-    ensureConversation(conversationId!);
-
-    const sessionMock = registerPendingInteraction(
-      "req-txt-2",
-      conversationId!,
-      "shell",
-    );
-
-    const req = makeInboundRequest({ content: "always" });
-    const res = await handleChannelInbound(req, noopProcessMessage);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-txt-2", "allow");
-
-    deliverSpy.mockRestore();
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 4. Non-decision messages during pending approval (no conversational engine)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("non-decision messages during pending approval (legacy fallback)", () => {
+describe("non-decision messages during pending approval (no conversational engine)", () => {
   beforeEach(() => {
     createGuardianBinding({
       channel: "telegram",

@@ -6,7 +6,7 @@
  * back to the parent's client socket wrapped in `subagent_event` envelopes.
  */
 
-import type { UsageStats } from "../daemon/ipc-contract.js";
+import type { UsageStats } from "../daemon/ipc-protocol.js";
 
 // ── Status ──────────────────────────────────────────────────────────────
 

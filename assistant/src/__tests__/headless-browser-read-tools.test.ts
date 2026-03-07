@@ -61,7 +61,7 @@ import {
   executeBrowserExtract,
   executeBrowserPressKey,
   executeBrowserWaitFor,
-} from "../tools/browser/headless-browser.js";
+} from "../tools/browser/browser-execution.js";
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {

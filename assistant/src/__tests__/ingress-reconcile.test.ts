@@ -77,7 +77,7 @@ import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   IngressConfigRequest,
   ServerMessage,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 // Capture fetch calls for reconcile trigger verification

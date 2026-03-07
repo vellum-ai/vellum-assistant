@@ -180,10 +180,6 @@ export function upsertContactChannel(params: {
         address,
         externalUserId: canonicalId,
         externalChatId: params.externalChatId ?? null,
-        legacyAddress:
-          params.externalUserId && params.externalUserId !== address
-            ? params.externalUserId
-            : undefined,
         status: (params.status as ChannelStatus) ?? undefined,
         policy: (params.policy as ChannelPolicy) ?? undefined,
         inviteId: params.inviteId ?? null,

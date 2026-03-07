@@ -91,8 +91,6 @@ interface SyncChannelData {
   isPrimary?: boolean;
   externalUserId?: string | null;
   externalChatId?: string | null;
-  /** Raw (pre-canonicalization) address used for dedup fallback when matching contacts created before address normalization. */
-  legacyAddress?: string;
   status?: ChannelStatus;
   policy?: ChannelPolicy;
   verifiedAt?: number | null;
@@ -185,7 +183,7 @@ export function upsertContact(params: {
   if (!contactId && params.channels && params.channels.length > 0) {
     for (const ch of params.channels) {
       // Primary lookup: match by (type, address)
-      let existingChannel = db
+      const existingChannel = db
         .select()
         .from(contactChannels)
         .where(
@@ -195,27 +193,6 @@ export function upsertContact(params: {
           ),
         )
         .get();
-
-      // Fallback: if the address was canonicalized, the old record may still
-      // have the raw (non-canonical) address stored. Try matching by
-      // legacyAddress so we update the existing contact instead of creating
-      // a duplicate.
-      if (
-        !existingChannel &&
-        ch.legacyAddress &&
-        ch.legacyAddress.toLowerCase() !== ch.address.toLowerCase()
-      ) {
-        existingChannel = db
-          .select()
-          .from(contactChannels)
-          .where(
-            and(
-              eq(contactChannels.type, ch.type),
-              eq(contactChannels.address, ch.legacyAddress.toLowerCase()),
-            ),
-          )
-          .get();
-      }
 
       if (existingChannel) {
         contactId = existingChannel.contactId;
@@ -283,7 +260,7 @@ function syncChannels(
     const normalizedAddress = ch.address.toLowerCase();
 
     // Check if this channel already exists for this contact
-    let existing = db
+    const existing = db
       .select()
       .from(contactChannels)
       .where(
@@ -294,26 +271,6 @@ function syncChannels(
         ),
       )
       .get();
-
-    // Fallback: the channel may have been stored with a pre-canonicalization
-    // address. Try matching by legacyAddress to find it.
-    if (
-      !existing &&
-      ch.legacyAddress &&
-      ch.legacyAddress.toLowerCase() !== normalizedAddress
-    ) {
-      existing = db
-        .select()
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.contactId, contactId),
-            eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.legacyAddress.toLowerCase()),
-          ),
-        )
-        .get();
-    }
 
     if (existing) {
       const updateSet: Record<string, unknown> = {};

@@ -25,11 +25,12 @@ import {
   generateCanonicalRequestCode,
   listPendingRequestsByConversationScope,
 } from "../../memory/canonical-guardian-store.js";
+import { addMessage, getMessages } from "../../memory/conversation-crud.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import { searchConversations } from "../../memory/conversation-queries.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -169,7 +170,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
     };
 
     const userMessage = createUserMessage(content, attachments);
-    const persistedUser = await conversationStore.addMessage(
+    const persistedUser = await addMessage(
       conversationId,
       "user",
       JSON.stringify(userMessage.content),
@@ -183,7 +184,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
         ? "Decision applied."
         : "Request already resolved.");
     const assistantMessage = createAssistantMessage(replyText);
-    await conversationStore.addMessage(
+    await addMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMessage.content),
@@ -268,7 +269,7 @@ export function handleListMessages(
   if (!resolvedConversationId) {
     return Response.json({ messages: [] });
   }
-  const rawMessages = conversationStore.getMessages(resolvedConversationId);
+  const rawMessages = getMessages(resolvedConversationId);
 
   // Parse content blocks and extract text + tool calls
   const parsed = rawMessages.map((msg) => {
@@ -748,7 +749,7 @@ export async function handleGetSuggestion(
     });
   }
 
-  const rawMessages = conversationStore.getMessages(mapping.conversationId);
+  const rawMessages = getMessages(mapping.conversationId);
   if (rawMessages.length === 0) {
     return Response.json({
       suggestion: null,
@@ -886,7 +887,7 @@ export function handleSearchConversations(url: URL): Response {
     ? Number(url.searchParams.get("maxMessagesPerConversation"))
     : undefined;
 
-  const results = conversationStore.searchConversations(query, {
+  const results = searchConversations(query, {
     ...(limit !== undefined && !isNaN(limit) ? { limit } : {}),
     ...(maxMessagesPerConversation !== undefined &&
     !isNaN(maxMessagesPerConversation)

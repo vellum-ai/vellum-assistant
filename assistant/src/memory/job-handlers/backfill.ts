@@ -11,7 +11,7 @@ import {
 import {
   getConversationMemoryScopeId,
   messageMetadataSchema,
-} from "../conversation-store.js";
+} from "../conversation-crud.js";
 import { getDb } from "../db.js";
 import { indexMessageNow } from "../indexer.js";
 import {

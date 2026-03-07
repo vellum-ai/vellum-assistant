@@ -52,7 +52,7 @@ mock.module("../tools/network/url-safety.js", () => ({
   sanitizeUrlForOutput: (url: URL) => url.href,
 }));
 
-import { executeBrowserNavigate } from "../tools/browser/headless-browser.js";
+import { executeBrowserNavigate } from "../tools/browser/browser-execution.js";
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {

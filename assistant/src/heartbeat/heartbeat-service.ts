@@ -1,5 +1,5 @@
 import { getConfig } from "../config/loader.js";
-import type { HeartbeatAlert } from "../daemon/ipc-contract.js";
+import type { HeartbeatAlert } from "../daemon/ipc-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";

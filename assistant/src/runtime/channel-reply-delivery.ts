@@ -1,6 +1,6 @@
 import { renderHistoryContent } from "../daemon/handlers.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import { getMessages } from "../memory/conversation-crud.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
@@ -169,7 +169,7 @@ export async function deliverReplyViaCallback(
   assistantId?: string,
   options?: DeliverReplyOptions,
 ): Promise<void> {
-  const msgs = conversationStore.getMessages(conversationId);
+  const msgs = getMessages(conversationId);
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i].role !== "assistant") continue;
 

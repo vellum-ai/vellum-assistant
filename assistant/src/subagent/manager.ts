@@ -11,7 +11,7 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/ipc-contract.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import { Session, type SessionMemoryPolicy } from "../daemon/session.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";

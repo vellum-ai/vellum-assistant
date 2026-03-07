@@ -55,7 +55,7 @@ import {
   resolveBlobPath,
   sweepStaleBlobs,
 } from "../daemon/ipc-blob-store.js";
-import type { IpcBlobRef } from "../daemon/ipc-contract.js";
+import type { IpcBlobRef } from "../daemon/ipc-protocol.js";
 
 /** Write a blob file to the test blob directory and return its path. */
 function writeBlobFile(id: string, content: Buffer): string {

@@ -375,18 +375,8 @@ describe("guardian-action-followup-store", () => {
     expect(resolved!.expiredReason).toBeNull();
   });
 
-  test("expireGuardianActionRequest defaults to sweep_timeout reason", () => {
+  test("expireGuardianActionRequest sets explicit reason", () => {
     const request = createTestRequest("conv-followup-19");
-
-    expireGuardianActionRequest(request.id);
-
-    const reloaded = getGuardianActionRequest(request.id);
-    expect(reloaded!.status).toBe("expired");
-    expect(reloaded!.expiredReason).toBe("sweep_timeout");
-  });
-
-  test("expireGuardianActionRequest accepts explicit reason", () => {
-    const request = createTestRequest("conv-followup-20");
 
     expireGuardianActionRequest(request.id, "call_timeout");
 

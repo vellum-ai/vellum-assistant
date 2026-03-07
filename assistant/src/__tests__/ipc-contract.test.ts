@@ -4,7 +4,7 @@ import type {
   ClientMessage as ContractClient,
   IPCContractSchema,
   ServerMessage as ContractServer,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import type {
   ClientMessage as ProtocolClient,
   ServerMessage as ProtocolServer,
