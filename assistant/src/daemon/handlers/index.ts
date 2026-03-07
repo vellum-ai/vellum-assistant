@@ -2,6 +2,7 @@ import * as net from "node:net";
 
 import {
   type Confidence,
+  markConversationUnread,
   recordConversationSeenSignal,
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
@@ -131,6 +132,18 @@ const inlineHandlers = defineHandlers({
       log.error(
         { err, conversationId: msg.conversationId },
         "conversation_seen_signal: failed to record seen signal",
+      );
+    }
+  },
+
+  // Client signal: user explicitly wants the latest assistant reply marked unread.
+  conversation_unread_signal: (msg) => {
+    try {
+      markConversationUnread(msg.conversationId);
+    } catch (err) {
+      log.error(
+        { err, conversationId: msg.conversationId },
+        "conversation_unread_signal: failed to mark conversation unread",
       );
     }
   },
