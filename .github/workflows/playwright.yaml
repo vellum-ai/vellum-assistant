@@ -278,6 +278,136 @@ jobs:
         working-directory: playwright/agent-xcode
         run: swift build -c release
 
+      - name: Grant screen recording permission
+        run: |
+          # On macOS 15+ (Sequoia), screencapture triggers a "requesting to
+          # bypass the system private window picker" dialog. We suppress it via:
+          #   1. TCC database grants (system + user) + daemon restart
+          #   2. ScreenCaptureApprovals plist (15.1+ format) + daemon bounces
+          #   3. Accessibility TCC grants for osascript (needed for auto-click)
+
+          set -x  # echo commands for debugging
+
+          CLIENTS="/usr/sbin/screencapture /bin/bash /bin/zsh /opt/homebrew/bin/bun"
+          TS=$(date +%s)
+          FUTURE="4321-01-01 00:00:00 +0000"
+
+          # ── 1. TCC database grants ──
+          echo "--- TCC.db schema ---"
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" ".schema access" || echo "Cannot read TCC schema"
+
+          for client in $CLIENTS; do
+            sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+              "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$TS);" \
+              && echo "TCC system ScreenCapture: granted $client" \
+              || echo "TCC system ScreenCapture: FAILED for $client"
+          done
+
+          # Grant Accessibility for osascript so the auto-click fallback works
+          ACCESSIBILITY_CLIENTS="/usr/bin/osascript /bin/bash /bin/zsh /opt/homebrew/bin/bun"
+          for client in $ACCESSIBILITY_CLIENTS; do
+            sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+              "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceAccessibility','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$TS);" \
+              && echo "TCC system Accessibility: granted $client" \
+              || echo "TCC system Accessibility: FAILED for $client"
+          done
+
+          # User-level TCC database
+          USER_TCC="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+          if [ -f "$USER_TCC" ]; then
+            for client in $CLIENTS; do
+              sqlite3 "$USER_TCC" \
+                "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture','$client',1,2,4,1,NULL,NULL,0,'UNUSED',NULL,0,$TS);" \
+                && echo "TCC user: granted $client" \
+                || echo "TCC user: FAILED for $client"
+            done
+          else
+            echo "User TCC.db not found at $USER_TCC — skipping user-level grants"
+          fi
+
+          echo "--- System TCC entries after insert ---"
+          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+            "SELECT service, client, auth_value FROM access WHERE service IN ('kTCCServiceScreenCapture','kTCCServiceAccessibility');" || true
+
+          # Restart tccd so it picks up the DB changes
+          echo "--- Restarting tccd ---"
+          sudo killall -9 tccd 2>&1 || echo "tccd kill failed (may not be running)"
+          sleep 1
+
+          # ── 2. ScreenCaptureApprovals plist (15.1+ format) ──
+          # macOS 15.1+ requires BOTH kScreenCaptureApprovalLastAlerted AND
+          # kScreenCaptureApprovalLastUsed in each entry's dict.
+          # Ref: github.com/luckman212/screencapture-nag-remover
+          APPROVALS_DIR="$HOME/Library/Group Containers/group.com.apple.replayd"
+          mkdir -p "$APPROVALS_DIR"
+          APPROVALS_PLIST="$APPROVALS_DIR/ScreenCaptureApprovals"
+          for client in $CLIENTS; do
+            defaults write "$APPROVALS_PLIST" "$client" -dict \
+              kScreenCaptureApprovalLastAlerted -date "$FUTURE" \
+              kScreenCaptureApprovalLastUsed -date "$FUTURE" \
+              && echo "Approvals: set $client" \
+              || echo "Approvals: FAILED for $client"
+          done
+
+          echo "--- ScreenCaptureApprovals plist ---"
+          defaults read "$APPROVALS_PLIST" || echo "Cannot read ScreenCaptureApprovals"
+
+          # Bounce daemons so they re-read the plist
+          # (SIGHUP for replayd, kill cfprefsd to flush preferences cache)
+          echo "--- Bouncing replayd and cfprefsd ---"
+          killall -HUP replayd 2>&1 || echo "replayd HUP failed (may not be running)"
+          killall -u "$(whoami)" cfprefsd 2>&1 || echo "cfprefsd kill failed"
+          sleep 1
+
+          echo "--- Done with permission grants ---"
+
+      - name: Start screen recording dialog auto-clicker
+        run: |
+          # As a fallback, run a background AppleScript that auto-clicks
+          # "Allow" on the screen recording permission dialog if it appears.
+          # This covers the case where TCC/plist grants don't fully suppress it.
+          #
+          # We write the AppleScript to a file directly (not via heredoc) to
+          # avoid shebang whitespace issues from YAML indentation.
+          APPLESCRIPT='/tmp/dismiss-dialog.scpt'
+          printf '%s\n' \
+            'on run' \
+            '  tell application "System Events"' \
+            '    set targetNames to {"CoreServicesUIAgent", "UserNotificationCenter"}' \
+            '    repeat with procName in targetNames' \
+            '      try' \
+            '        set targetProc to first process whose name is (contents of procName)' \
+            '        tell targetProc' \
+            '          repeat with w in (every window)' \
+            '            try' \
+            '              repeat with btn in (every button of w)' \
+            '                set btnName to name of btn' \
+            '                if btnName starts with "Allow" then' \
+            '                  click btn' \
+            '                  do shell script "echo $(date): Clicked " & quoted form of btnName & " on " & (contents of procName) & " >> /tmp/dialog-watcher.log"' \
+            '                end if' \
+            '              end repeat' \
+            '            end try' \
+            '          end repeat' \
+            '        end tell' \
+            '      end try' \
+            '    end repeat' \
+            '  end tell' \
+            'end run' \
+            > "$APPLESCRIPT"
+
+          # Background loop: poll every 2s, run the AppleScript, log errors
+          (
+            while true; do
+              osascript "$APPLESCRIPT" 2>> /tmp/dialog-watcher.log || true
+              sleep 2
+            done
+          ) &
+          echo $! > /tmp/dialog-watcher.pid
+          echo "Dialog auto-clicker started with PID $(cat /tmp/dialog-watcher.pid)"
+          echo "--- AppleScript contents ---"
+          cat "$APPLESCRIPT"
+
       - name: Run Playwright tests
         id: tests
         working-directory: playwright
@@ -304,6 +434,18 @@ jobs:
             bun run test -g "${{ inputs.test_case }}" $SHARD_ARGS
           else
             bun run test $SHARD_ARGS
+          fi
+
+      - name: Dump dialog watcher log
+        if: always() && steps.tests.outcome != 'skipped'
+        run: |
+          echo "--- Dialog watcher log ---"
+          cat /tmp/dialog-watcher.log 2>/dev/null || echo "No dialog watcher log found"
+          echo "--- Dialog watcher PID status ---"
+          if [ -f /tmp/dialog-watcher.pid ]; then
+            PID=$(cat /tmp/dialog-watcher.pid)
+            ps -p "$PID" 2>/dev/null && echo "Watcher still running" || echo "Watcher already exited"
+            kill "$PID" 2>/dev/null || true
           fi
 
       - name: Upload test artifacts
