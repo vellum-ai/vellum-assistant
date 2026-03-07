@@ -12,6 +12,7 @@ let rawConfigStore: Record<string, unknown> = {};
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
+    telegram: { botUsername: "" },
   }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({ ...rawConfigStore }),
@@ -20,6 +21,22 @@ mock.module("../config/loader.js", () => ({
   },
   saveConfig: () => {},
   invalidateConfigCache: () => {},
+  setNestedValue: (
+    obj: Record<string, unknown>,
+    path: string,
+    value: unknown,
+  ) => {
+    const keys = path.split(".");
+    let current = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+      const key = keys[i];
+      if (current[key] == null || typeof current[key] !== "object") {
+        current[key] = {};
+      }
+      current = current[key] as Record<string, unknown>;
+    }
+    current[keys[keys.length - 1]] = value;
+  },
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
