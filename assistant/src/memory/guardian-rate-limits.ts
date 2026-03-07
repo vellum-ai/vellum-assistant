@@ -151,9 +151,6 @@ export function recordInvalidAttempt(
     channel,
     actorExternalUserId,
     actorChatId,
-    // Legacy columns kept for backward compatibility with upgraded databases
-    invalidAttempts: 0,
-    windowStartedAt: 0,
     attemptTimestampsJson: JSON.stringify(timestamps),
     lockedUntil,
     createdAt: now,
