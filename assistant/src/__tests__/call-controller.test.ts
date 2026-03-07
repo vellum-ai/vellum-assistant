@@ -82,9 +82,6 @@ mock.module("../calls/call-constants.js", () => ({
   getMaxCallDurationMs: () => 12 * 60 * 1000,
   getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
   getSilenceTimeoutMs: () => mockSilenceTimeoutMs,
-  SILENCE_TIMEOUT_MS: 30_000,
-  MAX_CALL_DURATION_MS: 3600 * 1000,
-  USER_CONSULTATION_TIMEOUT_MS: 120 * 1000,
 }));
 
 // ── Voice session bridge mock ────────────────────────────────────────
