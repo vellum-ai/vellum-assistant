@@ -165,20 +165,18 @@ struct SidebarThreadItem: View {
                     }
                 }
             } label: {
-                Label { Text(thread.isPinned ? "Unpin" : "Pin to Top") } icon: { VIconView(thread.isPinned ? .pinOff : .pin, size: 14) }
+                Label { Text(thread.isPinned ? "Unpin thread" : "Pin thread") } icon: { VIconView(thread.isPinned ? .pinOff : .pin, size: 14) }
             }
-            if thread.sessionId != nil {
-                Button {
-                    sidebar.renamingThreadId = thread.id
-                    sidebar.renameText = thread.title
-                } label: {
-                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-                }
+            Button {
+                sidebar.renamingThreadId = thread.id
+                sidebar.renameText = thread.title
+            } label: {
+                Label { Text("Rename thread") } icon: { VIconView(.pencil, size: 14) }
             }
             Button {
                 threadManager.archiveThread(id: thread.id)
             } label: {
-                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                Label { Text("Archive thread") } icon: { VIconView(.archive, size: 14) }
             }
         }
         .pointerCursor()
