@@ -95,8 +95,6 @@ mock.module("../skills/active-skill-tools.js", () => {
 
   return {
     deriveActiveSkills: (messages: Message[]) => parseMarkers(messages),
-    deriveActiveSkillIds: (messages: Message[]) =>
-      parseMarkers(messages).map((e) => e.id),
   };
 });
 
