@@ -46,7 +46,6 @@ import type {
   MemoryRecallCandiateDebug,
   MemoryRecallOptions,
   MemoryRecallResult,
-  MemorySearchResult,
   ScopePolicyOverride,
 } from "./search/types.js";
 
@@ -62,7 +61,6 @@ export type {
   FallbackSource,
   MemoryRecallCandiateDebug,
   MemoryRecallResult,
-  MemorySearchResult,
   ScopePolicyOverride,
 } from "./search/types.js";
 
@@ -153,8 +151,7 @@ function buildScopeFilter(
 /**
  * Shared retrieval pipeline: collect candidates from all available sources
  * (lexical, recency, semantic, entity, direct item search) and merge them
- * using RRF. Used by both `buildMemoryRecall()` (auto recall) and
- * `searchMemoryItems()` (memory_search tool) for consistent behavior.
+ * using RRF.
  */
 export async function collectAndMergeCandidates(
   query: string,
@@ -1007,64 +1004,6 @@ export function queryMemoryForCli(
   config: AssistantConfig,
 ): Promise<MemoryRecallResult> {
   return buildMemoryRecall(query, conversationId, config);
-}
-
-/**
- * Search memory items using the same unified retrieval pipeline as
- * automatic recall: lexical, recency, semantic (when available), entity,
- * and direct item search -- merged via RRF.
- * Returns a simplified result set suitable for the memory_search tool.
- */
-export async function searchMemoryItems(
-  query: string,
-  limit: number,
-  config: AssistantConfig,
-  scopeId?: string,
-  scopePolicyOverride?: ScopePolicyOverride,
-): Promise<MemorySearchResult[]> {
-  const trimmed = query.trim();
-  if (trimmed.length === 0 || limit <= 0) return [];
-
-  // Compute embedding vector when available (same as auto recall)
-  let queryVector: number[] | null = null;
-  let provider: string | undefined;
-  let model: string | undefined;
-  const backendStatus = getMemoryBackendStatus(config);
-  if (backendStatus.provider) {
-    try {
-      const embedded = await embedWithRetry(config, [trimmed]);
-      queryVector = embedded.vectors[0] ?? null;
-      provider = embedded.provider;
-      model = embedded.model;
-    } catch {
-      // Gracefully degrade to non-semantic search
-    }
-  }
-
-  const result = await collectAndMergeCandidates(trimmed, config, {
-    queryVector,
-    provider,
-    model,
-    scopeId,
-    scopePolicyOverride,
-  });
-  const merged = result.merged;
-
-  return merged.slice(0, limit).map((c) => ({
-    id: c.id,
-    type: c.type,
-    kind: c.kind,
-    text: c.text,
-    confidence: c.confidence,
-    importance: c.importance,
-    createdAt: c.createdAt,
-    finalScore: c.finalScore,
-    scores: {
-      lexical: c.lexical,
-      semantic: c.semantic,
-      recency: c.recency,
-    },
-  }));
 }
 
 function emptyResult(

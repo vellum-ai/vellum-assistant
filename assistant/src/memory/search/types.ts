@@ -136,23 +136,6 @@ export interface ItemMetadata {
   verificationState: string;
 }
 
-export interface MemorySearchResult {
-  id: string;
-  type: CandidateType;
-  kind: string;
-  text: string;
-  confidence: number;
-  importance: number;
-  createdAt: number;
-  finalScore: number;
-  /** Per-source scores for provenance/debugging */
-  scores: {
-    lexical: number;
-    semantic: number;
-    recency: number;
-  };
-}
-
 import type { EntityRelationType, EntityType } from "../entity-extractor.js";
 
 export interface TraversalOptions {
