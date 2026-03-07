@@ -90,7 +90,7 @@ struct MainWindowView: View {
     /// When a generated surface is expanded into the workspace, hide the
     /// global sidebar toggle so workspace controls own the top-left slot.
     private var isGeneratedWorkspaceOpen: Bool {
-        windowState.isDynamicExpanded && windowState.activePanel == .generated
+        windowState.isDynamicExpanded
     }
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.

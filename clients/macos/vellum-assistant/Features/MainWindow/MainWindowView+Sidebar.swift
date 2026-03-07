@@ -183,10 +183,10 @@ extension MainWindowView {
             }
 
             // MARK: Nav Items (fixed)
-            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.activePanel == .intelligence) {
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.selection == .panel(.intelligence)) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.activePanel == .apps) {
+            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.selection == .panel(.apps)) {
                 windowState.showAppsPanel()
             }
 
@@ -472,10 +472,10 @@ extension MainWindowView {
                 sidebarSectionDivider(isExpanded: false)
             }
 
-            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.activePanel == .intelligence, isExpanded: false) {
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
                 windowState.togglePanel(.intelligence)
             }
-            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.activePanel == .apps, isExpanded: false) {
+            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Things", isActive: windowState.selection == .panel(.apps), isExpanded: false) {
                 windowState.showAppsPanel()
             }
 
