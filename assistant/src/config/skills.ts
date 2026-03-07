@@ -369,6 +369,17 @@ function parseFrontmatter(
         if (parsedMeta.vellum) {
           metadata = parsedMeta.vellum as VellumMetadata;
         }
+        // Inject top-level emoji into metadata when metadata.vellum doesn't
+        // carry its own emoji. The Agent Skills spec places emoji at the
+        // top level of the metadata JSON, so bundled skills that follow
+        // this convention would otherwise lose their emoji value.
+        if (parsedMeta.emoji) {
+          if (metadata && !metadata.emoji) {
+            metadata.emoji = parsedMeta.emoji;
+          } else if (!metadata) {
+            metadata = { emoji: parsedMeta.emoji };
+          }
+        }
       } else {
         log.warn(
           { err: result.error, skillFilePath },
