@@ -81,8 +81,6 @@ export interface TrustContext {
   requesterExternalUserId?: string;
   /** Chat/conversation ID the requester is interacting through. */
   requesterChatId?: string;
-  /** Access denial reason, if applicable. See {@link DenialReason}. */
-  denialReason?: "no_binding" | "no_identity";
 }
 
 /**
@@ -113,8 +111,6 @@ export interface InboundActorContext {
   memberStatus?: string;
   /** Member policy when the actor has a contact record. */
   memberPolicy?: string;
-  /** Denial reason when access is blocked. */
-  denialReason?: string;
   /** Free-text notes about this contact. */
   contactNotes?: string;
   /** Number of prior interactions with this contact. */
@@ -138,7 +134,6 @@ export function inboundActorContextFromTrustContext(
     actorMemberDisplayName: ctx.requesterMemberDisplayName,
     trustClass: ctx.trustClass,
     guardianIdentity: ctx.guardianExternalUserId,
-    denialReason: ctx.denialReason,
   };
 }
 
@@ -162,7 +157,6 @@ export function inboundActorContextFromTrust(
       ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)
       : undefined,
     memberPolicy: ctx.memberRecord?.channel.policy ?? undefined,
-    denialReason: ctx.denialReason,
     contactNotes: ctx.memberRecord?.contact.notes ?? undefined,
     contactInteractionCount:
       ctx.memberRecord?.contact.interactionCount ?? undefined,
@@ -778,7 +772,6 @@ export function buildInboundActorContextBlock(
   if (ctx.memberPolicy) {
     lines.push(`member_policy: ${ctx.memberPolicy}`);
   }
-  lines.push(`denial_reason: ${ctx.denialReason ?? "none"}`);
   // Contact metadata — only included when the sender has a contact record
   // with non-default values.
   if (ctx.contactNotes) {

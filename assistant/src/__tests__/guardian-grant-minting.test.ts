@@ -148,7 +148,6 @@ function makeTrustContext(): TrustContext {
   return {
     sourceChannel: "telegram",
     trustClass: "guardian",
-    denialReason: undefined,
   };
 }
 
@@ -621,6 +620,8 @@ describe("approval interception trust-class regression coverage", () => {
       trustCtx: {
         sourceChannel: "telegram",
         trustClass: "unknown",
+        requesterExternalUserId: "intruder-user-1",
+        guardianExternalUserId: "guardian-1",
       },
       assistantId: ASSISTANT_ID,
     });
@@ -653,7 +654,6 @@ describe("approval interception trust-class regression coverage", () => {
       trustCtx: {
         sourceChannel: "telegram",
         trustClass: "unknown",
-        denialReason: "no_identity",
       },
       assistantId: ASSISTANT_ID,
     });

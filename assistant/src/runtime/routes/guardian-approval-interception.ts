@@ -146,40 +146,39 @@ export async function handleApprovalInterception(
   const pendingPrompt = getChannelApprovalPrompt(conversationId);
   if (!pendingPrompt) return { handled: false };
 
-  // Legacy unverified-channel equivalent:
-  // unknown trust + explicit denial reason (`no_identity` / `no_binding`).
-  // Unknown without a denial reason means identity-known, non-member sender
-  // in a shared channel; that case must not force-reject someone else's request.
-  const isLegacyUnverifiedSender =
-    trustCtx.trustClass === "unknown" && !!trustCtx.denialReason;
+  // Unverified sender: unknown trust where either the sender's identity
+  // could not be established or no guardian binding exists for the channel.
+  // Identity-known non-member senders in shared channels (unknown trust with
+  // both identity and guardian binding present) must not force-reject.
+  const isUnverifiedSender =
+    trustCtx.trustClass === "unknown" &&
+    (!trustCtx.requesterExternalUserId || !trustCtx.guardianExternalUserId);
 
-  // When the sender is from a legacy-unverified channel actor, auto-deny any
-  // pending confirmation and block self-approval.
-  if (isLegacyUnverifiedSender) {
+  // When the sender is unverified, auto-deny any pending confirmation and
+  // block self-approval.
+  if (isUnverifiedSender) {
     const pending = getApprovalInfoByConversation(conversationId);
     if (pending.length > 0) {
+      const reason: "no_identity" | "no_binding" =
+        !trustCtx.requesterExternalUserId ? "no_identity" : "no_binding";
       handleChannelDecision(
         conversationId,
         { action: "reject", source: "plain_text" },
-        buildGuardianDenyContext(
-          pending[0].toolName,
-          trustCtx.denialReason ?? "no_binding",
-          sourceChannel,
-        ),
+        buildGuardianDenyContext(pending[0].toolName, reason, sourceChannel),
       );
       return { handled: true, type: "decision_applied" };
     }
   }
 
-  // When the sender is a non-guardian and there's a pending guardian approval
-  // for this conversation's request, block self-approval. The non-guardian must
-  // wait for the guardian to decide.
-  //
-  // Include identity-known, non-member senders (`unknown` without denialReason)
-  // so shared-channel participants can't approve/deny someone else's pending request.
+  // When the sender is a non-guardian with established identity and a guardian
+  // binding, block self-approval. The non-guardian must wait for the guardian
+  // to decide. This covers trusted contacts and identity-known non-member
+  // senders in shared channels.
   const isIdentityKnownNonGuardian =
     trustCtx.trustClass === "trusted_contact" ||
-    (trustCtx.trustClass === "unknown" && !trustCtx.denialReason);
+    (trustCtx.trustClass === "unknown" &&
+      !!trustCtx.requesterExternalUserId &&
+      !!trustCtx.guardianExternalUserId);
   if (isIdentityKnownNonGuardian) {
     const pending = getApprovalInfoByConversation(conversationId);
     if (pending.length > 0) {

@@ -52,16 +52,6 @@ export function isUntrustedTrustClass(
 }
 
 /**
- * Reason an actor was denied access during trust resolution.
- *
- * - `'no_binding'`: No guardian binding exists for this (assistant, channel),
- *   so trust cannot be established for any actor.
- * - `'no_identity'`: The inbound message carried no usable identity fields
- *   (e.g. missing external user ID), so the sender could not be identified.
- */
-export type DenialReason = "no_binding" | "no_identity";
-
-/**
  * Fully resolved trust context from the actor trust resolver.
  *
  * This is the intermediate representation between raw inbound identity
@@ -98,8 +88,6 @@ export interface ActorTrustContext {
     channel: ChannelId;
     trustStatus: TrustClass;
   };
-  /** Legacy denial reason for backward-compatible unverified_channel paths. */
-  denialReason?: DenialReason;
 }
 
 /**
@@ -176,7 +164,6 @@ export function resolveActorTrust(
         channel: input.sourceChannel,
         trustStatus: "unknown",
       },
-      denialReason: "no_identity",
     };
   }
 
@@ -280,12 +267,6 @@ export function resolveActorTrust(
     trustClass = "unknown";
   }
 
-  // Denial reason for legacy compatibility
-  let denialReason: DenialReason | undefined;
-  if (!isGuardian && !guardianBindingMatch) {
-    denialReason = "no_binding";
-  }
-
   return {
     canonicalSenderId,
     guardianBindingMatch,
@@ -301,7 +282,6 @@ export function resolveActorTrust(
       channel: input.sourceChannel,
       trustStatus: trustClass,
     },
-    denialReason,
   };
 }
 
@@ -338,6 +318,5 @@ export function toTrustContext(
     requesterMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,
     requesterChatId: conversationExternalId,
-    denialReason: ctx.denialReason,
   };
 }

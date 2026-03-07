@@ -709,14 +709,12 @@ describe("injectInboundActorContext", () => {
       sourceChannel: "telegram",
       canonicalActorIdentity: null,
       trustClass: "unknown",
-      denialReason: "no_identity",
     };
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
     const text = (result.content[0] as { type: "text"; text: string }).text;
     expect(text).toContain("non-guardian account");
     expect(text).toContain("Do not explain the verification system");
-    expect(text).toContain("denial_reason: no_identity");
   });
 
   test("omits non-guardian behavioral guidance for guardian actors", () => {
@@ -738,7 +736,6 @@ describe("injectInboundActorContext", () => {
       sourceChannel: "voice",
       canonicalActorIdentity: "user-1",
       trustClass: "unknown",
-      denialReason: "no_binding",
     };
 
     const result = injectInboundActorContext(baseUserMessage, ctx);

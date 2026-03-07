@@ -930,7 +930,6 @@ describe("call-controller", () => {
     const initialCtx = {
       sourceChannel: "voice" as const,
       trustClass: "unknown" as const,
-      denialReason: "no_binding" as const,
     };
 
     const upgradedCtx = {

@@ -35,10 +35,6 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
       : undefined;
   if (!rawSourceChannel || !isChannelId(rawSourceChannel)) return undefined;
   const sourceChannel = rawSourceChannel;
-  const denialReason =
-    raw.denialReason === "no_binding" || raw.denialReason === "no_identity"
-      ? raw.denialReason
-      : undefined;
   return {
     sourceChannel,
     trustClass,
@@ -74,7 +70,6 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
         : undefined,
     requesterChatId:
       typeof raw.requesterChatId === "string" ? raw.requesterChatId : undefined,
-    denialReason,
   };
 }
 

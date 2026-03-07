@@ -670,7 +670,6 @@ export class RelayConnection {
     recordCallEvent(this.callSessionId, "inbound_acl_denied", {
       from,
       trustClass: resolved.actorTrust.trustClass,
-      denialReason: resolved.actorTrust.denialReason,
       channelId: resolved.actorTrust.memberRecord?.channel.id,
       memberPolicy: resolved.actorTrust.memberRecord?.channel.policy,
     });

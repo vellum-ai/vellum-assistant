@@ -406,7 +406,6 @@ describe("voice-session-bridge", () => {
       trustContext: {
         sourceChannel: "voice",
         trustClass: "unknown",
-        denialReason: "no_binding",
       },
       onTextDelta: () => {},
       onComplete: () => {},
@@ -751,7 +750,6 @@ describe("voice-session-bridge", () => {
       trustContext: {
         sourceChannel: "voice",
         trustClass: "unknown",
-        denialReason: "no_binding",
       },
       onTextDelta: () => {},
       onComplete: () => {},
