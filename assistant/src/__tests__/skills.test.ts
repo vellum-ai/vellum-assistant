@@ -468,9 +468,13 @@ describe("includes frontmatter parsing", () => {
   function writeSkillWithIncludes(skillId: string, includes: string): void {
     const skillDir = join(TEST_DIR, "skills", skillId);
     mkdirSync(skillDir, { recursive: true });
+    // includes lives inside metadata.vellum, matching buildSkillMarkdown output.
+    // The raw includes string is interpolated directly so tests can pass both
+    // valid and intentionally malformed values.
+    const metadata = `{"vellum":{"includes":${includes}}}`;
     writeFileSync(
       join(skillDir, "SKILL.md"),
-      `---\nname: "${skillId}"\ndescription: "test"\nincludes: ${includes}\n---\n\nBody.\n`,
+      `---\nname: "${skillId}"\ndescription: "test"\nmetadata: ${metadata}\n---\n\nBody.\n`,
     );
   }
 
