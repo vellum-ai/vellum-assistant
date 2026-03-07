@@ -7,8 +7,8 @@
  *
  * Both the standard and guardian approval flows now use the conversational
  * approval engine as the primary classifier. This deterministic parser is
- * retained only as a legacy fallback for when the conversational engine is
- * not injected (i.e. approvalConversationGenerator is undefined).
+ * used by the guardian callback strategy and grant minter for structured
+ * decision extraction.
  */
 
 import type {

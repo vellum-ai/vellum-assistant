@@ -5,7 +5,6 @@
  * This module is the top-level dispatcher. It delegates to strategy modules:
  * - guardian-callback-strategy.ts   — guardian callback button and text decisions
  * - guardian-text-engine-strategy.ts — conversational engine for plain-text messages
- * - guardian-legacy-fallback-strategy.ts — deterministic parser fallback
  */
 import { applyGuardianDecision } from "../../approvals/guardian-decision-primitive.js";
 import type { ChannelId } from "../../channels/types.js";
@@ -32,7 +31,6 @@ import type {
 } from "../http-types.js";
 import { parseApprovalIntent } from "../nl-approval-parser.js";
 import { handleGuardianCallbackDecision } from "./approval-strategies/guardian-callback-strategy.js";
-import { handleGuardianLegacyFallback } from "./approval-strategies/guardian-legacy-fallback-strategy.js";
 import { handleGuardianTextEngineDecision } from "./approval-strategies/guardian-text-engine-strategy.js";
 import {
   buildGuardianDenyContext,
@@ -507,8 +505,8 @@ export async function handleApprovalInterception(
 
   // ── Natural language approval intent parser ──
   // Covers a broad set of colloquial approval/rejection phrases, emoji, and
-  // timed-approval variants. Runs before the legacy parser to provide wider
-  // coverage for channels (like Slack) that rely on plain-text responses.
+  // timed-approval variants for channels (like Slack) that rely on plain-text
+  // responses.
   if (pending.length > 0 && content) {
     const nlIntent = parseApprovalIntent(content);
     if (nlIntent && nlIntent.confidence >= 0.9) {
@@ -528,28 +526,8 @@ export async function handleApprovalInterception(
     }
   }
 
-  // ── Legacy deterministic fallback ──
-  // When no conversational engine is available, use the deterministic parser
-  // as a safety net for backward compatibility.
-  if (content) {
-    const legacyResult = await handleGuardianLegacyFallback({
-      conversationId,
-      conversationExternalId,
-      sourceChannel,
-      replyCallbackUrl,
-      content,
-      assistantId,
-      bearerToken,
-      approvalCopyGenerator,
-      pending,
-    });
-    if (legacyResult) {
-      return legacyResult;
-    }
-  }
-
-  // No decision could be extracted and no conversational engine is available —
-  // deliver a simple status reply rather than a reminder prompt.
+  // No decision could be extracted — deliver a simple status reply rather
+  // than a reminder prompt.
   await deliverStaleApprovalReply({
     scenario: "reminder_prompt",
     sourceChannel,
