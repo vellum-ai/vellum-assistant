@@ -46,7 +46,7 @@ assistant config set telegram.botUsername "$BOT_USERNAME"
 
 This retrieves the bot token from secure storage, validates it by calling the Telegram `getMe` API, parses the bot username from the response, and stores it in the assistant config. If the `curl` call fails (non-zero exit code or empty response), the token is invalid — tell the user and ask them to re-enter the token via the secure prompt (repeat Step 1). If the `config set` command fails, report the error to the user.
 
-**2c. Generate and store webhook secret:**
+**2b. Generate and store webhook secret:**
 
 ```bash
 assistant credentials set telegram:webhook_secret "$(uuidgen)"
@@ -54,7 +54,7 @@ assistant credentials set telegram:webhook_secret "$(uuidgen)"
 
 This generates a random webhook secret and stores it in the credential vault. Skip this step if a webhook secret already exists (check with `assistant credentials reveal telegram:webhook_secret` first). If the `credentials set` command fails, report the error to the user.
 
-**2d. Register platform callback route (containerized deployments only):**
+**2c. Register platform callback route (containerized deployments only):**
 
 ```bash
 assistant platform callback-routes register --path webhooks/telegram --type telegram --json
@@ -62,7 +62,7 @@ assistant platform callback-routes register --path webhooks/telegram --type tele
 
 This registers the Telegram webhook callback route with the platform. This is only required for containerized deployments — if the command returns a "not available" error, that is expected for local deployments and can be safely ignored. Continue to the next step.
 
-**2e. Register bot commands via Telegram API:**
+**2d. Register bot commands via Telegram API:**
 
 ```bash
 BOT_TOKEN=$(assistant credentials reveal telegram:bot_token)
