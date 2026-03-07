@@ -364,9 +364,16 @@ export class Session {
       systemPrompt,
       config: config.contextWindow,
       onBeforeCompact: async (messages, _boundary, signal) => {
-        const memoryEnabled = getConfig().memory?.enabled !== false;
+        const cfg = getConfig();
+        const memoryEnabled = cfg.memory?.enabled !== false;
         const trustClass = resolveTrustClass(this.trustContext);
         if (!memoryEnabled || trustClass !== "guardian") return;
+
+        const flushConfig = cfg.memory?.extraction?.preCompactionFlush;
+        if (flushConfig?.enabled === false) return;
+
+        const maxMessages = flushConfig?.maxMessages ?? 50;
+        const timeoutMs = flushConfig?.timeoutMs ?? 30000;
 
         try {
           // Resolve DB message rows so flush has real message IDs for
@@ -374,17 +381,40 @@ export class Session {
           // to DB rows starting after the already-compacted count.
           const dbMessages = conversationStore.getMessages(this.conversationId);
           const compactedCount = this.contextCompactedMessageCount;
-          const flushMessages = dbMessages
+          let flushMessages = dbMessages
             .slice(compactedCount, compactedCount + messages.length)
             .map((row) => ({ id: row.id, role: row.role }));
 
-          const result = await flushMemoryForMessages({
+          // Take the most recent N messages — older messages are more likely
+          // to have been extracted already.
+          if (flushMessages.length > maxMessages) {
+            flushMessages = flushMessages.slice(-maxMessages);
+          }
+
+          const flushPromise = flushMemoryForMessages({
             messages: flushMessages,
             conversationId: this.conversationId,
             scopeId: this.memoryPolicy.scopeId,
             db: getDb(),
             abortSignal: signal,
           });
+
+          const timeoutSentinel = Symbol("timeout");
+          const result = await Promise.race([
+            flushPromise,
+            new Promise<typeof timeoutSentinel>((resolve) =>
+              setTimeout(() => resolve(timeoutSentinel), timeoutMs),
+            ),
+          ]);
+
+          if (result === timeoutSentinel) {
+            log.warn(
+              { timeoutMs, conversationId: this.conversationId },
+              "Pre-compaction memory flush timed out, proceeding with compaction",
+            );
+            return;
+          }
+
           log.info(
             {
               flushed: result.flushed,
