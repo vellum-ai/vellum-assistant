@@ -71,16 +71,10 @@ describe("/schema route", () => {
     expect(body.paths["/v1/contacts/invites"]).toBeDefined();
     expect(body.paths["/v1/contacts/invites/redeem"]).toBeDefined();
     expect(body.paths["/v1/contacts/invites/{inviteId}"]).toBeDefined();
-    expect(body.paths["/v1/integrations/guardian/challenge"]).toBeDefined();
+    expect(body.paths["/v1/integrations/guardian/sessions"]).toBeDefined();
     expect(body.paths["/v1/integrations/guardian/status"]).toBeDefined();
     expect(
-      body.paths["/v1/integrations/guardian/outbound/start"],
-    ).toBeDefined();
-    expect(
-      body.paths["/v1/integrations/guardian/outbound/resend"],
-    ).toBeDefined();
-    expect(
-      body.paths["/v1/integrations/guardian/outbound/cancel"],
+      body.paths["/v1/integrations/guardian/sessions/resend"],
     ).toBeDefined();
     expect(body.paths["/deliver/telegram"]).toBeDefined();
     expect(body.paths["/{path}"]).toBeDefined();
