@@ -83,10 +83,7 @@ export function expandQueryForFTS(query: string): string[] {
     return ["*"];
   }
 
-  const tokens = trimmed
-    .split(/\s+/)
-    .map((token) => token.replace(/[^\w]/g, ""))
-    .filter((token) => token.length > 0);
+  const tokens = trimmed.split(/[^\w]+/).filter((token) => token.length > 0);
 
   if (tokens.length === 0) {
     return ["*"];
@@ -115,5 +112,5 @@ export function buildFTSQuery(keywords: string[]): string {
     return '"*"';
   }
 
-  return keywords.map((kw) => `"${kw}"`).join(" OR ");
+  return keywords.map((kw) => `"${kw.replace(/"/g, '""')}"`).join(" OR ");
 }
