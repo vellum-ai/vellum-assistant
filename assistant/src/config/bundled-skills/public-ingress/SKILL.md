@@ -26,7 +26,7 @@ assistant config get ingress.publicBaseUrl
 assistant config get ingress.enabled
 ```
 
-Note: The local gateway target is `http://127.0.0.1:${GATEWAY_PORT}` (default port 7830).
+Note: The local gateway target is `$INTERNAL_GATEWAY_BASE_URL` (e.g. `http://127.0.0.1:7830`).
 
 The commands return:
 
@@ -117,7 +117,7 @@ sleep 1
 Start ngrok in the background, tunneling to the local gateway target:
 
 ```bash
-nohup ngrok http "http://127.0.0.1:${GATEWAY_PORT}" --log=stdout > /tmp/ngrok.log 2>&1 &
+nohup ngrok http "$INTERNAL_GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1 &
 echo $! > /tmp/ngrok.pid
 ```
 
@@ -154,12 +154,12 @@ print(match.group(1))
 ```
 
 ```bash
-echo "${GATEWAY_PORT}"
+echo "$INTERNAL_GATEWAY_BASE_URL" | grep -oE '[0-9]+$'
 ```
 
 Compare the two port numbers. If they differ, warn the user:
 
-> **Port mismatch detected:** ngrok is forwarding to port **X** but the gateway is listening on port **Y**. Webhooks will not reach the gateway. Stop ngrok (`pkill -f ngrok`), then re-run this skill to start ngrok on the correct port. Alternatively, update `GATEWAY_PORT` to match the port ngrok is forwarding to and restart the gateway.
+> **Port mismatch detected:** ngrok is forwarding to port **X** but the gateway is listening on port **Y** (from `$INTERNAL_GATEWAY_BASE_URL`). Webhooks will not reach the gateway. Stop ngrok (`pkill -f ngrok`), then re-run this skill to start ngrok on the correct port.
 
 If the ports match, proceed silently to Step 5.
 
@@ -210,14 +210,14 @@ assistant config get ingress.enabled
 Summarize the setup:
 
 - **Public URL:** `<the-url>` (this is your `ingress.publicBaseUrl`)
-- **Local gateway target:** `http://127.0.0.1:${GATEWAY_PORT}`
+- **Local gateway target:** `$INTERNAL_GATEWAY_BASE_URL`
 - **ngrok dashboard:** http://127.0.0.1:4040
 
 Provide useful follow-up commands:
 
 - **Check tunnel status:** `curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "import sys,json; [print(t['public_url']) for t in json.load(sys.stdin)['tunnels']]"`
 - **View ngrok logs:** `cat /tmp/ngrok.log`
-- **Restart tunnel:** `pkill -f ngrok; sleep 1; nohup ngrok http "http://127.0.0.1:${GATEWAY_PORT}" --log=stdout > /tmp/ngrok.log 2>&1 &`
+- **Restart tunnel:** `pkill -f ngrok; sleep 1; nohup ngrok http "$INTERNAL_GATEWAY_BASE_URL" --log=stdout > /tmp/ngrok.log 2>&1 &`
 - **Stop tunnel:** `pkill -f ngrok`
 - **Rotate URL:** Stop and restart ngrok (free tier assigns a new URL each time; update `ingress.publicBaseUrl` afterward)
 
@@ -239,7 +239,7 @@ The ngrok process may not be running. Check with `ps aux | grep ngrok`. If not r
 
 ### Gateway not reachable on local target
 
-Re-check the local gateway target with `assistant config get ingress.publicBaseUrl`. The local gateway target is `http://127.0.0.1:${GATEWAY_PORT}`. Run `curl -s "http://127.0.0.1:${GATEWAY_PORT}/healthz"` to verify it is reachable. If the gateway is not running, start the assistant first.
+Re-check the local gateway target with `echo "$INTERNAL_GATEWAY_BASE_URL"`. Run `curl -s "$INTERNAL_GATEWAY_BASE_URL/healthz"` to verify it is reachable. If the gateway is not running, start the assistant first.
 
 ### "Too many connections" or tunnel limit errors
 
@@ -249,6 +249,6 @@ ngrok's free tier allows one tunnel at a time. Stop any other ngrok tunnels befo
 
 **Symptom:** Webhooks return connection refused or timeouts even though both ngrok and the gateway appear to be running.
 
-**Cause:** ngrok is forwarding to a different port than the gateway is listening on. This can happen if `GATEWAY_PORT` was changed after ngrok was started, or if ngrok was started manually with a hardcoded port.
+**Cause:** ngrok is forwarding to a different port than the gateway is listening on. This can happen if the gateway port was changed after ngrok was started, or if ngrok was started manually with a hardcoded port.
 
-**Fix:** Stop ngrok (`pkill -f ngrok`), verify the gateway port with `echo ${GATEWAY_PORT}`, then re-run this skill to start ngrok on the correct port.
+**Fix:** Stop ngrok (`pkill -f ngrok`), verify the gateway URL with `echo "$INTERNAL_GATEWAY_BASE_URL"`, then re-run this skill to start ngrok on the correct port.
