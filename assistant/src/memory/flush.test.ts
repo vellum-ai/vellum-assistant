@@ -145,7 +145,7 @@ describe("flushMemoryForMessages", () => {
     expect(result).toEqual({ flushed: 2, skipped: 0 });
   });
 
-  it("filters to user messages only", async () => {
+  it("filters to user messages only when extractFromAssistant is false", async () => {
     const messages = [
       { id: "msg-1", role: "user" },
       { id: "msg-2", role: "assistant" },
@@ -155,6 +155,7 @@ describe("flushMemoryForMessages", () => {
 
     const result = await flushMemoryForMessages({
       ...baseOpts(),
+      extractFromAssistant: false,
       messages,
     });
 
@@ -162,6 +163,27 @@ describe("flushMemoryForMessages", () => {
     expect(extractMock).toHaveBeenCalledWith("msg-1", "scope-1", "conv-1");
     expect(extractMock).toHaveBeenCalledWith("msg-4", "scope-1", "conv-1");
     expect(result).toEqual({ flushed: 2, skipped: 0 });
+  });
+
+  it("includes assistant messages when extractFromAssistant is true", async () => {
+    const messages = [
+      { id: "msg-1", role: "user" },
+      { id: "msg-2", role: "assistant" },
+      { id: "msg-3", role: "system" },
+      { id: "msg-4", role: "user" },
+    ];
+
+    const result = await flushMemoryForMessages({
+      ...baseOpts(),
+      extractFromAssistant: true,
+      messages,
+    });
+
+    expect(extractMock).toHaveBeenCalledTimes(3);
+    expect(extractMock).toHaveBeenCalledWith("msg-1", "scope-1", "conv-1");
+    expect(extractMock).toHaveBeenCalledWith("msg-2", "scope-1", "conv-1");
+    expect(extractMock).toHaveBeenCalledWith("msg-4", "scope-1", "conv-1");
+    expect(result).toEqual({ flushed: 3, skipped: 0 });
   });
 
   it("returns zeroes for empty message list", async () => {
