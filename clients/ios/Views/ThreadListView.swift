@@ -11,7 +11,12 @@ func sortThreadsForDisplay(
 
     return threads.sorted { a, b in
         if a.isPinned && b.isPinned {
-            return (a.displayOrder ?? 0) < (b.displayOrder ?? 0)
+            if a.displayOrder == nil && b.displayOrder == nil {
+                return a.lastActivityAt > b.lastActivityAt
+            }
+            if a.displayOrder == nil { return false }
+            if b.displayOrder == nil { return true }
+            return a.displayOrder! < b.displayOrder!
         }
         if a.isPinned { return true }
         if b.isPinned { return false }
