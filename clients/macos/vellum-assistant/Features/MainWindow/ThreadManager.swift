@@ -683,11 +683,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // Skip if this thread was already active to avoid duplicate signals
         // (e.g. when openConversationThread sets activeThreadId directly and
         // SwiftUI's onChange cycle calls selectThread with the same id).
-        if id != previousActiveId, let sessionId = thread.sessionId {
-            emitConversationSeenSignal(conversationId: sessionId)
-            if let idx = threads.firstIndex(where: { $0.id == id }) {
-                threads[idx].hasUnseenLatestAssistantMessage = false
-            }
+        if id != previousActiveId {
+            markConversationSeen(threadId: id)
         }
     }
 
@@ -1087,14 +1084,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Emit explicit seen signal for user-initiated thread activation.
         // Skip during session restoration to avoid false "seen" signals on bootstrap.
-        if !isRestoringThreads,
-           id != previousActiveId,
-           let thread = threads.first(where: { $0.id == id }),
-           let sessionId = thread.sessionId {
-            emitConversationSeenSignal(conversationId: sessionId)
-            if let idx = threads.firstIndex(where: { $0.id == id }) {
-                threads[idx].hasUnseenLatestAssistantMessage = false
-            }
+        if !isRestoringThreads, id != previousActiveId {
+            markConversationSeen(threadId: id)
         }
     }
 
@@ -1187,6 +1178,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             markedIds.append(threads[idx].id)
             if let sessionId = threads[idx].sessionId {
                 sessionIds.append(sessionId)
+                pendingAttentionOverrides[sessionId] = .seen(
+                    latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
+                )
+                threads[idx].lastSeenAssistantMessageAt = threads[idx].latestAssistantMessageAt
             }
         }
         if !sessionIds.isEmpty {
@@ -1357,6 +1352,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         switch override {
         case .seen(let targetLatestAssistantMessageAt):
             if !threads[index].hasUnseenLatestAssistantMessage {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+            // When target is nil (e.g. notification-created thread before history loads),
+            // drop the override if the server reports unseen — the server has newer info.
+            if targetLatestAssistantMessageAt == nil {
                 pendingAttentionOverrides.removeValue(forKey: sessionId)
                 return
             }
