@@ -14,54 +14,6 @@ export {
   WorkspaceGitConfigSchema,
 } from "./agent-schema.js";
 export type {
-  AuditLogConfig,
-  AvatarConfig,
-  ContextOverflowRecoveryConfig,
-  ContextWindowConfig,
-  DaemonConfig,
-  Effort,
-  IngressConfig,
-  IngressRateLimitConfig,
-  IngressWebhookConfig,
-  LogFileConfig,
-  ModelPricingOverride,
-  PermissionsConfig,
-  PlatformConfig,
-  RateLimitConfig,
-  SecretDetectionConfig,
-  SlackConfig,
-  TelegramConfig,
-  ThinkingConfig,
-  TimeoutConfig,
-  TwilioConfig,
-  UiConfig,
-  WhatsAppConfig,
-} from "./core-schema.js";
-export {
-  AuditLogConfigSchema,
-  AvatarConfigSchema,
-  ContextOverflowRecoveryConfigSchema,
-  ContextWindowConfigSchema,
-  DaemonConfigSchema,
-  EffortSchema,
-  IngressConfigSchema,
-  IngressRateLimitConfigSchema,
-  IngressWebhookConfigSchema,
-  LogFileConfigSchema,
-  ModelPricingOverrideSchema,
-  PermissionsConfigSchema,
-  PlatformConfigSchema,
-  RateLimitConfigSchema,
-  SecretDetectionConfigSchema,
-  SlackConfigSchema,
-  TelegramConfigSchema,
-  ThinkingConfigSchema,
-  TimeoutConfigSchema,
-  TwilioConfigSchema,
-  UiConfigSchema,
-  WhatsAppConfigSchema,
-} from "./core-schema.js";
-export type {
   MemoryCleanupConfig,
   MemoryConfig,
   MemoryConflictsConfig,
@@ -112,11 +64,52 @@ export {
   CallsVoiceConfigSchema,
   VALID_CALLER_IDENTITY_MODES,
 } from "./schemas/calls.js";
+export type {
+  SlackConfig,
+  TelegramConfig,
+  TwilioConfig,
+  WhatsAppConfig,
+} from "./schemas/channels.js";
+export {
+  SlackConfigSchema,
+  TelegramConfigSchema,
+  TwilioConfigSchema,
+  WhatsAppConfigSchema,
+} from "./schemas/channels.js";
 export type { ElevenLabsConfig } from "./schemas/elevenlabs.js";
 export {
   DEFAULT_ELEVENLABS_VOICE_ID,
   ElevenLabsConfigSchema,
 } from "./schemas/elevenlabs.js";
+export type {
+  ContextOverflowRecoveryConfig,
+  ContextWindowConfig,
+  Effort,
+  ModelPricingOverride,
+  ThinkingConfig,
+} from "./schemas/inference.js";
+export {
+  ContextOverflowRecoveryConfigSchema,
+  ContextWindowConfigSchema,
+  EffortSchema,
+  ModelPricingOverrideSchema,
+  ThinkingConfigSchema,
+} from "./schemas/inference.js";
+export type {
+  IngressConfig,
+  IngressRateLimitConfig,
+  IngressWebhookConfig,
+} from "./schemas/ingress.js";
+export {
+  IngressConfigSchema,
+  IngressRateLimitConfigSchema,
+  IngressWebhookConfigSchema,
+} from "./schemas/ingress.js";
+export type { AuditLogConfig, LogFileConfig } from "./schemas/logging.js";
+export {
+  AuditLogConfigSchema,
+  LogFileConfigSchema,
+} from "./schemas/logging.js";
 export type {
   McpConfig,
   McpServerConfig,
@@ -129,8 +122,29 @@ export {
 } from "./schemas/mcp.js";
 export type { NotificationsConfig } from "./schemas/notifications.js";
 export { NotificationsConfigSchema } from "./schemas/notifications.js";
+export type {
+  AvatarConfig,
+  DaemonConfig,
+  PlatformConfig,
+  UiConfig,
+} from "./schemas/platform.js";
+export {
+  AvatarConfigSchema,
+  DaemonConfigSchema,
+  PlatformConfigSchema,
+  UiConfigSchema,
+  VALID_AVATAR_STRATEGIES,
+} from "./schemas/platform.js";
 export type { SandboxConfig } from "./schemas/sandbox.js";
 export { SandboxConfigSchema } from "./schemas/sandbox.js";
+export type {
+  PermissionsConfig,
+  SecretDetectionConfig,
+} from "./schemas/security.js";
+export {
+  PermissionsConfigSchema,
+  SecretDetectionConfigSchema,
+} from "./schemas/security.js";
 export type {
   RemotePolicyConfig,
   RemoteProviderConfig,
@@ -149,6 +163,11 @@ export {
   SkillsInstallConfigSchema,
   SkillsLoadConfigSchema,
 } from "./schemas/skills.js";
+export type { RateLimitConfig, TimeoutConfig } from "./schemas/timeouts.js";
+export {
+  RateLimitConfigSchema,
+  TimeoutConfigSchema,
+} from "./schemas/timeouts.js";
 
 // Imports for AssistantConfigSchema composition
 import {
@@ -156,34 +175,44 @@ import {
   SwarmConfigSchema,
   WorkspaceGitConfigSchema,
 } from "./agent-schema.js";
-import {
-  AuditLogConfigSchema,
-  AvatarConfigSchema,
-  ContextWindowConfigSchema,
-  DaemonConfigSchema,
-  EffortSchema,
-  IngressConfigSchema,
-  LogFileConfigSchema,
-  ModelPricingOverrideSchema,
-  PermissionsConfigSchema,
-  PlatformConfigSchema,
-  RateLimitConfigSchema,
-  SecretDetectionConfigSchema,
-  SlackConfigSchema,
-  TelegramConfigSchema,
-  ThinkingConfigSchema,
-  TimeoutConfigSchema,
-  TwilioConfigSchema,
-  UiConfigSchema,
-  WhatsAppConfigSchema,
-} from "./core-schema.js";
 import { MemoryConfigSchema } from "./memory-schema.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
+import {
+  SlackConfigSchema,
+  TelegramConfigSchema,
+  TwilioConfigSchema,
+  WhatsAppConfigSchema,
+} from "./schemas/channels.js";
 import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
+import {
+  ContextWindowConfigSchema,
+  EffortSchema,
+  ModelPricingOverrideSchema,
+  ThinkingConfigSchema,
+} from "./schemas/inference.js";
+import { IngressConfigSchema } from "./schemas/ingress.js";
+import {
+  AuditLogConfigSchema,
+  LogFileConfigSchema,
+} from "./schemas/logging.js";
 import { McpConfigSchema } from "./schemas/mcp.js";
 import { NotificationsConfigSchema } from "./schemas/notifications.js";
+import {
+  AvatarConfigSchema,
+  DaemonConfigSchema,
+  PlatformConfigSchema,
+  UiConfigSchema,
+} from "./schemas/platform.js";
 import { SandboxConfigSchema } from "./schemas/sandbox.js";
+import {
+  PermissionsConfigSchema,
+  SecretDetectionConfigSchema,
+} from "./schemas/security.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
+import {
+  RateLimitConfigSchema,
+  TimeoutConfigSchema,
+} from "./schemas/timeouts.js";
 
 const VALID_PROVIDERS = [
   "anthropic",

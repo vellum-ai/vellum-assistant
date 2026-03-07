@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ContextOverflowRecoveryConfig } from "../config/core-schema.js";
-import { ContextOverflowRecoveryConfigSchema } from "../config/core-schema.js";
+import type { ContextOverflowRecoveryConfig } from "../config/schemas/inference.js";
+import { ContextOverflowRecoveryConfigSchema } from "../config/schemas/inference.js";
 import { resolveOverflowAction } from "../daemon/context-overflow-policy.js";
 
 /** Parse an empty object to get all defaults. */
