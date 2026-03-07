@@ -249,8 +249,6 @@ export function resolveActorTrust(
       ) === canonicalSenderId
     : false;
 
-  // ContactChannel has no username field — the shim always set it to null.
-  const memberUsername = undefined;
   const memberDisplayName =
     memberMatchesSender &&
     typeof memberRecord?.contact.displayName === "string" &&
@@ -260,7 +258,7 @@ export function resolveActorTrust(
   // Prefer member profile metadata over transient sender metadata so guardian-
   // curated contact details are canonical for assistant-facing identity —
   // but only when the member record actually belongs to the current sender.
-  const resolvedUsername = memberUsername ?? senderUsername;
+  const resolvedUsername = senderUsername;
   const resolvedDisplayName = memberDisplayName ?? senderDisplayName;
   const resolvedIdentifier = resolvedUsername
     ? `@${resolvedUsername}`
