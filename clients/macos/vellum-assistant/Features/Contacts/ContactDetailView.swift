@@ -6,9 +6,9 @@ import VellumAssistantShared
 /// channels with verification status, and action buttons.
 @MainActor
 struct ContactDetailView: View {
-    private static let allChannelTypes = ["telegram", "sms", "email", "whatsapp", "voice", "slack"]
+    private static let allChannelTypes = ["telegram", "sms", "email", "whatsapp", "phone", "slack"]
 
-    private static let verificationSupportedChannels: Set<String> = ["telegram", "sms", "voice", "slack"]
+    private static let verificationSupportedChannels: Set<String> = ["telegram", "sms", "phone", "slack"]
 
     /// Channels that support 6-digit code invites from this view. Voice invites
     /// require additional fields not available here, so they are excluded.
@@ -856,7 +856,7 @@ struct ContactDetailView: View {
         switch type {
         case "telegram":
             return .send
-        case "voice":
+        case "phone":
             return .phoneCall
         case "sms":
             return .phoneCall
@@ -875,7 +875,7 @@ struct ContactDetailView: View {
         case "sms": return "SMS"
         case "email": return "Email"
         case "whatsapp": return "WhatsApp"
-        case "voice": return "Voice"
+        case "phone": return "Voice"
         case "slack": return "Slack"
         default: return type.capitalized
         }
@@ -1188,7 +1188,7 @@ struct ContactDetailView: View {
                     ),
                     ContactChannelPayload(
                         id: "ch-g3",
-                        type: "voice",
+                        type: "phone",
                         address: "+15551234567",
                         isPrimary: false,
                         status: "pending",

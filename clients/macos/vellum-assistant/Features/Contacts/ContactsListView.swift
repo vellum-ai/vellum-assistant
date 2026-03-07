@@ -273,7 +273,7 @@ struct ContactsListView: View {
         switch type {
         case "telegram": return .send
         case "sms": return .messageSquare
-        case "voice": return .phoneCall
+        case "phone": return .phoneCall
         case "email": return .mail
         case "slack": return .hash
         default: return .messageCircle
@@ -285,7 +285,7 @@ struct ContactsListView: View {
         switch type {
         case "telegram": return "Telegram"
         case "sms": return "SMS"
-        case "voice": return "Voice"
+        case "phone": return "Voice"
         case "email": return "Email"
         case "slack": return "Slack"
         default: return type.capitalized
@@ -336,7 +336,7 @@ struct ContactsListView: View {
                         isPrimary: false, status: "verified", policy: "allow"
                     ),
                     ContactChannelPayload(
-                        id: "ch-3", type: "voice", address: "+15551234567",
+                        id: "ch-3", type: "phone", address: "+15551234567",
                         isPrimary: false, status: "verified", policy: "allow"
                     ),
                 ]

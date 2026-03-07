@@ -65,7 +65,7 @@ struct SettingsChannelsTab: View {
             store.refreshAssistantEmail()
             store.refreshApprovedDevices()
             store.refreshChannelVerificationStatus(channel: "telegram")
-            store.refreshChannelVerificationStatus(channel: "voice")
+            store.refreshChannelVerificationStatus(channel: "phone")
             store.refreshChannelVerificationStatus(channel: "slack")
             store.refreshTelegramApprovedMembers()
             store.refreshSlackApprovedMembers()
@@ -636,7 +636,7 @@ struct SettingsChannelsTab: View {
             // voice verification initiates an outbound call which requires a valid caller number)
             if store.twilioHasCredentials && store.twilioPhoneNumber != nil {
                 Divider().background(VColor.surfaceBorder)
-                channelVerificationView(channel: "voice")
+                channelVerificationView(channel: "phone")
             }
         }
         .padding(VSpacing.lg)

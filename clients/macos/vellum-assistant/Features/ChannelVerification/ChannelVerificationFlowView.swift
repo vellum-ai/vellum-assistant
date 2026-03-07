@@ -404,7 +404,7 @@ struct ChannelVerificationFlowView: View {
                         if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
                     }
                 }
-            } else if state.channel == "voice" || state.channel == "sms" {
+            } else if state.channel == "phone" || state.channel == "sms" {
                 Text("This is your personal phone number")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)

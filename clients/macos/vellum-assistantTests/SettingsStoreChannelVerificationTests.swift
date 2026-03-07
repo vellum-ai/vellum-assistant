@@ -469,13 +469,13 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         // None of these should crash
         orphanStore.refreshChannelVerificationStatus(channel: "telegram")
         orphanStore.refreshChannelVerificationStatus(channel: "sms")
-        orphanStore.refreshChannelVerificationStatus(channel: "voice")
+        orphanStore.refreshChannelVerificationStatus(channel: "phone")
         orphanStore.startChannelVerification(channel: "telegram")
         orphanStore.startChannelVerification(channel: "sms")
-        orphanStore.startChannelVerification(channel: "voice")
+        orphanStore.startChannelVerification(channel: "phone")
         orphanStore.revokeChannelVerification(channel: "telegram")
         orphanStore.revokeChannelVerification(channel: "sms")
-        orphanStore.revokeChannelVerification(channel: "voice")
+        orphanStore.revokeChannelVerification(channel: "phone")
     }
 
     // MARK: - Successful response clears previous error
@@ -535,7 +535,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
         let telegramStatus = statusMessages.filter { $0.channel == "telegram" }
         let smsStatus = statusMessages.filter { $0.channel == "sms" }
-        let voiceStatus = statusMessages.filter { $0.channel == "voice" }
+        let voiceStatus = statusMessages.filter { $0.channel == "phone" }
 
         XCTAssertEqual(telegramStatus.count, 1)
         XCTAssertEqual(smsStatus.count, 1)
@@ -696,13 +696,13 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Voice Channel Verification
 
     func testStartVoiceVerificationSetsInProgressAndSendsSession() {
-        store.startChannelVerification(channel: "voice")
+        store.startChannelVerification(channel: "phone")
 
         XCTAssertTrue(store.voiceVerificationInProgress)
         XCTAssertNil(store.voiceVerificationError)
 
         let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let sessionMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "voice" }
+        let sessionMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "phone" }
         XCTAssertEqual(sessionMessages.count, 1)
     }
 
@@ -714,7 +714,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             instruction: nil,
             bound: true,
             guardianExternalUserId: "+15559876543",
-            channel: "voice",
+            channel: "phone",
             assistantId: "self",
             guardianDeliveryChatId: nil,
             error: nil
@@ -740,7 +740,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             instruction: nil,
             bound: nil,
             guardianExternalUserId: nil,
-            channel: "voice",
+            channel: "phone",
             assistantId: "self",
             guardianDeliveryChatId: nil,
             error: "Voice channel not configured"
@@ -755,17 +755,17 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testRevokeVoiceVerificationSendsRevokeAction() {
-        store.revokeChannelVerification(channel: "voice")
+        store.revokeChannelVerification(channel: "phone")
 
         let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let revokeMessages = verificationMessages.filter { $0.action == "revoke" && $0.channel == "voice" }
+        let revokeMessages = verificationMessages.filter { $0.action == "revoke" && $0.channel == "phone" }
         XCTAssertEqual(revokeMessages.count, 1)
     }
 
     func testRevokeVoiceVerificationClearsInstruction() {
         store.voiceVerificationInstruction = "Call and say 123456"
 
-        store.revokeChannelVerification(channel: "voice")
+        store.revokeChannelVerification(channel: "phone")
 
         XCTAssertNil(store.voiceVerificationInstruction)
     }
@@ -779,7 +779,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             verificationStatusPollWindow: 2.0
         )
 
-        shortTimeoutStore.startChannelVerification(channel: "voice")
+        shortTimeoutStore.startChannelVerification(channel: "phone")
 
         shortTimeoutStore.voiceVerificationInstruction = "Call and say 123456"
 
@@ -801,7 +801,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             instruction: nil,
             bound: true,
             guardianExternalUserId: "+15559876543",
-            channel: "voice",
+            channel: "phone",
             assistantId: "self",
             guardianDeliveryChatId: nil,
             error: nil

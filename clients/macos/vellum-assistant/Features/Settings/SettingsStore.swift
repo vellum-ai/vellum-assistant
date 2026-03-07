@@ -607,7 +607,7 @@ public final class SettingsStore: ObservableObject {
                         ? "A guardian is already bound. Revoke it first or replace it."
                         : response.error
                 }
-            case "voice":
+            case "phone":
                 self.voiceVerificationInProgress = false
                 if response.success {
                     self.voiceVerificationIdentity = response.guardianExternalUserId
@@ -700,7 +700,7 @@ public final class SettingsStore: ObservableObject {
         // Refresh channel verification status on init
         refreshChannelVerificationStatus(channel: "telegram")
         refreshChannelVerificationStatus(channel: "sms")
-        refreshChannelVerificationStatus(channel: "voice")
+        refreshChannelVerificationStatus(channel: "phone")
         refreshChannelVerificationStatus(channel: "slack")
 
         // Ingress config is refreshed by onAppear in SettingsPanel,
@@ -1507,7 +1507,7 @@ public final class SettingsStore: ObservableObject {
             smsVerificationError = nil
             smsVerificationAlreadyBound = false
             smsVerificationInstruction = nil
-        case "voice":
+        case "phone":
             voiceVerificationInProgress = true
             voiceVerificationError = nil
             voiceVerificationAlreadyBound = false
@@ -1530,7 +1530,7 @@ public final class SettingsStore: ObservableObject {
                 case "sms":
                     smsVerificationInProgress = false
                     smsVerificationError = "Daemon is not connected. Reconnect and try again."
-                case "voice":
+                case "phone":
                     voiceVerificationInProgress = false
                     voiceVerificationError = "Daemon is not connected. Reconnect and try again."
                 case "slack":
@@ -1558,7 +1558,7 @@ public final class SettingsStore: ObservableObject {
             case "sms":
                 smsVerificationInProgress = false
                 smsVerificationError = "Failed to start verification. Try again."
-            case "voice":
+            case "phone":
                 voiceVerificationInProgress = false
                 voiceVerificationError = "Failed to start verification. Try again."
             case "slack":
@@ -1580,7 +1580,7 @@ public final class SettingsStore: ObservableObject {
         case "sms":
             smsVerificationInProgress = false
             smsVerificationInstruction = nil
-        case "voice":
+        case "phone":
             voiceVerificationInProgress = false
             voiceVerificationInstruction = nil
         case "slack":
@@ -1607,7 +1607,7 @@ public final class SettingsStore: ObservableObject {
             telegramVerificationInstruction = nil
         case "sms":
             smsVerificationInstruction = nil
-        case "voice":
+        case "phone":
             voiceVerificationInstruction = nil
         case "slack":
             slackVerificationInstruction = nil
@@ -1801,7 +1801,7 @@ public final class SettingsStore: ObservableObject {
             smsVerificationInProgress = true
             smsVerificationError = nil
             smsVerificationAlreadyBound = false
-        case "voice":
+        case "phone":
             voiceVerificationInProgress = true
             voiceVerificationError = nil
             voiceVerificationAlreadyBound = false
@@ -1821,7 +1821,7 @@ public final class SettingsStore: ObservableObject {
                 case "sms":
                     smsVerificationInProgress = false
                     smsVerificationError = "Daemon is not connected. Reconnect and try again."
-                case "voice":
+                case "phone":
                     voiceVerificationInProgress = false
                     voiceVerificationError = "Daemon is not connected. Reconnect and try again."
                 case "slack":
@@ -1846,7 +1846,7 @@ public final class SettingsStore: ObservableObject {
             case "sms":
                 smsVerificationInProgress = false
                 smsVerificationError = "Failed to start verification. Try again."
-            case "voice":
+            case "phone":
                 voiceVerificationInProgress = false
                 voiceVerificationError = "Failed to start verification. Try again."
             case "slack":
@@ -1877,7 +1877,7 @@ public final class SettingsStore: ObservableObject {
             telegramVerificationInProgress = false
         case "sms":
             smsVerificationInProgress = false
-        case "voice":
+        case "phone":
             voiceVerificationInProgress = false
         case "slack":
             slackVerificationInProgress = false
@@ -1909,7 +1909,7 @@ public final class SettingsStore: ObservableObject {
             smsOutboundNextResendAt = nil
             smsOutboundSendCount = 0
             smsOutboundCode = nil
-        case "voice":
+        case "phone":
             voiceOutboundSessionId = nil
             voiceOutboundExpiresAt = nil
             voiceOutboundNextResendAt = nil
@@ -1975,7 +1975,7 @@ public final class SettingsStore: ObservableObject {
             if let nextResendAt { smsOutboundNextResendAt = nextResendAt }
             if let sendCount { smsOutboundSendCount = sendCount }
             if let secret { smsOutboundCode = secret }
-        case "voice":
+        case "phone":
             if sessionId != voiceOutboundSessionId {
                 voiceOutboundNextResendAt = nil
                 voiceOutboundSendCount = 0
@@ -2013,7 +2013,7 @@ public final class SettingsStore: ObservableObject {
         let inProgressChannels = [
             ("telegram", telegramVerificationInProgress),
             ("sms", smsVerificationInProgress),
-            ("voice", voiceVerificationInProgress),
+            ("phone", voiceVerificationInProgress),
             ("slack", slackVerificationInProgress),
         ].filter(\.1)
         if inProgressChannels.count == 1 {
@@ -2035,7 +2035,7 @@ public final class SettingsStore: ObservableObject {
             telegramVerificationInstruction = nil
         case "sms":
             smsVerificationInstruction = nil
-        case "voice":
+        case "phone":
             voiceVerificationInstruction = nil
         case "slack":
             slackVerificationInstruction = nil
@@ -2063,7 +2063,7 @@ public final class SettingsStore: ObservableObject {
                 if self.smsVerificationError == nil {
                     self.smsVerificationError = "Timed out waiting for verification instructions. Try again."
                 }
-            case "voice":
+            case "phone":
                 self.voiceVerificationInProgress = false
                 self.voiceVerificationInstruction = nil
                 if self.voiceVerificationError == nil {
@@ -2084,7 +2084,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func startVerificationStatusPolling(for channel: String) {
-        guard channel == "telegram" || channel == "sms" || channel == "voice" || channel == "slack" else { return }
+        guard channel == "telegram" || channel == "sms" || channel == "phone" || channel == "slack" else { return }
         stopVerificationStatusPolling(for: channel)
         verificationStatusPollingDeadlines[channel] = Date().addingTimeInterval(verificationStatusPollWindow)
         scheduleVerificationStatusPoll(for: channel, delay: verificationStatusPollInterval)

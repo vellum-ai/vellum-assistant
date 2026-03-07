@@ -599,7 +599,7 @@ struct ThreadSessionRestorerTests {
 
         let response = makeSessionListResponse(sessions: [
             (id: "s1", title: "Voice Call", updatedAt: 2000, threadType: nil,
-             channelBinding: ["sourceChannel": "voice", "externalChatId": "call-123"]),
+             channelBinding: ["sourceChannel": "phone", "externalChatId": "call-123"]),
         ])
         restorer.handleSessionListResponse(response)
 
@@ -626,7 +626,7 @@ struct ThreadSessionRestorerTests {
             (id: "s2", title: "Telegram Chat", updatedAt: 3000, threadType: nil,
              channelBinding: ["sourceChannel": "telegram", "externalChatId": "789"]),
             (id: "s3", title: "Voice Call", updatedAt: 2000, threadType: nil,
-             channelBinding: ["sourceChannel": "voice", "externalChatId": "call-456"]),
+             channelBinding: ["sourceChannel": "phone", "externalChatId": "call-456"]),
             (id: "s4", title: "Another Desktop Chat", updatedAt: 1000, threadType: nil, channelBinding: nil),
         ])
         restorer.handleSessionListResponse(response)

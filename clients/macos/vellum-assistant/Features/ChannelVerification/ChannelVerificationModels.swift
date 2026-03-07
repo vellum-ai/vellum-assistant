@@ -34,7 +34,7 @@ struct ChannelVerificationState {
                !displayName.isEmpty {
                 return displayName
             }
-        } else if channel == "sms" || channel == "voice" {
+        } else if channel == "sms" || channel == "phone" {
             if let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
                !displayName.isEmpty {
                 return displayName
@@ -103,7 +103,7 @@ extension SettingsStore {
                 outboundCode: smsOutboundCode,
                 bootstrapUrl: nil
             )
-        case "voice":
+        case "phone":
             return ChannelVerificationState(
                 channel: channel,
                 identity: voiceVerificationIdentity,
@@ -199,7 +199,7 @@ func verificationInstructionSubtext(channel: String, botUsername: String?, phone
     if channel == "telegram" {
         let handle = botUsername.map { "@\($0)" } ?? "your bot"
         return "Message \(handle) with the below code within the next 10 minutes"
-    } else if channel == "voice" {
+    } else if channel == "phone" {
         let number = phoneNumber ?? "your assistant"
         return "Call \(number) and say the six-digit code below within the next 10 minutes"
     } else {
@@ -212,7 +212,7 @@ func verificationInstructionSubtext(channel: String, botUsername: String?, phone
 func verificationDestinationPlaceholder(for channel: String) -> String {
     switch channel {
     case "telegram": return "@username or chat ID"
-    case "sms", "voice": return "+1234567890"
+    case "sms", "phone": return "+1234567890"
     case "slack": return "Slack user ID"
     default: return "Destination"
     }
