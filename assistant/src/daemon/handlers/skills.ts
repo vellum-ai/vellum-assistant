@@ -113,7 +113,7 @@ export function handleSkillsList(
 
   const skills = resolved.map((r) => ({
     id: r.summary.id,
-    name: r.summary.name,
+    name: r.summary.displayName,
     description: r.summary.description,
     emoji: r.summary.emoji,
     homepage: r.summary.homepage,
