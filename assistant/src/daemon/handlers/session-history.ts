@@ -8,7 +8,6 @@ import {
 import { getMessageById } from "../../memory/conversation-crud.js";
 import {
   getMessagesPaginated,
-  getNextMessage,
   searchConversations,
 } from "../../memory/conversation-queries.js";
 import { silentlyWithLog } from "../../util/silently.js";
@@ -25,7 +24,6 @@ import {
   type HistorySurface,
   type HistoryToolCall,
   log,
-  mergeToolResults,
   type ParsedHistoryMessage,
   renderHistoryContent,
 } from "./shared.js";
@@ -118,12 +116,7 @@ export function handleHistoryRequest(
     };
   });
 
-  // Merge tool_result data from user messages into the preceding assistant
-  // message's toolCalls, and suppress user messages that only contain
-  // tool_result blocks (internal agent-loop turns).
-  const merged = mergeToolResults(parsed);
-
-  const historyMessages = merged.map((m) => {
+  const historyMessages = parsed.map((m) => {
     let attachments: UserMessageAttachment[] | undefined;
     if (m.role === "assistant" && m.id) {
       const linked = getAttachmentsForMessage(m.id);
@@ -337,48 +330,10 @@ export function handleMessageContentRequest(
     const content = JSON.parse(dbMessage.content);
     const rendered = renderHistoryContent(content);
     text = rendered.text || undefined;
-    const mergedToolCalls = rendered.toolCalls;
+    const parsedToolCalls = rendered.toolCalls;
 
-    // Handle legacy conversations where tool_result blocks are stored in the
-    // following user message rather than inline with the assistant message.
-    // This mirrors the mergeToolResults logic used by handleHistoryRequest.
-    if (
-      dbMessage.role === "assistant" &&
-      mergedToolCalls.some((tc) => tc.result === undefined)
-    ) {
-      const nextMsg = getNextMessage(
-        msg.sessionId,
-        dbMessage.createdAt,
-        dbMessage.id,
-      );
-      if (nextMsg && nextMsg.role === "user") {
-        try {
-          const nextContent = JSON.parse(nextMsg.content);
-          const nextRendered = renderHistoryContent(nextContent);
-          if (
-            nextRendered.text.trim() === "" &&
-            nextRendered.toolCalls.length > 0
-          ) {
-            for (const resultEntry of nextRendered.toolCalls) {
-              const unresolved = mergedToolCalls.find(
-                (tc) => tc.result === undefined,
-              );
-              if (unresolved) {
-                unresolved.result = resultEntry.result;
-                unresolved.isError = resultEntry.isError;
-                if (resultEntry.imageData)
-                  unresolved.imageData = resultEntry.imageData;
-              }
-            }
-          }
-        } catch {
-          // Next message isn't valid JSON — skip merging
-        }
-      }
-    }
-
-    if (mergedToolCalls.length > 0) {
-      toolCalls = mergedToolCalls.map((tc) => ({
+    if (parsedToolCalls.length > 0) {
+      toolCalls = parsedToolCalls.map((tc) => ({
         name: tc.name,
         input: tc.input,
         ...(tc.result !== undefined ? { result: tc.result } : {}),
