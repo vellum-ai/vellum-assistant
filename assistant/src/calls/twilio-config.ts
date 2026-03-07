@@ -4,7 +4,6 @@ import {
   getPublicBaseUrl,
   getTwilioRelayUrl,
 } from "../inbound/public-ingress-urls.js";
-import { getSecureKey } from "../security/secure-keys.js";
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 
@@ -26,8 +25,7 @@ export interface TwilioConfig {
  * Resolution order:
  *   1. TWILIO_PHONE_NUMBER env var
  *   2. config.twilio?.phoneNumber
- *   3. secure store credential:twilio:phone_number  (legacy)
- *   4. ""
+ *   3. ""
  */
 export function resolveTwilioPhoneNumber(): string {
   const fromEnv = getTwilioPhoneNumberEnv();
@@ -40,7 +38,7 @@ export function resolveTwilioPhoneNumber(): string {
     // Config may not be available yet during early startup
   }
 
-  return getSecureKey("credential:twilio:phone_number") || "";
+  return "";
 }
 
 export function getTwilioConfig(): TwilioConfig {
