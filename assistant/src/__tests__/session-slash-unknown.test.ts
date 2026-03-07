@@ -168,6 +168,7 @@ mock.module("../config/skills.js", () => ({
     {
       id: "start-the-day",
       name: "Start the Day",
+      displayName: "Start the Day",
       description: "Morning routine skill",
       directoryPath: "/skills/start-the-day",
       skillFilePath: "/skills/start-the-day/SKILL.md",
@@ -178,6 +179,7 @@ mock.module("../config/skills.js", () => ({
     {
       id: "browser",
       name: "Browser",
+      displayName: "Browser",
       description:
         "Navigate and interact with web pages using a headless browser",
       directoryPath: "/skills/browser",
