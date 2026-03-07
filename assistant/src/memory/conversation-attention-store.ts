@@ -324,20 +324,27 @@ function resolveAssistantCursor(params: {
     latestAssistantMessageAt,
   } = params;
 
-  if (latestAssistantMessageId && latestAssistantMessageAt != null) {
-    const previousMessage = db
+  // Unread classification compares timestamps strictly, so rewinding to a
+  // same-timestamp sibling would leave the latest reply classified as seen.
+  const previousAssistantMessageBefore = (before: number) =>
+    db
       .select({ id: messages.id, createdAt: messages.createdAt })
       .from(messages)
       .where(
         and(
           eq(messages.conversationId, conversationId),
           eq(messages.role, "assistant"),
-          lt(messages.createdAt, latestAssistantMessageAt),
+          lt(messages.createdAt, before),
         ),
       )
-      .orderBy(desc(messages.createdAt))
+      .orderBy(desc(messages.createdAt), desc(messages.id))
       .limit(1)
       .get();
+
+  if (latestAssistantMessageId && latestAssistantMessageAt != null) {
+    const previousMessage = previousAssistantMessageBefore(
+      latestAssistantMessageAt,
+    );
 
     return {
       latestAssistantMessageId,
@@ -347,7 +354,7 @@ function resolveAssistantCursor(params: {
     };
   }
 
-  const assistantMessages = db
+  const latestMessage = db
     .select({ id: messages.id, createdAt: messages.createdAt })
     .from(messages)
     .where(
@@ -357,14 +364,16 @@ function resolveAssistantCursor(params: {
       ),
     )
     .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(2)
-    .all();
+    .limit(1)
+    .get();
 
-  if (assistantMessages.length === 0) {
+  if (!latestMessage) {
     return null;
   }
 
-  const [latestMessage, previousMessage] = assistantMessages;
+  const previousMessage = previousAssistantMessageBefore(
+    latestMessage.createdAt,
+  );
   return {
     latestAssistantMessageId: latestMessage.id,
     latestAssistantMessageAt: latestMessage.createdAt,
