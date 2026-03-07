@@ -127,7 +127,7 @@ jobs:
           key: test-durations-${{ github.run_id }}
 
   notify:
-    name: Slack Notification
+    name: Slack Notification (Assistant)
     needs: [lint, typecheck, test]
     if: always()
     continue-on-error: true

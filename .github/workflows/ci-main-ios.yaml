@@ -50,7 +50,7 @@ jobs:
         run: ./build.sh test
 
   notify:
-    name: Slack Notification
+    name: Slack Notification (iOS)
     needs: [build]
     if: always()
     continue-on-error: true

@@ -39,7 +39,7 @@ jobs:
         run: bun run test
 
   notify:
-    name: Slack Notification
+    name: Slack Notification (Gateway)
     needs: [checks]
     if: always()
     continue-on-error: true

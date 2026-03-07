@@ -362,7 +362,7 @@ jobs:
         run: exit 1
 
   notify:
-    name: Slack Notification
+    name: Slack Notification (Playwright)
     needs: [prepare, build, playwright]
     if: always() && github.event_name == 'schedule'
     continue-on-error: true

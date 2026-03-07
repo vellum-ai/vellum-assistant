@@ -41,7 +41,7 @@ jobs:
         run: bun test --coverage
 
   notify:
-    name: Slack Notification
+    name: Slack Notification (CLI)
     needs: [checks]
     if: always()
     continue-on-error: true
