@@ -1,9 +1,8 @@
 ---
-name: "Twilio Setup"
-description: "Configure Twilio credentials and phone numbers for voice calls"
-user-invocable: true
-includes: ["public-ingress"]
-metadata: { "vellum": { "emoji": "\ud83d\udcf1" } }
+name: twilio-setup
+description: Configure Twilio credentials and phone numbers for voice calls
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"📱","vellum":{"display-name":"Twilio Setup","user-invocable":true,"includes":["public-ingress"]}}
 ---
 
 You are helping your user configure Twilio for voice calls. Walk through each step below.

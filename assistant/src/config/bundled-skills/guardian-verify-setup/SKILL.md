@@ -1,8 +1,8 @@
 ---
-name: "Guardian Verify Setup"
-description: "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow"
-user-invocable: true
-metadata: { "vellum": { "emoji": "\ud83d\udd10" } }
+name: guardian-verify-setup
+description: Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🔐","vellum":{"display-name":"Guardian Verify Setup","user-invocable":true}}
 ---
 
 You are helping your user set up channel verification for a messaging channel (phone, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `assistant integrations guardian status` for status reads.

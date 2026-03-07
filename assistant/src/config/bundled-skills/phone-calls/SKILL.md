@@ -1,10 +1,8 @@
 ---
-name: "Phone Calls"
-description: "Set up Twilio for AI-powered voice calls — both outgoing calls on behalf of the user and incoming calls where the assistant answers as a receptionist"
-user-invocable: true
-metadata:
-  { "vellum": { "emoji": "📞", "requires": { "config": ["calls.enabled"] } } }
-includes: ["public-ingress", "elevenlabs-voice"]
+name: phone-calls
+description: Set up Twilio for AI-powered voice calls — both outgoing calls on behalf of the user and incoming calls where the assistant answers as a receptionist
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"📞","vellum":{"display-name":"Phone Calls","user-invocable":true,"includes":["public-ingress","elevenlabs-voice"],"requires":{"config":["calls.enabled"]}}}
 ---
 
 You are helping the user set up and manage phone calls via Twilio. This skill covers enabling the calls feature, placing outbound calls, receiving inbound calls, and interacting with live calls. Twilio credential storage, phone number provisioning, and public ingress are handled by the **twilio-setup** skill.

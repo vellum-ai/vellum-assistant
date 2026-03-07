@@ -1,9 +1,8 @@
 ---
-name: "Slack App Setup"
-description: "Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and guardian verification"
-user-invocable: true
-includes: ["guardian-verify-setup"]
-metadata: { "vellum": { "emoji": "💬" } }
+name: slack-app-setup
+description: Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and guardian verification
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"💬","vellum":{"display-name":"Slack App Setup","user-invocable":true,"includes":["guardian-verify-setup"]}}
 ---
 
 You are helping your user connect a Slack bot to the Vellum Assistant gateway via Socket Mode. The gateway manages the Socket Mode connection — it never hits the assistant runtime directly. When this skill is invoked, walk through each step below using only existing tools.
