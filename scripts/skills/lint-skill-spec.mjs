@@ -18,7 +18,11 @@
  *      - Environment requirements → move to `compatibility`
  *
  * Usage:
- *   node scripts/skills/lint-skill-spec.mjs [skill-name ...]
+ *   node scripts/skills/lint-skill-spec.mjs [--dir <path>] [--skip-emoji] [skill-name ...]
+ *
+ * Options:
+ *   --dir <path>     Override the default skills directory (skills/)
+ *   --skip-emoji     Skip the Vellum-specific metadata.emoji check
  *
  * If no skill names are provided, all skills are checked.
  */
@@ -28,7 +32,35 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SKILLS_DIR = resolve(__dirname, "../../skills");
+const DEFAULT_SKILLS_DIR = resolve(__dirname, "../../skills");
+
+// --- CLI flag parsing ---
+
+/**
+ * Parse CLI args, extracting --dir and --skip-emoji flags.
+ * Returns { skillsDir, skipEmoji, filterSkills }.
+ */
+function parseCLIArgs(argv) {
+  const args = argv.slice(2);
+  let skillsDir = DEFAULT_SKILLS_DIR;
+  let skipEmoji = false;
+  const filterSkills = [];
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--dir" && i + 1 < args.length) {
+      skillsDir = resolve(args[i + 1]);
+      i++; // skip next arg (the path)
+    } else if (args[i] === "--skip-emoji") {
+      skipEmoji = true;
+    } else {
+      filterSkills.push(args[i]);
+    }
+  }
+
+  return { skillsDir, skipEmoji, filterSkills };
+}
+
+const { skillsDir: SKILLS_DIR, skipEmoji: SKIP_EMOJI, filterSkills: CLI_FILTER_SKILLS } = parseCLIArgs(process.argv);
 
 /**
  * Parse YAML frontmatter from a string.
@@ -215,6 +247,26 @@ function validateCompatibility(compatibility) {
 function validateMetadataEmoji(metadata) {
   const errors = [];
 
+  // Handle JSON string metadata (used by bundled skills)
+  if (typeof metadata === "string") {
+    try {
+      const parsed = JSON.parse(metadata);
+      // Check for top-level emoji or emoji nested in vellum namespace
+      if (
+        (typeof parsed.emoji === "string" && parsed.emoji.length > 0) ||
+        (typeof parsed.vellum?.emoji === "string" && parsed.vellum.emoji.length > 0)
+      ) {
+        return errors; // emoji found
+      }
+    } catch {
+      // JSON parsing failed — fall through to report missing emoji
+    }
+    errors.push(
+      'Required field "metadata.emoji" is missing. Skills must have an emoji in metadata.',
+    );
+    return errors;
+  }
+
   if (!metadata || typeof metadata !== "object") {
     errors.push(
       'Required field "metadata.emoji" is missing. Skills must have an emoji in metadata.',
@@ -272,11 +324,12 @@ function validateNonStandardFields(frontmatter) {
   return errors;
 }
 
-function validateSkill(skillName) {
-  const skillDir = join(SKILLS_DIR, skillName);
+function validateSkill(skillName, { skillsDir, skipEmoji }) {
+  const skillDir = join(skillsDir, skillName);
   const skillMdPath = join(skillDir, "SKILL.md");
   const toolsJsonPath = join(skillDir, "TOOLS.json");
   const errors = [];
+  const prefix = `${skillName}/SKILL.md`;
 
   if (!statSync(skillDir, { throwIfNoEntry: false })?.isDirectory()) {
     return errors;
@@ -286,14 +339,14 @@ function validateSkill(skillName) {
   const toolsJsonStat = statSync(toolsJsonPath, { throwIfNoEntry: false });
   if (toolsJsonStat?.isFile()) {
     errors.push(
-      `skills/${skillName}/TOOLS.json must not exist. Skills should rely on CLI tools in scripts/, not custom tool definitions.`,
+      `${skillName}/TOOLS.json must not exist. Skills should rely on CLI tools in scripts/, not custom tool definitions.`,
     );
   }
 
   // 1. SKILL.md must exist
   const stat = statSync(skillMdPath, { throwIfNoEntry: false });
   if (!stat || !stat.isFile()) {
-    errors.push(`skills/${skillName}/SKILL.md is missing.`);
+    errors.push(`${prefix} is missing.`);
     return errors;
   }
 
@@ -304,41 +357,43 @@ function validateSkill(skillName) {
     const parsed = parseFrontmatter(content);
     frontmatter = parsed.frontmatter;
   } catch (e) {
-    errors.push(`skills/${skillName}/SKILL.md: ${e.message}`);
+    errors.push(`${prefix}: ${e.message}`);
     return errors;
   }
 
   // 3. Validate required fields
   errors.push(
     ...validateName(frontmatter.name, skillName).map(
-      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+      (e) => `${prefix}: ${e}`,
     ),
   );
 
   errors.push(
     ...validateDescription(frontmatter.description).map(
-      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+      (e) => `${prefix}: ${e}`,
     ),
   );
 
   // 4. Validate optional fields
   errors.push(
     ...validateCompatibility(frontmatter.compatibility).map(
-      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+      (e) => `${prefix}: ${e}`,
     ),
   );
 
-  // 5. Validate required metadata.emoji (Vellum requirement)
-  errors.push(
-    ...validateMetadataEmoji(frontmatter.metadata).map(
-      (e) => `skills/${skillName}/SKILL.md: ${e}`,
-    ),
-  );
+  // 5. Validate required metadata.emoji (Vellum requirement) — skippable via --skip-emoji
+  if (!skipEmoji) {
+    errors.push(
+      ...validateMetadataEmoji(frontmatter.metadata).map(
+        (e) => `${prefix}: ${e}`,
+      ),
+    );
+  }
 
   // 6. Check for non-standard fields and recommend migration
   errors.push(
     ...validateNonStandardFields(frontmatter).map(
-      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+      (e) => `${prefix}: ${e}`,
     ),
   );
 
@@ -347,12 +402,12 @@ function validateSkill(skillName) {
 
 // --- Main ---
 
-function getSkillDirs(filter) {
+function getSkillDirs(skillsDir, filter) {
   let entries;
   try {
-    entries = readdirSync(SKILLS_DIR, { withFileTypes: true });
+    entries = readdirSync(skillsDir, { withFileTypes: true });
   } catch {
-    console.log("No skills/ directory found. Nothing to validate.");
+    console.log(`No ${skillsDir} directory found. Nothing to validate.`);
     process.exit(0);
   }
 
@@ -363,13 +418,12 @@ function getSkillDirs(filter) {
     .sort();
 }
 
-const filterSkills = process.argv.slice(2);
-const skillDirs = getSkillDirs(filterSkills);
+const skillDirs = getSkillDirs(SKILLS_DIR, CLI_FILTER_SKILLS);
 
 let totalErrors = 0;
 
 for (const skill of skillDirs) {
-  const errors = validateSkill(skill);
+  const errors = validateSkill(skill, { skillsDir: SKILLS_DIR, skipEmoji: SKIP_EMOJI });
   for (const err of errors) {
     console.error(err);
   }
