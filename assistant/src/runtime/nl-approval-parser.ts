@@ -6,9 +6,8 @@
  * Only matches when the full message is an approval/rejection phrase -- does
  * NOT match partial intent inside longer sentences like "yes but also do X".
  *
- * This parser complements the existing `channel-approval-parser.ts`
- * (deterministic phrase-map) by covering a broader set of colloquial
- * patterns, emoji, and timed-approval variants.
+ * This parser covers a broad set of colloquial patterns, emoji, and
+ * timed-approval variants for approval intent detection.
  */
 
 // ---------------------------------------------------------------------------
