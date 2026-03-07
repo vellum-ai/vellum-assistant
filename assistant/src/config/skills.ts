@@ -382,7 +382,9 @@ function parseFrontmatter(
         }
       } else {
         // Zod validation failed — fall back to raw JSON so we don't lose
-        // all metadata because of a single bad field value.
+        // all metadata because of a single bad field value.  We coerce
+        // critical array fields so downstream code that iterates them
+        // (e.g. `.join()`, `for...of`, `.some()`) won't crash.
         log.warn(
           { err: result.error, skillFilePath },
           "Metadata failed schema validation; falling back to raw JSON",
@@ -390,7 +392,24 @@ function parseFrontmatter(
         parsedMeta = json;
         vellum = json?.vellum;
         if (json?.vellum && typeof json.vellum === "object") {
-          metadata = json.vellum as VellumMetadata;
+          const raw = json.vellum as Record<string, unknown>;
+
+          // Coerce `os` to string[] — a bare string is wrapped in an array.
+          if (raw.os !== undefined) {
+            raw.os = Array.isArray(raw.os) ? raw.os : [raw.os];
+          }
+
+          // Coerce `requires` sub-fields to arrays.
+          if (raw.requires && typeof raw.requires === "object") {
+            const req = raw.requires as Record<string, unknown>;
+            for (const key of ["bins", "anyBins", "env", "config"] as const) {
+              if (req[key] !== undefined && !Array.isArray(req[key])) {
+                req[key] = [];
+              }
+            }
+          }
+
+          metadata = raw as unknown as VellumMetadata;
         }
       }
     } catch (err) {
