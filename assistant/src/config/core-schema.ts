@@ -250,6 +250,12 @@ export const WhatsAppConfigSchema = z.object({
     .default(""),
 });
 
+export const TelegramConfigSchema = z.object({
+  botUsername: z
+    .string({ error: "telegram.botUsername must be a string" })
+    .default(""),
+});
+
 export const IngressWebhookConfigSchema = z.object({
   secret: z
     .string({ error: "ingress.webhook.secret must be a string" })
@@ -399,6 +405,7 @@ export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type TwilioConfig = z.infer<typeof TwilioConfigSchema>;
 export type WhatsAppConfig = z.infer<typeof WhatsAppConfigSchema>;
+export type TelegramConfig = z.infer<typeof TelegramConfigSchema>;
 export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
 export type IngressRateLimitConfig = z.infer<
   typeof IngressRateLimitConfigSchema
