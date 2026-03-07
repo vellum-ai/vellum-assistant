@@ -115,5 +115,5 @@ export function buildFTSQuery(keywords: string[]): string {
     return '"*"';
   }
 
-  return keywords.map((kw) => `"${kw}"`).join(" OR ");
+  return keywords.map((kw) => `"${kw.replaceAll('"', "")}"`).join(" OR ");
 }

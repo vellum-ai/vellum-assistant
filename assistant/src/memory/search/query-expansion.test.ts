@@ -44,4 +44,9 @@ describe("buildFTSQuery", () => {
     const result = buildFTSQuery(["auth"]);
     expect(result).toBe('"auth"');
   });
+
+  test("strips double-quote characters from keywords", () => {
+    const result = buildFTSQuery(['say "hello"', "world"]);
+    expect(result).toBe('"say hello" OR "world"');
+  });
 });
