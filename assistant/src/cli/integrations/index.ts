@@ -1,6 +1,5 @@
 import type { Command } from "commander";
 
-import { registerIngressSubcommand } from "./ingress.js";
 import { registerTelegramSubcommand } from "./telegram.js";
 import { registerTwilioSubcommand } from "./twilio.js";
 import { registerVoiceSubcommand } from "./voice.js";
@@ -25,12 +24,11 @@ export function registerIntegrationsCommand(program: Command): void {
     `
 Reads integration configuration and readiness from shared assistant services.
 Some subcommands query the running assistant gateway (\`telegram\`);
-others read local config or call the underlying provider directly (\`twilio\`, \`ingress\`, \`voice\`).
+others read local config or call the underlying provider directly (\`twilio\`, \`voice\`).
 
 Integration categories:
   twilio       Twilio voice credential and phone number status
   telegram     Telegram bot configuration and webhook status
-  ingress      Public ingress URL and local gateway target (config-only)
   voice        Voice/call readiness and ElevenLabs voice ID (config-only)
 
 Examples:
@@ -41,6 +39,5 @@ Examples:
 
   registerTwilioSubcommand(integrations);
   registerTelegramSubcommand(integrations);
-  registerIngressSubcommand(integrations);
   registerVoiceSubcommand(integrations);
 }

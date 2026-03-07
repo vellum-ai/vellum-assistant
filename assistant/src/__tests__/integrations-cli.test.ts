@@ -225,25 +225,6 @@ describe("assistant integrations CLI", () => {
     );
   });
 
-  test("reads ingress config without gateway fetch", async () => {
-    rawConfig = {
-      ingress: {
-        enabled: true,
-        publicBaseUrl: "https://public.example.com",
-      },
-    };
-    const result = await runCli(["--json", "ingress", "config"], { ok: true });
-
-    expect(result.exitCode).toBe(0);
-    expect(result.fetchCalls.length).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual({
-      success: true,
-      enabled: true,
-      publicBaseUrl: "https://public.example.com",
-      localGatewayTarget: "http://gateway.test",
-    });
-  });
-
   test("reads voice config without gateway fetch", async () => {
     rawConfig = {
       calls: {
