@@ -52,8 +52,8 @@ export interface TelegramConfigRequest {
   commands?: Array<{ command: string; description: string }>; // Only for action: 'set_commands' or 'setup'
 }
 
-export interface GuardianVerificationRequest {
-  type: "guardian_verification";
+export interface ChannelVerificationSessionRequest {
+  type: "channel_verification_session";
   action:
     | "create_session"
     | "status"
@@ -67,6 +67,10 @@ export interface GuardianVerificationRequest {
   destination?: string;
   /** Origin conversation ID so completion/failure pointers can route back. */
   originConversationId?: string;
+  /** Distinguishes guardian vs trusted-contact verification flows in the unified create endpoint. */
+  purpose?: "guardian" | "trusted_contact";
+  /** Contact-channel ID for the absorbed contact-channel verify flow. */
+  contactChannelId?: string;
 }
 
 export interface TwitterAuthStartRequest {
@@ -165,8 +169,8 @@ export interface TelegramConfigResponse {
   warning?: string;
 }
 
-export interface GuardianVerificationResponse {
-  type: "guardian_verification_response";
+export interface ChannelVerificationSessionResponse {
+  type: "channel_verification_session_response";
   success: boolean;
   secret?: string;
   instruction?: string;
@@ -268,7 +272,7 @@ export type _IntegrationsClientMessages =
   | VercelApiConfigRequest
   | TwitterIntegrationConfigRequest
   | TelegramConfigRequest
-  | GuardianVerificationRequest
+  | ChannelVerificationSessionRequest
   | TwitterAuthStartRequest
   | TwitterAuthStatusRequest
   | IntegrationListRequest
@@ -284,7 +288,7 @@ export type _IntegrationsServerMessages =
   | VercelApiConfigResponse
   | TwitterIntegrationConfigResponse
   | TelegramConfigResponse
-  | GuardianVerificationResponse
+  | ChannelVerificationSessionResponse
   | TwitterAuthResult
   | TwitterAuthStatusResponse
   | IntegrationListResponse

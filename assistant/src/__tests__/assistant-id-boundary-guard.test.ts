@@ -325,7 +325,7 @@ describe("assistant ID boundary", () => {
 
     // Extract the interface blocks for the request types and verify
     // none of them declare an assistantId property.
-    const requestTypeNames = ["GuardianVerificationRequest"];
+    const requestTypeNames = ["ChannelVerificationSessionRequest"];
 
     for (const typeName of requestTypeNames) {
       // Find the interface/type block — match from the type name to the next

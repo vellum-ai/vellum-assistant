@@ -504,8 +504,8 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `vercel_api_config_response` message.
     public var onVercelApiConfigResponse: ((VercelApiConfigResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `guardian_verification_response` message.
-    public var onGuardianVerificationResponse: ((GuardianVerificationResponseMessage) -> Void)?
+    /// Called when the daemon sends a `channel_verification_session_response` message.
+    public var onChannelVerificationSessionResponse: ((ChannelVerificationSessionResponseMessage) -> Void)?
 
     /// Called when the daemon sends a `telegram_config_response` message.
     public var onTelegramConfigResponse: ((TelegramConfigResponseMessage) -> Void)?
@@ -1454,7 +1454,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         destination: String? = nil,
         originConversationId: String? = nil
     ) throws {
-        try send(GuardianVerificationRequestMessage(
+        try send(ChannelVerificationSessionRequestMessage(
             action: action,
             channel: channel,
             sessionId: sessionId,

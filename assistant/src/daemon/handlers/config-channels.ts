@@ -28,15 +28,15 @@ import {
   startOutbound,
 } from "../../runtime/guardian-outbound-actions.js";
 import type {
-  GuardianVerificationRequest,
-  GuardianVerificationResponse,
+  ChannelVerificationSessionRequest,
+  ChannelVerificationSessionResponse,
 } from "../ipc-protocol.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 // -- Transport-agnostic result type (omits the IPC `type` discriminant) --
 
 export type GuardianVerificationResult = Omit<
-  GuardianVerificationResponse,
+  ChannelVerificationSessionResponse,
   "type"
 >;
 
@@ -222,7 +222,7 @@ export function revokeGuardianForChannel(
 // ---------------------------------------------------------------------------
 
 export async function handleGuardianVerification(
-  msg: GuardianVerificationRequest,
+  msg: ChannelVerificationSessionRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
@@ -237,38 +237,53 @@ export async function handleGuardianVerification(
           rebind: msg.rebind,
           originConversationId: msg.originConversationId,
         });
-        ctx.send(socket, { type: "guardian_verification_response", ...result });
+        ctx.send(socket, {
+          type: "channel_verification_session_response",
+          ...result,
+        });
       } else {
         const result = createGuardianChallenge(
           channel,
           msg.rebind,
           msg.sessionId,
         );
-        ctx.send(socket, { type: "guardian_verification_response", ...result });
+        ctx.send(socket, {
+          type: "channel_verification_session_response",
+          ...result,
+        });
       }
     } else if (msg.action === "status") {
       const result = getGuardianStatus(channel);
-      ctx.send(socket, { type: "guardian_verification_response", ...result });
+      ctx.send(socket, {
+        type: "channel_verification_session_response",
+        ...result,
+      });
     } else if (msg.action === "cancel_session") {
       cancelOutbound({ channel });
       revokePendingChallenges(channel);
       ctx.send(socket, {
-        type: "guardian_verification_response",
+        type: "channel_verification_session_response",
         success: true,
         channel,
       });
     } else if (msg.action === "revoke") {
       const result = revokeGuardianForChannel(channel);
-      ctx.send(socket, { type: "guardian_verification_response", ...result });
+      ctx.send(socket, {
+        type: "channel_verification_session_response",
+        ...result,
+      });
     } else if (msg.action === "resend_session") {
       const result = resendOutbound({
         channel,
         originConversationId: msg.originConversationId,
       });
-      ctx.send(socket, { type: "guardian_verification_response", ...result });
+      ctx.send(socket, {
+        type: "channel_verification_session_response",
+        ...result,
+      });
     } else {
       ctx.send(socket, {
-        type: "guardian_verification_response",
+        type: "channel_verification_session_response",
         success: false,
         error: `Unknown action: ${String(msg.action)}`,
         channel,
@@ -278,7 +293,7 @@ export async function handleGuardianVerification(
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to handle guardian verification");
     ctx.send(socket, {
-      type: "guardian_verification_response",
+      type: "channel_verification_session_response",
       success: false,
       error: message,
       channel,
@@ -287,5 +302,5 @@ export async function handleGuardianVerification(
 }
 
 export const channelHandlers = defineHandlers({
-  guardian_verification: handleGuardianVerification,
+  channel_verification_session: handleGuardianVerification,
 });

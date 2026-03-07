@@ -1243,7 +1243,7 @@ describe("Telegram config handler", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { handleGuardianVerification } from "../daemon/handlers/config.js";
-import type { GuardianVerificationRequest } from "../daemon/ipc-contract.js";
+import type { ChannelVerificationSessionRequest } from "../daemon/ipc-contract.js";
 describe("Guardian verification IPC actions", () => {
   beforeEach(() => {
     secureKeyStore = {};
@@ -1251,8 +1251,8 @@ describe("Guardian verification IPC actions", () => {
   });
 
   test("status action returns bound=false when no binding exists", () => {
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "telegram",
     };
@@ -1267,15 +1267,15 @@ describe("Guardian verification IPC actions", () => {
       bound: boolean;
       guardianExternalUserId?: string;
     };
-    expect(res.type).toBe("guardian_verification_response");
+    expect(res.type).toBe("channel_verification_session_response");
     expect(res.success).toBe(true);
     expect(res.bound).toBe(false);
     expect(res.guardianExternalUserId).toBeUndefined();
   });
 
   test("create_challenge action returns a secret and instruction", () => {
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "create_session",
       channel: "telegram",
     };
@@ -1290,7 +1290,7 @@ describe("Guardian verification IPC actions", () => {
       secret?: string;
       instruction?: string;
     };
-    expect(res.type).toBe("guardian_verification_response");
+    expect(res.type).toBe("channel_verification_session_response");
     expect(res.success).toBe(true);
     expect(res.secret).toBeDefined();
     expect(res.instruction).toBeDefined();
@@ -1300,17 +1300,17 @@ describe("Guardian verification IPC actions", () => {
 
   test("unknown action returns error", () => {
     const msg = {
-      type: "guardian_verification",
+      type: "channel_verification_session",
       action: "nonexistent",
       channel: "telegram",
-    } as unknown as GuardianVerificationRequest;
+    } as unknown as ChannelVerificationSessionRequest;
 
     const { ctx, sent } = createTestContext();
     handleGuardianVerification(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as { type: string; success: boolean; error?: string };
-    expect(res.type).toBe("guardian_verification_response");
+    expect(res.type).toBe("channel_verification_session_response");
     expect(res.success).toBe(false);
     expect(res.error).toContain("Unknown action");
   });

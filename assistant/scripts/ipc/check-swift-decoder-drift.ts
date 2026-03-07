@@ -48,7 +48,7 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   // Heartbeat alerts — not yet consumed by the macOS client
   "heartbeat_alert",
   // Guardian verification — daemon-internal for Telegram channel setup
-  "guardian_verification_response",
+  "channel_verification_session_response",
   // Contacts invite management — not yet consumed by the macOS client
   "contacts_invite_response",
   // Inbox escalation — not yet consumed by the macOS client

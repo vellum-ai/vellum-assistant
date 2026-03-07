@@ -554,7 +554,7 @@ public final class SettingsStore: ObservableObject {
         // Twilio config is now handled via HTTP — no IPC callback wiring needed.
 
         // Wire up guardian verification IPC response
-        daemonClient?.onGuardianVerificationResponse = { [weak self] response in
+        daemonClient?.onChannelVerificationSessionResponse = { [weak self] response in
             guard let self else { return }
             guard let channel = self.resolveGuardianResponseChannel(response.channel) else { return }
             let isStatusPoll = response.success && response.secret == nil && response.instruction == nil && response.bound != true
@@ -1926,7 +1926,7 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    private func applyOutboundResponseState(channel: String, response: GuardianVerificationResponseMessage) {
+    private func applyOutboundResponseState(channel: String, response: ChannelVerificationSessionResponseMessage) {
         let sessionId = response.verificationSessionId
         // Only update fields when the response includes them; partial payloads (e.g. resend
         // success) omit fields like expiresAt, sendCount, and nextResendAt. Overwriting with

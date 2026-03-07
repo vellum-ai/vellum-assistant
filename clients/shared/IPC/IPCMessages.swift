@@ -1961,36 +1961,44 @@ public struct TwilioNumberInfo: Codable, Sendable {
     }
 }
 
-// MARK: - Guardian Verification Messages
+// MARK: - Channel Verification Session Messages
 
-/// Guardian verification request (create_session, status, cancel_session, revoke, resend_session).
-/// Backed by generated `IPCGuardianVerificationRequest`.
-public typealias GuardianVerificationRequestMessage = IPCGuardianVerificationRequest
+/// Channel verification session request (create_session, status, cancel_session, revoke, resend_session).
+/// Backed by generated `IPCChannelVerificationSessionRequest`.
+public typealias ChannelVerificationSessionRequestMessage = IPCChannelVerificationSessionRequest
 
-extension IPCGuardianVerificationRequest {
+extension IPCChannelVerificationSessionRequest {
     public init(
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
         rebind: Bool? = nil,
         destination: String? = nil,
-        originConversationId: String? = nil
+        originConversationId: String? = nil,
+        purpose: String? = nil,
+        contactChannelId: String? = nil
     ) {
         self.init(
-            type: "guardian_verification",
+            type: "channel_verification_session",
             action: action,
             channel: channel,
             sessionId: sessionId,
             rebind: rebind,
             destination: destination,
-            originConversationId: originConversationId
+            originConversationId: originConversationId,
+            purpose: purpose,
+            contactChannelId: contactChannelId
         )
     }
 }
 
-/// Guardian verification response.
-/// Backed by generated `IPCGuardianVerificationResponse`.
-public typealias GuardianVerificationResponseMessage = IPCGuardianVerificationResponse
+/// Channel verification session response.
+/// Backed by generated `IPCChannelVerificationSessionResponse`.
+public typealias ChannelVerificationSessionResponseMessage = IPCChannelVerificationSessionResponse
+
+// Legacy aliases for backward compatibility during migration.
+public typealias GuardianVerificationRequestMessage = ChannelVerificationSessionRequestMessage
+public typealias GuardianVerificationResponseMessage = ChannelVerificationSessionResponseMessage
 
 // MARK: - Twitter Integration Config Messages
 
@@ -2245,7 +2253,7 @@ public enum ServerMessage: Decodable, Sendable {
     case ingressConfigResponse(IngressConfigResponseMessage)
     case platformConfigResponse(PlatformConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
-    case guardianVerificationResponse(GuardianVerificationResponseMessage)
+    case channelVerificationSessionResponse(ChannelVerificationSessionResponseMessage)
     case telegramConfigResponse(TelegramConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
     case twitterAuthResult(TwitterAuthResultMessage)
@@ -2573,9 +2581,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)
-        case "guardian_verification_response":
-            let message = try GuardianVerificationResponseMessage(from: decoder)
-            self = .guardianVerificationResponse(message)
+        case "channel_verification_session_response":
+            let message = try ChannelVerificationSessionResponseMessage(from: decoder)
+            self = .channelVerificationSessionResponse(message)
         case "telegram_config_response":
             let message = try TelegramConfigResponseMessage(from: decoder)
             self = .telegramConfigResponse(message)

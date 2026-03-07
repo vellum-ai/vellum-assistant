@@ -101,8 +101,8 @@ import {
 } from "../daemon/handlers/config-channels.js";
 import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
-  GuardianVerificationRequest,
-  GuardianVerificationResponse,
+  ChannelVerificationSessionRequest,
+  ChannelVerificationSessionResponse,
 } from "../daemon/ipc-contract.js";
 import {
   bindSessionIdentity as _storeBindSessionIdentity,
@@ -1302,9 +1302,9 @@ describe("assistant-scoped approval request lookups", () => {
  */
 function createMockCtx(): {
   ctx: HandlerContext;
-  lastResponse: () => GuardianVerificationResponse | null;
+  lastResponse: () => ChannelVerificationSessionResponse | null;
 } {
-  let captured: GuardianVerificationResponse | null = null;
+  let captured: ChannelVerificationSessionResponse | null = null;
   const ctx = {
     sessions: new Map(),
     socketToSession: new Map(),
@@ -1321,7 +1321,7 @@ function createMockCtx(): {
     setSuppressConfigReload: () => {},
     updateConfigFingerprint: () => {},
     send: (_socket: net.Socket, msg: unknown) => {
-      captured = msg as GuardianVerificationResponse;
+      captured = msg as ChannelVerificationSessionResponse;
     },
     broadcast: () => {},
     clearAllSessions: () => 0,
@@ -1340,8 +1340,8 @@ describe("IPC handler channel-aware guardian status", () => {
 
   test("status action for telegram returns channel and assistantId fields", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "telegram",
     };
@@ -1359,8 +1359,8 @@ describe("IPC handler channel-aware guardian status", () => {
 
   test("status action for sms returns channel: sms and assistantId: self", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "voice",
     };
@@ -1384,8 +1384,8 @@ describe("IPC handler channel-aware guardian status", () => {
     });
 
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "telegram",
     };
@@ -1436,8 +1436,8 @@ describe("IPC handler channel-aware guardian status", () => {
     });
 
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "telegram",
     };
@@ -1452,8 +1452,8 @@ describe("IPC handler channel-aware guardian status", () => {
 
   test("status action defaults channel to telegram when omitted (backward compat)", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       // channel omitted — should default to 'telegram'
     };
@@ -1468,8 +1468,8 @@ describe("IPC handler channel-aware guardian status", () => {
 
   test("status action defaults assistantId to self when omitted (backward compat)", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "voice",
       // assistantId omitted — should default to 'self'
@@ -1485,8 +1485,8 @@ describe("IPC handler channel-aware guardian status", () => {
 
   test("status action for unbound sms does not return guardianDeliveryChatId", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "voice",
     };
@@ -1504,8 +1504,8 @@ describe("IPC handler channel-aware guardian status", () => {
     createVerificationChallenge("voice");
 
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "voice",
     };
@@ -1520,8 +1520,8 @@ describe("IPC handler channel-aware guardian status", () => {
 
   test("status action hasPendingChallenge is false when no challenge exists", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "voice",
     };
@@ -1964,8 +1964,8 @@ describe("IPC handler voice guardian verification", () => {
 
   test("create_challenge for voice returns a high-entropy hex secret", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "create_session",
       channel: "voice",
     };
@@ -1984,8 +1984,8 @@ describe("IPC handler voice guardian verification", () => {
 
   test("status for voice reflects unbound state", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "voice",
     };
@@ -2009,8 +2009,8 @@ describe("IPC handler voice guardian verification", () => {
     });
 
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "status",
       channel: "voice",
     };
@@ -2035,8 +2035,8 @@ describe("IPC handler voice guardian verification", () => {
     });
 
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "revoke",
       channel: "voice",
     };
@@ -2067,8 +2067,8 @@ describe("IPC handler voice guardian verification", () => {
     });
 
     const { ctx } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "revoke",
       channel: "voice",
     };
@@ -2550,8 +2550,8 @@ describe("outbound SMS verification", () => {
 
   test("start_outbound creates session with expected E.164 identity and returns code", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "create_session",
       channel: "voice",
       destination: "+15551234567",
@@ -2586,8 +2586,8 @@ describe("outbound SMS verification", () => {
     });
 
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "create_session",
       channel: "voice",
       destination: "+15559876543",
@@ -2612,8 +2612,8 @@ describe("outbound SMS verification", () => {
     });
 
     const { ctx, lastResponse } = createMockCtx();
-    const msg: GuardianVerificationRequest = {
-      type: "guardian_verification",
+    const msg: ChannelVerificationSessionRequest = {
+      type: "channel_verification_session",
       action: "create_session",
       channel: "voice",
       destination: "+15559876543",
@@ -2633,7 +2633,7 @@ describe("outbound SMS verification", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15551234567",
@@ -2646,7 +2646,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "resend_session",
         channel: "voice",
       },
@@ -2665,7 +2665,7 @@ describe("outbound SMS verification", () => {
     const { ctx: startCtx, lastResponse: startResp } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15551234567",
@@ -2691,7 +2691,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "resend_session",
         channel: "voice",
       },
@@ -2711,7 +2711,7 @@ describe("outbound SMS verification", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15551234567",
@@ -2734,7 +2734,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "resend_session",
         channel: "voice",
       },
@@ -2753,7 +2753,7 @@ describe("outbound SMS verification", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15551234567",
@@ -2770,7 +2770,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "cancel_session",
         channel: "voice",
       },
@@ -2864,7 +2864,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "email",
         destination: "user@example.com",
@@ -2883,7 +2883,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         // no destination — unified create_session creates an inbound challenge
@@ -2902,7 +2902,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "not-a-phone",
@@ -2921,7 +2921,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "(555) 123-4567",
@@ -2965,7 +2965,7 @@ describe("outbound SMS verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "cancel_session",
         channel: "voice",
       },
@@ -2992,7 +2992,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "@someuser",
@@ -3027,7 +3027,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "someuser",
@@ -3049,7 +3049,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "123456789",
@@ -3090,7 +3090,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "@someuser",
@@ -3116,7 +3116,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "@newuser",
@@ -3280,7 +3280,7 @@ describe("outbound Telegram verification", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "123456789",
@@ -3302,7 +3302,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "resend_session",
         channel: "telegram",
       },
@@ -3326,7 +3326,7 @@ describe("outbound Telegram verification", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "@someuser",
@@ -3338,7 +3338,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "resend_session",
         channel: "telegram",
       },
@@ -3357,7 +3357,7 @@ describe("outbound Telegram verification", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "123456789",
@@ -3372,7 +3372,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "cancel_session",
         channel: "telegram",
       },
@@ -3421,7 +3421,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
       },
@@ -3440,7 +3440,7 @@ describe("outbound Telegram verification", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "123456789",
@@ -3463,7 +3463,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "resend_session",
         channel: "telegram",
       },
@@ -3482,7 +3482,7 @@ describe("outbound Telegram verification", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "123456789",
@@ -3495,7 +3495,7 @@ describe("outbound Telegram verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "resend_session",
         channel: "telegram",
       },
@@ -3523,7 +3523,7 @@ describe("outbound voice verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15551234567",
@@ -3567,7 +3567,7 @@ describe("outbound voice verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "not-a-phone",
@@ -3586,7 +3586,7 @@ describe("outbound voice verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "555-123-4567",
@@ -3629,7 +3629,7 @@ describe("outbound voice verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15559876543",
@@ -3650,7 +3650,7 @@ describe("outbound voice verification", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15551234567",
@@ -3663,7 +3663,7 @@ describe("outbound voice verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "resend_session",
         channel: "voice",
       },
@@ -3682,7 +3682,7 @@ describe("outbound voice verification", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15551234567",
@@ -3695,7 +3695,7 @@ describe("outbound voice verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "cancel_session",
         channel: "voice",
       },
@@ -3737,7 +3737,7 @@ describe("outbound voice verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15551234567",
@@ -3756,7 +3756,7 @@ describe("outbound voice verification", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
       },
@@ -3792,7 +3792,7 @@ describe("M1–M4 hardening coverage", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15551234567",
@@ -3816,7 +3816,7 @@ describe("M1–M4 hardening coverage", () => {
     const { ctx: startCtx } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "voice",
         destination: "+15551234567",
@@ -3839,7 +3839,7 @@ describe("M1–M4 hardening coverage", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "resend_session",
         channel: "voice",
       },
@@ -3861,7 +3861,7 @@ describe("M1–M4 hardening coverage", () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
-        type: "guardian_verification",
+        type: "channel_verification_session",
         action: "create_session",
         channel: "telegram",
         destination: "@someuser",

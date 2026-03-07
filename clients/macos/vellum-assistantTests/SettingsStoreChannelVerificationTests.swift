@@ -64,12 +64,12 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     func testRefreshChannelGuardianStatusSendsStatusRequest() {
         // Init already sends status requests, count those first
-        let guardianMessagesBefore = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessagesBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let statusCountBefore = guardianMessagesBefore.filter { $0.action == "status" }.count
 
         store.refreshChannelGuardianStatus(channel: "telegram")
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let statusMessages = guardianMessages.filter { $0.action == "status" && $0.channel == "telegram" }
         XCTAssertGreaterThan(statusMessages.count, 0)
 
@@ -85,7 +85,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(store.telegramGuardianVerificationInProgress)
         XCTAssertNil(store.telegramGuardianError)
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let challengeMessages = guardianMessages.filter { $0.action == "create_session" && $0.channel == "telegram" }
         XCTAssertEqual(challengeMessages.count, 1)
     }
@@ -98,7 +98,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(store.smsGuardianVerificationInProgress)
         XCTAssertNil(store.smsGuardianError)
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let challengeMessages = guardianMessages.filter { $0.action == "create_session" && $0.channel == "sms" }
         XCTAssertEqual(challengeMessages.count, 1)
     }
@@ -106,8 +106,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Successful status response
 
     func testSuccessfulStatusResponseUpdatesTelegramGuardianState() {
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -130,8 +130,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testSuccessfulStatusResponseUpdatesSmsGuardianState() {
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -158,8 +158,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testSuccessfulChallengeResponseProvidesInstruction() {
         store.telegramGuardianVerificationInProgress = true
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: "abc123",
             instruction: "Send /verify abc123 to @MyBot on Telegram",
@@ -184,8 +184,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testUnverifiedStatusResponseDoesNotClearExistingTelegramInstruction() {
         store.telegramGuardianInstruction = "Send code abc123 on Telegram"
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -204,8 +204,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testVerifiedStatusResponseClearsExistingTelegramInstruction() {
         store.telegramGuardianInstruction = "Send code abc123 on Telegram"
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -226,8 +226,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testFailedResponseSetsTelegramError() {
         store.telegramGuardianVerificationInProgress = true
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: false,
             secret: nil,
             instruction: nil,
@@ -250,8 +250,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testFailedResponseSetsSmsError() {
         store.smsGuardianVerificationInProgress = true
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: false,
             secret: nil,
             instruction: nil,
@@ -274,8 +274,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Unknown channel is silently ignored
 
     func testResponseForUnknownChannelIsIgnored() {
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -295,8 +295,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testResponseWithNilChannelAndNoPendingStateIsIgnored() {
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -318,8 +318,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         store.startChannelGuardianVerification(channel: "telegram")
         XCTAssertTrue(store.telegramGuardianVerificationInProgress)
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: "abc123",
             instruction: "Send code abc123 on Telegram",
@@ -349,12 +349,12 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         )
         pollingStore.startChannelGuardianVerification(channel: "telegram")
 
-        let statusCountBefore = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let statusCountBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
             .filter { $0.action == "status" && $0.channel == "telegram" }
             .count
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: "poll-me",
             instruction: "Send code poll-me on Telegram",
@@ -367,7 +367,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         ))
 
         let predicate = NSPredicate { _, _ in
-            let statusCountAfter = self.sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+            let statusCountAfter = self.sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
                 .filter { $0.action == "status" && $0.channel == "telegram" }
                 .count
             return statusCountAfter > statusCountBefore
@@ -385,8 +385,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         )
         pollingStore.startChannelGuardianVerification(channel: "telegram")
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: "poll-me",
             instruction: "Send code poll-me on Telegram",
@@ -399,7 +399,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         ))
 
         let pollingStartedPredicate = NSPredicate { _, _ in
-            let statusCount = self.sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+            let statusCount = self.sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
                 .filter { $0.action == "status" && $0.channel == "telegram" }
                 .count
             return statusCount > 1
@@ -407,8 +407,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let pollingStartedExpectation = XCTNSPredicateExpectation(predicate: pollingStartedPredicate, object: nil)
         wait(for: [pollingStartedExpectation], timeout: 2.0)
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -424,7 +424,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { settleOne.fulfill() }
         wait(for: [settleOne], timeout: 1.0)
 
-        let statusCountAfterVerification = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let statusCountAfterVerification = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
             .filter { $0.action == "status" && $0.channel == "telegram" }
             .count
 
@@ -432,7 +432,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { settleTwo.fulfill() }
         wait(for: [settleTwo], timeout: 1.0)
 
-        let statusCountFinal = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let statusCountFinal = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
             .filter { $0.action == "status" && $0.channel == "telegram" }
             .count
 
@@ -442,13 +442,13 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - revokeChannelGuardian
 
     func testRevokeChannelGuardianSendsRevokeAction() {
-        let guardianMessagesBefore = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessagesBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let revokeCountBefore = guardianMessagesBefore.filter { $0.action == "revoke" }.count
         XCTAssertEqual(revokeCountBefore, 0)
 
         store.revokeChannelGuardian(channel: "telegram")
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let revokeMessages = guardianMessages.filter { $0.action == "revoke" && $0.channel == "telegram" }
         XCTAssertEqual(revokeMessages.count, 1)
     }
@@ -456,7 +456,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testRevokeSmsGuardianSendsRevokeAction() {
         store.revokeChannelGuardian(channel: "sms")
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let revokeMessages = guardianMessages.filter { $0.action == "revoke" && $0.channel == "sms" }
         XCTAssertEqual(revokeMessages.count, 1)
     }
@@ -483,8 +483,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testSuccessfulResponseClearsPreviousError() {
         store.telegramGuardianError = "old error"
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -517,12 +517,12 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Unknown channel in startChannelGuardianVerification is no-op
 
     func testStartVerificationWithUnknownChannelIsNoOp() {
-        let messageCountBefore = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let messageCountBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
             .filter { $0.action == "create_session" }.count
 
         store.startChannelGuardianVerification(channel: "discord")
 
-        let messageCountAfter = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let messageCountAfter = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
             .filter { $0.action == "create_session" }.count
         XCTAssertEqual(messageCountAfter, messageCountBefore)
     }
@@ -530,7 +530,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Init sends status requests for both channels
 
     func testInitSendsGuardianStatusRequestsForAllChannels() {
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let statusMessages = guardianMessages.filter { $0.action == "status" }
 
         let telegramStatus = statusMessages.filter { $0.channel == "telegram" }
@@ -547,8 +547,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(store.telegramGuardianVerificationInProgress)
 
         // Simulate a status poll response (no secret, no instruction, not bound)
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -561,8 +561,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         ))
 
         // A challenge response (with secret+instruction) should still clear the pending state
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: "abc123",
             instruction: "Send code abc123 on Telegram",
@@ -666,8 +666,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(shortTimeoutStore.smsGuardianVerificationInProgress)
 
         // A telegram response arrives — this must NOT cancel the SMS timeout
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -701,14 +701,14 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertTrue(store.voiceGuardianVerificationInProgress)
         XCTAssertNil(store.voiceGuardianError)
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let challengeMessages = guardianMessages.filter { $0.action == "create_session" && $0.channel == "voice" }
         XCTAssertEqual(challengeMessages.count, 1)
     }
 
     func testSuccessfulStatusResponseUpdatesVoiceGuardianState() {
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -733,8 +733,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testFailedResponseSetsVoiceError() {
         store.voiceGuardianVerificationInProgress = true
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: false,
             secret: nil,
             instruction: nil,
@@ -757,7 +757,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testRevokeVoiceGuardianSendsRevokeAction() {
         store.revokeChannelGuardian(channel: "voice")
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let revokeMessages = guardianMessages.filter { $0.action == "revoke" && $0.channel == "voice" }
         XCTAssertEqual(revokeMessages.count, 1)
     }
@@ -794,8 +794,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     }
 
     func testVoiceResponseDoesNotAffectTelegramOrSmsState() {
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             secret: nil,
             instruction: nil,
@@ -823,7 +823,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testStartOutboundVerificationSendsCorrectIPCMessage() {
         store.startOutboundGuardianVerification(channel: "sms", destination: "+15551234567")
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let outboundMessages = guardianMessages.filter { $0.action == "create_session" && $0.channel == "sms" }
         XCTAssertEqual(outboundMessages.count, 1)
         XCTAssertEqual(outboundMessages.first?.destination, "+15551234567")
@@ -845,7 +845,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     func testStartOutboundTelegramVerificationSendsCorrectMessage() {
         store.startOutboundGuardianVerification(channel: "telegram", destination: "@guardian_user")
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let outboundMessages = guardianMessages.filter { $0.action == "create_session" && $0.channel == "telegram" }
         XCTAssertEqual(outboundMessages.count, 1)
         XCTAssertEqual(outboundMessages.first?.destination, "@guardian_user")
@@ -860,8 +860,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         let expiresMs = Int(Date().addingTimeInterval(600).timeIntervalSince1970 * 1000)
         let nextResendMs = Int(Date().addingTimeInterval(30).timeIntervalSince1970 * 1000)
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             channel: "sms",
             verificationSessionId: "sess-123",
@@ -887,8 +887,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
         let expiresMs = Int(Date().addingTimeInterval(600).timeIntervalSince1970 * 1000)
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             channel: "telegram",
             verificationSessionId: "tg-sess-456",
@@ -908,12 +908,12 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
     // MARK: - Outbound Verification: resend sends correct message
 
     func testResendOutboundSendsCorrectIPCMessage() {
-        let guardianMessagesBefore = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessagesBefore = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let resendCountBefore = guardianMessagesBefore.filter { $0.action == "resend_session" }.count
 
         store.resendOutboundGuardian(channel: "sms")
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let resendMessages = guardianMessages.filter { $0.action == "resend_session" && $0.channel == "sms" }
         XCTAssertEqual(resendMessages.count, resendCountBefore + 1)
     }
@@ -934,7 +934,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertEqual(store.smsOutboundSendCount, 0)
         XCTAssertFalse(store.smsGuardianVerificationInProgress)
 
-        let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
+        let guardianMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
         let cancelMessages = guardianMessages.filter { $0.action == "cancel_session" && $0.channel == "sms" }
         XCTAssertEqual(cancelMessages.count, 1)
     }
@@ -956,8 +956,8 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         store.smsOutboundExpiresAt = Date().addingTimeInterval(300)
         store.smsOutboundSendCount = 1
 
-        daemonClient.onGuardianVerificationResponse?(GuardianVerificationResponseMessage(
-            type: "guardian_verification_response",
+        daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
+            type: "channel_verification_session_response",
             success: true,
             bound: true,
             guardianExternalUserId: "+15551234567",

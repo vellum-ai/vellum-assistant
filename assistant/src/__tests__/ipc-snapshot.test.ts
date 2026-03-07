@@ -422,8 +422,8 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     type: "telegram_config",
     action: "get",
   },
-  guardian_verification: {
-    type: "guardian_verification",
+  channel_verification_session: {
+    type: "channel_verification_session",
     action: "create_session",
     channel: "telegram",
     sessionId: "sess-001",
@@ -1495,8 +1495,8 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     connected: true,
     hasWebhookSecret: true,
   },
-  guardian_verification_response: {
-    type: "guardian_verification_response",
+  channel_verification_session_response: {
+    type: "channel_verification_session_response",
     success: true,
     secret: "verify-secret-123",
     instruction: "Send this code to the Telegram bot",

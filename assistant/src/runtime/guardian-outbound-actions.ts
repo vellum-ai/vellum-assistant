@@ -115,7 +115,7 @@ export interface CancelOutboundParams {
 
 /**
  * Transport-agnostic result object returned by outbound actions.
- * Maps 1:1 with the fields in GuardianVerificationResponse minus the IPC
+ * Maps 1:1 with the fields in ChannelVerificationSessionResponse minus the IPC
  * `type` discriminant.
  */
 export interface OutboundActionResult {

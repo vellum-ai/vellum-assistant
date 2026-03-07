@@ -149,8 +149,8 @@ extension DaemonClient {
             onPlatformConfigResponse?(msg)
         case .vercelApiConfigResponse(let msg):
             onVercelApiConfigResponse?(msg)
-        case .guardianVerificationResponse(let msg):
-            onGuardianVerificationResponse?(msg)
+        case .channelVerificationSessionResponse(let msg):
+            onChannelVerificationSessionResponse?(msg)
         case .telegramConfigResponse(let msg):
             onTelegramConfigResponse?(msg)
         case .twitterIntegrationConfigResponse(let msg):
