@@ -61,10 +61,9 @@ Each named instance gets its own directory tree under `~/.vellum/instances/<name
 │   └── bob/
 │       └── .vellum/
 │           └── ...               # Same structure as alice
-└── ...                           # Legacy single-instance files (default instance)
 ```
 
-The legacy single-instance layout (`~/.vellum/` directly) continues to work as the default. Named instances are created via `vellum hatch --name <name>` (the `--name` flag triggers multi-instance isolation).
+All instances are created with explicit names via `vellum hatch --name <name>`.
 
 ### Isolation Model
 
@@ -119,7 +118,7 @@ The global lockfile (`~/.vellum.lock.json`) tracks all instances:
 }
 ```
 
-- `resources` (`LocalInstanceResources`): Present on local entries in multi-instance setups. Legacy single-instance entries without `resources` are normalized to default paths at runtime.
+- `resources` (`LocalInstanceResources`): Present on all local entries. Contains per-instance ports, paths, and socket locations.
 - `activeAssistant`: Determines which instance CLI commands target by default.
 - Remote assistants (`cloud: "gcp"`, `"aws"`, etc.) are unaffected and have no `resources` field.
 

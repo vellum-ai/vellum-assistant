@@ -84,9 +84,8 @@ function resolveLocalDeployment(): boolean {
 }
 
 /**
- * Derive instance name from BASE_DATA_DIR when it matches the multi-instance
- * path pattern (~/.local/share/vellum/assistants/<name>/). Returns undefined
- * for the legacy single-instance layout (BASE_DATA_DIR = homedir).
+ * Derive instance name from BASE_DATA_DIR which follows the multi-instance
+ * path pattern (~/.local/share/vellum/assistants/<name>/).
  */
 function resolveInstanceNameFromBaseDataDir(): string | undefined {
   const base = getBaseDataDir();

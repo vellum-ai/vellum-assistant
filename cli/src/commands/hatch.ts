@@ -22,7 +22,6 @@ import cliPkg from "../../package.json";
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
 import {
   allocateLocalResources,
-  defaultLocalResources,
   findAssistantByName,
   loadAllAssistants,
   saveAssistantEntry,
@@ -717,9 +716,6 @@ async function hatchLocal(
   const existingEntry = findAssistantByName(instanceName);
   if (existingEntry?.cloud === "local" && existingEntry.resources) {
     resources = existingEntry.resources;
-  } else if (restart && existingEntry?.cloud === "local") {
-    // Legacy entry without resources — use default paths to match existing layout
-    resources = defaultLocalResources();
   } else {
     resources = await allocateLocalResources(instanceName);
   }
