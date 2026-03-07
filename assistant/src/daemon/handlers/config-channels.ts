@@ -166,6 +166,9 @@ export function revokeGuardianForChannel(
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
+  // Cancel any active outbound session so revoke is a complete teardown.
+  cancelOutbound({ channel: resolvedChannel });
+
   // Always revoke pending challenges first — the macOS app uses
   // action: "revoke" to cancel an in-flight challenge even before
   // a binding exists (e.g. during verification setup).

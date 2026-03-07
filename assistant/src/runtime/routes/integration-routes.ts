@@ -13,13 +13,12 @@
  * POST   /v1/integrations/slack/channel/config — validate and store credentials
  * DELETE /v1/integrations/slack/channel/config — clear credentials
  *
- * Guardian verification:
- * POST   /v1/integrations/guardian/challenge        — create a verification challenge
+ * Guardian verification (unified session API):
+ * POST   /v1/integrations/guardian/sessions        — create session (inbound challenge or outbound verification)
+ * POST   /v1/integrations/guardian/sessions/resend  — resend outbound verification code
+ * DELETE /v1/integrations/guardian/sessions         — cancel all active sessions (inbound + outbound)
+ * POST   /v1/integrations/guardian/revoke           — cancel all sessions and revoke binding
  * GET    /v1/integrations/guardian/status            — check guardian binding status
- * POST   /v1/integrations/guardian/revoke            — revoke active guardian binding
- * POST   /v1/integrations/guardian/outbound/start    — start outbound verification
- * POST   /v1/integrations/guardian/outbound/resend   — resend outbound verification
- * POST   /v1/integrations/guardian/outbound/cancel   — cancel outbound verification
  */
 
 import type { ChannelId } from "../../channels/types.js";
@@ -41,6 +40,7 @@ import {
   setupTelegram,
 } from "../../daemon/handlers/config-telegram.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
+import { revokePendingChallenges } from "../channel-guardian-service.js";
 import {
   cancelOutbound,
   normalizeTelegramDestination,
@@ -145,22 +145,73 @@ export async function handleClearSlackChannelConfig(): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
-// Guardian verification
+// Guardian verification (unified session API)
 // ---------------------------------------------------------------------------
 
 /**
- * POST /v1/integrations/guardian/challenge
+ * POST /v1/integrations/guardian/sessions
  *
- * Body: { channel?: ChannelId; rebind?: boolean; sessionId?: string }
+ * Unified session creation: if `destination` is present, starts outbound
+ * verification; otherwise creates an inbound challenge.
+ *
+ * Body: { channel?: ChannelId; destination?: string; rebind?: boolean; sessionId?: string; originConversationId?: string }
  */
-export async function handleCreateGuardianChallenge(
+export async function handleCreateGuardianSession(
   req: Request,
 ): Promise<Response> {
   const body = (await req.json()) as {
     channel?: ChannelId;
+    destination?: string;
     rebind?: boolean;
     sessionId?: string;
+    originConversationId?: string;
   };
+
+  if (body.destination) {
+    // Outbound verification path — requires a channel
+    if (!body.channel) {
+      return httpError("BAD_REQUEST", 'The "channel" field is required.', 400);
+    }
+
+    // Normalize destination to prevent rate-limit bypass via format variations
+    // (e.g. "+15551234567" vs "(555) 123-4567", or "@User" vs "user")
+    let rateLimitKey: string | undefined = body.destination;
+    if (rateLimitKey) {
+      if (body.channel === "sms" || body.channel === "voice") {
+        rateLimitKey = normalizePhoneNumber(rateLimitKey) ?? rateLimitKey;
+      } else if (body.channel === "telegram") {
+        rateLimitKey = normalizeTelegramDestination(rateLimitKey);
+      }
+    }
+
+    if (rateLimitKey && guardianVerificationLimiter.isBlocked(rateLimitKey)) {
+      return httpError(
+        "RATE_LIMITED",
+        "Too many verification attempts for this identity. Please try again later.",
+        429,
+      );
+    }
+
+    const result = await startOutbound({
+      channel: body.channel,
+      destination: body.destination,
+      rebind: body.rebind,
+      originConversationId: body.originConversationId,
+    });
+
+    if (!result.success && rateLimitKey) {
+      guardianVerificationLimiter.recordFailure(rateLimitKey);
+    }
+
+    const status = result.success
+      ? 200
+      : result.error === "rate_limited"
+        ? 429
+        : 400;
+    return Response.json(result, { status });
+  }
+
+  // Inbound challenge path
   const result = createGuardianChallenge(
     body.channel,
     body.rebind,
@@ -183,83 +234,13 @@ export function handleGetGuardianStatus(url: URL): Response {
 }
 
 /**
- * POST /v1/integrations/guardian/revoke
- *
- * Body: { channel?: ChannelId }
- */
-export async function handleRevokeGuardian(req: Request): Promise<Response> {
-  const body = (await req.json()) as {
-    channel?: ChannelId;
-  };
-  const result = revokeGuardianForChannel(body.channel);
-  const status = result.success ? 200 : 400;
-  return Response.json(result, { status });
-}
-
-// ---------------------------------------------------------------------------
-// Guardian outbound verification
-// ---------------------------------------------------------------------------
-
-/**
- * POST /v1/integrations/guardian/outbound/start
- *
- * Body: { channel: ChannelId; destination?: string; rebind?: boolean; originConversationId?: string }
- */
-export async function handleStartOutbound(req: Request): Promise<Response> {
-  const body = (await req.json()) as {
-    channel?: ChannelId;
-    destination?: string;
-    rebind?: boolean;
-    originConversationId?: string;
-  };
-  if (!body.channel) {
-    return httpError("BAD_REQUEST", 'The "channel" field is required.', 400);
-  }
-
-  // Normalize destination to prevent rate-limit bypass via format variations
-  // (e.g. "+15551234567" vs "(555) 123-4567", or "@User" vs "user")
-  let rateLimitKey = body.destination;
-  if (rateLimitKey) {
-    if (body.channel === "sms" || body.channel === "voice") {
-      rateLimitKey = normalizePhoneNumber(rateLimitKey) ?? rateLimitKey;
-    } else if (body.channel === "telegram") {
-      rateLimitKey = normalizeTelegramDestination(rateLimitKey);
-    }
-  }
-
-  if (rateLimitKey && guardianVerificationLimiter.isBlocked(rateLimitKey)) {
-    return httpError(
-      "RATE_LIMITED",
-      "Too many verification attempts for this identity. Please try again later.",
-      429,
-    );
-  }
-
-  const result = await startOutbound({
-    channel: body.channel,
-    destination: body.destination,
-    rebind: body.rebind,
-    originConversationId: body.originConversationId,
-  });
-
-  if (!result.success && rateLimitKey) {
-    guardianVerificationLimiter.recordFailure(rateLimitKey);
-  }
-
-  const status = result.success
-    ? 200
-    : result.error === "rate_limited"
-      ? 429
-      : 400;
-  return Response.json(result, { status });
-}
-
-/**
- * POST /v1/integrations/guardian/outbound/resend
+ * POST /v1/integrations/guardian/sessions/resend
  *
  * Body: { channel: ChannelId; originConversationId?: string }
  */
-export async function handleResendOutbound(req: Request): Promise<Response> {
+export async function handleResendGuardianSession(
+  req: Request,
+): Promise<Response> {
   const body = (await req.json()) as {
     channel?: ChannelId;
     originConversationId?: string;
@@ -280,20 +261,50 @@ export async function handleResendOutbound(req: Request): Promise<Response> {
 }
 
 /**
- * POST /v1/integrations/guardian/outbound/cancel
+ * DELETE /v1/integrations/guardian/sessions
+ *
+ * Cancels both inbound challenges and outbound sessions.
  *
  * Body: { channel: ChannelId }
  */
-export async function handleCancelOutbound(req: Request): Promise<Response> {
+export async function handleCancelGuardianSession(
+  req: Request,
+): Promise<Response> {
   const body = (await req.json()) as {
     channel?: ChannelId;
   };
   if (!body.channel) {
     return httpError("BAD_REQUEST", 'The "channel" field is required.', 400);
   }
-  const result = cancelOutbound({
-    channel: body.channel,
-  });
+
+  // Cancel any active outbound session
+  cancelOutbound({ channel: body.channel });
+  // Cancel any pending inbound challenge
+  revokePendingChallenges(body.channel);
+
+  return Response.json({ success: true, channel: body.channel });
+}
+
+/**
+ * POST /v1/integrations/guardian/revoke
+ *
+ * Cancels all active sessions and revokes the guardian binding.
+ *
+ * Body: { channel?: ChannelId }
+ */
+export async function handleRevokeGuardianBinding(
+  req: Request,
+): Promise<Response> {
+  const body = (await req.json()) as {
+    channel?: ChannelId;
+  };
+
+  // Cancel any active outbound session before revoking
+  const resolvedChannel = body.channel ?? "telegram";
+  cancelOutbound({ channel: resolvedChannel });
+
+  // revokeGuardianForChannel already handles revokePendingChallenges + binding revocation
+  const result = revokeGuardianForChannel(body.channel);
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });
 }
@@ -346,36 +357,31 @@ export function integrationRouteDefinitions(): RouteDefinition[] {
       method: "DELETE",
       handler: () => handleClearSlackChannelConfig(),
     },
-    // Guardian
+    // Guardian (unified session API)
     {
-      endpoint: "integrations/guardian/challenge",
+      endpoint: "integrations/guardian/sessions",
       method: "POST",
-      handler: async ({ req }) => handleCreateGuardianChallenge(req),
+      handler: async ({ req }) => handleCreateGuardianSession(req),
+    },
+    {
+      endpoint: "integrations/guardian/sessions/resend",
+      method: "POST",
+      handler: async ({ req }) => handleResendGuardianSession(req),
+    },
+    {
+      endpoint: "integrations/guardian/sessions",
+      method: "DELETE",
+      handler: async ({ req }) => handleCancelGuardianSession(req),
+    },
+    {
+      endpoint: "integrations/guardian/revoke",
+      method: "POST",
+      handler: async ({ req }) => handleRevokeGuardianBinding(req),
     },
     {
       endpoint: "integrations/guardian/status",
       method: "GET",
       handler: ({ url }) => handleGetGuardianStatus(url),
-    },
-    {
-      endpoint: "integrations/guardian/revoke",
-      method: "POST",
-      handler: async ({ req }) => handleRevokeGuardian(req),
-    },
-    {
-      endpoint: "integrations/guardian/outbound/start",
-      method: "POST",
-      handler: async ({ req }) => handleStartOutbound(req),
-    },
-    {
-      endpoint: "integrations/guardian/outbound/resend",
-      method: "POST",
-      handler: async ({ req }) => handleResendOutbound(req),
-    },
-    {
-      endpoint: "integrations/guardian/outbound/cancel",
-      method: "POST",
-      handler: async ({ req }) => handleCancelOutbound(req),
     },
   ];
 }
