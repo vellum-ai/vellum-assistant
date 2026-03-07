@@ -4,9 +4,7 @@ import { join } from "node:path";
 import type { Command } from "commander";
 
 import { getDaemonStatus, stopDaemon } from "../../daemon/lifecycle.js";
-import { getCliLogger } from "../../util/logger.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
 
 export function registerDevCommand(program: Command): void {
   program

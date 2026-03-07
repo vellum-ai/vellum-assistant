@@ -11,13 +11,11 @@ import {
   getMessages,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
-import { initializeDb } from "../../memory/db.js";
 import { initQdrantClient } from "../../memory/qdrant-client.js";
-import { getCliLogger } from "../../util/logger.js";
 import { timeAgo } from "../../util/time.js";
+import { initializeDb } from "../db.js";
 import { sendOneMessage } from "../ipc-client.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
 
 export function registerSessionsCommand(program: Command): void {
   const sessions = program.command("sessions").description("Manage sessions");

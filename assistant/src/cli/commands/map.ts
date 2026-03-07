@@ -18,8 +18,8 @@ import {
 } from "../../tools/browser/api-map.js";
 import { ensureChromeWithCdp } from "../../tools/browser/chrome-cdp.js";
 import { loadRecording } from "../../tools/browser/recording-store.js";
-import { getCliLogger } from "../../util/logger.js";
 import { getSocketPath, readSessionToken } from "../../util/platform.js";
+import { getCliLogger } from "../logger.js";
 
 const log = getCliLogger("cli:map");
 

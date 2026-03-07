@@ -10,7 +10,6 @@ import {
   shouldAutoStartDaemon,
 } from "../../daemon/connection-policy.js";
 import { IpcError } from "../../util/errors.js";
-import { getCliLogger } from "../../util/logger.js";
 import {
   getDataDir,
   getDbPath,
@@ -21,8 +20,7 @@ import {
   getWorkspaceHooksDir,
   getWorkspaceSkillsDir,
 } from "../../util/platform.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
 
 export function registerDoctorCommand(program: Command): void {
   program

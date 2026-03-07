@@ -1,5 +1,3 @@
-import type { Command } from "commander";
-
 import { getGatewayInternalBaseUrl } from "../config/env.js";
 import {
   initAuthSigningKey,
@@ -15,22 +13,15 @@ export function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export function shouldOutputJson(cmd: Command): boolean {
-  let current: Command | null = cmd;
-  while (current) {
-    if ((current.opts() as { json?: boolean }).json) return true;
-    current = current.parent;
+export function toQueryString(
+  params: Record<string, string | undefined>,
+): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) query.set(key, value);
   }
-  return false;
-}
-
-export function writeOutput(cmd: Command, payload: unknown): void {
-  const compact = shouldOutputJson(cmd);
-  process.stdout.write(
-    compact
-      ? JSON.stringify(payload) + "\n"
-      : JSON.stringify(payload, null, 2) + "\n",
-  );
+  const encoded = query.toString();
+  return encoded ? `?${encoded}` : "";
 }
 
 function getGatewayToken(): string {
@@ -42,17 +33,6 @@ function getGatewayToken(): string {
   }
 
   return mintEdgeRelayToken();
-}
-
-export function toQueryString(
-  params: Record<string, string | undefined>,
-): string {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value) query.set(key, value);
-  }
-  const encoded = query.toString();
-  return encoded ? `?${encoded}` : "";
 }
 
 // CLI-specific gateway helper — uses GATEWAY_AUTH_TOKEN env var for out-of-process
@@ -129,18 +109,4 @@ export async function gatewayPost(
   }
 
   return parsed;
-}
-
-export async function runRead(
-  cmd: Command,
-  reader: () => Promise<unknown>,
-): Promise<void> {
-  try {
-    const result = await reader();
-    writeOutput(cmd, result);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    writeOutput(cmd, { ok: false, error: message });
-    process.exitCode = 1;
-  }
 }

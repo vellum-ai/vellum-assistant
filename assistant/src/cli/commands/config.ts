@@ -7,9 +7,7 @@ import {
   setNestedValue,
   syncConfigToLockfile,
 } from "../../config/loader.js";
-import { getCliLogger } from "../../util/logger.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
 
 /**
  * Flatten a nested config object into dotted key paths.

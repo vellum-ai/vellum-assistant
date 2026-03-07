@@ -6,9 +6,7 @@ import {
   getSecureKey,
   setSecureKey,
 } from "../../security/secure-keys.js";
-import { getCliLogger } from "../../util/logger.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
 
 export function registerKeysCommand(program: Command): void {
   const keys = program
@@ -59,7 +57,9 @@ Examples:
 
   keys
     .command("set <provider> <key>")
-    .description("Store an API key (e.g. assistant keys set anthropic sk-ant-...)")
+    .description(
+      "Store an API key (e.g. assistant keys set anthropic sk-ant-...)",
+    )
     .addHelpText(
       "after",
       `

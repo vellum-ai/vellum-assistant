@@ -11,9 +11,7 @@ import {
   deleteMcpOAuthCredentials,
   McpOAuthProvider,
 } from "../../mcp/mcp-oauth-provider.js";
-import { getCliLogger } from "../../util/logger.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
 
 export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 

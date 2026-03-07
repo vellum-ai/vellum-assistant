@@ -1,9 +1,7 @@
 import type { Command } from "commander";
 
 import { getRecentInvocations } from "../../memory/tool-usage-store.js";
-import { getCliLogger } from "../../util/logger.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
 
 export function registerAuditCommand(program: Command): void {
   program

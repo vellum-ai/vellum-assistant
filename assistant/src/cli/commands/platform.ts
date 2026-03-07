@@ -10,10 +10,8 @@ import {
   registerCallbackRoute,
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
-import { getCliLogger } from "../../util/logger.js";
-import { shouldOutputJson, writeOutput } from "../utils.js";
-
-const log = getCliLogger("cli");
+import { log } from "../logger.js";
+import { shouldOutputJson, writeOutput } from "../output.js";
 
 export function registerPlatformCommand(program: Command): void {
   const platform = program
