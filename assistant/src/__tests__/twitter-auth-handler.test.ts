@@ -178,7 +178,7 @@ import type {
   ServerMessage,
   TwitterAuthStartRequest,
   TwitterAuthStatusRequest,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {

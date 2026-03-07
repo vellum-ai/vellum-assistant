@@ -971,20 +971,23 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("skill_load deny rule blocks aliases that resolve to the same skill id", async () => {
+    test("skill_load deny rule matches raw selector only (no bare-id alias resolution)", async () => {
       writeSkill("dangerous-skill", "Dangerous Skill");
       addRule("skill_load", "skill_load:dangerous-skill", "everywhere", "deny");
 
+      // Display name alias no longer resolves to bare ID candidate
       const byName = await check(
         "skill_load",
         { skill: "Dangerous Skill" },
         "/tmp",
       );
-      expect(byName.decision).toBe("deny");
+      expect(byName.decision).toBe("allow");
 
+      // Prefix alias no longer resolves to bare ID candidate
       const byPrefix = await check("skill_load", { skill: "danger" }, "/tmp");
-      expect(byPrefix.decision).toBe("deny");
+      expect(byPrefix.decision).toBe("allow");
 
+      // Whitespace-trimmed raw selector still matches
       const byWhitespace = await check(
         "skill_load",
         { skill: "  dangerous-skill  " },
@@ -3028,13 +3031,13 @@ describe("Permission Checker", () => {
       );
     });
 
-    test("bare skillId candidate still matches any-version rules", async () => {
+    test("raw selector candidate matches rules when selector equals skill id", async () => {
       ensureSkillsDir();
       writeSkill("test-anyver-skill", "Test Any Version Skill");
 
       testConfig.permissions.mode = "strict";
 
-      // Add a rule matching the bare skill id (no hash)
+      // Rule matches the raw selector (which happens to equal the skill id)
       addRule(
         "skill_load",
         "skill_load:test-anyver-skill",
@@ -3053,7 +3056,7 @@ describe("Permission Checker", () => {
       expect(result.matchedRule!.pattern).toBe("skill_load:test-anyver-skill");
     });
 
-    test("when version hash is absent (no skill on disk), only bare skillId candidate is generated", async () => {
+    test("when version hash is absent (no skill on disk), only raw selector candidate is generated", async () => {
       ensureSkillsDir();
       // Do NOT write a skill — selector resolution will fail, so no hash
       // candidate is generated. Only the raw selector candidate remains.
@@ -3309,7 +3312,7 @@ describe("Permission Checker", () => {
       expect(result.matchedRule!.pattern).toBe("skill_load:*");
     });
 
-    test("skill_load with any-version (bare id) rule auto-allows in strict mode", async () => {
+    test("skill_load with raw selector rule auto-allows in strict mode", async () => {
       ensureSkillsDir();
       writeSkill("pr34-bare-id", "PR34 Bare ID");
       testConfig.permissions.mode = "strict";

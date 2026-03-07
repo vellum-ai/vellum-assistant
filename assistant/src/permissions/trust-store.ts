@@ -274,32 +274,7 @@ function loadFromDisk(): TrustRule[] {
       // Restore persisted starter bundle flag
       cachedStarterBundleAccepted = data.starterBundleAccepted === true;
 
-      if (data.version === 1) {
-        // Migration: v1 → v2. All existing rules are user-created → priority 100.
-        rules = rawRules.map((r) => ({
-          ...r,
-          priority: 100,
-        }));
-        needsSave = true;
-        log.info(
-          { ruleCount: rules.length },
-          "Migrated v1 trust rules to v2 (priority=100)",
-        );
-        // Fall through to v2 → v3 migration below
-      }
-
-      if (data.version === 2 || (data.version === 1 && needsSave)) {
-        // Migration: v2 → v3. Existing rules have no principal fields,
-        // which is correct — missing principal fields act as wildcards.
-        if (data.version === 2) {
-          rules = rawRules;
-        }
-        needsSave = true;
-        log.info(
-          { ruleCount: rules.length },
-          "Migrated v2 trust rules to v3 (principal fields)",
-        );
-      } else if (data.version === TRUST_FILE_VERSION) {
+      if (data.version === TRUST_FILE_VERSION) {
         rules = rawRules;
 
         // Strip legacy principal-scoped fields from persisted v3 rules.
@@ -323,7 +298,7 @@ function loadFromDisk(): TrustRule[] {
             needsSave = true;
           }
         }
-      } else if (data.version !== 1) {
+      } else {
         log.warn(
           { version: data.version },
           "Unknown trust file version, applying defaults in-memory only",

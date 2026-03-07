@@ -120,7 +120,7 @@ import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   OAuthConnectStartRequest,
   ServerMessage,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {

@@ -148,10 +148,6 @@ export const channelGuardianRateLimits = sqliteTable(
     channel: text("channel").notNull(),
     actorExternalUserId: text("actor_external_user_id").notNull(),
     actorChatId: text("actor_chat_id").notNull(),
-    // Legacy columns kept with defaults for backward compatibility with upgraded databases
-    // that still have the old NOT NULL columns without DEFAULT. Not read by app logic.
-    invalidAttempts: integer("invalid_attempts").notNull().default(0),
-    windowStartedAt: integer("window_started_at").notNull().default(0),
     attemptTimestampsJson: text("attempt_timestamps_json")
       .notNull()
       .default("[]"),

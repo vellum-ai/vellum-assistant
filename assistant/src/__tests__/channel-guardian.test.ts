@@ -103,7 +103,7 @@ import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import {
   bindSessionIdentity as _storeBindSessionIdentity,
   consumeSession,

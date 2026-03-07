@@ -67,7 +67,7 @@ import type {
   ServerMessage,
   ToolPermissionSimulateRequest,
   ToolPermissionSimulateResponse,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import {
   addRule,
   clearAllRules,

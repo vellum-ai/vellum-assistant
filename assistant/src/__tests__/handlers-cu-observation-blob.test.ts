@@ -55,7 +55,7 @@ import type {
   CuObservation,
   IpcBlobRef,
   ServerMessage,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 /** Poll until a predicate is true or timeout (default 2s). */

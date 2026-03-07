@@ -32,8 +32,11 @@ import {
 } from "../../security/secret-scanner.js";
 import { createApprovalConversationGenerator } from "../approval-generators.js";
 import { getAssistantName } from "../identity-helpers.js";
-import type { UserMessageAttachment } from "../ipc-contract.js";
-import type { ServerMessage, UserMessage } from "../ipc-protocol.js";
+import type {
+  ServerMessage,
+  UserMessage,
+  UserMessageAttachment,
+} from "../ipc-protocol.js";
 import { executeRecordingIntent } from "../recording-executor.js";
 import { resolveRecordingIntent } from "../recording-intent.js";
 import {

@@ -13,7 +13,7 @@
 import type { ChannelId } from "../../../channels/types.js";
 import { touchContactInteraction } from "../../../contacts/contacts-write.js";
 import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
-import * as conversationStore from "../../../memory/conversation-store.js";
+import { updateMessageContent } from "../../../memory/conversation-crud.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("runtime-http");
@@ -106,7 +106,7 @@ export async function handleEditIntercept(
   }
 
   if (original) {
-    conversationStore.updateMessageContent(original.messageId, content ?? "");
+    updateMessageContent(original.messageId, content ?? "");
     log.info(
       { assistantId, sourceMessageId, messageId: original.messageId },
       "Updated message content from edited_message",

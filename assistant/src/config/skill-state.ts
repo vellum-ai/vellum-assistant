@@ -13,20 +13,14 @@ export interface ResolvedSkill {
   configEntry?: SkillEntryConfig;
 }
 
-// Skill IDs whose feature flag key differs from the default
-// `feature_flags.<skillId>.enabled` derivation.
-const SKILL_FLAG_KEY_OVERRIDES: Record<string, string> = {};
-
 /**
- * Derive the feature flag key for a given skill ID, respecting overrides.
+ * Derive the feature flag key for a given skill ID.
  *
  * Exported so other modules (system-prompt, session-skill-tools, skill loader)
- * can perform the same mapping without duplicating the override table.
+ * can perform the same mapping.
  */
 export function skillFlagKey(skillId: string): string {
-  return (
-    SKILL_FLAG_KEY_OVERRIDES[skillId] ?? `feature_flags.${skillId}.enabled`
-  );
+  return `feature_flags.${skillId}.enabled`;
 }
 
 export function resolveSkillStates(
