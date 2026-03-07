@@ -465,7 +465,7 @@ If no guardian binding exists, escalation fails closed — the message is denied
 
 SQLite via Drizzle ORM, stored at `~/.vellum/workspace/data/db/assistant.db`. Key tables include conversations, messages, tool invocations, attachments, memory segments (with FTS5), memory items, entities, reminders, and recurrence schedules (cron + RRULE).
 
-> **Compatibility note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. The legacy field names `cron_expression` and `cronExpression` remain supported in API inputs. New code should use the `expression` field with an explicit `syntax` discriminator. See [`docs/architecture/scheduling.md`](docs/architecture/scheduling.md) for details.
+> **Note:** The recurrence schedule system supports both cron expressions and iCalendar RRULE syntax. Use the `expression` field with an explicit `syntax` discriminator. See [`docs/architecture/scheduling.md`](docs/architecture/scheduling.md) for details.
 
 Run migrations:
 
