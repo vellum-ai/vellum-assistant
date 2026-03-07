@@ -16,6 +16,7 @@ function makeSkill(
   return {
     id,
     name: overrides?.name ?? id,
+    displayName: overrides?.displayName ?? overrides?.name ?? id,
     description: `Description for ${id}`,
     directoryPath: `/skills/${id}`,
     skillFilePath: `/skills/${id}/SKILL.md`,

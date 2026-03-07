@@ -70,6 +70,7 @@ export type SkillSource = "bundled" | "managed" | "workspace" | "extra";
 export interface SkillSummary {
   id: string;
   name: string;
+  displayName: string;
   description: string;
   directoryPath: string;
   skillFilePath: string;
@@ -272,6 +273,7 @@ function getSkillsIndexPath(skillsDir: string): string {
 
 interface ParsedFrontmatter {
   name: string;
+  displayName: string;
   description: string;
   body: string;
   homepage?: string;
@@ -348,22 +350,17 @@ function parseFrontmatter(
   // Parse new optional fields
   const homepage = fields.homepage?.trim() || undefined;
 
-  const userInvocableRaw = fields["user-invocable"]?.trim().toLowerCase();
-  const userInvocable = userInvocableRaw !== "false";
-
-  const disableModelInvocationRaw = fields["disable-model-invocation"]
-    ?.trim()
-    .toLowerCase();
-  const disableModelInvocation = disableModelInvocationRaw === "true";
-
   // Parse metadata as single-line JSON string, extract .vellum namespace
   let metadata: VellumMetadata | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let vellumRaw: any;
   const metadataRaw = fields.metadata?.trim();
   if (metadataRaw) {
     try {
       const parsed = JSON.parse(metadataRaw);
       if (parsed && typeof parsed === "object" && parsed.vellum) {
         metadata = parsed.vellum as VellumMetadata;
+        vellumRaw = parsed.vellum;
       }
     } catch (err) {
       log.warn(
@@ -383,12 +380,50 @@ function parseFrontmatter(
     metadata = { emoji: emojiField };
   }
 
-  const includes = parseIncludes(fields.includes, skillFilePath);
+  // Read vellum-specific fields from metadata.vellum with fallback to top-level frontmatter
+  const vellumUserInvocable = vellumRaw?.["user-invocable"];
+  let userInvocable: boolean;
+  if (typeof vellumUserInvocable === "boolean") {
+    userInvocable = vellumUserInvocable;
+  } else if (typeof vellumUserInvocable === "string") {
+    userInvocable = vellumUserInvocable !== "false";
+  } else {
+    const userInvocableRaw = fields["user-invocable"]?.trim().toLowerCase();
+    userInvocable = userInvocableRaw !== "false";
+  }
+
+  const vellumDisableModelInvocation = vellumRaw?.["disable-model-invocation"];
+  let disableModelInvocation: boolean;
+  if (typeof vellumDisableModelInvocation === "boolean") {
+    disableModelInvocation = vellumDisableModelInvocation;
+  } else if (typeof vellumDisableModelInvocation === "string") {
+    disableModelInvocation = vellumDisableModelInvocation === "true";
+  } else {
+    const disableModelInvocationRaw = fields["disable-model-invocation"]
+      ?.trim()
+      .toLowerCase();
+    disableModelInvocation = disableModelInvocationRaw === "true";
+  }
+
+  const vellumIncludes = vellumRaw?.includes;
+  const includes = Array.isArray(vellumIncludes)
+    ? vellumIncludes
+    : parseIncludes(fields.includes, skillFilePath);
+
   const credentialSetupFor =
-    fields["credential-setup-for"]?.trim() || undefined;
+    (typeof vellumRaw?.["credential-setup-for"] === "string"
+      ? vellumRaw["credential-setup-for"]
+      : undefined) ??
+    (fields["credential-setup-for"]?.trim() || undefined);
+
+  const displayName =
+    (typeof vellumRaw?.["display-name"] === "string"
+      ? vellumRaw["display-name"]
+      : undefined) ?? name;
 
   return {
     name,
+    displayName,
     description,
     body: stripCommentLines(body),
     homepage,
@@ -538,6 +573,7 @@ function readSkillFromDirectory(
     return {
       id: basename(directoryPath),
       name: parsed.name,
+      displayName: parsed.displayName,
       description: parsed.description,
       directoryPath,
       skillFilePath,
@@ -587,6 +623,7 @@ function readBundledSkillFromDirectory(
     return {
       id: basename(directoryPath),
       name: parsed.name,
+      displayName: parsed.displayName,
       description: parsed.description,
       directoryPath,
       skillFilePath,
@@ -646,6 +683,7 @@ function loadBundledSkills(): SkillSummary[] {
     skills.push({
       id: skill.id,
       name: skill.name,
+      displayName: skill.displayName,
       description: skill.description,
       directoryPath: skill.directoryPath,
       skillFilePath: skill.skillFilePath,
@@ -783,6 +821,7 @@ function skillSummaryFromDefinition(
   return {
     id: skill.id,
     name: skill.name,
+    displayName: skill.displayName,
     description: skill.description,
     directoryPath: skill.directoryPath,
     skillFilePath: skill.skillFilePath,
@@ -836,6 +875,7 @@ export function loadSkillCatalog(
           catalog.push({
             id,
             name: parsed.name,
+            displayName: parsed.displayName ?? parsed.name,
             description: parsed.description,
             directoryPath: directory,
             skillFilePath,
@@ -932,6 +972,7 @@ export function loadSkillCatalog(
         const workspaceSkill: SkillSummary = {
           id,
           name: parsed.name,
+          displayName: parsed.displayName ?? parsed.name,
           description: parsed.description,
           directoryPath: directory,
           skillFilePath,
@@ -1057,7 +1098,9 @@ export function resolveSkillSelector(
   }
 
   const exactNameMatches = catalog.filter(
-    (skill) => skill.name.toLowerCase() === needle.toLowerCase(),
+    (skill) =>
+      skill.name.toLowerCase() === needle.toLowerCase() ||
+      skill.displayName.toLowerCase() === needle.toLowerCase(),
   );
   if (exactNameMatches.length === 1) {
     return { skill: exactNameMatches[0] };

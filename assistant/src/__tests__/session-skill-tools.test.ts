@@ -243,6 +243,7 @@ function makeSkill(id: string, dir?: string): SkillSummary {
   return {
     id,
     name: id,
+    displayName: id,
     description: `Skill ${id}`,
     directoryPath: dir ?? `/skills/${id}`,
     skillFilePath: `/skills/${id}/SKILL.md`,

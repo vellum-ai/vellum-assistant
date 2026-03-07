@@ -969,7 +969,7 @@ function formatSkillsCatalog(skills: SkillSummary[]): string {
   const lines = ["<available_skills>"];
   for (const skill of visible) {
     const idAttr = escapeXml(skill.id);
-    const nameAttr = escapeXml(skill.name);
+    const nameAttr = escapeXml(skill.displayName);
     const descAttr =
       skill.id === "mcp-setup"
         ? escapeXml(getMcpSetupDescription())
