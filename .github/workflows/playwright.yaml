@@ -409,6 +409,11 @@ jobs:
           cat "$APPLESCRIPT"
 
       - name: Install ffmpeg
+        timeout-minutes: 5
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
         run: |
           if ! command -v ffmpeg &> /dev/null; then
             echo "ffmpeg not found, installing via brew..."
