@@ -8,47 +8,44 @@ import Foundation
 private actor AsyncSemaphore {
     private var count: Int
     private var nextID: UInt64 = 0
-    private var waiters: [(id: UInt64, continuation: CheckedContinuation<Void, Never>)] = []
+    private var waiters: [(id: UInt64, continuation: CheckedContinuation<Bool, Never>)] = []
 
     init(value: Int) { self.count = value }
 
-    /// Waits for a slot. If the calling task is cancelled while waiting
-    /// in the queue, the waiter is removed and the slot is not consumed.
-    /// If a slot was already acquired (via signal() resuming the waiter),
-    /// this returns normally — the caller must use defer to release the slot,
-    /// and the subsequent HTTP request will throw CancellationError naturally.
-    func wait() async {
+    /// Waits for a slot. Returns `true` if a slot was acquired, `false` if the
+    /// task was cancelled while waiting (no slot consumed). The caller must only
+    /// call `signal()` when this returns `true`.
+    func wait() async -> Bool {
         if count > 0 {
             count -= 1
-            return
+            return true
         }
         let id = nextID
         nextID += 1
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        let acquired = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 waiters.append((id: id, continuation: continuation))
             }
         } onCancel: {
             Task { await self.cancelWaiter(id: id) }
         }
+        return acquired
     }
 
-    /// Removes a cancelled waiter from the queue before signal() gives it a slot.
-    /// If the waiter was already removed by signal() (race), do nothing — the
-    /// caller's `defer { semaphore.signal() }` will return the slot when probe() exits.
+    /// Removes a cancelled waiter from the queue (no slot consumed → resumes
+    /// with `false`). If signal() already resumed this waiter (slot consumed →
+    /// resumed with `true`), does nothing.
     private func cancelWaiter(id: UInt64) {
         if let idx = waiters.firstIndex(where: { $0.id == id }) {
             let removed = waiters.remove(at: idx)
-            removed.continuation.resume()
+            removed.continuation.resume(returning: false)
         }
-        // If not found, signal() already resumed this waiter. The slot will be
-        // returned by the caller's defer block — no action needed here.
     }
 
     func signal() {
         if let waiter = waiters.first {
             waiters.removeFirst()
-            waiter.continuation.resume()
+            waiter.continuation.resume(returning: true)
         } else {
             count += 1
         }
@@ -100,7 +97,8 @@ public final class ImageMIMEProbe {
         request.httpMethod = "HEAD"
         request.timeoutInterval = 5
 
-        await semaphore.wait()
+        let acquired = await semaphore.wait()
+        guard acquired else { return .unknown }
         defer { Task { await semaphore.signal() } }
 
         let result: ImageURLClassification
