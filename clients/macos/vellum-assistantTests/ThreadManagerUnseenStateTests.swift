@@ -398,11 +398,15 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         // mark-all-seen defers the seen signal
         threadManager.markAllThreadsSeen()
 
-        // Fail subsequent sends so markConversationUnread triggers rollback
-        daemonClient.sendOverride = { _ in
-            throw NSError(domain: "ThreadManagerUnseenStateTests", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "offline"
-            ])
+        // Fail only unread signals so markConversationUnread triggers rollback,
+        // while allowing seen signals from commitPendingSeenSignals to succeed.
+        daemonClient.sendOverride = { [weak self] message in
+            if message is IPCConversationUnreadSignal {
+                throw NSError(domain: "ThreadManagerUnseenStateTests", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "offline"
+                ])
+            }
+            self?.sentMessages.append(message)
         }
 
         sentMessages.removeAll()

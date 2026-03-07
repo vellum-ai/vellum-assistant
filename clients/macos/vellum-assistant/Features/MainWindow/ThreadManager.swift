@@ -1359,6 +1359,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         if wasPendingSeen && !pendingSeenSessionIds.contains(sessionId) {
             pendingSeenSessionIds.append(sessionId)
+            schedulePendingSeenSignals()
         }
     }
 
