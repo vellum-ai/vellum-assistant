@@ -221,9 +221,10 @@ build_binaries() {
 case "$CMD" in
     test)
         echo "Running tests..."
-        SWIFT_TEST_ARGS=("${CMD_ARGS[@]}")
-        if [ ${#SWIFT_TEST_ARGS[@]} -eq 0 ]; then
+        if [ ${#CMD_ARGS[@]} -eq 0 ]; then
             SWIFT_TEST_ARGS=(--filter vellum_assistantTests)
+        else
+            SWIFT_TEST_ARGS=("${CMD_ARGS[@]}")
         fi
         set +e
         TEST_OUTPUT=$(swift_with_retry swift test "${SWIFT_TEST_ARGS[@]}" 2>&1)
