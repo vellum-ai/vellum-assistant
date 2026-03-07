@@ -35,7 +35,7 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 5. **Guardian receives the verification code.** The assistant delivers the code to the guardian's verified channel (Telegram chat, SMS, etc.).
 6. **Guardian gives the code to the requester out-of-band** (in person, text message, phone call, etc.). This out-of-band transfer is the trust anchor: it proves the requester has a real-world relationship with the guardian.
 7. **Requester enters the code** back to the assistant on the same channel. The inbound message handler intercepts bare 6-digit codes when a pending verification session exists for that channel.
-8. **Assistant verifies the code and activates the user.** `validateAndConsumeChallenge()` hashes the code, matches it against the pending session, verifies identity binding (the code must come from the expected channel identity), consumes the challenge, and calls `upsertContactChannel()` with `status: 'active'` and `policy: 'allow'`.
+8. **Assistant verifies the code and activates the user.** `validateAndConsumeVerification()` hashes the code, matches it against the pending session, verifies identity binding (the code must come from the expected channel identity), consumes the session, and calls `upsertContactChannel()` with `status: 'active'` and `policy: 'allow'`.
 9. **All subsequent messages are accepted normally.** The ingress ACL finds an active member record and allows the message through.
 
 ## Lifecycle States
@@ -108,10 +108,10 @@ No member record is created. No verification session is created.
 
 ### Stage: `expired`
 
-| Store                       | Table                                | Record                                                                                            |
-| --------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `channel-guardian-store.ts` | `channel_guardian_approval_requests` | Updated to `status: 'expired'` by `sweepExpiredGuardianApprovals()` (runs every 60s).             |
-| `channel-guardian-store.ts` | `channel_verification_sessions`      | Expires naturally: `expiresAt < Date.now()` makes it invisible to `findPendingChallengeByHash()`. |
+| Store                       | Table                                | Record                                                                                          |
+| --------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `channel-guardian-store.ts` | `channel_guardian_approval_requests` | Updated to `status: 'expired'` by `sweepExpiredGuardianApprovals()` (runs every 60s).           |
+| `channel-guardian-store.ts` | `channel_verification_sessions`      | Expires naturally: `expiresAt < Date.now()` makes it invisible to `findPendingSessionByHash()`. |
 
 ### Invites (alternative path)
 
@@ -171,7 +171,7 @@ sequenceDiagram
 
         U->>A: Send "847293" on same channel
         A->>A: parseGuardianVerifyCommand() → bare 6-digit code
-        A->>A: validateAndConsumeChallenge()
+        A->>A: validateAndConsumeVerification()
         A->>A: Identity check: actorId matches expected
         A->>A: Hash matches, not expired → consume
         A->>A: upsertContactChannel(status: 'active', policy: 'allow')
@@ -211,20 +211,20 @@ sequenceDiagram
 ### Verification code expires
 
 - Verification sessions have a 10-minute TTL (`CHALLENGE_TTL_MS`).
-- After expiry, `findPendingChallengeByHash()` filters by `expiresAt > now`, so the code silently becomes invalid.
+- After expiry, `findPendingSessionByHash()` filters by `expiresAt > now`, so the code silently becomes invalid.
 - The requester receives the generic "code is invalid or has expired" message.
 - The guardian can re-initiate the flow by approving again, which creates a new session (auto-revoking any prior pending sessions).
 
 ### Wrong code entered
 
-- `validateAndConsumeChallenge()` hashes the input and looks for a matching challenge. No match returns a generic failure.
+- `validateAndConsumeVerification()` hashes the input and looks for a matching session. No match returns a generic failure.
 - The invalid attempt is recorded via `recordInvalidAttempt()` with a sliding window (`RATE_LIMIT_WINDOW_MS = 15 min`).
 - After `RATE_LIMIT_MAX_ATTEMPTS = 5` failures within the window, the actor is locked out for `RATE_LIMIT_LOCKOUT_MS = 30 min`.
 - The lockout message is identical to the "invalid code" message (anti-oracle).
 
 ### Identity mismatch
 
-- If the code is entered from a different channel identity than expected (e.g., a different Telegram user ID), the identity check in `validateAndConsumeChallenge()` fails.
+- If the code is entered from a different channel identity than expected (e.g., a different Telegram user ID), the identity check in `validateAndConsumeVerification()` fails.
 - The error message is identical to "invalid or expired" to prevent identity oracle attacks.
 - The attempt counts toward the rate limit.
 
@@ -251,8 +251,8 @@ sequenceDiagram
 ### Code reuse prevention
 
 - Each verification session creates a single `channel_verification_sessions` record.
-- `consumeChallenge()` atomically sets `status: 'consumed'`, making the code permanently unusable.
-- `findPendingChallengeByHash()` only matches challenges with `status IN ('pending', 'pending_bootstrap', 'awaiting_response')`, so consumed challenges are invisible.
+- `consumeSession()` atomically sets `status: 'consumed'`, making the code permanently unusable.
+- `findPendingSessionByHash()` only matches sessions with `status IN ('pending', 'pending_bootstrap', 'awaiting_response')`, so consumed sessions are invisible.
 
 ### Session supersession
 

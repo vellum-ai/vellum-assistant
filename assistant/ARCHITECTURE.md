@@ -564,7 +564,7 @@ When no invite exists and no pending guardian challenge is active, the relay ent
 
 **Path 3: Inbound guardian verification (pending challenge)**
 
-When a pending voice guardian challenge exists (`getPendingChallenge`), the caller enters the DTMF/speech verification flow to complete an outbound-initiated guardian binding. This path is for guardian identity verification, not trusted-contact access.
+When a pending voice guardian challenge exists (`getPendingSession`), the caller enters the DTMF/speech verification flow to complete an outbound-initiated guardian binding. This path is for guardian identity verification, not trusted-contact access.
 
 **Canonical decision routing:**
 

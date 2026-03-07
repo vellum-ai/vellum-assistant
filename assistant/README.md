@@ -256,7 +256,7 @@ If no number is found after all three sources, an error is thrown.
 
 ### Assistant-Scoped Guardian State
 
-Guardian bindings, verification challenges, and approval requests are all scoped to an `(assistantId, channel)` pair. The `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeChallenge`, `isGuardian`, `getGuardianBinding`, and `createApprovalRequest`. This means each assistant has its own independent guardian binding per channel -- verifying as guardian on one assistant does not grant guardian status on another.
+Guardian bindings, verification challenges, and approval requests are all scoped to an `(assistantId, channel)` pair. The `assistantId` parameter flows through `handleChannelInbound`, `validateAndConsumeVerification`, `isGuardian`, `getGuardianBinding`, and `createApprovalRequest`. This means each assistant has its own independent guardian binding per channel -- verifying as guardian on one assistant does not grant guardian status on another.
 
 ### Channel-Aware Guardian Challenges
 
