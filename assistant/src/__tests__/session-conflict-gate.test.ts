@@ -264,7 +264,7 @@ mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
     shouldCompact() {
-      return false;
+      return { needed: false, estimatedTokens: 0 };
     }
     async maybeCompact() {
       return { compacted: false };
