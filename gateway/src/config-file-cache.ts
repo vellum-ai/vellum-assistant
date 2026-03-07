@@ -33,7 +33,7 @@ function readConfigFile(path: string): Record<string, unknown> {
  * non-whitespace string. Returns undefined when the input is not
  * a plain object or the result is empty.
  *
- * This matches the normalizeRecord behavior in config-file-mappings.ts.
+ * Normalizes a raw config section into a string-keyed record.
  */
 function normalizeRecord(raw: unknown): Record<string, string> | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
