@@ -32,8 +32,6 @@ export function channelDisplayLabel(type: string): string {
   switch (type) {
     case "telegram":
       return "Telegram";
-    case "sms":
-      return "SMS";
     case "email":
       return "Email";
     case "slack":

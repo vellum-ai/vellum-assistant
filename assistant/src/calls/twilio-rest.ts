@@ -2,7 +2,7 @@
  * Reusable Twilio REST API helpers.
  *
  * Provides low-level building blocks (auth header, base URL, credential
- * resolution) shared across the voice provider, SMS channel, and IPC
+ * resolution) shared across the voice provider and IPC
  * config handler. Uses fetch() directly — no twilio npm package.
  */
 
@@ -67,7 +67,7 @@ export function twilioBaseUrl(accountSid: string): string {
 export interface TwilioPhoneNumber {
   phoneNumber: string;
   friendlyName: string;
-  capabilities: { voice: boolean; sms: boolean };
+  capabilities: { voice: boolean };
 }
 
 /** List incoming phone numbers owned by the account. */
@@ -96,21 +96,21 @@ export async function listIncomingPhoneNumbers(
     incoming_phone_numbers: Array<{
       phone_number: string;
       friendly_name: string;
-      capabilities: { voice: boolean; sms: boolean };
+      capabilities: { voice: boolean };
     }>;
   };
 
   return data.incoming_phone_numbers.map((n) => ({
     phoneNumber: n.phone_number,
     friendlyName: n.friendly_name,
-    capabilities: { voice: n.capabilities.voice, sms: n.capabilities.sms },
+    capabilities: { voice: n.capabilities.voice },
   }));
 }
 
 export interface AvailablePhoneNumber {
   phoneNumber: string;
   friendlyName: string;
-  capabilities: { voice: boolean; sms: boolean };
+  capabilities: { voice: boolean };
 }
 
 /** Search for available phone numbers to purchase. */
@@ -149,14 +149,14 @@ export async function searchAvailableNumbers(
     available_phone_numbers: Array<{
       phone_number: string;
       friendly_name: string;
-      capabilities: { voice: boolean; sms: boolean };
+      capabilities: { voice: boolean };
     }>;
   };
 
   return data.available_phone_numbers.map((n) => ({
     phoneNumber: n.phone_number,
     friendlyName: n.friendly_name,
-    capabilities: { voice: n.capabilities.voice, sms: n.capabilities.sms },
+    capabilities: { voice: n.capabilities.voice },
   }));
 }
 
@@ -192,7 +192,7 @@ export async function provisionPhoneNumber(
   const data = (await res.json()) as {
     phone_number: string;
     friendly_name: string;
-    capabilities: { voice: boolean; sms: boolean };
+    capabilities: { voice: boolean };
   };
 
   return {
@@ -200,7 +200,6 @@ export async function provisionPhoneNumber(
     friendlyName: data.friendly_name,
     capabilities: {
       voice: data.capabilities.voice,
-      sms: data.capabilities.sms,
     },
   };
 }

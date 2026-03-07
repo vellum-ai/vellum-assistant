@@ -12,7 +12,7 @@ export function registerChannelsCommand(program: Command): void {
     "after",
     `
 Queries channel readiness and configuration status through the gateway API.
-Channels are the communication interfaces (telegram, voice, sms, email, etc.)
+Channels are the communication interfaces (telegram, voice, email, etc.)
 that the assistant uses to send and receive messages.
 
 The assistant must be running — channel status is read from the live gateway.
@@ -36,7 +36,7 @@ it can deliver messages to the user.
 
 The --channel flag filters results to a single channel type. Without it, all
 configured channels are returned. Common channel types include: telegram,
-voice, sms, email, slack, vellum.
+voice, email, slack, vellum.
 
 Examples:
   $ assistant channels readiness

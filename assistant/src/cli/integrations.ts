@@ -256,7 +256,7 @@ Some subcommands query the running assistant gateway (\`telegram\`, \`guardian\`
 others read local config or call the underlying provider directly (\`twilio\`, \`ingress\`, \`voice\`).
 
 Integration categories:
-  twilio       Twilio SMS/voice credential and phone number status
+  twilio       Twilio voice credential and phone number status
   telegram     Telegram bot configuration and webhook status
   guardian     Guardian trust verification system for contacts
   ingress      Public ingress URL and local gateway target (config-only)
@@ -266,12 +266,12 @@ Examples:
   $ assistant integrations twilio config
   $ assistant integrations twilio numbers --json
   $ assistant integrations telegram config
-  $ assistant integrations guardian status --channel sms`,
+  $ assistant integrations guardian status --channel telegram`,
   );
 
   const twilio = integrations
     .command("twilio")
-    .description("Twilio SMS/voice integration status");
+    .description("Twilio voice integration status");
 
   twilio.addHelpText(
     "after",
@@ -296,7 +296,7 @@ Arguments:
   (none)
 
 Returns whether Twilio credentials are configured and whether a phone number is
-assigned in the assistant SMS config. Reads local assistant state only; it
+assigned in the assistant config. Reads local assistant state only; it
 does not call the gateway or Twilio.
 
 Examples:
@@ -384,14 +384,14 @@ Examples:
   guardian
     .command("status")
     .description("Get guardian status for a channel")
-    .option("--channel <channel>", "Channel: telegram|voice|sms", "telegram")
+    .option("--channel <channel>", "Channel: telegram|voice", "telegram")
     .addHelpText(
       "after",
       `
 Returns the guardian verification state for the specified channel. Requires
 the assistant to be running.
 
-The --channel flag accepts: telegram, voice, sms. Defaults to telegram if
+The --channel flag accepts: telegram, voice. Defaults to telegram if
 not specified. The response includes whether guardian verification is active
 and the current verification state for that channel.
 
@@ -399,7 +399,7 @@ Examples:
   $ assistant integrations guardian status
   $ assistant integrations guardian status --channel telegram
   $ assistant integrations guardian status --channel voice
-  $ assistant integrations guardian status --channel sms --json`,
+  $ assistant integrations guardian status --channel telegram --json`,
     )
     .action(async (opts: { channel?: GuardianChannel }, cmd: Command) => {
       const channel = opts.channel ?? "telegram";
