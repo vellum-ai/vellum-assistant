@@ -369,7 +369,7 @@ describe("guardian-action-conversation-turn", () => {
   test("getFollowupDeliveriesByDestination returns empty for non-matching channel", () => {
     createAwaitingChoiceRequest("conv-turn-2", { chatId: "chat-abc" });
 
-    const deliveries = getFollowupDeliveriesByDestination("sms", "chat-abc");
+    const deliveries = getFollowupDeliveriesByDestination("voice", "chat-abc");
     expect(deliveries).toHaveLength(0);
   });
 

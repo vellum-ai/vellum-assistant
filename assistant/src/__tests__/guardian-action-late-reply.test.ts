@@ -162,7 +162,7 @@ describe("guardian-action-late-reply", () => {
   test("getExpiredDeliveriesByDestination returns empty for non-matching channel", () => {
     createExpiredRequest("conv-late-2", { chatId: "chat-abc" });
 
-    const deliveries = getExpiredDeliveriesByDestination("sms", "chat-abc");
+    const deliveries = getExpiredDeliveriesByDestination("voice", "chat-abc");
     expect(deliveries).toHaveLength(0);
   });
 
