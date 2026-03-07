@@ -175,7 +175,7 @@ if (releaseVersion) {
   triggerArgs.push("-f", `release_version=${releaseVersion}`);
 }
 if (experimental) {
-  triggerArgs.push("-f", "run_experimental=true");
+  triggerArgs.push("-f", "test_filter=experimental");
 }
 if (useXcode) {
   triggerArgs.push("-f", "use_xcode=true");
@@ -187,7 +187,7 @@ if (testCase) {
 const details = [
   branch ? `branch=${branch}` : null,
   releaseVersion ? `release_version=${releaseVersion}` : null,
-  experimental ? "run_experimental=true" : null,
+  experimental ? "test_filter=experimental" : null,
   useXcode ? "use_xcode=true" : null,
   testCase ? `test_case=${testCase}` : null,
 ].filter(Boolean);

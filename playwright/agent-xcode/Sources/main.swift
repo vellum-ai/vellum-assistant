@@ -5,7 +5,18 @@ import Foundation
 func main() async {
     let args = CommandLine.arguments
     let verbose = args.contains("--verbose")
-    let runExperimental = args.contains("--experimental") || ProcessInfo.processInfo.environment["RUN_EXPERIMENTAL"] != nil
+    let testFilterArg = args.firstIndex(of: "--filter").flatMap { idx in
+        idx + 1 < args.count ? args[idx + 1] : nil
+    }
+    let testFilter: TestStatus = {
+        if args.contains("--experimental") {
+            return .experimental
+        }
+        if let raw = testFilterArg ?? ProcessInfo.processInfo.environment["TEST_FILTER"] {
+            return TestStatus(rawValue: raw.lowercased()) ?? .experimental
+        }
+        return .experimental
+    }()
     let filter = args.first(where: { !$0.starts(with: "--") && $0 != args[0] })
     let appDisplayName = ProcessInfo.processInfo.environment["APP_DISPLAY_NAME"] ?? "Vellum"
 
@@ -46,10 +57,11 @@ func main() async {
     var skipped: [String] = []
 
     for testCase in testCases {
-        // Skip experimental tests unless --experimental or RUN_EXPERIMENTAL is set
-        if testCase.status == .experimental && !runExperimental {
+        let statusPriority: [TestStatus: Int] = [.critical: 0, .stable: 1, .experimental: 2]
+        let effectiveStatus = testCase.status ?? .stable
+        if statusPriority[effectiveStatus, default: 1] > statusPriority[testFilter, default: 2] {
             skipped.append(testCase.name)
-            print("⏭ Skipping (experimental): \(testCase.name)")
+            print("⏭ Skipping (\(effectiveStatus.rawValue)): \(testCase.name)")
             continue
         }
 
