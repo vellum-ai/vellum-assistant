@@ -58,18 +58,6 @@ export type ChannelVerificationSessionResult = Omit<
 >;
 
 // ---------------------------------------------------------------------------
-// Re-export rate limit constants from the shared outbound actions module
-// for backward compatibility with existing consumers.
-// ---------------------------------------------------------------------------
-
-export {
-  DESTINATION_RATE_WINDOW_MS,
-  MAX_SENDS_PER_DESTINATION_WINDOW,
-  MAX_SENDS_PER_SESSION,
-  RESEND_COOLDOWN_MS,
-} from "../../runtime/verification-outbound-actions.js";
-
-// ---------------------------------------------------------------------------
 // Readiness service singleton
 // ---------------------------------------------------------------------------
 

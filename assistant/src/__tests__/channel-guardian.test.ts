@@ -94,11 +94,7 @@ globalThis.fetch = (async (
 import { eq } from "drizzle-orm";
 
 import { createGuardianBinding } from "../contacts/contacts-write.js";
-import {
-  handleChannelVerificationSession,
-  MAX_SENDS_PER_SESSION,
-  RESEND_COOLDOWN_MS,
-} from "../daemon/handlers/config-channels.js";
+import { handleChannelVerificationSession } from "../daemon/handlers/config-channels.js";
 import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ChannelVerificationSessionRequest,
@@ -148,6 +144,10 @@ import {
   updateSessionStatus as serviceUpdateSessionStatus,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
+import {
+  MAX_SENDS_PER_SESSION,
+  RESEND_COOLDOWN_MS,
+} from "../runtime/verification-outbound-actions.js";
 import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
