@@ -1,5 +1,6 @@
 import { loadConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
+import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 
 const SERVICE_UNAVAILABLE_STATUS = 503 as const;
 
@@ -27,10 +28,6 @@ function fail(error: string): VoiceIngressPreflightFailure {
   };
 }
 
-function normalizePublicBaseUrl(value: unknown): string {
-  return typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
-}
-
 function buildGatewayUnhealthyMessage(
   target: string,
   error: string | undefined,
@@ -45,21 +42,14 @@ function buildGatewayUnhealthyMessage(
 
 export async function preflightVoiceIngress(): Promise<VoiceIngressPreflightResult> {
   const ingressConfig = loadConfig();
-  const publicBaseUrl = normalizePublicBaseUrl(
-    ingressConfig.ingress?.publicBaseUrl,
-  );
-  const ingressEnabled =
-    ingressConfig.ingress?.enabled ?? publicBaseUrl.length > 0;
-
-  if (!ingressEnabled) {
+  let publicBaseUrl: string;
+  try {
+    publicBaseUrl = getPublicBaseUrl(ingressConfig);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     return fail(
-      "Outbound voice calls require public ingress to be enabled before Twilio can reach the assistant callbacks.",
-    );
-  }
-
-  if (!publicBaseUrl) {
-    return fail(
-      "Outbound voice calls require ingress.publicBaseUrl so Twilio webhook callbacks can reach the assistant.",
+      msg ||
+        "Outbound voice calls require public ingress to be enabled and a public base URL (ingress.publicBaseUrl or INGRESS_PUBLIC_BASE_URL).",
     );
   }
 
