@@ -3,9 +3,13 @@ import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../../memory/db.js";
+import { getMemoryBackendStatus } from "../../memory/embedding-backend.js";
 import { computeMemoryFingerprint } from "../../memory/fingerprint.js";
+import { formatRecallText } from "../../memory/format-recall.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import {
+  collectAndMergeCandidates,
+  embedWithRetry,
   formatRelativeTime,
   searchMemoryItems,
 } from "../../memory/retriever.js";
@@ -298,6 +302,141 @@ export async function handleMemoryUpdate(
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, memoryId }, "memory_update failed");
     return { content: `Error: Failed to update memory: ${msg}`, isError: true };
+  }
+}
+
+// ── memory_recall ────────────────────────────────────────────────────
+
+export interface MemoryRecallToolResult {
+  text: string;
+  resultCount: number;
+  degraded: boolean;
+  sources: {
+    lexical: number;
+    semantic: number;
+    recency: number;
+    entity: number;
+  };
+}
+
+export async function handleMemoryRecall(
+  args: Record<string, unknown>,
+  config: AssistantConfig,
+  scopeId?: string,
+): Promise<ToolExecutionResult> {
+  const query = args.query;
+  if (typeof query !== "string" || query.trim().length === 0) {
+    return {
+      content: "Error: query is required and must be a non-empty string",
+      isError: true,
+    };
+  }
+
+  const maxResults =
+    typeof args.max_results === "number" && args.max_results > 0
+      ? Math.min(args.max_results, 50)
+      : 10;
+
+  const scope =
+    typeof args.scope === "string" && args.scope.trim().length > 0
+      ? args.scope.trim()
+      : "default";
+
+  // Scope policy: "conversation" means strict (only that scope),
+  // anything else allows fallback to the default scope.
+  const scopePolicyOverride: ScopePolicyOverride | undefined = scopeId
+    ? {
+        scopeId,
+        fallbackToDefault: scope !== "conversation",
+      }
+    : undefined;
+
+  try {
+    const trimmedQuery = query.trim();
+
+    // Generate embedding vector (graceful degradation if unavailable)
+    let queryVector: number[] | null = null;
+    let provider: string | undefined;
+    let model: string | undefined;
+    let degraded = false;
+
+    const backendStatus = getMemoryBackendStatus(config);
+    if (backendStatus.provider) {
+      try {
+        const embedded = await embedWithRetry(config, [trimmedQuery]);
+        queryVector = embedded.vectors[0] ?? null;
+        provider = embedded.provider;
+        model = embedded.model;
+      } catch {
+        // Gracefully degrade to non-semantic retrieval
+        degraded = true;
+      }
+    } else {
+      degraded = backendStatus.degraded;
+    }
+
+    // Run the full retrieval pipeline with all sources enabled
+    const collected = await collectAndMergeCandidates(trimmedQuery, config, {
+      queryVector,
+      provider,
+      model,
+      scopeId,
+      scopePolicyOverride,
+    });
+
+    if (collected.semanticSearchFailed) {
+      degraded = true;
+    }
+
+    const candidates = collected.merged.slice(0, maxResults);
+
+    if (candidates.length === 0) {
+      const result: MemoryRecallToolResult = {
+        text: "No matching memories found.",
+        resultCount: 0,
+        degraded,
+        sources: {
+          lexical: 0,
+          semantic: 0,
+          recency: 0,
+          entity: 0,
+        },
+      };
+      return {
+        content: JSON.stringify(result),
+        isError: false,
+      };
+    }
+
+    // Format candidates into readable text using the shared formatter
+    const formatted = formatRecallText(candidates, {
+      format: config.memory.retrieval.injectionFormat,
+      maxTokens: config.memory.retrieval.maxInjectTokens,
+    });
+
+    const result: MemoryRecallToolResult = {
+      text: formatted.text,
+      resultCount: formatted.selected.length,
+      degraded,
+      sources: {
+        lexical: collected.lexical.length,
+        semantic: collected.semantic.length,
+        recency: collected.recency.length,
+        entity: collected.entity.length,
+      },
+    };
+
+    return {
+      content: JSON.stringify(result),
+      isError: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, query }, "memory_recall failed");
+    return {
+      content: `Error: Memory recall failed: ${msg}`,
+      isError: true,
+    };
   }
 }
 

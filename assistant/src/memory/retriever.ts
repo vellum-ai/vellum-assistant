@@ -91,7 +91,7 @@ const EMBED_BASE_DELAY_MS = 500;
  * Wrap embedWithBackend with retry + exponential backoff for transient failures
  * (network errors, 429s, 5xx). Aborts immediately if the caller's signal fires.
  */
-async function embedWithRetry(
+export async function embedWithRetry(
   config: AssistantConfig,
   texts: string[],
   opts?: { signal?: AbortSignal },
@@ -156,7 +156,7 @@ function buildScopeFilter(
  * using RRF. Used by both `buildMemoryRecall()` (auto recall) and
  * `searchMemoryItems()` (memory_search tool) for consistent behavior.
  */
-async function collectAndMergeCandidates(
+export async function collectAndMergeCandidates(
   query: string,
   config: AssistantConfig,
   opts?: {
