@@ -234,7 +234,7 @@ struct UsageDashboardPanel: View {
             Text(entry.group)
                 .font(VFont.captionMedium)
                 .foregroundColor(VColor.textPrimary)
-                .frame(width: 130, alignment: .leading)
+                .frame(minWidth: 130, maxWidth: .infinity, alignment: .leading)
                 .lineLimit(1)
             Text(UsageFormatting.formatBreakdownSummary(entry))
                 .font(VFont.small)

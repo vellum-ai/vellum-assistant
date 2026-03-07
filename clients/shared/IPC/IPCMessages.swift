@@ -1996,10 +1996,6 @@ extension IPCChannelVerificationSessionRequest {
 /// Backed by generated `IPCChannelVerificationSessionResponse`.
 public typealias ChannelVerificationSessionResponseMessage = IPCChannelVerificationSessionResponse
 
-// Legacy aliases for backward compatibility during migration.
-public typealias GuardianVerificationRequestMessage = ChannelVerificationSessionRequestMessage
-public typealias GuardianVerificationResponseMessage = ChannelVerificationSessionResponseMessage
-
 // MARK: - Twitter Integration Config Messages
 
 /// Sent to get/set Twitter integration config.

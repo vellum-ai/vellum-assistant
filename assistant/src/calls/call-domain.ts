@@ -936,7 +936,6 @@ export async function startGuardianVerificationCall(
     if (!preflightResult.ok) {
       return preflightResult;
     }
-
     const ingressConfig = preflightResult.ingressConfig;
 
     // Create a minimal conversation so the call session has a valid FK,

@@ -1,11 +1,11 @@
 ---
 name: "Guardian Verify Setup"
-description: "Set up guardian verification for voice, Telegram, or Slack channels via outbound verification flow"
+description: "Set up channel verification for voice, Telegram, or Slack channels via outbound verification flow"
 user-invocable: true
 metadata: { "vellum": { "emoji": "\ud83d\udd10" } }
 ---
 
-You are helping your user set up guardian verification for a messaging channel (voice, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `assistant integrations guardian status` for status reads.
+You are helping your user set up channel verification for a messaging channel (voice, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `assistant integrations guardian status` for status reads.
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ Based on the chosen channel, ask for the required destination:
 Execute the outbound start request:
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/sessions" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/channel-verification-sessions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"channel": "<channel>", "destination": "<destination>"}'
@@ -52,12 +52,12 @@ Replace `<channel>` with `voice`, `telegram`, or `slack`, and `<destination>` wi
 
 Report the exact next action based on the channel:
 
-- **Voice**: The response includes a `secret` field with the verification code. Tell the user the code BEFORE the call connects: "I'm calling [number] now. Your verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `POST /v1/integrations/guardian/sessions` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
+- **Voice**: The response includes a `secret` field with the verification code. Tell the user the code BEFORE the call connects: "I'm calling [number] now. Your verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `POST /v1/channel-verification-sessions` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
 - **Telegram with chat ID** (no `telegramBootstrapUrl` in response): The response includes a `secret` field. Show it in the current chat: "Your verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and reply with that 6-digit code to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3 or resend (Step 4).
 - **Telegram with handle** (`telegramBootstrapUrl` present in response): "Tap this deep-link first: [telegramBootstrapUrl]. After Telegram binds your identity, I'll send your verification code."
 - **Slack**: The response includes a `secret` field with the verification code. Show it in the current chat: "Your verification code is **[secret]**. I've also sent it to you as a Slack DM. Open the DM from the Vellum bot in Slack and reply with that 6-digit code to complete verification." The DM channel ID is captured automatically during this process for future message delivery. If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3 or resend (Step 4). **After delivering the code, immediately begin the Slack auto-check polling loop** (see [Slack Auto-Check Polling](#slack-auto-check-polling) below).
 
-After reporting the bootstrap URL for Telegram handle flows, wait for the user to confirm they clicked the link. Then check guardian status (Step 6) to see if the bootstrap completed and a code was sent.
+After reporting the bootstrap URL for Telegram handle flows, wait for the user to confirm they clicked the link. Then check verification status (Step 6) to see if the bootstrap completed and a code was sent.
 
 ### On error (`success: false`)
 
@@ -77,7 +77,7 @@ Handle each error code:
 If the user says they did not receive the code or asks to resend:
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/sessions/resend" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/channel-verification-sessions/resend" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"channel": "<channel>"}'
@@ -85,7 +85,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/sessions/re
 
 On success, report the next action based on the channel:
 
-- **Voice**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `POST /v1/integrations/guardian/sessions/resend` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
+- **Voice**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `POST /v1/channel-verification-sessions/resend` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
 - **Telegram**: The resend response includes a fresh `secret` field. Show the new code in the current chat: "Your new verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and reply with that 6-digit code to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3.
 - **Slack**: The resend response includes a fresh `secret` field. Show the new code in the current chat: "Your new verification code is **[secret]**. I've also sent it to you as a Slack DM. Reply to the DM with that 6-digit code to complete verification. (resent)" If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3. **After delivering the code, immediately begin the Slack auto-check polling loop** (see [Slack Auto-Check Polling](#slack-auto-check-polling) below).
 
@@ -106,7 +106,7 @@ Handle each error code from the resend endpoint:
 If the user wants to cancel the verification:
 
 ```bash
-curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/sessions" \
+curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/channel-verification-sessions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"channel": "<channel>"}'
@@ -175,7 +175,7 @@ When in a **rebind flow** (i.e., the session creation request included `"rebind"
 - Do NOT require the user to ask "did it work?" — the whole point is proactive confirmation.
 - If the user sends a message while polling is in progress, handle their message normally.
 
-## Step 6: Check Guardian Status
+## Step 6: Check Verification Status
 
 After the user reports entering the code, verify the binding was created:
 
@@ -184,7 +184,7 @@ CHANNEL="<channel>"
 assistant integrations guardian status --channel "$CHANNEL" --json
 ```
 
-If the response shows the guardian is bound, confirm success: "Guardian verified! Your [channel] identity is now the trusted guardian."
+If the response shows the channel is bound, confirm success: "Verification complete! Your [channel] identity is now the trusted guardian."
 
 If not yet bound, offer to resend (Step 4) or generate a new session (Step 3).
 
@@ -193,7 +193,7 @@ If not yet bound, offer to resend (Step 4) or generate a new session (Step 3).
 If the user wants to remove themselves (or the current guardian) from a channel, use the revoke endpoint:
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/revoke" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/channel-verification-sessions/revoke" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"channel": "<channel>"}'
@@ -213,6 +213,6 @@ The response includes `bound: false` after the operation completes. Check the pr
 - Verification codes expire after 10 minutes. If the session expires, start a new one.
 - The resend cooldown is 15 seconds between sends, with a maximum of 5 sends per session.
 - Per-destination rate limiting allows up to 10 sends within a 1-hour rolling window.
-- Guardian verification is identity-bound: the code can only be consumed by the identity matching the destination provided at start time.
+- Channel verification is identity-bound: the code can only be consumed by the identity matching the destination provided at start time.
 - **Missing `secret` guardrail**: For voice, Telegram chat-ID, and Slack flows, the API response MUST include a `secret` field. If `secret` is unexpectedly absent from a start or resend response that otherwise indicates success, treat this as a control-plane error. Do NOT fabricate a code or tell the user to proceed without one. Instead, tell the user something went wrong and ask them to retry the start (Step 3) or resend (Step 4).
 - **Revoking a guardian**: To remove the current guardian from a channel, use the revoke API (Step 7). This revokes the binding AND revokes the guardian's contact record, so they lose access to the channel. A new guardian can then be verified for that channel.

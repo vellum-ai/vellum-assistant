@@ -458,7 +458,7 @@ describe("startCall — pointer message regression", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(503);
-      expect(result.error).toContain("public ingress");
+      expect(result.error).toContain("Public ingress");
     }
     expect(probeLocalGatewayHealthCallCount).toBe(0);
     expect(ensureLocalGatewayReadyCallCount).toBe(0);

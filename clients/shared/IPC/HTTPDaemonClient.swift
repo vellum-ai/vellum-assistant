@@ -29,6 +29,7 @@ struct ConversationsListResponse: Decodable {
         let updatedAt: Int
         let threadType: String?
         let source: String?
+        let scheduleJobId: String?
         let channelBinding: IPCChannelBinding?
         let conversationOriginChannel: String?
         let conversationOriginInterface: String?
@@ -183,7 +184,6 @@ public final class HTTPTransport {
         case contactsGet(id: String)
         case contactsDelete(id: String)
         case contactChannelUpdate(contactChannelId: String)
-        case contactChannelVerify(contactChannelId: String)
         case contactsUpsert
         case contactsInvitesCreate
         case channelsReadiness
@@ -284,9 +284,6 @@ public final class HTTPTransport {
         case .contactChannelUpdate(let contactChannelId):
             let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
             return ("/v1/contact-channels/\(encoded)", nil)
-        case .contactChannelVerify(let contactChannelId):
-            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
-            return ("/v1/contact-channels/\(encoded)/verify", nil)
         case .contactsUpsert:
             return ("/v1/contacts", nil)
         case .contactsInvitesCreate:
@@ -378,9 +375,6 @@ public final class HTTPTransport {
         case .contactChannelUpdate(let contactChannelId):
             let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
             return ("\(prefix)/contact-channels/\(encoded)/", nil)
-        case .contactChannelVerify(let contactChannelId):
-            let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
-            return ("\(prefix)/contact-channels/\(encoded)/verify/", nil)
         case .contactsUpsert:
             return ("\(prefix)/contacts/", nil)
         case .contactsInvitesCreate:
@@ -1494,29 +1488,6 @@ public final class HTTPTransport {
         return result
     }
 
-    // MARK: - Channel Verification
-
-    /// Send a verification code to a contact's channel via the gateway.
-    func verifyContactChannel(contactChannelId: String, isRetry: Bool = false) async throws -> DaemonClient.ChannelVerificationResult? {
-        guard let url = buildURL(for: .contactChannelVerify(contactChannelId: contactChannelId)) else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuth(&request)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 && !isRetry {
-                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                if case .success = refreshResult {
-                    return try await verifyContactChannel(contactChannelId: contactChannelId, isRetry: true)
-                }
-                return nil
-            }
-            guard (200...299).contains(http.statusCode) else { return nil }
-        }
-        return try JSONDecoder().decode(DaemonClient.ChannelVerificationResult.self, from: data)
-    }
-
     // MARK: - Surface Actions
 
     private func sendSurfaceAction(_ action: UiSurfaceActionMessage, isRetry: Bool = false) async {
@@ -1767,7 +1738,7 @@ public final class HTTPTransport {
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
-                    IPCSessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
+                    IPCSessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, scheduleJobId: $0.scheduleJobId, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {

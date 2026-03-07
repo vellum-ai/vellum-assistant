@@ -1,8 +1,7 @@
 import { getGatewayInternalBaseUrl } from "../config/env.js";
-import { getIsContainerized } from "../config/env-registry.js";
+import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
 import { readLockfile } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
-import { spawnWithTimeout } from "../util/spawn.js";
 
 const DEFAULT_PROBE_TIMEOUT_MS = 2_000;
 const DEFAULT_RECOVERY_POLL_TIMEOUT_MS = 30_000;
@@ -84,7 +83,25 @@ function resolveLocalDeployment(): boolean {
   return true;
 }
 
+/**
+ * Derive instance name from BASE_DATA_DIR when it matches the multi-instance
+ * path pattern (~/.local/share/vellum/assistants/<name>/). Returns undefined
+ * for the legacy single-instance layout (BASE_DATA_DIR = homedir).
+ */
+function resolveInstanceNameFromBaseDataDir(): string | undefined {
+  const base = getBaseDataDir();
+  if (!base || typeof base !== "string") return undefined;
+
+  const normalized = base.replace(/\\/g, "/").replace(/\/+$/, "");
+  const match = normalized.match(/\/assistants\/([^/]+)$/);
+  if (match) return match[1];
+  return undefined;
+}
+
 function resolveLocalAssistantName(): string | undefined {
+  const fromPath = resolveInstanceNameFromBaseDataDir();
+  if (fromPath) return fromPath;
+
   const latestAssistant = getLatestAssistantEntry();
   if (
     latestAssistant &&
@@ -92,6 +109,19 @@ function resolveLocalAssistantName(): string | undefined {
     latestAssistant.assistantId.trim().length > 0
   ) {
     return latestAssistant.assistantId.trim();
+  }
+
+  // Fallback for named instances: when BASE_DATA_DIR points to an instance
+  // directory (e.g. ~/.local/share/vellum/assistants/<name>), derive the name
+  // so vellum wake gets the correct target. Without this, vellum wake exits
+  // with "No local assistant found" for named instances when the lockfile
+  // lacks assistantId (e.g. before first hatch or during early startup).
+  const baseDir = getBaseDataDir();
+  if (baseDir) {
+    const match = baseDir.match(/[/]assistants[/]([^/]+)$/);
+    if (match && match[1].trim().length > 0) {
+      return match[1].trim();
+    }
   }
 
   return undefined;
@@ -108,7 +138,43 @@ async function runDefaultWakeCommand(
   const command = assistantName
     ? ["vellum", "wake", assistantName]
     : ["vellum", "wake"];
-  return spawnWithTimeout(command, timeoutMs);
+
+  // Only when the assistant name came from the instance path (e.g.
+  // ~/.local/share/vellum/assistants/<name>/), unset BASE_DATA_DIR so the
+  // spawned CLI reads the global lockfile. When the name came from the
+  // lockfile, keep BASE_DATA_DIR — vellum wake resolves names through the
+  // lockfile rooted at BASE_DATA_DIR, so clearing it would read the wrong
+  // lockfile (e.g. $HOME) and fail or wake the wrong assistant.
+  const fromInstancePath = resolveInstanceNameFromBaseDataDir();
+  const env =
+    fromInstancePath && getBaseDataDir()
+      ? { ...process.env, BASE_DATA_DIR: undefined }
+      : process.env;
+
+  return new Promise((resolve, reject) => {
+    const proc = Bun.spawn(command, {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: {
+        ...env,
+        PATH: [env.PATH, "/opt/homebrew/bin", "/usr/local/bin"]
+          .filter(Boolean)
+          .join(":"),
+      },
+    });
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(
+        new Error(`Process timed out after ${timeoutMs}ms: ${command[0]}`),
+      );
+    }, timeoutMs);
+    proc.exited.then(async (exitCode) => {
+      clearTimeout(timer);
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+      resolve({ exitCode, stdout, stderr });
+    });
+  });
 }
 
 export async function probeLocalGatewayHealth(
