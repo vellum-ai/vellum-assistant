@@ -230,36 +230,32 @@ final class UsageDashboardViewTests: XCTestCase {
 
 #if canImport(UIKit)
 private extension UsageDashboardViewTests {
-    /// Snapshot the visible text from a hosted SwiftUI view after a single
-    /// RunLoop tick. Used by `pollRenderedText` for each polling iteration.
-    static func renderedText(from view: UsageDashboardView) -> String {
-        let hostingController = UIHostingController(rootView: view)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
-        window.rootViewController = hostingController
-        window.isHidden = false
-
-        hostingController.view.frame = window.bounds
-        hostingController.view.setNeedsLayout()
-        hostingController.view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-
-        return collectText(from: hostingController.view).joined(separator: "\n")
-    }
-
-    /// Poll `renderedText(from:)` until `condition` is satisfied or `timeout`
-    /// elapses. Returns the last captured text so callers can hard-assert on it.
+    /// Poll the rendered text of a hosted SwiftUI view until `condition` is
+    /// satisfied or `timeout` elapses. The hosting controller and window are
+    /// created once so lazy List materialization accumulates across iterations
+    /// rather than resetting each time.
     static func pollRenderedText(
         from view: UsageDashboardView,
         timeout: TimeInterval = 3.0,
         interval: TimeInterval = 0.1,
         until condition: (String) -> Bool
     ) -> String {
+        let hostingController = UIHostingController(rootView: view)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = hostingController
+        window.isHidden = false
+        hostingController.view.frame = window.bounds
+        hostingController.view.setNeedsLayout()
+        hostingController.view.layoutIfNeeded()
+
         let deadline = Date().addingTimeInterval(timeout)
         var text = ""
         while Date() < deadline {
-            text = renderedText(from: view)
-            if condition(text) { return text }
             RunLoop.main.run(until: Date().addingTimeInterval(interval))
+            hostingController.view.setNeedsLayout()
+            hostingController.view.layoutIfNeeded()
+            text = collectText(from: hostingController.view).joined(separator: "\n")
+            if condition(text) { return text }
         }
         return text
     }
