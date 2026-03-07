@@ -426,7 +426,7 @@ jobs:
           ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true
           echo ""
           echo "=== Test 3s recording (WebM/VP8) ==="
-          ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 -i "1:none" \
+          ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 -i "0:none" \
             -c:v libvpx -b:v 1M -crf 30 \
             -t 3 -y /tmp/test-ffmpeg.webm 2>&1 || true
           echo ""
