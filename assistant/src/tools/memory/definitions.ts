@@ -119,3 +119,25 @@ export const memoryUpdateDefinition: ToolDefinition = {
     required: ["memory_id", "statement"],
   },
 };
+
+export const memoryDeleteDefinition: ToolDefinition = {
+  name: "memory_delete",
+  description:
+    "Delete a previously saved memory item. Use this when information is no longer relevant, was saved in error, or the user asks to forget something.",
+  input_schema: {
+    type: "object",
+    properties: {
+      memory_id: {
+        type: "string",
+        description:
+          "ID of the memory item to delete (from memory_search results)",
+      },
+      reason: {
+        type: "string",
+        description:
+          "Brief non-technical explanation of what you are deleting and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
+      },
+    },
+    required: ["memory_id"],
+  },
+};

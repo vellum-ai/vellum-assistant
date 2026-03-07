@@ -440,6 +440,64 @@ export async function handleMemoryRecall(
   }
 }
 
+// ── memory_delete ────────────────────────────────────────────────────
+
+export async function handleMemoryDelete(
+  args: Record<string, unknown>,
+  _config: AssistantConfig,
+  scopeId: string = "default",
+): Promise<ToolExecutionResult> {
+  const rawMemoryId = args.memory_id;
+  if (typeof rawMemoryId !== "string" || rawMemoryId.trim().length === 0) {
+    return {
+      content: "Error: memory_id is required and must be a non-empty string",
+      isError: true,
+    };
+  }
+
+  const memoryId = stripTypedIdPrefix(rawMemoryId.trim());
+
+  try {
+    const db = getDb();
+
+    const existing = db
+      .select()
+      .from(memoryItems)
+      .where(
+        and(eq(memoryItems.id, memoryId), eq(memoryItems.scopeId, scopeId)),
+      )
+      .get();
+
+    if (!existing) {
+      return {
+        content: `Error: Memory item with ID "${memoryId}" not found`,
+        isError: true,
+      };
+    }
+
+    db.update(memoryItems)
+      .set({
+        status: "deleted",
+        lastSeenAt: Date.now(),
+      })
+      .where(eq(memoryItems.id, existing.id))
+      .run();
+
+    log.debug(
+      { id: existing.id, kind: existing.kind },
+      "Memory item deleted via tool",
+    );
+    return {
+      content: `Deleted memory (ID: ${existing.id}).\nKind: ${existing.kind}\nSubject: ${existing.subject}\nStatement: ${existing.statement}`,
+      isError: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, memoryId }, "memory_delete failed");
+    return { content: `Error: Failed to delete memory: ${msg}`, isError: true };
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function inferSubjectFromStatement(statement: string): string {
