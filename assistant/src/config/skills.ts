@@ -1003,6 +1003,46 @@ function applyFeatureGatedSections(body: string): string {
   return result;
 }
 
+/**
+ * Scan for a `references/` subdirectory within a skill directory and append
+ * the contents of any `.md` files found there to the skill body. Each
+ * reference file is labeled with a `--- Reference: <Name> ---` header.
+ * Files are appended in alphabetical order for deterministic output.
+ * Non-`.md` files are ignored. Errors are logged as warnings and the
+ * original body is returned unchanged.
+ */
+function appendReferenceFiles(body: string, directoryPath: string): string {
+  try {
+    const refsDir = join(directoryPath, "references");
+    if (!existsSync(refsDir) || !statSync(refsDir).isDirectory()) {
+      return body;
+    }
+
+    const entries = readdirSync(refsDir);
+    const mdFiles = entries
+      .filter((f) => f.toLowerCase().endsWith(".md"))
+      .sort((a, b) => a.localeCompare(b));
+
+    if (mdFiles.length === 0) return body;
+
+    let result = body;
+    for (const filename of mdFiles) {
+      const fileContents = readFileSync(join(refsDir, filename), "utf-8");
+      const displayName = filename
+        .replace(/\.md$/i, "")
+        .replace(/[-_]/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .replace(/\B\w+/g, (w) => w.toLowerCase());
+      result += `\n\n--- Reference: ${displayName} ---\n${fileContents}`;
+    }
+
+    return result;
+  } catch (err) {
+    log.warn({ err, directoryPath }, "Failed to read reference files");
+    return body;
+  }
+}
+
 function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   let loaded: SkillDefinition | null;
   if (skill.bundled) {
@@ -1029,6 +1069,8 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
   // Strip feature-gated sections based on assistant feature flags
   loaded.body = applyFeatureGatedSections(loaded.body);
+  // Auto-load reference files from references/ subdirectory
+  loaded.body = appendReferenceFiles(loaded.body, loaded.directoryPath);
   return { skill: loaded };
 }
 

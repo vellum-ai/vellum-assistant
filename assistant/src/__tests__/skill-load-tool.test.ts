@@ -558,6 +558,70 @@ describe("skill_load tool", () => {
     expect(result.content).not.toContain("<loaded_skill");
   });
 
+  test("skill with references/ directory appends reference file contents", async () => {
+    // Create a skill with a references/ subdirectory
+    const skillDir = join(TEST_DIR, "skills", "with-refs");
+    mkdirSync(skillDir, { recursive: true });
+    mkdirSync(join(skillDir, "references"), { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      '---\nname: "With Refs"\ndescription: "Has references"\n---\n\nMain body.\n',
+    );
+    writeFileSync(
+      join(skillDir, "references", "GUIDE.md"),
+      "# Guide\n\nDetailed guide content.",
+    );
+    writeFileSync(
+      join(skillDir, "references", "TROUBLESHOOTING.md"),
+      "# Troubleshooting\n\nFix things here.",
+    );
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- with-refs\n");
+
+    const result = await executeSkillLoad({ skill: "with-refs" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Main body.");
+    // Reference files should be appended with headers
+    expect(result.content).toContain("--- Reference: Guide ---");
+    expect(result.content).toContain("Detailed guide content.");
+    expect(result.content).toContain("--- Reference: Troubleshooting ---");
+    expect(result.content).toContain("Fix things here.");
+  });
+
+  test("skill without references/ directory loads normally", async () => {
+    writeSkill("no-refs", "No Refs", "No references dir", "Just body.");
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- no-refs\n");
+
+    const result = await executeSkillLoad({ skill: "no-refs" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Just body.");
+    expect(result.content).not.toContain("--- Reference:");
+  });
+
+  test("references/ directory ignores non-markdown files", async () => {
+    const skillDir = join(TEST_DIR, "skills", "refs-filter");
+    mkdirSync(skillDir, { recursive: true });
+    mkdirSync(join(skillDir, "references"), { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      '---\nname: "Refs Filter"\ndescription: "Filters non-md"\n---\n\nBody.\n',
+    );
+    writeFileSync(
+      join(skillDir, "references", "GUIDE.md"),
+      "# Guide\n\nGuide content.",
+    );
+    writeFileSync(
+      join(skillDir, "references", "data.json"),
+      '{"key": "value"}',
+    );
+    writeFileSync(join(TEST_DIR, "skills", "SKILLS.md"), "- refs-filter\n");
+
+    const result = await executeSkillLoad({ skill: "refs-filter" });
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("--- Reference: Guide ---");
+    expect(result.content).not.toContain("data.json");
+    expect(result.content).not.toContain('"key"');
+  });
+
   test('skill with empty includes array loads successfully as "none"', async () => {
     // Write a skill with `includes: []` directly in frontmatter.
     // The parser normalizes this to undefined, so it should behave identically
