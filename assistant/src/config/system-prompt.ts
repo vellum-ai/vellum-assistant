@@ -186,6 +186,7 @@ export function buildSystemPrompt(): string {
   parts.push(buildAccessPreferenceSection());
   parts.push(buildIntegrationSection());
   parts.push(buildMemoryPersistenceSection());
+  parts.push(buildMemoryRecallSection());
   parts.push(buildWorkspaceReflectionSection());
   parts.push(buildLearningMemorySection());
 
@@ -656,6 +657,21 @@ function buildMemoryPersistenceSection(): string {
     "- When you make a mistake, save the lesson so future-you doesn't repeat it.",
     "",
     "Saved > unsaved. Always.",
+  ].join("\n");
+}
+
+function buildMemoryRecallSection(): string {
+  return [
+    "## Memory Recall",
+    "",
+    "You have access to a `memory_recall` tool for deep memory retrieval. Use it when:",
+    "",
+    "- The user asks about past conversations, decisions, or context you don't have in the current window",
+    "- You need to recall specific facts, preferences, or project details",
+    "- The auto-injected memory context doesn't contain what you need",
+    "- The user references something from a previous session",
+    "",
+    "The tool searches across semantic, lexical, entity graph, and recency sources. Be specific in your query for best results.",
   ].join("\n");
 }
 
