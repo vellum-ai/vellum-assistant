@@ -448,31 +448,10 @@ struct SettingsAccountTab: View {
 
         // Check canonical assistantFeatureFlagValues first (new format)
         if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool] {
-            let canonicalKeys = [
-                Self.hatchNewAssistantFlagKey,
-                "feature_flags.hatch_new_assistant.enabled"
-            ]
-            for key in canonicalKeys {
-                if let enabled = canonicalFlags[key] {
-                    isHatchFlagEnabled = enabled
-                    isLoadingHatchFlag = false
-                    return
-                }
-            }
-        }
-
-        // Check legacy featureFlags section
-        if let featureFlags = config["featureFlags"] as? [String: Any] {
-            let legacyKeys = [
-                "skills.hatch_new_assistant.enabled",
-                "skills.hatch-new-assistant.enabled"
-            ]
-            for key in legacyKeys {
-                if let enabled = featureFlags[key] as? Bool {
-                    isHatchFlagEnabled = enabled
-                    isLoadingHatchFlag = false
-                    return
-                }
+            if let enabled = canonicalFlags[Self.hatchNewAssistantFlagKey] {
+                isHatchFlagEnabled = enabled
+                isLoadingHatchFlag = false
+                return
             }
         }
         // On failure, default to showing the hatch section
