@@ -768,6 +768,7 @@ export class RuntimeHttpServer {
                 updatedAt: c.updatedAt,
                 threadType: c.threadType === "private" ? "private" : "standard",
                 source: c.source ?? "user",
+                ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
                 ...(binding
                   ? {
                       channelBinding: {

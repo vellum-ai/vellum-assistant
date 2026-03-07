@@ -374,16 +374,17 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
         ? "call_connected"
         : "call_started";
 
-    // Record terminal event before updating the session so the lease is only
-    // released (via updateCallSession → syncActiveCallLeaseFromSession) after
-    // terminal callback persistence completes. Prevents vellum sleep from
-    // proceeding before the call is fully recorded.
-    recordCallEvent(session.id, eventType, {
-      twilioStatus: callStatus,
-      callSid,
+    // Record event after DB update but before lease sync: avoids duplicate
+    // events on retry (if update fails we never record), while ensuring the
+    // lease is only released after persistence so vellum sleep doesn't proceed
+    // before the call is fully recorded.
+    updateCallSession(session.id, updates, {
+      beforeLeaseSync: () =>
+        recordCallEvent(session.id, eventType, {
+          twilioStatus: callStatus,
+          callSid,
+        }),
     });
-
-    updateCallSession(session.id, updates);
 
     // Expire pending questions on terminal status
     if (isTerminal) {

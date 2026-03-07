@@ -169,6 +169,7 @@ export function updateCallSession(
       | "initiatedFromConversationId"
     >
   >,
+  opts?: { beforeLeaseSync?: () => void },
 ): void {
   const db = getDb();
   const shouldSyncActiveLease =
@@ -203,8 +204,17 @@ export function updateCallSession(
     .where(eq(callSessions.id, id))
     .run();
 
+  opts?.beforeLeaseSync?.();
+
   if (shouldSyncActiveLease) {
-    syncActiveCallLeaseFromSession(getCallSession(id));
+    try {
+      syncActiveCallLeaseFromSession(getCallSession(id));
+    } catch (err) {
+      log.warn(
+        { callSessionId: id, err },
+        "Failed to sync active call lease from session update",
+      );
+    }
   }
 }
 

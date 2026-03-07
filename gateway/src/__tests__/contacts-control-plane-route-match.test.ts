@@ -21,23 +21,6 @@ describe("matchContactsControlPlaneRoute", () => {
     });
   });
 
-  test("matches verify contact channel route", () => {
-    expect(
-      matchContactsControlPlaneRoute(
-        "/v1/contact-channels/ch_1/verify",
-        "POST",
-      ),
-    ).toEqual({
-      kind: "verifyContactChannel",
-      contactChannelId: "ch_1",
-    });
-
-    // Only POST is supported
-    expect(
-      matchContactsControlPlaneRoute("/v1/contact-channels/ch_1/verify", "GET"),
-    ).toBeNull();
-  });
-
   test("returns null for unsupported methods on contact routes", () => {
     expect(matchContactsControlPlaneRoute("/v1/contacts", "DELETE")).toBeNull();
     // GET /v1/contact-channels/ch_1 does not match (PATCH only)

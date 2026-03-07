@@ -405,7 +405,7 @@ describe("pairDeliveryWithConversation", () => {
       source: "user",
       title: "User Thread",
     };
-    mockBindings["notification:sms:+15551234567"] = {
+    mockBindings["notification:slack:C0123ABCDEF"] = {
       conversationId: "conv-user-owned",
       sourceChannel: "notification:slack",
       externalChatId: "C0123ABCDEF",

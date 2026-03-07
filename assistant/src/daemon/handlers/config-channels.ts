@@ -35,7 +35,7 @@ import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 // -- Transport-agnostic result type (omits the IPC `type` discriminant) --
 
-export type GuardianVerificationResult = Omit<
+export type ChannelVerificationSessionResult = Omit<
   ChannelVerificationSessionResponse,
   "type"
 >;
@@ -69,11 +69,11 @@ export function getReadinessService(): ChannelReadinessService {
 // Extracted business logic functions
 // ---------------------------------------------------------------------------
 
-export function createGuardianChallenge(
+export function createInboundChallenge(
   channel?: ChannelId,
   rebind?: boolean,
   sessionId?: string,
-): GuardianVerificationResult {
+): ChannelVerificationSessionResult {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
@@ -101,9 +101,9 @@ export function createGuardianChallenge(
   };
 }
 
-export function getGuardianStatus(
+export function getVerificationStatus(
   channel?: ChannelId,
-): GuardianVerificationResult {
+): ChannelVerificationSessionResult {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
@@ -157,12 +157,12 @@ export function getGuardianStatus(
 }
 
 // ---------------------------------------------------------------------------
-// Revoke guardian binding
+// Revoke verification binding
 // ---------------------------------------------------------------------------
 
-export function revokeGuardianForChannel(
+export function revokeVerificationForChannel(
   channel?: ChannelId,
-): GuardianVerificationResult {
+): ChannelVerificationSessionResult {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
@@ -218,10 +218,10 @@ export function revokeGuardianForChannel(
 }
 
 // ---------------------------------------------------------------------------
-// Guardian verification handler
+// Channel verification session handler
 // ---------------------------------------------------------------------------
 
-export async function handleGuardianVerification(
+export async function handleChannelVerificationSession(
   msg: ChannelVerificationSessionRequest,
   socket: net.Socket,
   ctx: HandlerContext,
@@ -242,7 +242,7 @@ export async function handleGuardianVerification(
           ...result,
         });
       } else {
-        const result = createGuardianChallenge(
+        const result = createInboundChallenge(
           channel,
           msg.rebind,
           msg.sessionId,
@@ -253,7 +253,7 @@ export async function handleGuardianVerification(
         });
       }
     } else if (msg.action === "status") {
-      const result = getGuardianStatus(channel);
+      const result = getVerificationStatus(channel);
       ctx.send(socket, {
         type: "channel_verification_session_response",
         ...result,
@@ -267,7 +267,7 @@ export async function handleGuardianVerification(
         channel,
       });
     } else if (msg.action === "revoke") {
-      const result = revokeGuardianForChannel(channel);
+      const result = revokeVerificationForChannel(channel);
       ctx.send(socket, {
         type: "channel_verification_session_response",
         ...result,
@@ -291,7 +291,7 @@ export async function handleGuardianVerification(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to handle guardian verification");
+    log.error({ err }, "Failed to handle channel verification session");
     ctx.send(socket, {
       type: "channel_verification_session_response",
       success: false,
@@ -302,5 +302,5 @@ export async function handleGuardianVerification(
 }
 
 export const channelHandlers = defineHandlers({
-  channel_verification_session: handleGuardianVerification,
+  channel_verification_session: handleChannelVerificationSession,
 });

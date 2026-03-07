@@ -405,7 +405,7 @@ Examples:
       const channel = opts.channel ?? "telegram";
       await runRead(cmd, async () =>
         gatewayGet(
-          `/v1/integrations/guardian/status${toQueryString({ channel })}`,
+          `/v1/channel-verification-sessions/status${toQueryString({ channel })}`,
         ),
       );
     });

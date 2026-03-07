@@ -937,33 +937,41 @@ struct ContactDetailView: View {
         telegramBootstrapUrl = nil
         telegramBootstrapChannelId = nil
 
-        Task {
-            do {
-                let result = try await daemonClient.verifyContactChannel(
-                    contactChannelId: channel.id
-                )
-                if result?.ok == true {
-                    // Telegram bootstrap: ok is true but no code was sent yet —
-                    // the user needs to open the bootstrap URL first.
-                    if let bootstrapUrl = result?.telegramBootstrapUrl {
-                        telegramBootstrapUrl = bootstrapUrl
-                        telegramBootstrapChannelId = channel.id
-                    } else {
-                        verificationSuccessChannelId = channel.id
-                        // Auto-clear the success message after 5 seconds
-                        Task {
-                            try? await Task.sleep(nanoseconds: 5_000_000_000)
-                            if verificationSuccessChannelId == channel.id {
-                                verificationSuccessChannelId = nil
-                            }
+        // Stash the previous callback so we can restore it after the one-shot response.
+        let previousCallback = daemonClient.onChannelVerificationSessionResponse
+        daemonClient.onChannelVerificationSessionResponse = { [self] response in
+            // Restore the previous handler after consuming this one-shot response.
+            daemonClient.onChannelVerificationSessionResponse = previousCallback
+            // Also forward to the previous handler so SettingsStore still processes it.
+            previousCallback?(response)
+
+            if response.success {
+                if let bootstrapUrl = response.telegramBootstrapUrl {
+                    telegramBootstrapUrl = bootstrapUrl
+                    telegramBootstrapChannelId = channel.id
+                } else {
+                    verificationSuccessChannelId = channel.id
+                    Task {
+                        try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        if verificationSuccessChannelId == channel.id {
+                            verificationSuccessChannelId = nil
                         }
                     }
-                } else {
-                    errorMessage = result?.error ?? "Failed to send verification"
                 }
-            } catch {
-                errorMessage = "Failed to send verification: \(error.localizedDescription)"
+            } else {
+                errorMessage = response.error ?? "Failed to send verification"
             }
+            verificationInProgress = nil
+        }
+
+        do {
+            try daemonClient.sendChannelVerificationSession(
+                action: "create_session",
+                contactChannelId: channel.id
+            )
+        } catch {
+            daemonClient.onChannelVerificationSessionResponse = previousCallback
+            errorMessage = "Failed to send verification: \(error.localizedDescription)"
             verificationInProgress = nil
         }
     }

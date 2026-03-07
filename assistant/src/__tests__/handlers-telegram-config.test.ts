@@ -1242,7 +1242,7 @@ describe("Telegram config handler", () => {
 // Guardian verification status/revoke IPC actions
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { handleGuardianVerification } from "../daemon/handlers/config.js";
+import { handleChannelVerificationSession } from "../daemon/handlers/config.js";
 import type { ChannelVerificationSessionRequest } from "../daemon/ipc-contract.js";
 describe("Guardian verification IPC actions", () => {
   beforeEach(() => {
@@ -1258,7 +1258,7 @@ describe("Guardian verification IPC actions", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleGuardianVerification(msg, {} as net.Socket, ctx);
+    handleChannelVerificationSession(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -1281,7 +1281,7 @@ describe("Guardian verification IPC actions", () => {
     };
 
     const { ctx, sent } = createTestContext();
-    handleGuardianVerification(msg, {} as net.Socket, ctx);
+    handleChannelVerificationSession(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as {
@@ -1306,7 +1306,7 @@ describe("Guardian verification IPC actions", () => {
     } as unknown as ChannelVerificationSessionRequest;
 
     const { ctx, sent } = createTestContext();
-    handleGuardianVerification(msg, {} as net.Socket, ctx);
+    handleChannelVerificationSession(msg, {} as net.Socket, ctx);
 
     expect(sent).toHaveLength(1);
     const res = sent[0] as { type: string; success: boolean; error?: string };

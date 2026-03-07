@@ -99,7 +99,7 @@ assistant/src/daemon/handlers/config-trust.ts @noanflaherty
 assistant/src/daemon/handlers/guardian-actions.ts @noanflaherty
 assistant/src/daemon/ipc-contract/guardian-actions.ts @noanflaherty
 assistant/src/daemon/ipc-contract/trust.ts @noanflaherty
-assistant/src/tools/guardian-control-plane-policy.ts @noanflaherty
+assistant/src/tools/verification-control-plane-policy.ts @noanflaherty
 assistant/src/tools/tool-approval-handler.ts @noanflaherty
 assistant/src/security/tool-approval-digest.ts @noanflaherty
 assistant/src/permissions/ @noanflaherty

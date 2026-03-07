@@ -1097,44 +1097,6 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/contact-channels/{contactChannelId}/verify": {
-        post: {
-          summary: "Verify a contact channel",
-          description:
-            "Authenticated gateway endpoint that initiates or completes verification of a contact's communication channel via the assistant runtime.",
-          operationId: "contactsChannelVerify",
-          security: [{ BearerAuth: [] }],
-          parameters: [
-            {
-              name: "contactChannelId",
-              in: "path",
-              required: true,
-              schema: { type: "string" },
-            },
-          ],
-          requestBody: {
-            required: true,
-            content: {
-              "application/json": {
-                schema: { type: "object", additionalProperties: true },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Channel verification initiated or completed",
-            },
-            "400": { description: "Invalid request payload" },
-            "401": {
-              description: "Unauthorized — missing or invalid bearer token",
-            },
-            "404": { description: "Contact or channel not found" },
-            "503": { description: "Bearer token not configured" },
-            "502": { description: "Failed to reach assistant runtime" },
-            "504": { description: "Assistant runtime request timed out" },
-          },
-        },
-      },
       "/v1/contacts/invites": {
         get: {
           summary: "List contacts invites",
@@ -1233,13 +1195,30 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/guardian/sessions": {
+      "/v1/channel-verification-sessions": {
         post: {
-          summary: "Create guardian verification session",
+          summary: "Create channel verification session",
           description:
-            "Create a guardian verification session (inbound challenge or outbound verification).",
-          operationId: "guardianSessionCreate",
+            "Create a channel verification session (inbound challenge or outbound verification).",
+          operationId: "verificationSessionCreate",
           security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "purpose",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Optional verification purpose (e.g. guardian, trusted-contact).",
+            },
+            {
+              name: "contactChannelId",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description: "Optional contact channel ID to verify.",
+            },
+          ],
           requestBody: {
             required: true,
             content: {
@@ -1261,9 +1240,9 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
         delete: {
-          summary: "Cancel guardian verification session",
-          description: "Cancel the active guardian verification session.",
-          operationId: "guardianSessionCancel",
+          summary: "Cancel channel verification session",
+          description: "Cancel the active channel verification session.",
+          operationId: "verificationSessionCancel",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1285,11 +1264,11 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/guardian/sessions/resend": {
+      "/v1/channel-verification-sessions/resend": {
         post: {
-          summary: "Resend guardian verification code",
-          description: "Resend the outbound guardian verification code.",
-          operationId: "guardianSessionResend",
+          summary: "Resend verification code",
+          description: "Resend the outbound verification code.",
+          operationId: "verificationSessionResend",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1312,12 +1291,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/guardian/status": {
+      "/v1/channel-verification-sessions/status": {
         get: {
-          summary: "Get guardian binding status",
+          summary: "Get verification binding status",
           description:
-            "Authenticated gateway endpoint that forwards guardian status checks to the assistant runtime.",
-          operationId: "guardianStatus",
+            "Authenticated gateway endpoint that forwards verification status checks to the assistant runtime.",
+          operationId: "verificationStatus",
           security: [{ BearerAuth: [] }],
           parameters: [
             {
@@ -1325,11 +1304,11 @@ export function buildSchema(): Record<string, unknown> {
               in: "query",
               required: false,
               schema: { type: "string", enum: ["voice", "telegram"] },
-              description: "Optional guardian channel filter.",
+              description: "Optional channel filter.",
             },
           ],
           responses: {
-            "200": { description: "Guardian status returned" },
+            "200": { description: "Verification status returned" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
@@ -1366,12 +1345,12 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/integrations/guardian/revoke": {
+      "/v1/channel-verification-sessions/revoke": {
         post: {
-          summary: "Revoke guardian binding",
+          summary: "Revoke verification binding",
           description:
-            "Authenticated gateway endpoint that revokes an existing guardian binding via the assistant runtime.",
-          operationId: "guardianRevoke",
+            "Authenticated gateway endpoint that revokes an existing verification binding via the assistant runtime.",
+          operationId: "verificationRevoke",
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -1382,7 +1361,7 @@ export function buildSchema(): Record<string, unknown> {
             },
           },
           responses: {
-            "200": { description: "Guardian binding revoked" },
+            "200": { description: "Verification binding revoked" },
             "400": { description: "Invalid request payload" },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",

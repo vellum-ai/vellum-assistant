@@ -1,5 +1,5 @@
 /**
- * Gateway proxy endpoints for guardian verification control-plane routes.
+ * Gateway proxy endpoints for channel verification session control-plane routes.
  *
  * These routes remain available even when the broad runtime proxy is
  * disabled, so skills and clients can use gateway URLs exclusively.
@@ -11,9 +11,11 @@ import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
-const log = getLogger("guardian-control-plane-proxy");
+const log = getLogger("channel-verification-session-proxy");
 
-export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
+export function createChannelVerificationSessionProxyHandler(
+  config: GatewayConfig,
+) {
   async function proxyToRuntime(
     req: Request,
     upstreamPath: string,
@@ -61,13 +63,13 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
       if (err instanceof DOMException && err.name === "TimeoutError") {
         log.error(
           { path: upstreamPath, duration },
-          "Guardian control-plane proxy upstream timed out",
+          "Channel verification session proxy upstream timed out",
         );
         return Response.json({ error: "Gateway Timeout" }, { status: 504 });
       }
       log.error(
         { err, path: upstreamPath, duration },
-        "Guardian control-plane proxy upstream connection failed",
+        "Channel verification session proxy upstream connection failed",
       );
       return Response.json({ error: "Bad Gateway" }, { status: 502 });
     }
@@ -79,7 +81,7 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
       const body = await response.text();
       log.warn(
         { path: upstreamPath, status: response.status, duration },
-        "Guardian control-plane proxy upstream error",
+        "Channel verification session proxy upstream error",
       );
       return new Response(body, {
         status: response.status,
@@ -89,7 +91,7 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
 
     log.info(
       { path: upstreamPath, status: response.status, duration },
-      "Guardian control-plane proxy completed",
+      "Channel verification session proxy completed",
     );
     return new Response(response.body, {
       status: response.status,
@@ -98,31 +100,35 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
   }
 
   return {
-    async handleCreateGuardianSession(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/guardian/sessions", "");
+    async handleCreateVerificationSession(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/channel-verification-sessions", "");
     },
 
-    async handleResendGuardianSession(req: Request): Promise<Response> {
+    async handleResendVerificationSession(req: Request): Promise<Response> {
       return proxyToRuntime(
         req,
-        "/v1/integrations/guardian/sessions/resend",
+        "/v1/channel-verification-sessions/resend",
         "",
       );
     },
 
-    async handleCancelGuardianSession(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/guardian/sessions", "");
+    async handleCancelVerificationSession(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/channel-verification-sessions", "");
     },
 
-    async handleRevokeGuardianBinding(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/guardian/revoke", "");
+    async handleRevokeVerificationBinding(req: Request): Promise<Response> {
+      return proxyToRuntime(
+        req,
+        "/v1/channel-verification-sessions/revoke",
+        "",
+      );
     },
 
-    async handleGetGuardianStatus(req: Request): Promise<Response> {
+    async handleGetVerificationStatus(req: Request): Promise<Response> {
       const url = new URL(req.url);
       return proxyToRuntime(
         req,
-        "/v1/integrations/guardian/status",
+        "/v1/channel-verification-sessions/status",
         url.search,
       );
     },
