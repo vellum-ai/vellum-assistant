@@ -17,7 +17,7 @@ import {
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationConversation,
 } from "../../memory/canonical-guardian-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import { addMessage } from "../../memory/conversation-crud.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { routeGuardianReply } from "../../runtime/guardian-reply-router.js";
 import {
@@ -86,12 +86,12 @@ async function persistRecordingExchange(
     type: "message_complete",
     sessionId,
   });
-  await conversationStore.addMessage(
+  await addMessage(
     sessionId,
     "user",
     JSON.stringify([{ type: "text", text: messageText }]),
   );
-  await conversationStore.addMessage(
+  await addMessage(
     sessionId,
     "assistant",
     JSON.stringify([{ type: "text", text: responseText }]),
@@ -561,7 +561,7 @@ async function handlePendingConfirmationReply(
         messageText,
         msg.attachments ?? [],
       );
-      await conversationStore.addMessage(
+      await addMessage(
         msg.sessionId,
         "user",
         JSON.stringify(consumedUserMessage.content),
@@ -574,7 +574,7 @@ async function handlePendingConfirmationReply(
           ? "Decision applied."
           : "Request already resolved.");
       const consumedAssistantMessage = createAssistantMessage(replyText);
-      await conversationStore.addMessage(
+      await addMessage(
         msg.sessionId,
         "assistant",
         JSON.stringify(consumedAssistantMessage.content),

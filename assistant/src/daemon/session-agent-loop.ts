@@ -28,12 +28,16 @@ import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles } from "../memory/app-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
 import {
+  addMessage,
+  deleteMessageById,
+  getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
   provenanceFromTrustContext,
-} from "../memory/conversation-store.js";
+  updateConversationContextWindow,
+  updateConversationTitle,
+} from "../memory/conversation-crud.js";
 import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
@@ -371,18 +375,15 @@ export async function runAgentLoopImpl(
     if (preMessageResult.blocked) {
       if (!options?.skipPreMessageRollback) {
         ctx.messages.pop();
-        conversationStore.deleteMessageById(userMessageId);
+        deleteMessageById(userMessageId);
       }
       // Replace loading placeholder so the thread isn't stuck as "Generating title..."
-      const currentConv = conversationStore.getConversation(ctx.conversationId);
+      const currentConv = getConversation(ctx.conversationId);
       if (
         isReplaceableTitle(currentConv?.title ?? null) &&
         currentConv?.title !== UNTITLED_FALLBACK
       ) {
-        conversationStore.updateConversationTitle(
-          ctx.conversationId,
-          UNTITLED_FALLBACK,
-        );
+        updateConversationTitle(ctx.conversationId, UNTITLED_FALLBACK);
         onEvent({
           type: "session_title_updated",
           sessionId: ctx.conversationId,
@@ -405,9 +406,7 @@ export async function runAgentLoopImpl(
     // Deferred via setTimeout so the main agent loop LLM call enqueues
     // first, avoiding rate-limit slot contention on strict configs.
     if (
-      isReplaceableTitle(
-        conversationStore.getConversation(ctx.conversationId)?.title ?? null,
-      )
+      isReplaceableTitle(getConversation(ctx.conversationId)?.title ?? null)
     ) {
       setTimeout(() => {
         queueGenerateConversationTitle({
@@ -443,7 +442,7 @@ export async function runAgentLoopImpl(
       ctx.messages = compacted.messages;
       ctx.contextCompactedMessageCount += compacted.compactedPersistedMessages;
       ctx.contextCompactedAt = Date.now();
-      conversationStore.updateConversationContextWindow(
+      updateConversationContextWindow(
         ctx.conversationId,
         compacted.summaryText,
         ctx.contextCompactedMessageCount,
@@ -706,7 +705,7 @@ export async function runAgentLoopImpl(
           ctx.contextCompactedMessageCount +=
             step.compactionResult.compactedPersistedMessages;
           ctx.contextCompactedAt = Date.now();
-          conversationStore.updateConversationContextWindow(
+          updateConversationContextWindow(
             ctx.conversationId,
             step.compactionResult.summaryText,
             ctx.contextCompactedMessageCount,
@@ -767,7 +766,7 @@ export async function runAgentLoopImpl(
     let preRunHistoryLength = runMessages.length;
 
     const shouldGenerateTitle = isReplaceableTitle(
-      conversationStore.getConversation(ctx.conversationId)?.title ?? null,
+      getConversation(ctx.conversationId)?.title ?? null,
     );
 
     const deps: EventHandlerDeps = {
@@ -903,7 +902,7 @@ export async function runAgentLoopImpl(
           ctx.contextCompactedMessageCount +=
             step.compactionResult.compactedPersistedMessages;
           ctx.contextCompactedAt = Date.now();
-          conversationStore.updateConversationContextWindow(
+          updateConversationContextWindow(
             ctx.conversationId,
             step.compactionResult.summaryText,
             ctx.contextCompactedMessageCount,
@@ -983,7 +982,7 @@ export async function runAgentLoopImpl(
               ctx.contextCompactedMessageCount +=
                 emergencyCompact.compactedPersistedMessages;
               ctx.contextCompactedAt = Date.now();
-              conversationStore.updateConversationContextWindow(
+              updateConversationContextWindow(
                 ctx.conversationId,
                 emergencyCompact.summaryText,
                 ctx.contextCompactedMessageCount,
@@ -1049,7 +1048,7 @@ export async function runAgentLoopImpl(
                 capturedTurnInterfaceContext.assistantMessageInterface,
             };
             const denyMessage = createAssistantMessage(denyText);
-            await conversationStore.addMessage(
+            await addMessage(
               ctx.conversationId,
               "assistant",
               JSON.stringify(denyMessage.content),
@@ -1088,7 +1087,7 @@ export async function runAgentLoopImpl(
             ctx.contextCompactedMessageCount +=
               emergencyCompact.compactedPersistedMessages;
             ctx.contextCompactedAt = Date.now();
-            conversationStore.updateConversationContextWindow(
+            updateConversationContextWindow(
               ctx.conversationId,
               emergencyCompact.summaryText,
               ctx.contextCompactedMessageCount,
@@ -1211,7 +1210,7 @@ export async function runAgentLoopImpl(
         assistantMessageInterface:
           capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      await conversationStore.addMessage(
+      await addMessage(
         ctx.conversationId,
         "user",
         JSON.stringify(toolResultBlocks),
@@ -1253,7 +1252,7 @@ export async function runAgentLoopImpl(
       const errorAssistantMessage = createAssistantMessage(
         state.providerErrorUserMessage,
       );
-      await conversationStore.addMessage(
+      await addMessage(
         ctx.conversationId,
         "assistant",
         JSON.stringify(errorAssistantMessage.content),
