@@ -2505,8 +2505,8 @@ public struct IPCIdentityGetRequest: Codable, Sendable {
 
 public struct IPCIdentityGetResponse: Codable, Sendable {
     public let type: String
-    /// Whether an IDENTITY.md file was found. When false, all fields are empty defaults. Optional for backwards compat with older daemons.
-    public let found: Bool?
+    /// Whether an IDENTITY.md file was found. When false, all fields are empty defaults.
+    public let found: Bool
     public let name: String
     public let role: String
     public let personality: String
@@ -2517,7 +2517,7 @@ public struct IPCIdentityGetResponse: Codable, Sendable {
     public let createdAt: String?
     public let originSystem: String?
 
-    public init(type: String, found: Bool? = nil, name: String, role: String, personality: String, emoji: String, home: String, version: String? = nil, assistantId: String? = nil, createdAt: String? = nil, originSystem: String? = nil) {
+    public init(type: String, found: Bool, name: String, role: String, personality: String, emoji: String, home: String, version: String? = nil, assistantId: String? = nil, createdAt: String? = nil, originSystem: String? = nil) {
         self.type = type
         self.found = found
         self.name = name
