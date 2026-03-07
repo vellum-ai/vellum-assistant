@@ -954,7 +954,7 @@ public struct ToolCallData: Identifiable, Equatable {
             return inputSummary.isEmpty ? "Searched the web" : "Searched for \"\(truncated(inputSummary, to: 50))\""
         case "memory_save", "memory_update":
             return "Saved a memory"
-        case "memory_search":
+        case "memory_recall":
             return inputSummary.isEmpty ? "Recalled memories" : "Recalled info about \"\(truncated(inputSummary, to: 40))\""
         case "task_run":
             return inputSummary.isEmpty ? "Ran a task" : "Ran \"\(truncated(inputSummary, to: 50))\""
