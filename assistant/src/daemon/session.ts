@@ -36,6 +36,9 @@ import {
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
+import * as conversationStore from "../memory/conversation-store.js";
+import { getDb } from "../memory/db-connection.js";
+import { flushMemoryForMessages } from "../memory/flush.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -45,6 +48,7 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/session-approval-overrides.js";
 import { ToolExecutor } from "../tools/executor.js";
+import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import type {
   AssistantActivityState,
@@ -102,9 +106,12 @@ import {
   buildToolDefinitions,
   createResolveToolsCallback,
   createToolExecutor,
+  resolveTrustClass,
 } from "./session-tool-setup.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./session-workspace.js";
 import { TraceEmitter } from "./trace-emitter.js";
+
+const log = getLogger("session");
 
 export interface SessionMemoryPolicy {
   scopeId: string;
@@ -352,11 +359,48 @@ export class Session {
       resolveTools,
       resolveSystemPromptCallback,
     );
-    this.contextWindowManager = new ContextWindowManager(
+    this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt,
-      config.contextWindow,
-    );
+      config: config.contextWindow,
+      onBeforeCompact: async (messages, _boundary, signal) => {
+        const memoryEnabled = getConfig().memory?.enabled !== false;
+        const trustClass = resolveTrustClass(this.trustContext);
+        if (!memoryEnabled || trustClass !== "guardian") return;
+
+        try {
+          // Resolve DB message rows so flush has real message IDs for
+          // deduplication and extraction. The compactable messages correspond
+          // to DB rows starting after the already-compacted count.
+          const dbMessages = conversationStore.getMessages(this.conversationId);
+          const compactedCount = this.contextCompactedMessageCount;
+          const flushMessages = dbMessages
+            .slice(compactedCount, compactedCount + messages.length)
+            .map((row) => ({ id: row.id, role: row.role }));
+
+          const result = await flushMemoryForMessages({
+            messages: flushMessages,
+            conversationId: this.conversationId,
+            scopeId: this.memoryPolicy.scopeId,
+            db: getDb(),
+            abortSignal: signal,
+          });
+          log.info(
+            {
+              flushed: result.flushed,
+              total: flushMessages.length,
+              conversationId: this.conversationId,
+            },
+            `Pre-compaction memory flush: extracted ${result.flushed} items from ${flushMessages.length} messages`,
+          );
+        } catch (err) {
+          log.warn(
+            { err, conversationId: this.conversationId },
+            "Pre-compaction memory flush failed, proceeding with compaction",
+          );
+        }
+      },
+    });
 
     void getHookManager().trigger("session-start", {
       sessionId: this.conversationId,
