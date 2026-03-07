@@ -7,7 +7,7 @@ import {
   isDeviceApproved,
   refreshDevice,
 } from "../../daemon/approved-devices-store.js";
-import type { ServerMessage } from "../../daemon/ipc-contract.js";
+import type { ServerMessage } from "../../daemon/ipc-protocol.js";
 import { PairingStore } from "../../daemon/pairing-store.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";

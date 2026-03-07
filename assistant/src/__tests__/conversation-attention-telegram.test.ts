@@ -48,8 +48,8 @@ mock.module("../daemon/handlers.js", () => ({
 import { eq } from "drizzle-orm";
 
 import { upsertContact } from "../contacts/contact-store.js";
-import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import * as deliveryChannels from "../memory/delivery-channels.js";
 import { attachments, conversationAttentionEvents } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
@@ -83,7 +83,7 @@ function resetTables(): void {
     "contact_channels",
     "contacts",
   );
-  channelDeliveryStore.resetAllRunDeliveryClaims();
+  deliveryChannels.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }
 

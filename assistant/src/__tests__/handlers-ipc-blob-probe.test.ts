@@ -43,7 +43,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
-import type { IpcBlobProbe, ServerMessage } from "../daemon/ipc-contract.js";
+import type { IpcBlobProbe, ServerMessage } from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 /** Write a probe file to the test blob directory. */

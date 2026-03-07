@@ -154,7 +154,7 @@ import { handleTelegramConfig } from "../daemon/handlers/config.js";
 import type {
   ServerMessage,
   TelegramConfigRequest,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { initializeDb, resetDb } from "../memory/db.js";
 import { DebouncerMap } from "../util/debounce.js";
 
@@ -1243,7 +1243,7 @@ describe("Telegram config handler", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { handleChannelVerificationSession } from "../daemon/handlers/config.js";
-import type { ChannelVerificationSessionRequest } from "../daemon/ipc-contract.js";
+import type { ChannelVerificationSessionRequest } from "../daemon/ipc-protocol.js";
 describe("Guardian verification IPC actions", () => {
   beforeEach(() => {
     secureKeyStore = {};

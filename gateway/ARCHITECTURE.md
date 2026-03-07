@@ -305,7 +305,7 @@ Runtime detects needs_confirmation
   → runtime applies decision to pending run → run resumes
 ```
 
-**Deliver-once guard:** Both the main poll (`processChannelMessageWithApprovals`) and the post-decision poll (`schedulePostDecisionDelivery`) race to deliver the final assistant reply when a run reaches terminal state. The `claimRunDelivery()` function in `channel-delivery-store.ts` uses an in-memory `Set<string>` to ensure at-most-one delivery per run. The first caller to claim the run ID proceeds with delivery; the other silently skips it. This is an in-memory guard — sufficient because both racing pollers execute within the same process.
+**Deliver-once guard:** Both the main poll (`processChannelMessageWithApprovals`) and the post-decision poll (`schedulePostDecisionDelivery`) race to deliver the final assistant reply when a run reaches terminal state. The `claimRunDelivery()` function in `delivery-channels.ts` uses an in-memory `Set<string>` to ensure at-most-one delivery per run. The first caller to claim the run ID proceeds with delivery; the other silently skips it. This is an in-memory guard — sufficient because both racing pollers execute within the same process.
 
 **Fail-closed prompt delivery:** All approval prompt delivery paths auto-deny the run if the prompt cannot be delivered, preventing silent `needs_confirmation` hangs:
 
@@ -334,7 +334,7 @@ Runtime detects needs_confirmation
 | `assistant/src/runtime/channel-approval-types.ts`       | Shared types: actions, prompts, UI metadata, decisions                                                                                                                  |
 | `assistant/src/runtime/routes/channel-routes.ts`        | Integration point: approval interception, actor role resolution, guardian approval routing, deliver-once guard, fail-closed prompt delivery                             |
 | `assistant/src/runtime/channel-verification-service.ts` | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()`                                                                                                        |
-| `assistant/src/memory/channel-delivery-store.ts`        | `claimRunDelivery()` — in-memory deliver-once guard for terminal reply idempotency                                                                                      |
+| `assistant/src/memory/delivery-channels.ts`             | `claimRunDelivery()` — in-memory deliver-once guard for terminal reply idempotency                                                                                      |
 | `assistant/src/memory/channel-guardian-store.ts`        | CRUD for guardian approval requests: `createApprovalRequest()`, `getPendingApprovalByGuardianChat()`, `updateApprovalDecision()`                                        |
 | `assistant/src/runtime/gateway-client.ts`               | `deliverApprovalPrompt()` — sends approval payload to gateway                                                                                                           |
 | `gateway/src/telegram/send.ts`                          | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons                                                                                           |
@@ -525,7 +525,7 @@ sequenceDiagram
     Ext->>GW: Send message via channel
     GW->>RT: POST /channels/inbound
     RT->>DB: Look up ingress member -> policy = escalate
-    RT->>DB: Store raw payload (channel-delivery-store)
+    RT->>DB: Store raw payload (delivery-crud)
     RT->>DB: Create channel_guardian_approval_request
     RT->>RT: emitNotificationSignal (escalation alert)
     RT->>GW: Notify guardian via notification pipeline

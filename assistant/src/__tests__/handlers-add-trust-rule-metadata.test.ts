@@ -67,8 +67,8 @@ mock.module("../config/loader.js", () => ({
 
 import type { HandlerContext } from "../daemon/handlers.js";
 import { handleAddTrustRule } from "../daemon/handlers/config.js";
-import type { AddTrustRule } from "../daemon/ipc-contract.js";
-import type { ServerMessage } from "../daemon/ipc-contract.js";
+import type { AddTrustRule } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import {
   clearAllRules,
   clearCache,

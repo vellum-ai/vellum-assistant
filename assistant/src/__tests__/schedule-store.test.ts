@@ -52,9 +52,9 @@ afterAll(() => {
   }
 });
 
-// ── Cron backward compatibility ─────────────────────────────────────
+// ── Cron schedules ──────────────────────────────────────────────────
 
-describe("createSchedule (cron, legacy API)", () => {
+describe("createSchedule (cron)", () => {
   beforeEach(() => {
     const db = getDb();
     db.run("DELETE FROM cron_runs");
@@ -66,6 +66,7 @@ describe("createSchedule (cron, legacy API)", () => {
       name: "Morning ping",
       cronExpression: "0 9 * * *",
       message: "good morning",
+      syntax: "cron",
     });
 
     expect(job.syntax).toBe("cron");
@@ -80,6 +81,7 @@ describe("createSchedule (cron, legacy API)", () => {
       name: "Hourly",
       cronExpression: "0 * * * *",
       message: "hourly check",
+      syntax: "cron",
     });
 
     const retrieved = getSchedule(job.id);
@@ -94,6 +96,7 @@ describe("createSchedule (cron, legacy API)", () => {
       name: "Syntax check",
       cronExpression: "*/5 * * * *",
       message: "test",
+      syntax: "cron",
     });
 
     const raw = getRawDb()
@@ -109,6 +112,7 @@ describe("createSchedule (cron, legacy API)", () => {
         name: "Bad cron",
         cronExpression: "not-a-cron",
         message: "fail",
+        syntax: "cron",
       }),
     ).toThrow();
   });
@@ -339,6 +343,7 @@ describe("updateSchedule", () => {
       name: "Update test",
       cronExpression: "0 9 * * *",
       message: "update me",
+      syntax: "cron",
     });
 
     const updated = updateSchedule(job.id, { cronExpression: "0 10 * * *" });
@@ -355,6 +360,7 @@ describe("updateSchedule", () => {
       name: "Switch to RRULE",
       cronExpression: "0 9 * * *",
       message: "switching",
+      syntax: "cron",
     });
 
     const rrule = "DTSTART:20260101T090000Z\nRRULE:FREQ=DAILY;INTERVAL=2";
@@ -381,6 +387,7 @@ describe("updateSchedule", () => {
       name: "Update to set",
       cronExpression: "0 9 * * *",
       message: "update to set",
+      syntax: "cron",
     });
 
     const setExpr = [
@@ -406,6 +413,7 @@ describe("updateSchedule", () => {
       name: "Reject bad update",
       cronExpression: "0 9 * * *",
       message: "nope",
+      syntax: "cron",
     });
 
     expect(() =>
@@ -431,6 +439,7 @@ describe("claimDueSchedules", () => {
       name: "Claim cron",
       cronExpression: "* * * * *",
       message: "cron claim test",
+      syntax: "cron",
     });
 
     // Force the schedule to be due
@@ -486,6 +495,7 @@ describe("claimDueSchedules", () => {
       name: "Not due yet",
       cronExpression: "0 9 * * *",
       message: "future schedule",
+      syntax: "cron",
     });
 
     const claimed = claimDueSchedules(0); // timestamp 0 means nothing is due
@@ -543,6 +553,7 @@ describe("claimDueSchedules", () => {
       name: "Double claim",
       cronExpression: "* * * * *",
       message: "no double",
+      syntax: "cron",
     });
 
     getRawDb().run("UPDATE cron_jobs SET next_run_at = ? WHERE id = ?", [

@@ -21,8 +21,7 @@ export interface LocalInstanceResources {
    * `~/.local/share/vellum/assistants/<name>/` (workspace at
    * `~/.local/share/vellum/assistants/<name>/.vellum`).
    * The daemon's `.vellum/` directory lives inside it. Equivalent to
-   * `AssistantEntry.baseDataDir` minus the trailing `/.vellum` suffix —
-   * `baseDataDir` is kept on the flat entry for legacy lockfile compat.
+   * The daemon's `.vellum/` directory lives inside it.
    */
   instanceDir: string;
   /** HTTP port for the daemon runtime server */
@@ -43,8 +42,6 @@ export interface AssistantEntry {
   /** Loopback URL for same-machine health checks (e.g. `http://127.0.0.1:7831`).
    *  Avoids mDNS resolution issues when the machine checks its own gateway. */
   localUrl?: string;
-  /** @deprecated Use `resources.instanceDir` for multi-instance entries. Legacy equivalent of `join(instanceDir, ".vellum")`. */
-  baseDataDir?: string;
   bearerToken?: string;
   cloud: string;
   instanceId?: string;

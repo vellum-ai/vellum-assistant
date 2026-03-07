@@ -654,20 +654,3 @@ class BrowserFillCredentialTool implements Tool {
 }
 
 registerTool(new BrowserFillCredentialTool());
-
-// Re-export execution functions for backward compatibility
-export {
-  executeBrowserClick,
-  executeBrowserClose,
-  executeBrowserExtract,
-  executeBrowserFillCredential,
-  executeBrowserHover,
-  executeBrowserNavigate,
-  executeBrowserPressKey,
-  executeBrowserScreenshot,
-  executeBrowserScroll,
-  executeBrowserSelectOption,
-  executeBrowserSnapshot,
-  executeBrowserType,
-  executeBrowserWaitFor,
-} from "./browser-execution.js";

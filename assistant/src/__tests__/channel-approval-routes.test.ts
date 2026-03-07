@@ -59,12 +59,12 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
-import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import {
   createApprovalRequest,
   getAllPendingApprovalsByGuardianChat,
 } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import * as deliveryChannels from "../memory/delivery-channels.js";
 import {
   conversations,
   externalConversationBindings,
@@ -124,7 +124,7 @@ function resetTables(): void {
     "contact_channels",
     "contacts",
   );
-  channelDeliveryStore.resetAllRunDeliveryClaims();
+  deliveryChannels.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }
 
@@ -399,46 +399,13 @@ describe("inbound text matching approval phrases triggers decision handling", ()
 
     deliverSpy.mockRestore();
   });
-
-  test('text "always" triggers approve_always decision', async () => {
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const initReq = makeInboundRequest({ content: "init" });
-    await handleChannelInbound(initReq, noopProcessMessage);
-
-    const db = getDb();
-    const events = db.$client
-      .prepare("SELECT conversation_id FROM channel_inbound_events")
-      .all() as Array<{ conversation_id: string }>;
-    const conversationId = events[0]?.conversation_id;
-    ensureConversation(conversationId!);
-
-    const sessionMock = registerPendingInteraction(
-      "req-txt-2",
-      conversationId!,
-      "shell",
-    );
-
-    const req = makeInboundRequest({ content: "always" });
-    const res = await handleChannelInbound(req, noopProcessMessage);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-txt-2", "allow");
-
-    deliverSpy.mockRestore();
-  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 4. Non-decision messages during pending approval (no conversational engine)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("non-decision messages during pending approval (legacy fallback)", () => {
+describe("non-decision messages during pending approval (no conversational engine)", () => {
   beforeEach(() => {
     createGuardianBinding({
       channel: "telegram",
@@ -1467,27 +1434,27 @@ describe("expired guardian approval auto-denies via sweep", () => {
 describe("deliver-once idempotency guard", () => {
   test("claimRunDelivery returns true on first call, false on subsequent calls", () => {
     const runId = "run-idem-unit";
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(false);
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(false);
-    channelDeliveryStore.resetRunDeliveryClaim(runId);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(true);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(false);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(false);
+    deliveryChannels.resetRunDeliveryClaim(runId);
   });
 
   test("different run IDs are independent", () => {
-    expect(channelDeliveryStore.claimRunDelivery("run-a")).toBe(true);
-    expect(channelDeliveryStore.claimRunDelivery("run-b")).toBe(true);
-    expect(channelDeliveryStore.claimRunDelivery("run-a")).toBe(false);
-    expect(channelDeliveryStore.claimRunDelivery("run-b")).toBe(false);
-    channelDeliveryStore.resetRunDeliveryClaim("run-a");
-    channelDeliveryStore.resetRunDeliveryClaim("run-b");
+    expect(deliveryChannels.claimRunDelivery("run-a")).toBe(true);
+    expect(deliveryChannels.claimRunDelivery("run-b")).toBe(true);
+    expect(deliveryChannels.claimRunDelivery("run-a")).toBe(false);
+    expect(deliveryChannels.claimRunDelivery("run-b")).toBe(false);
+    deliveryChannels.resetRunDeliveryClaim("run-a");
+    deliveryChannels.resetRunDeliveryClaim("run-b");
   });
 
   test("resetRunDeliveryClaim allows re-claim", () => {
     const runId = "run-idem-reset";
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
-    channelDeliveryStore.resetRunDeliveryClaim(runId);
-    expect(channelDeliveryStore.claimRunDelivery(runId)).toBe(true);
-    channelDeliveryStore.resetRunDeliveryClaim(runId);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(true);
+    deliveryChannels.resetRunDeliveryClaim(runId);
+    expect(deliveryChannels.claimRunDelivery(runId)).toBe(true);
+    deliveryChannels.resetRunDeliveryClaim(runId);
   });
 });
 

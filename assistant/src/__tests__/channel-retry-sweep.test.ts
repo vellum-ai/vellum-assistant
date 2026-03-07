@@ -26,8 +26,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import * as deliveryCrud from "../memory/delivery-crud.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 
@@ -54,12 +54,12 @@ function seedFailedEventWithTrustClass(
   trustClass: string,
   extra?: Record<string, unknown>,
 ): string {
-  const inbound = channelDeliveryStore.recordInbound(
+  const inbound = deliveryCrud.recordInbound(
     "telegram",
     `chat-${trustClass}`,
     `msg-${trustClass}`,
   );
-  channelDeliveryStore.storePayload(inbound.eventId, {
+  deliveryCrud.storePayload(inbound.eventId, {
     content: "retry me",
     sourceChannel: "telegram",
     interface: "telegram",
@@ -89,12 +89,12 @@ function seedFailedEventWithTrustClass(
 function seedFailedEventWithActorRoleOnly(
   actorRole: "guardian" | "non-guardian" | "unverified_channel",
 ): string {
-  const inbound = channelDeliveryStore.recordInbound(
+  const inbound = deliveryCrud.recordInbound(
     "telegram",
     `chat-legacy-${actorRole}`,
     `msg-legacy-${actorRole}`,
   );
-  channelDeliveryStore.storePayload(inbound.eventId, {
+  deliveryCrud.storePayload(inbound.eventId, {
     content: "retry me",
     sourceChannel: "telegram",
     interface: "telegram",
@@ -270,12 +270,12 @@ describe("channel-retry-sweep", () => {
   });
 
   test("synthesizes unknown trust context when trustCtx is missing", async () => {
-    const inbound = channelDeliveryStore.recordInbound(
+    const inbound = deliveryCrud.recordInbound(
       "telegram",
       "chat-no-ctx",
       "msg-no-ctx",
     );
-    channelDeliveryStore.storePayload(inbound.eventId, {
+    deliveryCrud.storePayload(inbound.eventId, {
       content: "retry me",
       sourceChannel: "telegram",
       interface: "telegram",

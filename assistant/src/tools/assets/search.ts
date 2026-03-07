@@ -14,7 +14,7 @@ import {
   isAttachmentVisible,
 } from "../../daemon/media-visibility-policy.js";
 import type { StoredAttachment } from "../../memory/attachments-store.js";
-import { getConversationThreadType } from "../../memory/conversation-store.js";
+import { getConversationThreadType } from "../../memory/conversation-crud.js";
 import { getDb, rawAll } from "../../memory/db.js";
 import {
   attachments,

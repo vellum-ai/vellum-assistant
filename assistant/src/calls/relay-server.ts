@@ -23,7 +23,7 @@ import {
 } from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import { addMessage } from "../memory/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import {
@@ -722,7 +722,7 @@ export class RelayConnection {
     // guardian (user) can share it with the callee.
     if (session?.initiatedFromConversationId) {
       const codeMsg = `\u{1F510} Verification code for call to ${session.toNumber}: ${code}`;
-      await conversationStore.addMessage(
+      await addMessage(
         session.initiatedFromConversationId,
         "assistant",
         JSON.stringify([{ type: "text", text: codeMsg }]),
@@ -1918,7 +1918,7 @@ export class RelayConnection {
       // this early-utterance path bypasses it entirely.
       if (session) {
         try {
-          await conversationStore.addMessage(
+          await addMessage(
             session.conversationId,
             "user",
             JSON.stringify([{ type: "text", text: msg.voicePrompt }]),

@@ -14,11 +14,12 @@ import { getChannelPermissionProfile } from "../../config/channel-permission-pro
 import { touchContactInteraction } from "../../contacts/contacts-write.js";
 import type { TrustContext } from "../../daemon/session-runtime-assembly.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
-import * as channelDeliveryStore from "../../memory/channel-delivery-store.js";
 import {
   recordConversationSeenSignal,
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
+import * as deliveryChannels from "../../memory/delivery-channels.js";
+import * as deliveryCrud from "../../memory/delivery-crud.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
@@ -254,7 +255,7 @@ export async function handleChannelInbound(
   }
 
   // ── New message path ──
-  const result = channelDeliveryStore.recordInbound(
+  const result = deliveryCrud.recordInbound(
     sourceChannel,
     conversationExternalId,
     externalMessageId,
@@ -268,7 +269,7 @@ export async function handleChannelInbound(
   // gateway retries (duplicates) re-attempt delivery here. On success the
   // pending marker is cleared so further duplicates short-circuit normally.
   if (result.duplicate && replyCallbackUrl) {
-    const pendingReply = channelDeliveryStore.getPendingVerificationReply(
+    const pendingReply = deliveryChannels.getPendingVerificationReply(
       result.eventId,
     );
     if (pendingReply) {
@@ -282,7 +283,7 @@ export async function handleChannelInbound(
           },
           mintBearerToken(),
         );
-        channelDeliveryStore.clearPendingVerificationReply(result.eventId);
+        deliveryChannels.clearPendingVerificationReply(result.eventId);
         log.info(
           { eventId: result.eventId },
           "Retried pending verification reply: delivered",

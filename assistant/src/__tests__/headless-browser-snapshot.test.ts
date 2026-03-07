@@ -60,7 +60,7 @@ mock.module("../tools/network/url-safety.js", () => ({
 import {
   executeBrowserClose,
   executeBrowserSnapshot,
-} from "../tools/browser/headless-browser.js";
+} from "../tools/browser/browser-execution.js";
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {

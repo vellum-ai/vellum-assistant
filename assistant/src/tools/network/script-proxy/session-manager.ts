@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import { join } from "node:path";
 
-import { getProviderProfile } from "../../../oauth/provider-profiles.js";
 import {
   buildDecisionTrace,
   createProxyServer,
@@ -124,22 +123,12 @@ function buildInjectedValue(
 
 /**
  * Resolve injection templates for a credential.
- *
- * Preferred source is credential metadata. For legacy OAuth credentials that
- * predate provider-level template registration, fall back to well-known
- * profile templates when this is an access_token credential.
  */
 function resolveInjectionTemplates(
   resolved: ResolvedCredential | undefined,
 ): CredentialInjectionTemplate[] {
   if (!resolved) return [];
-  if (resolved.injectionTemplates.length > 0)
-    return resolved.injectionTemplates;
-  if (resolved.field !== "access_token") return [];
-
-  const profile = getProviderProfile(resolved.service);
-  if (!profile?.injectionTemplates?.length) return [];
-  return profile.injectionTemplates;
+  return resolved.injectionTemplates;
 }
 
 /** Return a defensive copy so callers cannot mutate internal state. */

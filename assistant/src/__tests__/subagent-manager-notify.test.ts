@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ServerMessage } from "../daemon/ipc-contract.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import { SubagentManager } from "../subagent/manager.js";
 import type { SubagentState } from "../subagent/types.js";
 

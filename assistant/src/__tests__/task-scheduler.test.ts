@@ -188,6 +188,7 @@ describe("scheduler run_task detection", () => {
       name: "Regular Schedule",
       cronExpression: "* * * * *",
       message: "Do something normal",
+      syntax: "cron",
     });
 
     forceScheduleDue(schedule.id);
@@ -218,6 +219,7 @@ describe("scheduler run_task detection", () => {
       name: "Bad Task Schedule",
       cronExpression: "* * * * *",
       message: "run_task:nonexistent-task-id",
+      syntax: "cron",
     });
 
     forceScheduleDue(schedule.id);
