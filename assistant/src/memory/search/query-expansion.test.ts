@@ -20,12 +20,16 @@ describe("expandQueryForFTS", () => {
     expect(result).toEqual(["authentication"]);
   });
 
-  test("returns wildcard for empty input", () => {
-    expect(expandQueryForFTS("")).toEqual(["*"]);
+  test("returns empty array for empty input", () => {
+    expect(expandQueryForFTS("")).toEqual([]);
   });
 
-  test("returns wildcard for whitespace-only input", () => {
-    expect(expandQueryForFTS("   ")).toEqual(["*"]);
+  test("returns empty array for whitespace-only input", () => {
+    expect(expandQueryForFTS("   ")).toEqual([]);
+  });
+
+  test("returns empty array for punctuation-only input", () => {
+    expect(expandQueryForFTS("???")).toEqual([]);
   });
 
   test("returns original tokens when all are stop words", () => {
@@ -53,5 +57,9 @@ describe("buildFTSQuery", () => {
   test("strips double-quote characters from keywords", () => {
     const result = buildFTSQuery(['say "hello"', "world"]);
     expect(result).toBe('"say hello" OR "world"');
+  });
+
+  test("returns undefined for empty keywords", () => {
+    expect(buildFTSQuery([])).toBeUndefined();
   });
 });

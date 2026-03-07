@@ -75,18 +75,19 @@ const STOP_WORDS = new Set([
  * Extract meaningful keywords from a conversational query by tokenizing,
  * stripping punctuation, and removing stop words.
  *
- * Returns `["*"]` for empty input (match-all fallback).
+ * Returns an empty array for empty/punctuation-only input so the caller
+ * can fall through to the default FTS query builder.
  */
 export function expandQueryForFTS(query: string): string[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) {
-    return ["*"];
+    return [];
   }
 
   const tokens = trimmed.split(/[^\w]+/).filter((token) => token.length > 0);
 
   if (tokens.length === 0) {
-    return ["*"];
+    return [];
   }
 
   const keywords = tokens.filter(
@@ -107,9 +108,9 @@ export function expandQueryForFTS(query: string): string[] {
  *
  * Example: `["discuss", "API", "design"]` -> `"discuss" OR "API" OR "design"`
  */
-export function buildFTSQuery(keywords: string[]): string {
+export function buildFTSQuery(keywords: string[]): string | undefined {
   if (keywords.length === 0) {
-    return '"*"';
+    return undefined;
   }
 
   return keywords.map((kw) => `"${kw.replaceAll('"', "")}"`).join(" OR ");
