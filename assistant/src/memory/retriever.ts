@@ -39,6 +39,9 @@ import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
 import type {
   Candidate,
   CollectedCandidates,
+  DegradationReason,
+  DegradationStatus,
+  FallbackSource,
   MemoryRecallCandiateDebug,
   MemoryRecallOptions,
   MemoryRecallResult,
@@ -53,6 +56,9 @@ export {
   formatRelativeTime,
 } from "./search/formatting.js";
 export type {
+  DegradationReason,
+  DegradationStatus,
+  FallbackSource,
   MemoryRecallCandiateDebug,
   MemoryRecallResult,
   MemorySearchResult,
@@ -415,12 +421,36 @@ async function collectAndMergeCandidates(
   };
 }
 
+/**
+ * Build a structured degradation status describing which retrieval
+ * capabilities are unavailable and what fallback sources remain.
+ */
+function buildDegradationStatus(
+  reason: DegradationReason,
+  config: AssistantConfig,
+): DegradationStatus {
+  const fallbackSources: FallbackSource[] = [
+    "lexical",
+    "recency",
+    "direct_item",
+  ];
+  if (config.memory.entity.enabled) {
+    fallbackSources.push("entity");
+  }
+  return {
+    semanticUnavailable: true,
+    reason,
+    fallbackSources,
+  };
+}
+
 /** Result of the embedding generation stage. */
 interface EmbeddingResult {
   queryVector: number[] | null;
   provider: string | undefined;
   model: string | undefined;
   degraded: boolean;
+  degradation: DegradationStatus | undefined;
   reason: string | undefined;
 }
 
@@ -443,6 +473,7 @@ async function generateQueryEmbedding(
   let provider: string | undefined;
   let model: string | undefined;
   let degraded = backendStatus.degraded;
+  let degradation: DegradationStatus | undefined;
   let reason = backendStatus.reason ?? undefined;
 
   if (backendStatus.provider) {
@@ -471,11 +502,16 @@ async function generateQueryEmbedding(
       reason = `memory.embedding_failure: ${
         err instanceof Error ? err.message : String(err)
       }`;
+      degradation = buildDegradationStatus(
+        "embedding_generation_failed",
+        config,
+      );
       if (config.memory.embeddings.required) {
         return {
           earlyExit: emptyResult({
             enabled: true,
             degraded,
+            degradation,
             reason,
             provider: backendStatus.provider,
             model: backendStatus.model ?? undefined,
@@ -485,17 +521,22 @@ async function generateQueryEmbedding(
       }
     }
   } else if (config.memory.embeddings.required) {
+    degradation = buildDegradationStatus("embedding_provider_down", config);
     return {
       earlyExit: emptyResult({
         enabled: true,
         degraded: true,
+        degradation,
         reason: reason ?? "memory.embedding_backend_missing",
         latencyMs: Date.now() - start,
       }),
     };
+  } else if (backendStatus.degraded) {
+    // Provider exists but is degraded (e.g. no backend configured)
+    degradation = buildDegradationStatus("embedding_provider_down", config);
   }
 
-  return { queryVector, provider, model, degraded, reason };
+  return { queryVector, provider, model, degraded, degradation, reason };
 }
 
 /** Result of the re-ranking stage. */
@@ -589,7 +630,7 @@ function formatRecallResult(
   // Reserve token budget for the degradation notice so it doesn't push
   // injected text over maxInjectTokens when appended after trimming.
   const degradationNotice = collected.semanticSearchFailed
-    ? "[Note: Semantic search is currently unavailable. Memory recall is limited to lexical and recency matching — results may be incomplete or miss semantically relevant memories.]"
+    ? buildDegradationNotice(embedding.degradation)
     : undefined;
   const noticeOnlyTokenCost = degradationNotice
     ? estimateTextTokens(degradationNotice)
@@ -667,6 +708,7 @@ function formatRecallResult(
   return {
     enabled: true,
     degraded: embedding.degraded,
+    degradation: embedding.degradation,
     reason: embedding.reason,
     provider: embedding.provider,
     model: embedding.model,
@@ -786,6 +828,12 @@ export async function buildMemoryRecall(
     embeddingResult.degraded = true;
     embeddingResult.reason =
       embeddingResult.reason ?? "memory.semantic_search_failure";
+    if (!embeddingResult.degradation) {
+      embeddingResult.degradation = buildDegradationStatus(
+        "qdrant_unavailable",
+        config,
+      );
+    }
   }
 
   // Stage 3: Source caps + LLM re-ranking
@@ -1025,6 +1073,30 @@ export async function searchMemoryItems(
   }));
 }
 
+/**
+ * Build a user-facing degradation notice that explains specifically
+ * what retrieval capability is unavailable and what fallbacks are active.
+ */
+function buildDegradationNotice(
+  degradation: DegradationStatus | undefined,
+): string {
+  if (!degradation) {
+    return "[Note: Semantic memory search is currently unavailable. Memory recall is limited to keyword and recency matching — results may be incomplete or miss semantically relevant memories.]";
+  }
+
+  const sourceLabels: Record<FallbackSource, string> = {
+    lexical: "keyword",
+    recency: "recency",
+    direct_item: "direct item",
+    entity: "entity graph",
+  };
+  const fallbackList = degradation.fallbackSources
+    .map((s) => sourceLabels[s])
+    .join(", ");
+
+  return `[Note: Semantic memory search unavailable — using ${fallbackList} search only. Results may be incomplete or miss semantically relevant memories.]`;
+}
+
 function emptyResult(
   init: Partial<MemoryRecallResult> &
     Pick<MemoryRecallResult, "enabled" | "degraded" | "latencyMs">,
@@ -1032,6 +1104,7 @@ function emptyResult(
   return {
     enabled: init.enabled,
     degraded: init.degraded,
+    degradation: init.degradation,
     reason: init.reason,
     provider: init.provider,
     model: init.model,

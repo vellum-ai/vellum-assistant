@@ -33,9 +33,23 @@ export interface MemoryRecallCandiateDebug {
   recency: number;
 }
 
+export type DegradationReason =
+  | "embedding_provider_down"
+  | "qdrant_unavailable"
+  | "embedding_generation_failed";
+
+export type FallbackSource = "lexical" | "recency" | "direct_item" | "entity";
+
+export interface DegradationStatus {
+  semanticUnavailable: boolean;
+  reason: DegradationReason;
+  fallbackSources: FallbackSource[];
+}
+
 export interface MemoryRecallResult {
   enabled: boolean;
   degraded: boolean;
+  degradation?: DegradationStatus;
   reason?: string;
   provider?: string;
   model?: string;
