@@ -126,7 +126,7 @@ export class SkillLoadTool implements Tool {
           continue;
 
         childLines.push(
-          `  - ${child.id}: ${child.name} — ${child.description} (${child.skillFilePath})`,
+          `  - ${child.id}: ${child.displayName} — ${child.description} (${child.skillFilePath})`,
         );
 
         // Load the included skill's body content
