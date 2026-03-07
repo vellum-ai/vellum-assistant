@@ -87,6 +87,7 @@ Guardian verification endpoints are exposed directly by the gateway and forwarde
 | DELETE | `/v1/integrations/guardian/sessions`        |
 | POST   | `/v1/integrations/guardian/sessions/resend` |
 | GET    | `/v1/integrations/guardian/status`          |
+| POST   | `/v1/integrations/guardian/revoke`          |
 | POST   | `/v1/integrations/guardian/vellum/refresh`  |
 
 The `/vellum/refresh` endpoint is the only public ingress for rotating JWT access + refresh token credentials. Clients must call this through the gateway; the runtime endpoint is not directly exposed. The gateway validates the caller's JWT and forwards to the runtime, which handles refresh token validation, rotation, and replay detection (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for the JWT auth lifecycle).
