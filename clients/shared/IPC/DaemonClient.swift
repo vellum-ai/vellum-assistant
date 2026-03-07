@@ -1445,14 +1445,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
     }
 
-    /// Guardian verification session management: "create_session", "status", "cancel_session", "revoke", "resend_session".
-    public func sendGuardianVerification(
+    /// Channel verification session management: "create_session", "status", "cancel_session", "revoke", "resend_session".
+    public func sendChannelVerificationSession(
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
         rebind: Bool? = nil,
         destination: String? = nil,
-        originConversationId: String? = nil
+        originConversationId: String? = nil,
+        purpose: String? = nil,
+        contactChannelId: String? = nil
     ) throws {
         try send(ChannelVerificationSessionRequestMessage(
             action: action,
@@ -1460,7 +1462,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             sessionId: sessionId,
             rebind: rebind,
             destination: destination,
-            originConversationId: originConversationId
+            originConversationId: originConversationId,
+            purpose: purpose,
+            contactChannelId: contactChannelId
         ))
     }
 
@@ -1829,16 +1833,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Contacts Management
 
-    /// Response from the channel verification endpoint.
-    public struct ChannelVerificationResult: Decodable {
-        public let ok: Bool
-        public let verificationSessionId: String?
-        public let expiresAt: Int?
-        public let sendCount: Int?
-        public let telegramBootstrapUrl: String?
-        public let error: String?
-    }
-
     /// A channel to attach when creating a new contact.
     public struct NewContactChannel: Codable {
         public let type: String
@@ -2074,32 +2068,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         return result
         #else
         return [:]
-        #endif
-    }
-
-    /// Send a verification code to a contact's channel via the gateway.
-    /// Routes through `HTTPTransport` when available. Falls back to the
-    /// local gateway (port 7830) for socket-based connections.
-    public func verifyContactChannel(
-        contactChannelId: String
-    ) async throws -> ChannelVerificationResult? {
-        if let httpTransport {
-            return try await httpTransport.verifyContactChannel(
-                contactChannelId: contactChannelId
-            )
-        }
-
-        #if os(macOS)
-        let encoded = contactChannelId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? contactChannelId
-        guard var request = buildLocalRequest(target: .gateway, path: "v1/contact-channels/\(encoded)/verify", method: "POST") else { return nil }
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode) else { return nil }
-        return try JSONDecoder().decode(ChannelVerificationResult.self, from: data)
-        #else
-        return nil
         #endif
     }
 

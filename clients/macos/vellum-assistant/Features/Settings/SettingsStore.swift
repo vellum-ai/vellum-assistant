@@ -1488,7 +1488,7 @@ public final class SettingsStore: ObservableObject {
 
     func refreshChannelGuardianStatus(channel: String) {
         do {
-            try daemonClient?.sendGuardianVerification(action: "status", channel: channel)
+            try daemonClient?.sendChannelVerificationSession(action: "status", channel: channel)
         } catch {
             log.error("Failed to refresh \(channel) guardian status: \(error)")
         }
@@ -1543,7 +1543,7 @@ public final class SettingsStore: ObservableObject {
             }
             pendingGuardianChallengeChannel = channel
             armGuardianChallengeTimeout(for: channel)
-            try daemonClient.sendGuardianVerification(
+            try daemonClient.sendChannelVerificationSession(
                 action: "create_session",
                 channel: channel,
                 rebind: rebind ? true : nil
@@ -1591,7 +1591,7 @@ public final class SettingsStore: ObservableObject {
         }
         // Invalidate the pending challenge token on the backend so it can't be used after cancellation
         do {
-            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel)
+            try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
         } catch {
             log.error("Failed to revoke \(channel) guardian challenge on cancel: \(error)")
         }
@@ -1615,7 +1615,7 @@ public final class SettingsStore: ObservableObject {
             break
         }
         do {
-            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel)
+            try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
         } catch {
             log.error("Failed to revoke \(channel) guardian: \(error)")
         }
@@ -1832,7 +1832,7 @@ public final class SettingsStore: ObservableObject {
                 }
                 return
             }
-            try daemonClient.sendGuardianVerification(
+            try daemonClient.sendChannelVerificationSession(
                 action: "create_session",
                 channel: channel,
                 destination: destination
@@ -1860,7 +1860,7 @@ public final class SettingsStore: ObservableObject {
 
     func resendOutboundGuardian(channel: String) {
         do {
-            try daemonClient?.sendGuardianVerification(
+            try daemonClient?.sendChannelVerificationSession(
                 action: "resend_session",
                 channel: channel
             )
@@ -1885,7 +1885,7 @@ public final class SettingsStore: ObservableObject {
             break
         }
         do {
-            try daemonClient?.sendGuardianVerification(
+            try daemonClient?.sendChannelVerificationSession(
                 action: "cancel_session",
                 channel: channel
             )
