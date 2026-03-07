@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../channels/config.js", () => ({
-  getDeliverableChannels: () => ["vellum", "telegram", "telegram"],
+  getDeliverableChannels: () => ["vellum", "telegram", "whatsapp"],
 }));
 
 mock.module("../config/loader.js", () => ({

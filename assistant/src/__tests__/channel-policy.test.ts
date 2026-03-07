@@ -99,7 +99,7 @@ describe("channel policy registry", () => {
     const expectedStrategies: [ChannelId, ConversationStrategy][] = [
       ["vellum", "start_new_conversation"],
       ["telegram", "continue_existing_conversation"],
-      ["telegram", "continue_existing_conversation"],
+      ["whatsapp", "continue_existing_conversation"],
       ["voice", "not_deliverable"],
     ];
 

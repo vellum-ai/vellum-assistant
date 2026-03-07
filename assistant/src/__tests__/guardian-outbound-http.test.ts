@@ -281,10 +281,10 @@ describe("startOutbound", () => {
   });
 
   test("unknown channel returns unsupported_channel", async () => {
-    const result = await startOutbound({ channel: "telegram" as never });
+    const result = await startOutbound({ channel: "sms" as never });
     expect(result.success).toBe(false);
     expect(result.error).toBe("unsupported_channel");
-    expect(result.channel).toBe("telegram");
+    expect(result.channel).toBe("sms" as never);
   });
 });
 

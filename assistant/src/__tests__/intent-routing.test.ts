@@ -331,13 +331,13 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("guardian-verify-setup");
   });
 
-  test("routing section mentions voice and telegram channels but not another channel", () => {
+  test("routing section mentions voice and telegram channels but not sms", () => {
     const prompt = buildSystemPrompt();
     const routingStart = prompt.indexOf("## Routing: Guardian Verification");
     const routingSection = prompt.substring(routingStart, routingStart + 1000);
     expect(routingSection).toContain("voice");
     expect(routingSection).toContain("telegram");
-    expect(routingSection).not.toContain("telegram");
+    expect(routingSection).not.toContain("sms");
   });
 
   test("routing section contains exclusivity wording", () => {

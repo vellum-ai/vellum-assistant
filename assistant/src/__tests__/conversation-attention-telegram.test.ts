@@ -387,8 +387,8 @@ describe("non-Telegram channel filtering", () => {
   test("Non-telegram inbound message does not record a Telegram seen signal", async () => {
     // Override contact store for another channel
     const req = makeInboundRequest({
-      sourceChannel: "telegram",
-      interface: "telegram",
+      sourceChannel: "whatsapp",
+      interface: "whatsapp",
       content: "some message",
     });
 

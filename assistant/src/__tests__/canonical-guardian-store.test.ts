@@ -485,7 +485,7 @@ describe("canonical-guardian-store", () => {
     });
     createCanonicalGuardianDelivery({
       requestId: req.id,
-      destinationChannel: "telegram",
+      destinationChannel: "whatsapp",
       destinationChatId: "chat-456",
     });
 
@@ -497,7 +497,7 @@ describe("canonical-guardian-store", () => {
     const deliveries = listCanonicalGuardianDeliveries(req.id);
     expect(deliveries).toHaveLength(2);
     const channels = deliveries.map((d) => d.destinationChannel).sort();
-    expect(channels).toEqual(["telegram", "telegram"]);
+    expect(channels).toEqual(["telegram", "whatsapp"]);
   });
 
   test("lists empty deliveries for a request with none", () => {

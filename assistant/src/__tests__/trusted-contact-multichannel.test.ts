@@ -319,7 +319,7 @@ for (const config of CHANNEL_CONFIGS) {
 
       // Should NOT be found on a different channel
       const otherChannel =
-        config.channel === "telegram" ? "telegram" : "telegram";
+        config.channel === "telegram" ? "whatsapp" : "telegram";
       const crossChanResult = findContactChannel({
         channelType: otherChannel,
         externalUserId: config.senderExternalUserId,

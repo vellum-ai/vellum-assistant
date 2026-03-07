@@ -563,17 +563,17 @@ describe("guardian identity check", () => {
     expect(binding).toBeNull();
   });
 
-  test("isGuardian works for telegram channel", () => {
+  test("isGuardian works for whatsapp channel", () => {
     createGuardianBinding({
-      channel: "telegram",
+      channel: "whatsapp",
       guardianExternalUserId: "phone-user-1",
       guardianPrincipalId: "phone-user-1",
-      guardianDeliveryChatId: "tg-chat-1",
+      guardianDeliveryChatId: "wa-chat-1",
     });
 
-    expect(isGuardian("asst-1", "telegram", "phone-user-1")).toBe(true);
-    expect(isGuardian("asst-1", "telegram", "phone-user-2")).toBe(false);
-    // Telegram guardian should not match telegram channel
+    expect(isGuardian("asst-1", "whatsapp", "phone-user-1")).toBe(true);
+    expect(isGuardian("asst-1", "whatsapp", "phone-user-2")).toBe(false);
+    // WhatsApp guardian should not match telegram channel
     expect(isGuardian("asst-1", "telegram", "phone-user-1")).toBe(false);
   });
 
@@ -814,7 +814,7 @@ describe("guardian approval request CRUD", () => {
     expect(found!.channel).toBe("telegram");
 
     // Should not find it under a different channel
-    const notFound = getPendingApprovalByGuardianChat("telegram", "tg-chat-42");
+    const notFound = getPendingApprovalByGuardianChat("whatsapp", "tg-chat-42");
     expect(notFound).toBeNull();
   });
 
@@ -963,13 +963,13 @@ describe("verification rate limiting store", () => {
 
     const rl42 = getRateLimit("telegram", "user-42", "chat-42");
     const rl99 = getRateLimit("telegram", "user-99", "chat-99");
-    const rlTelegram = getRateLimit("telegram", "user-42", "chat-42");
+    const rlWhatsapp = getRateLimit("whatsapp", "user-42", "chat-42");
 
     expect(rl42).not.toBeNull();
     expect(rl42!.invalidAttempts).toBe(1);
     expect(rl99).not.toBeNull();
     expect(rl99!.invalidAttempts).toBe(1);
-    expect(rlTelegram).toBeNull();
+    expect(rlWhatsapp).toBeNull();
   });
 });
 

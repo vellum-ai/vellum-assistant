@@ -34,7 +34,7 @@ let mockVellumBinding: unknown = null;
 mock.module("../memory/channel-guardian-store.js", () => ({
   getActiveBinding: (_assistantId: string, channel: string) => {
     if (channel === "telegram") return mockTelegramBinding;
-    if (channel === "telegram") return mockAltBinding;
+    if (channel === "whatsapp") return mockAltBinding;
     if (channel === "vellum") return mockVellumBinding;
     return null;
   },
