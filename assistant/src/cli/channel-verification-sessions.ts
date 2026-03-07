@@ -138,6 +138,9 @@ Examples:
               DAEMON_INTERNAL_ASSISTANT_ID,
             );
             writeOutput(cmd, result);
+            if (!result.success) {
+              process.exitCode = 1;
+            }
             return;
           }
 
@@ -189,6 +192,9 @@ Examples:
             }
 
             writeOutput(cmd, result);
+            if (!result.success) {
+              process.exitCode = 1;
+            }
             return;
           }
 
@@ -199,6 +205,9 @@ Examples:
             opts.sessionId,
           );
           writeOutput(cmd, result);
+          if (!result.success) {
+            process.exitCode = 1;
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeOutput(cmd, { ok: false, error: message });
@@ -238,6 +247,9 @@ Examples:
         const channel = opts.channel as ChannelId | undefined;
         const result = getVerificationStatus(channel);
         writeOutput(cmd, result);
+        if (!result.success) {
+          process.exitCode = 1;
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         writeOutput(cmd, { ok: false, error: message });
@@ -285,6 +297,9 @@ Examples:
             originConversationId: opts.originConversationId,
           });
           writeOutput(cmd, result);
+          if (!result.success) {
+            process.exitCode = 1;
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeOutput(cmd, { ok: false, error: message });
@@ -364,6 +379,9 @@ Examples:
         const channel = opts.channel as ChannelId | undefined;
         const result = revokeVerificationForChannel(channel);
         writeOutput(cmd, result);
+        if (!result.success) {
+          process.exitCode = 1;
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         writeOutput(cmd, { ok: false, error: message });
