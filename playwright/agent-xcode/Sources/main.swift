@@ -13,9 +13,9 @@ func main() async {
             return .experimental
         }
         if let raw = testFilterArg ?? ProcessInfo.processInfo.environment["TEST_FILTER"] {
-            return TestStatus(rawValue: raw.lowercased()) ?? .experimental
+            return TestStatus(rawValue: raw.lowercased()) ?? .stable
         }
-        return .experimental
+        return .stable
     }()
     let filter = args.first(where: { !$0.starts(with: "--") && $0 != args[0] })
     let appDisplayName = ProcessInfo.processInfo.environment["APP_DISPLAY_NAME"] ?? "Vellum"

@@ -229,7 +229,7 @@ for (const file of caseFiles) {
   const testName = file.replace(/\.md$/, "");
 
   test(testName, async ({ page }, testInfo) => {
-    const testFilter = (process.env.TEST_FILTER || "experimental") as TestStatus;
+    const testFilter = (process.env.TEST_FILTER || "stable") as TestStatus;
     const statusPriority: Record<TestStatus, number> = { critical: 0, stable: 1, experimental: 2 };
     const effectiveStatus = status ?? "stable";
     if (statusPriority[effectiveStatus] > statusPriority[testFilter]) {

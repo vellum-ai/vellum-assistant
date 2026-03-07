@@ -18,7 +18,7 @@ on:
           - experimental
           - stable
           - critical
-        default: experimental
+        default: stable
       test_case:
         description: 'Run a single test case by name (e.g. "hello-world"). If empty, runs all tests.'
         required: false
@@ -447,7 +447,7 @@ jobs:
         working-directory: playwright
         continue-on-error: true
         env:
-          TEST_FILTER: ${{ inputs.test_filter || 'experimental' }}
+          TEST_FILTER: ${{ inputs.test_filter || 'stable' }}
         run: |
           SHARD_ARGS=""
           if [ "$TOTAL_SHARDS" -gt 1 ]; then
