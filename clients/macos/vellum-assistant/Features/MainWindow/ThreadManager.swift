@@ -129,6 +129,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         case unread(latestAssistantMessageAt: Date?)
     }
 
+    /// Per-thread attention state captured before mark-all-seen,
+    /// so the undo path can restore exact prior values.
+    private struct MarkAllSeenPriorState {
+        let lastSeenAssistantMessageAt: Date?
+        let sessionId: String?
+        let override: PendingAttentionOverride?
+    }
+
+    /// Snapshots captured by the most recent `markAllThreadsSeen()` call,
+    /// keyed by thread ID. Consumed by `restoreUnseen(threadIds:)`.
+    private var markAllSeenPriorStates: [UUID: MarkAllSeenPriorState] = [:]
+
     /// Threads that are not archived — used by the UI to populate the sidebar.
     /// Sorted: pinned first (by pinnedOrder ascending), then threads with explicit
     /// displayOrder ascending, then remaining threads by lastInteractedAt descending.
@@ -1185,13 +1197,22 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         commitPendingSeenSignals()
         var markedIds: [UUID] = []
         var sessionIds: [String] = []
+        var priorStates: [UUID: MarkAllSeenPriorState] = [:]
         for idx in threads.indices {
             guard !threads[idx].isArchived,
                   threads[idx].kind != .private,
                   threads[idx].hasUnseenLatestAssistantMessage else { continue }
+            let threadId = threads[idx].id
+            let sessionId = threads[idx].sessionId
+            // Capture prior state before overwriting
+            priorStates[threadId] = MarkAllSeenPriorState(
+                lastSeenAssistantMessageAt: threads[idx].lastSeenAssistantMessageAt,
+                sessionId: sessionId,
+                override: sessionId.flatMap { pendingAttentionOverrides[$0] }
+            )
             threads[idx].hasUnseenLatestAssistantMessage = false
-            markedIds.append(threads[idx].id)
-            if let sessionId = threads[idx].sessionId {
+            markedIds.append(threadId)
+            if let sessionId {
                 sessionIds.append(sessionId)
                 pendingAttentionOverrides[sessionId] = .seen(
                     latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
@@ -1199,6 +1220,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 threads[idx].lastSeenAssistantMessageAt = threads[idx].latestAssistantMessageAt
             }
         }
+        markAllSeenPriorStates = priorStates
         if !sessionIds.isEmpty {
             pendingSeenSessionIds = sessionIds
         }
@@ -1211,6 +1233,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     internal func commitPendingSeenSignals() {
         let sessionIds = pendingSeenSessionIds
         pendingSeenSessionIds = []
+        markAllSeenPriorStates = [:]
         pendingSeenSignalTask?.cancel()
         pendingSeenSignalTask = nil
         for sessionId in sessionIds {
@@ -1241,15 +1264,40 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Restore the unseen flag for the given thread IDs and cancel any
-    /// pending IPC seen signals (used by undo).
+    /// pending IPC seen signals (used by undo). Restores prior
+    /// `lastSeenAssistantMessageAt` and `pendingAttentionOverrides`
+    /// values captured by `markAllThreadsSeen()` instead of blindly
+    /// clearing them.
     internal func restoreUnseen(threadIds: [UUID]) {
         cancelPendingSeenSignals()
+        let priorStates = markAllSeenPriorStates
+        markAllSeenPriorStates = [:]
         for id in threadIds {
             if let idx = threads.firstIndex(where: { $0.id == id }) {
                 threads[idx].hasUnseenLatestAssistantMessage = true
-                threads[idx].lastSeenAssistantMessageAt = nil
-                if let sessionId = threads[idx].sessionId {
-                    pendingAttentionOverrides.removeValue(forKey: sessionId)
+                if let prior = priorStates[id] {
+                    threads[idx].lastSeenAssistantMessageAt = prior.lastSeenAssistantMessageAt
+                    if let sessionId = prior.sessionId {
+                        // Only restore the override if the current override is
+                        // still the .seen that markAllThreadsSeen() installed.
+                        // If the user changed it (e.g. marked unread during
+                        // the undo window), keep the newer override.
+                        if let currentOverride = pendingAttentionOverrides[sessionId],
+                           case .seen = currentOverride {
+                            if let previousOverride = prior.override {
+                                pendingAttentionOverrides[sessionId] = previousOverride
+                            } else {
+                                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                            }
+                        }
+                    }
+                } else {
+                    // Fallback: no prior state captured (shouldn't happen in
+                    // normal flow), clear conservatively.
+                    threads[idx].lastSeenAssistantMessageAt = nil
+                    if let sessionId = threads[idx].sessionId {
+                        pendingAttentionOverrides.removeValue(forKey: sessionId)
+                    }
                 }
             }
         }
