@@ -4,10 +4,142 @@ import { verifyTwilioSignature } from "./verify.js";
 
 const log = getLogger("twilio-validate");
 
+type TwilioWebhookKind =
+  | "voice"
+  | "status"
+  | "connect-action"
+  | "sms"
+  | "unknown";
+
+type SignatureUrlCandidateSource =
+  | "configured_ingress"
+  | "forwarded_headers"
+  | "raw_request";
+
+type SignatureUrlCandidate = {
+  source: SignatureUrlCandidateSource;
+  url: string;
+};
+
 function firstHeaderValue(value: string | null): string | undefined {
   if (!value) return undefined;
   const first = value.split(",")[0]?.trim();
   return first ? first : undefined;
+}
+
+function inferWebhookKind(reqUrl: string): TwilioWebhookKind {
+  const pathname = new URL(reqUrl).pathname;
+
+  if (
+    pathname === "/webhooks/twilio/voice" ||
+    pathname === "/v1/calls/twilio/voice-webhook"
+  ) {
+    return "voice";
+  }
+
+  if (
+    pathname === "/webhooks/twilio/status" ||
+    pathname === "/v1/calls/twilio/status"
+  ) {
+    return "status";
+  }
+
+  if (
+    pathname === "/webhooks/twilio/connect-action" ||
+    pathname === "/v1/calls/twilio/connect-action"
+  ) {
+    return "connect-action";
+  }
+
+  if (pathname === "/webhooks/twilio/sms") {
+    return "sms";
+  }
+
+  return "unknown";
+}
+
+function normalizeUrlForLog(url: string): string {
+  return new URL(url).toString();
+}
+
+function buildSignatureUrlCandidateDetails(
+  req: Request,
+  config: GatewayConfig,
+): SignatureUrlCandidate[] {
+  const parsedUrl = new URL(req.url);
+  const pathAndQuery = parsedUrl.pathname + parsedUrl.search;
+  const candidates: SignatureUrlCandidate[] = [];
+
+  const addCandidate = (
+    url: string | undefined,
+    source: SignatureUrlCandidateSource,
+  ): void => {
+    if (!url) return;
+    if (!candidates.some((candidate) => candidate.url === url)) {
+      candidates.push({ source, url });
+    }
+  };
+
+  const addBase = (
+    base: string | undefined,
+    source: SignatureUrlCandidateSource,
+  ): void => {
+    if (!base) return;
+    const normalized = base.trim().replace(/\/+$/, "");
+    if (!normalized) return;
+    addCandidate(`${normalized}${pathAndQuery}`, source);
+  };
+
+  addBase(config.ingressPublicBaseUrl, "configured_ingress");
+
+  const forwardedProto =
+    firstHeaderValue(req.headers.get("x-forwarded-proto")) ??
+    firstHeaderValue(req.headers.get("x-original-proto"));
+  const forwardedHost =
+    firstHeaderValue(req.headers.get("x-forwarded-host")) ??
+    firstHeaderValue(req.headers.get("x-original-host"));
+  if (forwardedProto && forwardedHost) {
+    addBase(`${forwardedProto}://${forwardedHost}`, "forwarded_headers");
+  }
+
+  // Always include the raw request URL as the final fallback candidate so
+  // valid signatures are not rejected when the other candidates are stale or
+  // incorrectly reconstructed (e.g. mixed proxy/tunnel setups).
+  addCandidate(req.url, "raw_request");
+
+  return candidates;
+}
+
+function buildValidationDiagnostics(
+  req: Request,
+  config: GatewayConfig,
+): {
+  logContext: {
+    authTokenConfigured: boolean;
+    candidateCount: number;
+    candidateSources: SignatureUrlCandidateSource[];
+    candidateUrls: string[];
+    webhookKind: TwilioWebhookKind;
+  };
+  signatureUrlCandidates: SignatureUrlCandidate[];
+} {
+  const signatureUrlCandidates = buildSignatureUrlCandidateDetails(req, config);
+  const logContext = {
+    webhookKind: inferWebhookKind(req.url),
+    authTokenConfigured: Boolean(config.twilioAuthToken),
+    candidateCount: signatureUrlCandidates.length,
+    candidateSources: signatureUrlCandidates.map(
+      (candidate) => candidate.source,
+    ),
+    candidateUrls: signatureUrlCandidates.map((candidate) =>
+      normalizeUrlForLog(candidate.url),
+    ),
+  };
+
+  return {
+    logContext,
+    signatureUrlCandidates,
+  };
 }
 
 /**
@@ -30,40 +162,9 @@ function buildSignatureUrlCandidates(
   req: Request,
   config: GatewayConfig,
 ): string[] {
-  const parsedUrl = new URL(req.url);
-  const pathAndQuery = parsedUrl.pathname + parsedUrl.search;
-  const candidates: string[] = [];
-
-  const addBase = (base: string | undefined): void => {
-    if (!base) return;
-    const normalized = base.trim().replace(/\/+$/, "");
-    if (!normalized) return;
-    const candidate = `${normalized}${pathAndQuery}`;
-    if (!candidates.includes(candidate)) {
-      candidates.push(candidate);
-    }
-  };
-
-  addBase(config.ingressPublicBaseUrl);
-
-  const forwardedProto =
-    firstHeaderValue(req.headers.get("x-forwarded-proto")) ??
-    firstHeaderValue(req.headers.get("x-original-proto"));
-  const forwardedHost =
-    firstHeaderValue(req.headers.get("x-forwarded-host")) ??
-    firstHeaderValue(req.headers.get("x-original-host"));
-  if (forwardedProto && forwardedHost) {
-    addBase(`${forwardedProto}://${forwardedHost}`);
-  }
-
-  // Always include the raw request URL as the final fallback candidate so
-  // valid signatures are not rejected when the other candidates are stale or
-  // incorrectly reconstructed (e.g. mixed proxy/tunnel setups).
-  if (!candidates.includes(req.url)) {
-    candidates.push(req.url);
-  }
-
-  return candidates;
+  return buildSignatureUrlCandidateDetails(req, config).map(
+    (candidate) => candidate.url,
+  );
 }
 
 /**
@@ -111,14 +212,21 @@ export async function validateTwilioWebhookRequest(
 
   // Payload size guard (Content-Length header)
   const contentLength = req.headers.get("content-length");
+  const validationDiagnostics = buildValidationDiagnostics(req, config);
+  const { logContext: validationLogContext, signatureUrlCandidates } =
+    validationDiagnostics;
   if (contentLength && Number(contentLength) > config.maxWebhookPayloadBytes) {
-    log.warn({ contentLength }, "Twilio webhook payload too large");
+    log.warn(
+      { contentLength, ...validationLogContext },
+      "Twilio webhook payload too large",
+    );
     return Response.json({ error: "Payload too large" }, { status: 413 });
   }
 
   // Fail-closed: reject if no auth token is configured
   if (!config.twilioAuthToken) {
     log.error(
+      validationLogContext,
       "Twilio auth token not configured — rejecting webhook (fail-closed)",
     );
     return Response.json({ error: "Forbidden" }, { status: 403 });
@@ -134,7 +242,7 @@ export async function validateTwilioWebhookRequest(
   // Payload size guard (actual body size)
   if (Buffer.byteLength(rawBody) > config.maxWebhookPayloadBytes) {
     log.warn(
-      { bodyLength: Buffer.byteLength(rawBody) },
+      { bodyLength: Buffer.byteLength(rawBody), ...validationLogContext },
       "Twilio webhook payload too large",
     );
     return Response.json({ error: "Payload too large" }, { status: 413 });
@@ -150,13 +258,16 @@ export async function validateTwilioWebhookRequest(
   // Validate signature
   const signature = req.headers.get("x-twilio-signature");
   if (!signature) {
-    log.warn("Twilio webhook request missing X-Twilio-Signature header");
+    log.warn(
+      validationLogContext,
+      "Twilio webhook request missing X-Twilio-Signature header",
+    );
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const signatureUrlCandidates = buildSignatureUrlCandidates(req, config);
+  const signatureCandidateUrls = buildSignatureUrlCandidates(req, config);
   const validatingIndex = findValidatingCandidateIndex(
-    signatureUrlCandidates,
+    signatureCandidateUrls,
     params,
     signature,
     config.twilioAuthToken!,
@@ -164,11 +275,18 @@ export async function validateTwilioWebhookRequest(
 
   if (validatingIndex === -1) {
     log.warn(
-      { candidateCount: signatureUrlCandidates.length },
+      validationLogContext,
       "Twilio webhook signature validation failed",
     );
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const validatingCandidate = signatureUrlCandidates[validatingIndex];
+  const successLogContext = {
+    ...validationLogContext,
+    validatedCandidateSource: validatingCandidate.source,
+    validatedCandidateUrl: normalizeUrlForLog(validatingCandidate.url),
+  };
 
   // When ingressPublicBaseUrl is configured and the signature only validated
   // against the raw local URL (last candidate), log a warning. This indicates
@@ -176,17 +294,19 @@ export async function validateTwilioWebhookRequest(
   // registration — the ingress URL should match what Twilio is signing against.
   if (
     config.ingressPublicBaseUrl &&
-    validatingIndex === signatureUrlCandidates.length - 1 &&
-    signatureUrlCandidates.length > 1
+    validatingIndex === signatureCandidateUrls.length - 1 &&
+    signatureCandidateUrls.length > 1
   ) {
     log.warn(
       {
+        ...successLogContext,
         ingressPublicBaseUrl: config.ingressPublicBaseUrl,
-        validatedAgainst: signatureUrlCandidates[validatingIndex],
       },
       "Twilio signature validated against raw request URL fallback — " +
         "INGRESS_PUBLIC_BASE_URL may be stale or mismatched with the actual webhook registration",
     );
+  } else {
+    log.info(successLogContext, "Twilio webhook signature validated");
   }
 
   return { rawBody, params };
