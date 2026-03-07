@@ -55,7 +55,8 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
+import { handleMessage } from "../daemon/handlers/index.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ServerMessage,
   SlackWebhookConfigRequest,

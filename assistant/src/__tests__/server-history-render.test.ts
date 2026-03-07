@@ -27,7 +27,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { mergeToolResults, renderHistoryContent } from "../daemon/handlers.js";
+import {
+  mergeToolResults,
+  renderHistoryContent,
+} from "../daemon/handlers/shared.js";
 import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,

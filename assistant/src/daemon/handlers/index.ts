@@ -46,18 +46,6 @@ import { twitterAuthHandlers } from "./twitter-auth.js";
 import { workItemHandlers } from "./work-items.js";
 import { workspaceFileHandlers } from "./workspace-files.js";
 
-// Re-export types and utilities for backwards compatibility
-export { handleRecordingStart, handleRecordingStop } from "./recording.js";
-export type {
-  HandlerContext,
-  HistorySurface,
-  HistoryToolCall,
-  ParsedHistoryMessage,
-  RenderedHistoryContent,
-  SessionCreateOptions,
-} from "./shared.js";
-export { mergeToolResults, renderHistoryContent } from "./shared.js";
-
 // ─── Typed dispatch ──────────────────────────────────────────────────────────
 
 // Inline handlers for messages not owned by any feature group

@@ -1,7 +1,7 @@
 import type * as net from "node:net";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { HandlerContext } from "../daemon/handlers.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
