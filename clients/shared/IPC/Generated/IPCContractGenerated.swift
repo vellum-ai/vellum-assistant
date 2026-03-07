@@ -1,4 +1,4 @@
-// AUTO-GENERATED from assistant/src/daemon/ipc-contract.ts — DO NOT EDIT
+// AUTO-GENERATED from assistant/src/daemon/ipc-protocol.ts — DO NOT EDIT
 // Regenerate: cd assistant && bun run generate:ipc
 //
 // This file contains Swift Codable DTOs derived from the IPC contract.

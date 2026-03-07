@@ -786,12 +786,12 @@ graph TB
 
 ## IPC Contract — Source of Truth and Code Generation
 
-The TypeScript file `assistant/src/daemon/ipc-contract.ts` is the **single source of truth** for all IPC message types. Swift client models are auto-generated from it.
+The TypeScript file `assistant/src/daemon/ipc-protocol.ts` is the **single source of truth** for all IPC message types. Swift client models are auto-generated from it.
 
 ```mermaid
 graph LR
     subgraph "Source of Truth"
-        CONTRACT["ipc-contract.ts<br/>───────────────<br/>All message interfaces<br/>ClientMessage union<br/>ServerMessage union"]
+        CONTRACT["ipc-protocol.ts<br/>───────────────<br/>All message interfaces<br/>ClientMessage union<br/>ServerMessage union<br/>Serialization / parsing"]
     end
 
     subgraph "Generation Pipeline"

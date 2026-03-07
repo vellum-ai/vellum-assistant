@@ -18,7 +18,7 @@ import * as path from "path";
 import { extractInventory } from "../../src/daemon/ipc-contract-inventory.js";
 
 const ROOT = path.resolve(import.meta.dirname ?? __dirname, "../..");
-const CONTRACT_PATH = path.join(ROOT, "src/daemon/ipc-contract.ts");
+const CONTRACT_PATH = path.join(ROOT, "src/daemon/ipc-protocol.ts");
 const SWIFT_PATH = path.resolve(
   ROOT,
   "../clients/shared/IPC/IPCMessages.swift",

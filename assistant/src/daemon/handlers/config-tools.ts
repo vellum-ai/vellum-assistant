@@ -179,13 +179,13 @@ export function handleToolNamesList(
 ): void {
   const tools = getAllTools();
   const nameSet = new Set(tools.map((t) => t.name));
-  const schemas: Record<string, import("../ipc-contract.js").ToolInputSchema> =
+  const schemas: Record<string, import("../ipc-protocol.js").ToolInputSchema> =
     {};
   for (const tool of tools) {
     try {
       const def = tool.getDefinition();
       schemas[tool.name] =
-        def.input_schema as import("../ipc-contract.js").ToolInputSchema;
+        def.input_schema as import("../ipc-protocol.js").ToolInputSchema;
     } catch {
       // Skip tools whose definitions can't be resolved
     }
@@ -205,7 +205,7 @@ export function handleToolNamesList(
           if (nameSet.has(entry.name)) continue;
           nameSet.add(entry.name);
           schemas[entry.name] =
-            entry.input_schema as unknown as import("../ipc-contract.js").ToolInputSchema;
+            entry.input_schema as unknown as import("../ipc-protocol.js").ToolInputSchema;
         }
       } catch {
         // Skip skills whose manifests can't be parsed
