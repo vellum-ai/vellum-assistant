@@ -491,28 +491,42 @@ describe("Memory Retriever Degradation", () => {
       }
     }
 
-    // Use a config where embedding generation will succeed but Qdrant is down,
-    // but the embedding backend won't actually produce vectors since
-    // local backend returns zero vectors. The key path is: queryVector is
-    // available but isQdrantBreakerOpen() returns true.
+    // Disable early termination so the pipeline always reaches the
+    // semantic search phase, where the open breaker triggers degradation.
+    const configNoET: AssistantConfig = {
+      ...TEST_CONFIG,
+      memory: {
+        ...TEST_CONFIG.memory,
+        retrieval: {
+          ...TEST_CONFIG.memory.retrieval,
+          earlyTermination: {
+            ...TEST_CONFIG.memory.retrieval.earlyTermination,
+            enabled: false,
+          },
+        },
+      },
+    };
+
     const result = await buildMemoryRecall(
       "API design",
       "conv-degrade-test",
-      TEST_CONFIG,
+      configNoET,
     );
 
-    // When the breaker is open, semantic search is skipped entirely and
-    // semanticSearchFailed stays false (no attempt was made), so degradation
-    // is only set via the embedding path if the embedding also fails.
-    // With a zero-vector embedding (local stub), the breaker being open
-    // means semanticUnavailable=true in collectAndMergeCandidates, which
-    // triggers boosted limits and query expansion but doesn't set the
-    // degradation field on the result unless semantic search was actually
-    // attempted and failed.
+    // The local stub produces a non-null zero vector, so semanticSearch()
+    // is still attempted. The open breaker causes withQdrantBreaker() to
+    // throw, which sets semanticSearchFailed = true and propagates into
+    // the degradation field with reason 'qdrant_unavailable'.
     expect(result.enabled).toBe(true);
     expect(result.semanticHits).toBe(0);
     // Results are still returned from lexical sources
     expect(result.selectedCount).toBeGreaterThan(0);
+    // Verify structured degradation metadata
+    expect(result.degradation).toBeDefined();
+    expect(result.degradation!.reason).toBe("qdrant_unavailable");
+    expect(result.degradation!.semanticUnavailable).toBe(true);
+    expect(result.degradation!.fallbackSources).toBeInstanceOf(Array);
+    expect(result.degradation!.fallbackSources.length).toBeGreaterThan(0);
   });
 
   test("degradation status: entity fallback included when entity search enabled", async () => {
