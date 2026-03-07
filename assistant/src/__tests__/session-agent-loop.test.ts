@@ -767,6 +767,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => false,
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as AgentLoopSessionContext["contextWindowManager"],
       });
@@ -893,6 +894,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => false,
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as AgentLoopSessionContext["contextWindowManager"],
       });
@@ -948,6 +950,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => false,
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as AgentLoopSessionContext["contextWindowManager"],
       });
@@ -1105,6 +1108,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => false,
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as AgentLoopSessionContext["contextWindowManager"],
       });
@@ -1165,6 +1169,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => false,
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as AgentLoopSessionContext["contextWindowManager"],
       });
