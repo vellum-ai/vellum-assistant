@@ -170,7 +170,7 @@ export function buildSystemPrompt(): string {
       config,
     )
   ) {
-    parts.push(buildGuardianVerificationRoutingSection());
+    parts.push(buildVerificationSessionRoutingSection());
   }
   parts.push(buildAttachmentSection());
   parts.push(buildInChatConfigurationSection());
@@ -227,7 +227,7 @@ function buildTaskScheduleReminderRoutingSection(): string {
   ].join("\n");
 }
 
-export function buildGuardianVerificationRoutingSection(): string {
+export function buildVerificationSessionRoutingSection(): string {
   return [
     "## Routing: Guardian Verification",
     "",

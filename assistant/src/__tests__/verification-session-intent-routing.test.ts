@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveGuardianVerificationIntent } from "../daemon/guardian-verification-intent.js";
+import { resolveVerificationSessionIntent } from "../daemon/verification-session-intent.js";
 
 // =====================================================================
 // 1. Direct guardian setup phrases => forced skill flow
@@ -30,7 +30,7 @@ describe("direct guardian setup phrases trigger forced routing", () => {
 
   for (const phrase of directSetupPhrases) {
     test(`"${phrase}" => direct_setup`, () => {
-      const result = resolveGuardianVerificationIntent(phrase);
+      const result = resolveVerificationSessionIntent(phrase);
       expect(result.kind).toBe("direct_setup");
       if (result.kind === "direct_setup") {
         expect(result.rewrittenContent).toContain("guardian-verify-setup");
@@ -62,7 +62,7 @@ describe("conceptual questions do NOT trigger forced routing", () => {
 
   for (const phrase of conceptualPhrases) {
     test(`"${phrase}" => none`, () => {
-      const result = resolveGuardianVerificationIntent(phrase);
+      const result = resolveVerificationSessionIntent(phrase);
       expect(result.kind).toBe("none");
     });
   }
@@ -88,7 +88,7 @@ describe("non-guardian messages are not intercepted", () => {
 
   for (const phrase of unrelatedPhrases) {
     test(`"${phrase}" => none`, () => {
-      const result = resolveGuardianVerificationIntent(phrase);
+      const result = resolveVerificationSessionIntent(phrase);
       expect(result.kind).toBe("none");
     });
   }
@@ -108,7 +108,7 @@ describe("ambiguous verify phrases without guardian context do NOT trigger force
 
   for (const phrase of ambiguousPhrases) {
     test(`"${phrase}" => none`, () => {
-      const result = resolveGuardianVerificationIntent(phrase);
+      const result = resolveVerificationSessionIntent(phrase);
       expect(result.kind).toBe("none");
     });
   }
@@ -128,7 +128,7 @@ describe("slash commands are never intercepted", () => {
 
   for (const cmd of slashCommands) {
     test(`"${cmd}" => none`, () => {
-      const result = resolveGuardianVerificationIntent(cmd);
+      const result = resolveVerificationSessionIntent(cmd);
       expect(result.kind).toBe("none");
     });
   }
@@ -140,7 +140,7 @@ describe("slash commands are never intercepted", () => {
 
 describe("channel hint extraction", () => {
   test("unsupported channel keyword triggers setup but yields no channel hint", () => {
-    const result = resolveGuardianVerificationIntent(
+    const result = resolveVerificationSessionIntent(
       "set me as guardian for text",
     );
     expect(result.kind).toBe("direct_setup");
@@ -152,7 +152,7 @@ describe("channel hint extraction", () => {
   });
 
   test("detects voice channel hint", () => {
-    const result = resolveGuardianVerificationIntent(
+    const result = resolveVerificationSessionIntent(
       "set me as guardian for voice",
     );
     expect(result.kind).toBe("direct_setup");
@@ -163,7 +163,7 @@ describe("channel hint extraction", () => {
   });
 
   test("detects Telegram channel hint", () => {
-    const result = resolveGuardianVerificationIntent(
+    const result = resolveVerificationSessionIntent(
       "set me as guardian for telegram",
     );
     expect(result.kind).toBe("direct_setup");
@@ -174,7 +174,7 @@ describe("channel hint extraction", () => {
   });
 
   test("no channel hint when unspecified", () => {
-    const result = resolveGuardianVerificationIntent("verify me as guardian");
+    const result = resolveVerificationSessionIntent("verify me as guardian");
     expect(result.kind).toBe("direct_setup");
     if (result.kind === "direct_setup") {
       expect(result.channelHint).toBeUndefined();

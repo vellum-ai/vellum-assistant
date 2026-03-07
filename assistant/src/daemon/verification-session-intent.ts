@@ -1,11 +1,11 @@
-// Guardian verification intent resolution for deterministic first-turn routing.
-// Exports `resolveGuardianVerificationIntent` as the single public entry point.
+// Verification session intent resolution for deterministic first-turn routing.
+// Exports `resolveVerificationSessionIntent` as the single public entry point.
 // When a direct guardian setup request is detected, the session pipeline
 // rewrites the message to force immediate entry into the guardian-verify-setup
 // skill flow, bypassing the normal agent loop's tendency to produce conceptual
 // preambles before loading the skill.
 
-export type GuardianVerificationIntentResult =
+export type VerificationSessionIntentResult =
   | { kind: "none" }
   | {
       kind: "direct_setup";
@@ -13,7 +13,7 @@ export type GuardianVerificationIntentResult =
       channelHint?: "voice" | "telegram" | "slack";
     };
 
-// ── Direct setup patterns ────────────────────────────────────────────────
+// -- Direct setup patterns ----------------------------------------------------
 // These capture imperative requests to start guardian verification.
 
 const DIRECT_SETUP_PATTERNS: RegExp[] = [
@@ -29,7 +29,7 @@ const DIRECT_SETUP_PATTERNS: RegExp[] = [
   /\bregister\s+(?:me\s+)?as\s+(?:your\s+|the\s+)?guardian\b/i,
 ];
 
-// ── Conceptual / security question patterns ──────────────────────────────
+// -- Conceptual / security question patterns ----------------------------------
 // These indicate the user is asking *about* guardian verification
 // rather than requesting to start it. Return passthrough for these.
 
@@ -44,7 +44,7 @@ const CONCEPTUAL_PATTERNS: RegExp[] = [
   /\bcan\s+(?:you\s+)?(?:tell|explain|describe)\b/i,
 ];
 
-// ── Channel hint extraction ──────────────────────────────────────────────
+// -- Channel hint extraction --------------------------------------------------
 
 const CHANNEL_HINT_PATTERNS: Array<{
   pattern: RegExp;
@@ -59,7 +59,7 @@ const CHANNEL_HINT_PATTERNS: Array<{
 const FILLER_PATTERN =
   /\b(please|pls|plz|can\s+you|could\s+you|would\s+you|now|right\s+now|thanks|thank\s+you|thx|ty|for\s+me|ok(ay)?|hey|hi|hello|just|i\s+want\s+to|i'd\s+like\s+to|i\s+need\s+to|let's|let\s+me)\b/gi;
 
-// ── Internal helpers ─────────────────────────────────────────────────────
+// -- Internal helpers ---------------------------------------------------------
 
 function isConceptualQuestion(text: string): boolean {
   const cleaned = text.replace(/^\s*(hey|hi|hello|please|pls|plz)[,\s]+/i, "");
@@ -79,10 +79,10 @@ function extractChannelHint(
   return undefined;
 }
 
-// ── Structured intent resolver ───────────────────────────────────────────
+// -- Structured intent resolver -----------------------------------------------
 
 /**
- * Resolves guardian verification intent from user text.
+ * Resolves verification session intent from user text.
  *
  * Pipeline:
  * 1. Skip slash commands entirely
@@ -90,9 +90,9 @@ function extractChannelHint(
  * 3. Detect direct setup patterns
  * 4. On match, build a deterministic model instruction to load guardian-verify-setup
  */
-export function resolveGuardianVerificationIntent(
+export function resolveVerificationSessionIntent(
   text: string,
-): GuardianVerificationIntentResult {
+): VerificationSessionIntentResult {
   const trimmed = text.trim();
 
   // Never intercept slash commands

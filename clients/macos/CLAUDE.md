@@ -54,7 +54,7 @@ All UI and feature code lives in `Features/`, organized by domain:
 | `Chat/` | ChatView, ChatViewModel (multi-turn messaging), ChatMessage model |
 | `CommandPalette/` | Command palette (search, actions) |
 | `Contacts/` | Contact management |
-| `GuardianVerification/` | Guardian verification flow |
+| `ChannelVerification/` | Channel verification flow |
 | `MainWindow/` | MainWindowView shell, ThreadTabBar, NavigationToolbar, ThreadManager, side panels |
 | `MainWindow/Panels/` | Side panels including DebugPanel (real-time trace viewer with metrics + timeline) |
 | `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
