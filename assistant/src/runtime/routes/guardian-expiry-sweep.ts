@@ -6,7 +6,7 @@
 import {
   getExpiredPendingApprovals,
   updateApprovalDecision,
-} from "../../memory/channel-guardian-store.js";
+} from "../../memory/guardian-approvals.js";
 import { getLogger } from "../../util/logger.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";

@@ -34,28 +34,9 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-let mockTelegramBinding: unknown = null;
-let mockVellumBinding: unknown = null;
-
-mock.module("../memory/channel-guardian-store.js", () => ({
-  getActiveBinding: (_assistantId: string, channel: string) => {
-    if (channel === "telegram") return mockTelegramBinding;
-    if (channel === "vellum") return mockVellumBinding;
-    return null;
-  },
-  createBinding: (params: Record<string, unknown>) => ({
-    id: `binding-${Date.now()}`,
-    ...params,
-    status: "active",
-    verifiedAt: Date.now(),
-    verifiedVia: "test",
-    metadataJson: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  }),
-  listActiveBindingsByAssistant: () =>
-    mockVellumBinding ? [mockVellumBinding] : [],
-}));
+// Note: stale mock for channel-guardian-store.js removed — the barrel was
+// deleted and none of the functions it mocked (getActiveBinding, createBinding,
+// listActiveBindingsByAssistant) existed in the barrel.
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -143,23 +124,8 @@ function resetTables(): void {
   db.run("DELETE FROM conversations");
 
   emitCalls.length = 0;
-  mockTelegramBinding = null;
-  // Pre-seed vellum binding so the self-healing path in dispatchGuardianQuestion
-  // never triggers (avoids UNIQUE constraint violations on repeated dispatches).
-  mockVellumBinding = {
-    id: "binding-vellum-test",
-    assistantId: "self",
-    channel: "vellum",
-    guardianExternalUserId: "vellum-guardian",
-    guardianDeliveryChatId: "local",
-    guardianPrincipalId: "test-principal-id",
-    status: "active",
-    verifiedAt: Date.now(),
-    verifiedVia: "test",
-    metadataJson: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
+  // Note: mockTelegramBinding/mockVellumBinding assignments
+  // removed — they only fed the stale channel-guardian-store mock.
   mockThreadCreated = null;
   mockEmitResult = {
     signalId: "sig-1",
@@ -278,10 +244,6 @@ describe("ASK_GUARDIAN canonical notification path", () => {
     const convId = "conv-guardian-notif-3";
     ensureConversation(convId);
 
-    mockTelegramBinding = {
-      guardianDeliveryChatId: "tg-chat-abc",
-      guardianExternalUserId: "tg-user-xyz",
-    };
     mockEmitResult = {
       signalId: "sig-3",
       deduplicated: false,

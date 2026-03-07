@@ -201,7 +201,7 @@ import {
 import {
   createInboundSession,
   createVerificationSession,
-} from "../memory/channel-guardian-store.js";
+} from "../memory/channel-verification-sessions.js";
 import { addMessage, getMessages } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import { createInvite } from "../memory/invite-store.js";

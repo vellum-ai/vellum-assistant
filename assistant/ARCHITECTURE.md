@@ -89,7 +89,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `src/runtime/routes/guardian-refresh-routes.ts`   | `POST /v1/guardian/refresh` (token rotation)                                                  |
 | `src/runtime/routes/pairing-routes.ts`            | JWT credential issuance in pairing flow                                                       |
 | `src/runtime/local-actor-identity.ts`             | `resolveLocalIpcGuardianContext` — deterministic IPC identity                                 |
-| `src/memory/channel-guardian-store.ts`            | Guardian binding types and re-exports                                                         |
+| `src/memory/channel-verification-sessions.ts`     | Guardian binding types, verification session management                                       |
 
 ### Channel-Agnostic Scoped Approval Grants
 
@@ -424,7 +424,8 @@ External users who are not the guardian can gain access to the assistant through
 | `src/runtime/routes/invite-routes.ts`                  | HTTP API handlers for invite management                                       |
 | `src/runtime/invite-service.ts`                        | Business logic for invite operations                                          |
 | `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
-| `src/memory/channel-guardian-store.ts`                 | Approval request and verification challenge persistence                       |
+| `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                  |
+| `src/memory/channel-verification-sessions.ts`          | Verification challenge persistence                                            |
 | `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links        |
 
 ### Guardian-Initiated Invite Links
@@ -2206,7 +2207,7 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 **Explicit trust gates:** `trustClass` is a **required** field in `ToolContext` (in `src/tools/types.ts`). Every tool execution must carry a trust classification — the field is not optional. This ensures trust-gated tool policies (guardian control-plane restrictions, host-tool blocking for untrusted actors) cannot be bypassed by omitting the classification.
 
-**Guardian bindings** (in `src/memory/channel-guardian-store.ts`) always carry `guardianPrincipalId: string` as a required, non-null field. A binding without a principal ID is invalid and cannot be created.
+**Guardian bindings** (in `src/memory/channel-verification-sessions.ts`) always carry `guardianPrincipalId: string` as a required, non-null field. A binding without a principal ID is invalid and cannot be created.
 
 **Strict retry sweep parsing:** The channel retry sweep (`src/runtime/channel-retry-sweep.ts`) uses `parseTrustRuntimeContext()` which validates `trustClass` against the canonical three-value set. There is no fallback to a legacy `actorRole` field — stored payloads that lack a valid `trustClass` are rejected deterministically to prevent silent privilege escalation. When `trustCtx` is entirely absent from a stored payload (pre-guardian events), the sweep synthesizes an explicit `trustClass: 'unknown'` context so that replay never proceeds without a trust classification.
 
@@ -2214,10 +2215,10 @@ The guardian trust system uses a three-valued `TrustClass` — `'guardian'`, `'t
 
 **Key files:**
 
-| File                                         | Purpose                                               |
-| -------------------------------------------- | ----------------------------------------------------- |
-| `src/daemon/session-runtime-assembly.ts`     | `TrustContext` type definition                        |
-| `src/tools/types.ts`                         | `ToolContext.trustClass` (required trust gate)        |
-| `src/runtime/channel-retry-sweep.ts`         | Strict `trustClass` parser for retry sweep            |
-| `src/memory/channel-guardian-store.ts`       | `GuardianBinding` with required `guardianPrincipalId` |
-| `src/__tests__/trust-context-guards.test.ts` | Guard tests enforcing trust-context type invariants   |
+| File                                          | Purpose                                               |
+| --------------------------------------------- | ----------------------------------------------------- |
+| `src/daemon/session-runtime-assembly.ts`      | `TrustContext` type definition                        |
+| `src/tools/types.ts`                          | `ToolContext.trustClass` (required trust gate)        |
+| `src/runtime/channel-retry-sweep.ts`          | Strict `trustClass` parser for retry sweep            |
+| `src/memory/channel-verification-sessions.ts` | `GuardianBinding` with required `guardianPrincipalId` |
+| `src/__tests__/trust-context-guards.test.ts`  | Guard tests enforcing trust-context type invariants   |

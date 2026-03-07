@@ -236,7 +236,7 @@ describe("Verification control messages are deterministic (guard)", () => {
     const { handleChannelInbound } =
       await import("../runtime/routes/inbound-message-handler.js");
     const { createInboundSession } =
-      await import("../memory/channel-guardian-store.js");
+      await import("../memory/channel-verification-sessions.js");
 
     // Set up a pending challenge
     const secret = "123456";

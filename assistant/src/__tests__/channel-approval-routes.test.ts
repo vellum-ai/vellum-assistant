@@ -59,12 +59,12 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
+import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import * as deliveryChannels from "../memory/delivery-channels.js";
 import {
   createApprovalRequest,
   getAllPendingApprovalsByGuardianChat,
-} from "../memory/channel-guardian-store.js";
-import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
-import * as deliveryChannels from "../memory/delivery-channels.js";
+} from "../memory/guardian-approvals.js";
 import {
   conversations,
   externalConversationBindings,
@@ -1101,7 +1101,7 @@ describe("telegram guardian verify intercept", () => {
   test("64-char hex verification codes are intercepted when a pending challenge exists", async () => {
     const { createHash, randomBytes } = await import("node:crypto");
     const { createInboundSession } =
-      await import("../memory/channel-guardian-store.js");
+      await import("../memory/channel-verification-sessions.js");
 
     const secret = randomBytes(32).toString("hex");
     const challengeHash = createHash("sha256").update(secret).digest("hex");

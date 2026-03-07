@@ -8,7 +8,7 @@
 import {
   type GuardianApprovalRequest,
   resolveApprovalRequest,
-} from "../../memory/channel-guardian-store.js";
+} from "../../memory/guardian-approvals.js";
 import { getLogger } from "../../util/logger.js";
 import { createOutboundSession } from "../channel-verification-service.js";
 import { deliverChannelReply } from "../gateway-client.js";

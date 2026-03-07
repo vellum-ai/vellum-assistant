@@ -13,7 +13,7 @@ import {
   getPendingApprovalForRequest,
   getUnresolvedApprovalForRequest,
   updateApprovalDecision,
-} from "../../memory/channel-guardian-store.js";
+} from "../../memory/guardian-approvals.js";
 import { getLogger } from "../../util/logger.js";
 import { runApprovalConversationTurn } from "../approval-conversation-turn.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";

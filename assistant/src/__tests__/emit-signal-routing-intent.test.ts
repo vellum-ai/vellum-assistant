@@ -24,15 +24,9 @@ mock.module("../contacts/contact-store.js", () => ({
   findGuardianForChannel: (_channelType: string, _assistantId: string) => null,
 }));
 
-mock.module("../memory/channel-guardian-store.js", () => ({
-  getActiveBinding: (_assistantId: string, channel: string) =>
-    activeBindingChannels.has(channel)
-      ? {
-          guardianDeliveryChatId: "guardian-chat-123",
-          guardianExternalUserId: "guardian-user-123",
-        }
-      : null,
-}));
+// Note: stale mock for channel-guardian-store.js removed — the barrel was
+// deleted and none of the functions it mocked (getActiveBinding) existed in
+// the barrel.
 
 mock.module("../notifications/adapters/macos.js", () => ({
   VellumAdapter: class {

@@ -15,7 +15,11 @@ import { channelVerificationSessions } from "./schema.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export type InboundSessionStatus = "pending" | "consumed" | "expired" | "revoked";
+export type InboundSessionStatus =
+  | "pending"
+  | "consumed"
+  | "expired"
+  | "revoked";
 export type SessionStatus =
   | "pending"
   | "consumed"
@@ -27,6 +31,27 @@ export type SessionStatus =
   | "locked";
 export type IdentityBindingStatus = "pending_bootstrap" | "bound";
 export type VerificationPurpose = "guardian" | "trusted_contact";
+
+// ---------------------------------------------------------------------------
+// Guardian binding types
+// ---------------------------------------------------------------------------
+
+export type BindingStatus = "active" | "revoked";
+
+export interface GuardianBinding {
+  id: string;
+  assistantId: string;
+  channel: string;
+  guardianExternalUserId: string;
+  guardianDeliveryChatId: string;
+  guardianPrincipalId: string;
+  status: BindingStatus;
+  verifiedAt: number;
+  verifiedVia: string;
+  metadataJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface VerificationSession {
   id: string;
@@ -316,9 +341,7 @@ export function createVerificationSession(params: {
  * Find the most recent pending_bootstrap or awaiting_response session
  * for a given channel.
  */
-export function findActiveSession(
-  channel: string,
-): VerificationSession | null {
+export function findActiveSession(channel: string): VerificationSession | null {
   const db = getDb();
   const now = Date.now();
 

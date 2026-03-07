@@ -93,8 +93,8 @@ import {
   createGuardianBinding,
   upsertContactChannel,
 } from "../contacts/contacts-write.js";
-import { createApprovalRequest } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { createApprovalRequest } from "../memory/guardian-approvals.js";
 import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 

@@ -7,7 +7,7 @@
  */
 
 import type { ChannelId } from "../channels/types.js";
-import type { GuardianBinding } from "../memory/channel-guardian-store.js";
+import type { GuardianBinding } from "../memory/channel-verification-sessions.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getLogger } from "../util/logger.js";
 import { emitContactChange } from "./contact-events.js";

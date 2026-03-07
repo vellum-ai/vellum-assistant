@@ -9,7 +9,7 @@ import {
   getAllPendingApprovalsByGuardianChat,
   getPendingApprovalByRequestAndGuardianChat,
   type GuardianApprovalRequest,
-} from "../../../memory/channel-guardian-store.js";
+} from "../../../memory/guardian-approvals.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { getLogger } from "../../../util/logger.js";

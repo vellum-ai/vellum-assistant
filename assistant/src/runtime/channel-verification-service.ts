@@ -17,7 +17,7 @@ import type {
   SessionStatus,
   VerificationPurpose,
   VerificationSession,
-} from "../memory/channel-guardian-store.js";
+} from "../memory/channel-verification-sessions.js";
 import {
   bindSessionIdentity as storeBindSessionIdentity,
   consumeSession,
@@ -29,13 +29,15 @@ import {
   findPendingSessionForChannel,
   findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
   findSessionByIdentity as storeFindSessionByIdentity,
-  getRateLimit,
-  recordInvalidAttempt,
-  resetRateLimit,
   revokePendingSessions as storeRevokePendingSessions,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
-} from "../memory/channel-guardian-store.js";
+} from "../memory/channel-verification-sessions.js";
+import {
+  getRateLimit,
+  recordInvalidAttempt,
+  resetRateLimit,
+} from "../memory/guardian-rate-limits.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
 
 // ---------------------------------------------------------------------------

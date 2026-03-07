@@ -27,30 +27,9 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-let mockTelegramBinding: unknown = null;
-let mockVoiceBinding: unknown = null;
-let mockVellumBinding: unknown = null;
-
-mock.module("../memory/channel-guardian-store.js", () => ({
-  getActiveBinding: (_assistantId: string, channel: string) => {
-    if (channel === "telegram") return mockTelegramBinding;
-    if (channel === "voice") return mockVoiceBinding;
-    if (channel === "vellum") return mockVellumBinding;
-    return null;
-  },
-  createBinding: (params: Record<string, unknown>) => ({
-    id: `binding-${Date.now()}`,
-    ...params,
-    status: "active",
-    verifiedAt: Date.now(),
-    verifiedVia: "test",
-    metadataJson: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  }),
-  listActiveBindingsByAssistant: () =>
-    mockVellumBinding ? [mockVellumBinding] : [],
-}));
+// Note: stale mock for channel-guardian-store.js removed — the barrel was
+// deleted and none of the functions it mocked (getActiveBinding, createBinding,
+// listActiveBindingsByAssistant) existed in the barrel.
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -138,24 +117,8 @@ function resetTables(): void {
   db.run("DELETE FROM call_sessions");
   db.run("DELETE FROM conversations");
 
-  mockTelegramBinding = null;
-  mockVoiceBinding = null;
-  // Pre-seed vellum binding so the self-healing path in dispatchGuardianQuestion
-  // never triggers (avoids UNIQUE constraint violations on repeated dispatches).
-  mockVellumBinding = {
-    id: "binding-vellum-test",
-    assistantId: "self",
-    channel: "vellum",
-    guardianExternalUserId: "vellum-guardian",
-    guardianDeliveryChatId: "local",
-    guardianPrincipalId: "test-principal-id",
-    status: "active",
-    verifiedAt: Date.now(),
-    verifiedVia: "test",
-    metadataJson: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
+  // Note: mockTelegramBinding/mockVoiceBinding/mockVellumBinding assignments
+  // removed — they only fed the stale channel-guardian-store mock.
   emitCalls.length = 0;
   threadCreatedFromMock = null;
   mockEmitResult = {
@@ -241,10 +204,6 @@ describe("guardian-dispatch", () => {
     const convId = "conv-dispatch-2";
     ensureConversation(convId);
 
-    mockTelegramBinding = {
-      guardianDeliveryChatId: "tg-chat-999",
-      guardianExternalUserId: "tg-user-888",
-    };
     mockEmitResult = {
       signalId: "sig-2",
       deduplicated: false,

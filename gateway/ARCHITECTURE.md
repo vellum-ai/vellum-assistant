@@ -335,7 +335,7 @@ Runtime detects needs_confirmation
 | `assistant/src/runtime/routes/channel-routes.ts`        | Integration point: approval interception, actor role resolution, guardian approval routing, deliver-once guard, fail-closed prompt delivery                             |
 | `assistant/src/runtime/channel-verification-service.ts` | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()`                                                                                                        |
 | `assistant/src/memory/delivery-channels.ts`             | `claimRunDelivery()` — in-memory deliver-once guard for terminal reply idempotency                                                                                      |
-| `assistant/src/memory/channel-guardian-store.ts`        | CRUD for guardian approval requests: `createApprovalRequest()`, `getPendingApprovalByGuardianChat()`, `updateApprovalDecision()`                                        |
+| `assistant/src/memory/guardian-approvals.ts`            | CRUD for guardian approval requests: `createApprovalRequest()`, `getPendingApprovalByGuardianChat()`, `updateApprovalDecision()`                                        |
 | `assistant/src/runtime/gateway-client.ts`               | `deliverApprovalPrompt()` — sends approval payload to gateway                                                                                                           |
 | `gateway/src/telegram/send.ts`                          | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons                                                                                           |
 | `gateway/src/telegram/normalize.ts`                     | `callback_query` normalization into `GatewayInboundEvent` (DM-only, drops callbacks without data)                                                                       |
@@ -484,7 +484,8 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 
 | Module                                                    | Purpose                                                                                                                       |
 | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/memory/channel-guardian-store.ts`          | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`)                      |
+| `assistant/src/memory/guardian-approvals.ts`              | CRUD for guardian approval requests                                                                                           |
+| `assistant/src/memory/channel-verification-sessions.ts`   | Guardian binding types and verification challenge persistence                                                                 |
 | `assistant/src/runtime/channel-verification-service.ts`   | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId`  |
 | `assistant/src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity              |
 | `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation, actor role resolution                              |

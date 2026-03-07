@@ -107,7 +107,6 @@ import type {
 import {
   bindSessionIdentity as _storeBindSessionIdentity,
   consumeSession,
-  createApprovalRequest,
   createInboundSession,
   createVerificationSession,
   findActiveSession as storeFindActiveSession,
@@ -115,17 +114,22 @@ import {
   findPendingSessionForChannel,
   findSessionByBootstrapTokenHash as _storeFindSessionByBootstrapTokenHash,
   findSessionByIdentity as _storeFindSessionByIdentity,
+  updateSessionDelivery as storeUpdateSessionDelivery,
+  updateSessionStatus as _storeUpdateSessionStatus,
+} from "../memory/channel-verification-sessions.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
+import {
+  createApprovalRequest,
   getPendingApprovalByGuardianChat,
   getPendingApprovalForRequest,
+  updateApprovalDecision,
+} from "../memory/guardian-approvals.js";
+import {
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
-  updateApprovalDecision,
-  updateSessionDelivery as storeUpdateSessionDelivery,
-  updateSessionStatus as _storeUpdateSessionStatus,
-} from "../memory/channel-guardian-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
+} from "../memory/guardian-rate-limits.js";
 import {
   channelVerificationSessions,
   conversations,
