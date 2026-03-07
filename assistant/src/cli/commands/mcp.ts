@@ -5,7 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Command } from "commander";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import type { McpConfig, McpServerConfig } from "../../config/mcp-schema.js";
+import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
 import { McpClient } from "../../mcp/client.js";
 import {
   deleteMcpOAuthCredentials,
