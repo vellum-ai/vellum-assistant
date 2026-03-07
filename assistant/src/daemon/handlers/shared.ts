@@ -564,51 +564,6 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   };
 }
 
-export function mergeToolResults(
-  messages: ParsedHistoryMessage[],
-): ParsedHistoryMessage[] {
-  // Note: We no longer merge consecutive assistant messages at load time since
-  // they are now consolidated when saved. This function only handles legacy
-  // conversations that haven't been consolidated yet, and continues to merge
-  // tool_result blocks into their preceding assistant messages.
-  const result: ParsedHistoryMessage[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-
-    // If this is a user message whose only content is tool_result blocks,
-    // merge those results into the preceding assistant message's toolCalls.
-    // This should rarely happen now since consolidation removes these messages,
-    // but we keep it for backwards compatibility with old data.
-    if (
-      msg.role === "user" &&
-      msg.text.trim() === "" &&
-      msg.toolCalls.length > 0
-    ) {
-      const prev = result.length > 0 ? result[result.length - 1] : null;
-      if (prev && prev.role === "assistant" && prev.toolCalls.length > 0) {
-        for (const resultEntry of msg.toolCalls) {
-          const unresolved = prev.toolCalls.find(
-            (tc) => tc.result === undefined,
-          );
-          if (unresolved) {
-            unresolved.result = resultEntry.result;
-            unresolved.isError = resultEntry.isError;
-            if (resultEntry.imageData)
-              unresolved.imageData = resultEntry.imageData;
-          }
-        }
-        // Only suppress this internal user message if we successfully merged into a preceding assistant message
-        continue;
-      }
-      // If there's no preceding assistant message to merge into, preserve the tool_result message
-      // so the results aren't lost (e.g., cancellation/error/handoff before follow-up assistant turn)
-    }
-
-    result.push({ ...msg, toolCalls: msg.toolCalls.map((tc) => ({ ...tc })) });
-  }
-  return result;
-}
-
 /**
  * Send a `secret_request` to the client and wait for the response,
  * outside of a session context (e.g. from handler-level code like publish_page).

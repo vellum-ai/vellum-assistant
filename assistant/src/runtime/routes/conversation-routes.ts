@@ -14,10 +14,7 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
-import {
-  mergeToolResults,
-  renderHistoryContent,
-} from "../../daemon/handlers/shared.js";
+import { renderHistoryContent } from "../../daemon/handlers/shared.js";
 import type { ServerMessage } from "../../daemon/ipc-protocol.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
@@ -293,15 +290,10 @@ export function handleListMessages(
     };
   });
 
-  // Merge tool_result data from internal user messages into the
-  // preceding assistant message's toolCalls, and suppress those
-  // internal user messages from the visible history.
-  const merged = mergeToolResults(parsed);
-
   const interfaceFiles = getInterfaceFilesWithMtimes(interfacesDir);
 
   let prevAssistantTimestamp = 0;
-  const messages: RuntimeMessagePayload[] = merged.map((m) => {
+  const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.role === "assistant" && m.id) {
       const linked = attachmentsStore.getAttachmentMetadataForMessage(m.id);
