@@ -1,5 +1,10 @@
 import type { Command } from "commander";
 
+import {
+  getTwilioCredentials,
+  hasTwilioCredentials,
+  listIncomingPhoneNumbers,
+} from "../calls/twilio-rest.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/elevenlabs-schema.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { loadRawConfig } from "../config/loader.js";
@@ -105,6 +110,48 @@ function readVoiceConfig(): {
   };
 }
 
+function readTwilioConfig(): {
+  success: true;
+  hasCredentials: boolean;
+  accountSid?: string;
+  phoneNumber?: string;
+} {
+  const hasCredentials = hasTwilioCredentials();
+  const accountSid = hasCredentials
+    ? getTwilioCredentials().accountSid
+    : undefined;
+  const raw = loadRawConfig();
+  const sms = asRecord(raw.sms);
+  const phoneNumber =
+    typeof sms.phoneNumber === "string" ? sms.phoneNumber.trim() : "";
+
+  return {
+    success: true,
+    hasCredentials,
+    accountSid: accountSid || undefined,
+    phoneNumber: phoneNumber || undefined,
+  };
+}
+
+async function readTwilioNumbers(): Promise<unknown> {
+  if (!hasTwilioCredentials()) {
+    return {
+      success: false,
+      hasCredentials: false,
+      error: "Twilio credentials not configured. Set credentials first.",
+    };
+  }
+
+  const { accountSid, authToken } = getTwilioCredentials();
+  const numbers = await listIncomingPhoneNumbers(accountSid, authToken);
+
+  return {
+    success: true,
+    hasCredentials: true,
+    numbers,
+  };
+}
+
 // CLI-specific gateway helper — uses GATEWAY_AUTH_TOKEN env var for out-of-process
 // access. See runtime/gateway-internal-client.ts for daemon-internal usage which
 // mints fresh tokens.
@@ -198,24 +245,26 @@ export async function runRead(
 export function registerIntegrationsCommand(program: Command): void {
   const integrations = program
     .command("integrations")
-    .description("Read integration and ingress status through the gateway API")
+    .description("Read integration configuration and readiness status")
     .option("--json", "Machine-readable compact JSON output");
 
   integrations.addHelpText(
     "after",
     `
-Reads integration configuration and status through the gateway API. The
-assistant must be running for most subcommands (telegram, guardian)
-since they query the gateway. Exceptions: "ingress config" and "voice config"
-read from the local config file and do not require the gateway.
+Reads integration configuration and readiness from shared assistant services.
+Some subcommands query the running assistant gateway (\`telegram\`, \`guardian\`);
+others read local config or call the underlying provider directly (\`twilio\`, \`ingress\`, \`voice\`).
 
 Integration categories:
+  twilio       Twilio SMS/voice credential and phone number status
   telegram     Telegram bot configuration and webhook status
   guardian     Guardian trust verification system for contacts
   ingress      Public ingress URL and local gateway target (config-only)
   voice        Voice/call readiness and ElevenLabs voice ID (config-only)
 
 Examples:
+  $ assistant integrations twilio config
+  $ assistant integrations twilio numbers --json
   $ assistant integrations telegram config
   $ assistant integrations guardian status --channel sms`,
   );
@@ -224,22 +273,59 @@ Examples:
     .command("twilio")
     .description("Twilio SMS/voice integration status");
 
+  twilio.addHelpText(
+    "after",
+    `
+Reads Twilio integration state from the same assistant-side services used by
+the runtime routes. These commands do not require the gateway to be running.
+\`config\` only reads local assistant state; \`numbers\` also calls the Twilio REST API.
+
+Examples:
+  $ assistant integrations twilio config
+  $ assistant integrations twilio numbers
+  $ assistant integrations twilio numbers --json`,
+  );
+
   twilio
     .command("config")
     .description("Get Twilio integration configuration status")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  (none)
+
+Returns whether Twilio credentials are configured and whether a phone number is
+assigned in the assistant SMS config. Reads local assistant state only; it
+does not call the gateway or Twilio.
+
+Examples:
+  $ assistant integrations twilio config
+  $ assistant integrations twilio config --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet("/v1/integrations/twilio/config"),
-      );
+      await runRead(cmd, async () => readTwilioConfig());
     });
 
   twilio
     .command("numbers")
     .description("Get Twilio phone numbers")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  (none)
+
+Lists incoming Twilio phone numbers for the configured account. Returns
+\`success: false\` with \`hasCredentials: false\` when credentials are missing.
+Calls the Twilio REST API directly; it does not proxy through the gateway.
+
+Examples:
+  $ assistant integrations twilio numbers
+  $ assistant integrations twilio numbers --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet("/v1/integrations/twilio/numbers"),
-      );
+      await runRead(cmd, async () => readTwilioNumbers());
     });
 
   const telegram = integrations
