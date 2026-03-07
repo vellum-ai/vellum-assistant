@@ -1041,7 +1041,7 @@ describe("plain-text channel approval decisions", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 16. SMS guardian verify intercept
+// 16. Guardian verify intercept
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("telegram guardian verify intercept", () => {

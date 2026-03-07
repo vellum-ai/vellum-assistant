@@ -314,7 +314,7 @@ describe("guardian service challenge validation", () => {
     expect(result.instruction).toContain(`the code: ${result.secret}`);
   });
 
-  test("createVerificationChallenge produces a non-empty instruction for sms channel", () => {
+  test("createVerificationChallenge produces a non-empty instruction for voice channel", () => {
     const result = createVerificationChallenge("voice");
     expect(result.instruction).toBeDefined();
     expect(result.instruction.length).toBeGreaterThan(0);
@@ -414,14 +414,14 @@ describe("guardian service challenge validation", () => {
     expect(result2.success).toBe(false);
   });
 
-  test("validateAndConsumeVerification succeeds with sms channel", () => {
+  test("validateAndConsumeVerification succeeds with voice channel", () => {
     const { secret } = createVerificationChallenge("voice");
 
     const result = validateAndConsumeVerification(
       "voice",
       secret,
       "phone-user-1",
-      "sms-chat-1",
+      "voice-chat-1",
     );
 
     expect(result.success).toBe(true);
@@ -435,27 +435,27 @@ describe("guardian service challenge validation", () => {
     expect(binding).toBeNull();
   });
 
-  test("sms and telegram guardian challenges are independent", () => {
+  test("voice and telegram guardian challenges are independent", () => {
     const telegramChallenge = createVerificationChallenge("telegram");
-    const smsChallenge = createVerificationChallenge("voice");
+    const voiceChallenge = createVerificationChallenge("voice");
 
-    // Validate SMS challenge against telegram channel should fail
+    // Validate voice challenge against telegram channel should fail
     const crossResult = validateAndConsumeVerification(
       "telegram",
-      smsChallenge.secret,
+      voiceChallenge.secret,
       "user-1",
       "chat-1",
     );
     expect(crossResult.success).toBe(false);
 
-    // Validate SMS challenge against correct channel should succeed
-    const smsResult = validateAndConsumeVerification(
+    // Validate voice challenge against correct channel should succeed
+    const voiceResult = validateAndConsumeVerification(
       "voice",
-      smsChallenge.secret,
+      voiceChallenge.secret,
       "user-1",
       "chat-1",
     );
-    expect(smsResult.success).toBe(true);
+    expect(voiceResult.success).toBe(true);
 
     // Telegram challenge should still be valid
     const telegramResult = validateAndConsumeVerification(
@@ -563,17 +563,17 @@ describe("guardian identity check", () => {
     expect(binding).toBeNull();
   });
 
-  test("isGuardian works for sms channel", () => {
+  test("isGuardian works for voice channel", () => {
     createGuardianBinding({
       channel: "voice",
       guardianExternalUserId: "phone-user-1",
       guardianPrincipalId: "phone-user-1",
-      guardianDeliveryChatId: "sms-chat-1",
+      guardianDeliveryChatId: "voice-chat-1",
     });
 
     expect(isGuardian("asst-1", "voice", "phone-user-1")).toBe(true);
     expect(isGuardian("asst-1", "voice", "phone-user-2")).toBe(false);
-    // Telegram guardian should not match sms channel
+    // Telegram guardian should not match voice channel
     expect(isGuardian("asst-1", "telegram", "phone-user-1")).toBe(false);
   });
 
@@ -770,53 +770,53 @@ describe("guardian approval request CRUD", () => {
     expect(found2!.toolName).toBe("browser");
   });
 
-  test("createApprovalRequest works for sms channel", () => {
+  test("createApprovalRequest works for voice channel", () => {
     const request = createApprovalRequest({
-      runId: "run-sms-1",
-      requestId: "req-sms-1",
-      conversationId: "conv-sms-1",
+      runId: "run-voice-1",
+      requestId: "req-voice-1",
+      conversationId: "conv-voice-1",
       channel: "voice",
       requesterExternalUserId: "phone-user-99",
-      requesterChatId: "sms-chat-99",
+      requesterChatId: "voice-chat-99",
       guardianExternalUserId: "phone-user-42",
-      guardianChatId: "sms-chat-42",
+      guardianChatId: "voice-chat-42",
       toolName: "shell",
       expiresAt: Date.now() + 300_000,
     });
 
     expect(request.id).toBeDefined();
-    expect(request.runId).toBe("run-sms-1");
-    expect(request.requestId).toBe("req-sms-1");
+    expect(request.runId).toBe("run-voice-1");
+    expect(request.requestId).toBe("req-voice-1");
     expect(request.channel).toBe("voice");
     expect(request.status).toBe("pending");
 
-    const found = getPendingApprovalForRequest("req-sms-1");
+    const found = getPendingApprovalForRequest("req-voice-1");
     expect(found).not.toBeNull();
     expect(found!.channel).toBe("voice");
   });
 
-  test("getPendingApprovalByGuardianChat works for sms channel", () => {
+  test("getPendingApprovalByGuardianChat works for voice channel", () => {
     createApprovalRequest({
-      runId: "run-sms-2",
-      requestId: "req-sms-2",
-      conversationId: "conv-sms-2",
+      runId: "run-voice-2",
+      requestId: "req-voice-2",
+      conversationId: "conv-voice-2",
       channel: "voice",
       requesterExternalUserId: "phone-user-99",
-      requesterChatId: "sms-chat-99",
+      requesterChatId: "voice-chat-99",
       guardianExternalUserId: "phone-user-42",
-      guardianChatId: "sms-chat-42",
+      guardianChatId: "voice-chat-42",
       toolName: "shell",
       expiresAt: Date.now() + 300_000,
     });
 
-    const found = getPendingApprovalByGuardianChat("voice", "sms-chat-42");
+    const found = getPendingApprovalByGuardianChat("voice", "voice-chat-42");
     expect(found).not.toBeNull();
     expect(found!.channel).toBe("voice");
 
     // Should not find it under a different channel
     const notFound = getPendingApprovalByGuardianChat(
       "telegram",
-      "sms-chat-42",
+      "voice-chat-42",
     );
     expect(notFound).toBeNull();
   });
@@ -966,13 +966,13 @@ describe("verification rate limiting store", () => {
 
     const rl42 = getRateLimit("telegram", "user-42", "chat-42");
     const rl99 = getRateLimit("telegram", "user-99", "chat-99");
-    const rlSms = getRateLimit("voice", "user-42", "chat-42");
+    const rlVoice = getRateLimit("voice", "user-42", "chat-42");
 
     expect(rl42).not.toBeNull();
     expect(rl42!.invalidAttempts).toBe(1);
     expect(rl99).not.toBeNull();
     expect(rl99!.invalidAttempts).toBe(1);
-    expect(rlSms).toBeNull();
+    expect(rlVoice).toBeNull();
   });
 });
 
@@ -1131,7 +1131,7 @@ describe("channel-scoped guardian resolution", () => {
       guardianPrincipalId: "user-alpha",
       guardianDeliveryChatId: "chat-alpha",
     });
-    // Create guardian binding on sms with a different user
+    // Create guardian binding on voice with a different user
     createGuardianBinding({
       channel: "voice",
       guardianExternalUserId: "user-beta",
@@ -1139,11 +1139,11 @@ describe("channel-scoped guardian resolution", () => {
       guardianDeliveryChatId: "chat-beta",
     });
 
-    // user-alpha is guardian for telegram but not sms
+    // user-alpha is guardian for telegram but not voice
     expect(isGuardian("self", "telegram", "user-alpha")).toBe(true);
     expect(isGuardian("self", "voice", "user-alpha")).toBe(false);
 
-    // user-beta is guardian for sms but not telegram
+    // user-beta is guardian for voice but not telegram
     expect(isGuardian("self", "voice", "user-beta")).toBe(true);
     expect(isGuardian("self", "telegram", "user-beta")).toBe(false);
   });
@@ -1163,12 +1163,12 @@ describe("channel-scoped guardian resolution", () => {
     });
 
     const bindingTelegram = getGuardianBinding("self", "telegram");
-    const bindingSms = getGuardianBinding("self", "voice");
+    const bindingVoice = getGuardianBinding("self", "voice");
 
     expect(bindingTelegram).not.toBeNull();
-    expect(bindingSms).not.toBeNull();
+    expect(bindingVoice).not.toBeNull();
     expect(bindingTelegram!.guardianExternalUserId).toBe("user-alpha");
-    expect(bindingSms!.guardianExternalUserId).toBe("user-beta");
+    expect(bindingVoice!.guardianExternalUserId).toBe("user-beta");
   });
 
   test("revoking binding for one channel does not affect another", () => {
@@ -1194,10 +1194,10 @@ describe("channel-scoped guardian resolution", () => {
   test("validateAndConsumeVerification scoped to channel", () => {
     // Create challenge on telegram
     const { secret: secretTelegram } = createVerificationChallenge("telegram");
-    // Create challenge on sms
-    const { secret: secretSms } = createVerificationChallenge("voice");
+    // Create challenge on voice
+    const { secret: secretVoice } = createVerificationChallenge("voice");
 
-    // Attempting to consume telegram challenge on sms should fail
+    // Attempting to consume telegram challenge on voice should fail
     const crossResult = validateAndConsumeVerification(
       "voice",
       secretTelegram,
@@ -1215,18 +1215,18 @@ describe("channel-scoped guardian resolution", () => {
     );
     expect(resultTelegram.success).toBe(true);
 
-    const resultSms = validateAndConsumeVerification(
+    const resultVoice = validateAndConsumeVerification(
       "voice",
-      secretSms,
+      secretVoice,
       "user-2",
       "chat-2",
     );
-    expect(resultSms.success).toBe(true);
+    expect(resultVoice.success).toBe(true);
 
     const bindingTelegram = getGuardianBinding("self", "telegram");
-    const bindingSms = getGuardianBinding("self", "voice");
+    const bindingVoice = getGuardianBinding("self", "voice");
     expect(bindingTelegram).toBeNull();
-    expect(bindingSms).toBeNull();
+    expect(bindingVoice).toBeNull();
   });
 });
 
@@ -1356,7 +1356,7 @@ describe("IPC handler channel-aware guardian status", () => {
     expect(resp!.guardianDeliveryChatId).toBeUndefined();
   });
 
-  test("status action for sms returns channel: sms and assistantId: self", async () => {
+  test("status action for voice returns channel: voice and assistantId: self", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
@@ -1482,7 +1482,7 @@ describe("IPC handler channel-aware guardian status", () => {
     expect(resp!.channel).toBe("voice");
   });
 
-  test("status action for unbound sms does not return guardianDeliveryChatId", async () => {
+  test("status action for unbound voice does not return guardianDeliveryChatId", async () => {
     const { ctx, lastResponse } = createMockCtx();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
@@ -2135,7 +2135,7 @@ describe("outbound verification sessions", () => {
 
   // ── Identity match: right code + right identity → success ──
 
-  test("validateAndConsumeVerification succeeds with correct secret and matching identity (SMS)", () => {
+  test("validateAndConsumeVerification succeeds with correct secret and matching identity (voice)", () => {
     const { secret } = createOutboundSession({
       channel: "voice",
       expectedPhoneE164: "+15551234567",
@@ -2147,7 +2147,7 @@ describe("outbound verification sessions", () => {
       "voice",
       secret,
       "+15551234567",
-      "sms-chat-1",
+      "voice-chat-1",
     );
 
     expect(result.success).toBe(true);
@@ -2185,7 +2185,7 @@ describe("outbound verification sessions", () => {
       "voice",
       secret,
       "+15559999999",
-      "sms-chat-wrong",
+      "voice-chat-wrong",
     );
 
     expect(result.success).toBe(false);
@@ -2235,7 +2235,7 @@ describe("outbound verification sessions", () => {
       "voice",
       secret,
       "+15551234567",
-      "sms-chat-1",
+      "voice-chat-1",
     );
 
     expect(result.success).toBe(false);
@@ -2257,7 +2257,7 @@ describe("outbound verification sessions", () => {
       "voice",
       secret,
       "+15551234567",
-      "sms-chat-1",
+      "voice-chat-1",
     );
 
     expect(result.success).toBe(false);
@@ -2277,7 +2277,7 @@ describe("outbound verification sessions", () => {
       "voice",
       secret,
       "+15551234567",
-      "sms-chat-1",
+      "voice-chat-1",
     );
     expect(result1.success).toBe(true);
 
@@ -2285,7 +2285,7 @@ describe("outbound verification sessions", () => {
       "voice",
       secret,
       "+15551234567",
-      "sms-chat-1",
+      "voice-chat-1",
     );
     expect(result2.success).toBe(false);
   });
@@ -2521,12 +2521,12 @@ describe("outbound verification sessions", () => {
     expect(result.success).toBe(true);
   });
 
-  // ── SMS identity match via expectedExternalUserId ──
+  // ── Voice identity match via expectedExternalUserId ──
 
-  test("SMS identity match succeeds via expectedExternalUserId", () => {
+  test("Voice identity match succeeds via expectedExternalUserId", () => {
     const { secret } = createOutboundSession({
       channel: "voice",
-      expectedExternalUserId: "sms-user-42",
+      expectedExternalUserId: "voice-user-42",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
@@ -2535,8 +2535,8 @@ describe("outbound verification sessions", () => {
     const result = validateAndConsumeVerification(
       "voice",
       secret,
-      "sms-user-42",
-      "sms-chat-1",
+      "voice-user-42",
+      "voice-chat-1",
     );
 
     expect(result.success).toBe(true);
@@ -2544,10 +2544,10 @@ describe("outbound verification sessions", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 18. Outbound SMS Verification (IPC Handlers)
+// 18. Outbound Voice Verification (IPC Handlers)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("outbound SMS verification", () => {
+describe("outbound voice verification", () => {
   beforeEach(() => {
     resetTables();
   });
@@ -2586,7 +2586,7 @@ describe("outbound SMS verification", () => {
       channel: "voice",
       guardianExternalUserId: "+15551234567",
       guardianPrincipalId: "+15551234567",
-      guardianDeliveryChatId: "sms-chat-1",
+      guardianDeliveryChatId: "voice-chat-1",
     });
 
     const { ctx, lastResponse } = createMockCtx();
@@ -2612,7 +2612,7 @@ describe("outbound SMS verification", () => {
       channel: "voice",
       guardianExternalUserId: "+15551234567",
       guardianPrincipalId: "+15551234567",
-      guardianDeliveryChatId: "sms-chat-1",
+      guardianDeliveryChatId: "voice-chat-1",
     });
 
     const { ctx, lastResponse } = createMockCtx();
@@ -2792,7 +2792,7 @@ describe("outbound SMS verification", () => {
     expect(sessionAfter).toBeNull();
   });
 
-  test("inbound SMS from expected identity + correct code succeeds", () => {
+  test("inbound voice from expected identity + correct code succeeds", () => {
     // Create an outbound session
     const { secret } = createOutboundSession({
       channel: "voice",
@@ -2806,7 +2806,7 @@ describe("outbound SMS verification", () => {
       "voice",
       secret,
       "+15551234567",
-      "sms-chat-1",
+      "voice-chat-1",
     );
 
     expect(result.success).toBe(true);
@@ -2815,7 +2815,7 @@ describe("outbound SMS verification", () => {
     }
   });
 
-  test("inbound SMS from wrong identity + correct code is rejected", () => {
+  test("inbound voice from wrong identity + correct code is rejected", () => {
     // Create an outbound session with expected identity +15551234567
     const { secret } = createOutboundSession({
       channel: "voice",
@@ -2829,7 +2829,7 @@ describe("outbound SMS verification", () => {
       "voice",
       secret,
       "+15559999999",
-      "sms-chat-wrong",
+      "voice-chat-wrong",
     );
 
     expect(result.success).toBe(false);
@@ -3757,9 +3757,9 @@ describe("M1–M4 hardening coverage", () => {
     expect(RESEND_COOLDOWN_MS).toBe(15_000);
   });
 
-  // ── M2: start_outbound for SMS returns secret in response ──
+  // ── M2: start_outbound for voice returns secret in response ──
 
-  test("start_outbound for SMS response includes secret", async () => {
+  test("start_outbound for voice response includes secret", async () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleChannelVerificationSession(
       {
@@ -3780,9 +3780,9 @@ describe("M1–M4 hardening coverage", () => {
     expect(resp!.secret!.length).toBeGreaterThan(0);
   });
 
-  // ── M2: resend_outbound for SMS returns secret in response ──
+  // ── M2: resend_outbound for voice returns secret in response ──
 
-  test("resend_outbound for SMS response includes secret", async () => {
+  test("resend_outbound for voice response includes secret", async () => {
     // Start a session first
     const { ctx: startCtx } = createMockCtx();
     await handleChannelVerificationSession(
@@ -3877,14 +3877,14 @@ describe("M1–M4 hardening coverage", () => {
 
   // ── M2: all identity-bound channels use 6-digit numeric codes ──
 
-  test("all identity-bound channels (SMS, Telegram chat ID, voice) use 6-digit numeric codes", () => {
-    // SMS
-    const smsResult = createOutboundSession({
+  test("all identity-bound channels (voice, Telegram chat ID) use 6-digit numeric codes", () => {
+    // Voice (phone E.164)
+    const voicePhoneResult = createOutboundSession({
       channel: "voice",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
-    expect(smsResult.secret).toMatch(/^\d{6}$/);
+    expect(voicePhoneResult.secret).toMatch(/^\d{6}$/);
 
     resetTables();
 
@@ -3899,7 +3899,7 @@ describe("M1–M4 hardening coverage", () => {
 
     resetTables();
 
-    // Voice
+    // Voice (explicit codeDigits)
     const voiceResult = createOutboundSession({
       channel: "voice",
       expectedPhoneE164: "+15551234567",
