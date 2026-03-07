@@ -71,7 +71,10 @@ export function readLockfile(): Record<string, unknown> | null {
 }
 
 /**
- * Resolve the instance data directory from the lockfile at ~/.vellum.lock.json.
+ * Resolve the instance data directory from the lockfile.
+ *
+ * Checks both ~/.vellum.lock.json (current) and ~/.vellum.lockfile.json
+ * (legacy) to support installs that haven't migrated the filename.
  *
  * Reads the lockfile from homedir() directly (NOT via readLockfile() which
  * depends on BASE_DATA_DIR) to avoid circular dependency — this function is
@@ -90,13 +93,29 @@ export function readLockfile(): Record<string, unknown> | null {
  */
 export function resolveInstanceDataDir(): string | undefined {
   try {
-    const lockPath = join(homedir(), ".vellum.lock.json");
-    if (!existsSync(lockPath)) return undefined;
+    const home = homedir();
+    const candidates = [
+      join(home, ".vellum.lock.json"),
+      join(home, ".vellum.lockfile.json"),
+    ];
 
-    const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
+    let raw: unknown;
+    for (const lockPath of candidates) {
+      if (!existsSync(lockPath)) continue;
+      try {
+        const parsed = JSON.parse(readFileSync(lockPath, "utf-8"));
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          raw = parsed;
+          break;
+        }
+      } catch {
+        // Malformed JSON; try next candidate
+      }
+    }
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+    const lockData = raw as Record<string, unknown>;
 
-    const assistants = raw.assistants as
+    const assistants = lockData.assistants as
       | Array<Record<string, unknown>>
       | undefined;
     if (!Array.isArray(assistants)) return undefined;
@@ -106,7 +125,7 @@ export function resolveInstanceDataDir(): string | undefined {
     );
     if (localAssistants.length === 0) return undefined;
 
-    const activeAssistant = raw.activeAssistant as string | undefined;
+    const activeAssistant = lockData.activeAssistant as string | undefined;
 
     if (activeAssistant) {
       const match = localAssistants.find(
