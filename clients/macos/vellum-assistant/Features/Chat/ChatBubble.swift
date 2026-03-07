@@ -410,7 +410,10 @@ struct ChatBubble: View {
             asyncSegments[text] = result
             // Backfill synchronous cache with guardrails (size limit, byte
             // tracking, eviction) — mirrors the logic in cachedSegments.
-            if text.count <= Self.maxCacheableTextLength {
+            // Re-check cache after await to avoid double-counting bytes when
+            // multiple bubbles parse the same text concurrently.
+            if text.count <= Self.maxCacheableTextLength,
+               Self.segmentCache[text] == nil {
                 if Self.segmentCache.count >= Self.maxCacheSize {
                     if let lruKey = Self.segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
                         Self.estimatedCacheBytes -= Self.estimatedBytes(for: lruKey)

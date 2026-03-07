@@ -46,7 +46,10 @@ extension ChatBubble {
             asyncSegments[segmentText] = result
             // Backfill the synchronous cache with guardrails (size limit,
             // byte tracking, eviction) — mirrors the logic in cachedSegments.
-            if segmentText.count <= Self.maxCacheableTextLength {
+            // Re-check cache after await to avoid double-counting bytes when
+            // multiple bubbles parse the same text concurrently.
+            if segmentText.count <= Self.maxCacheableTextLength,
+               Self.segmentCache[segmentText] == nil {
                 if Self.segmentCache.count >= Self.maxCacheSize {
                     if let lruKey = Self.segmentCache.min(by: { $0.value.accessTime < $1.value.accessTime })?.key {
                         Self.estimatedCacheBytes -= Self.estimatedBytes(for: lruKey)
