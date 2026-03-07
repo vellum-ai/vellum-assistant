@@ -147,7 +147,7 @@ Load the **guardian-verify-setup** skill to handle the verification flow:
 The guardian-verify-setup skill manages the full outbound verification flow for Slack, including:
 
 - Collecting the user's Slack user ID as the destination
-- Starting the outbound verification session via the gateway endpoint `POST /v1/channel-verification-sessions` with `channel: "slack"` and the user's destination
+- Starting the outbound verification session via `assistant channel-verification-sessions create --channel slack --destination <dest> --json`
 - Sending a verification code via Slack DM
 - Auto-polling for completion (the guardian-verify-setup skill handles this)
 - Checking guardian status to confirm the binding was created
