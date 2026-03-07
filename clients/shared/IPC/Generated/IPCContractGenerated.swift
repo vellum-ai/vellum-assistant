@@ -2739,6 +2739,7 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     public let type: String
     public let provider: String
     public let model: String
+    public let degradation: IPCMemoryRecalledDegradation?
     public let lexicalHits: Double
     public let semanticHits: Double
     public let recencyHits: Double
@@ -2755,10 +2756,11 @@ public struct IPCMemoryRecalled: Codable, Sendable {
     public let latencyMs: Double
     public let topCandidates: [IPCMemoryRecalledCandidateDebug]
 
-    public init(type: String, provider: String, model: String, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [IPCMemoryRecalledCandidateDebug]) {
+    public init(type: String, provider: String, model: String, degradation: IPCMemoryRecalledDegradation? = nil, lexicalHits: Double, semanticHits: Double, recencyHits: Double, entityHits: Double, relationSeedEntityCount: Int? = nil, relationTraversedEdgeCount: Int? = nil, relationNeighborEntityCount: Int? = nil, relationExpandedItemCount: Int? = nil, earlyTerminated: Bool? = nil, mergedCount: Int, selectedCount: Int, rerankApplied: Bool, injectedTokens: Int, latencyMs: Double, topCandidates: [IPCMemoryRecalledCandidateDebug]) {
         self.type = type
         self.provider = provider
         self.model = model
+        self.degradation = degradation
         self.lexicalHits = lexicalHits
         self.semanticHits = semanticHits
         self.recencyHits = recencyHits
@@ -2797,10 +2799,23 @@ public struct IPCMemoryRecalledCandidateDebug: Codable, Sendable {
     }
 }
 
+public struct IPCMemoryRecalledDegradation: Codable, Sendable {
+    public let semanticUnavailable: Bool
+    public let reason: String
+    public let fallbackSources: [String]
+
+    public init(semanticUnavailable: Bool, reason: String, fallbackSources: [String]) {
+        self.semanticUnavailable = semanticUnavailable
+        self.reason = reason
+        self.fallbackSources = fallbackSources
+    }
+}
+
 public struct IPCMemoryStatus: Codable, Sendable {
     public let type: String
     public let enabled: Bool
     public let degraded: Bool
+    public let degradation: IPCMemoryRecalledDegradation?
     public let reason: String?
     public let provider: String?
     public let model: String?
@@ -2812,10 +2827,11 @@ public struct IPCMemoryStatus: Codable, Sendable {
     public let cleanupResolvedJobsCompleted24h: Double
     public let cleanupSupersededJobsCompleted24h: Double
 
-    public init(type: String, enabled: Bool, degraded: Bool, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
+    public init(type: String, enabled: Bool, degraded: Bool, degradation: IPCMemoryRecalledDegradation? = nil, reason: String? = nil, provider: String? = nil, model: String? = nil, conflictsPending: Double, conflictsResolved: Double, oldestPendingConflictAgeMs: Double?, cleanupResolvedJobsPending: Double, cleanupSupersededJobsPending: Double, cleanupResolvedJobsCompleted24h: Double, cleanupSupersededJobsCompleted24h: Double) {
         self.type = type
         self.enabled = enabled
         self.degraded = degraded
+        self.degradation = degradation
         self.reason = reason
         self.provider = provider
         self.model = model
