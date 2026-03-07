@@ -252,6 +252,9 @@ extension AppDelegate {
             setupDaemonClient()
         }
 
+        // Hide the main window so it doesn't show behind the onboarding window
+        mainWindow?.hide()
+
         // Clear persisted step so replay always starts at step 0
         OnboardingState.clearPersistedState()
 
@@ -270,6 +273,7 @@ extension AppDelegate {
         }
         onboarding.onDismiss = { [weak self] in
             self?.onboardingWindow = nil
+            self?.showMainWindow()
         }
         onboarding.show()
         onboardingWindow = onboarding
