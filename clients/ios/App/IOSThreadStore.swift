@@ -123,6 +123,10 @@ class IOSThreadStore: ObservableObject {
     /// since the cache was loaded. Only these threads preserve local overrides
     /// when the daemon response arrives; all others accept daemon data.
     private var locallyEditedSessionIds: Set<String> = []
+    /// SessionIds where the user explicitly pinned or unpinned. Used to preserve
+    /// local pin/displayOrder when merging daemon data; title/archive-only edits
+    /// must not overwrite daemon pin updates from other devices.
+    private var locallyEditedPinSessionIds: Set<String> = []
     /// Local seen/unread mutations must survive a stale session-list replay until
     /// the daemon acknowledges them or returns a newer assistant reply.
     private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
@@ -163,8 +167,8 @@ class IOSThreadStore: ObservableObject {
     private func mergeThreadMetadata(from restored: IOSThread, into thread: inout IOSThread) {
         thread.sessionId = restored.sessionId ?? thread.sessionId
         thread.scheduleJobId = restored.scheduleJobId ?? thread.scheduleJobId
-        let isLocallyEdited = thread.sessionId.map { locallyEditedSessionIds.contains($0) } ?? false
-        if !isLocallyEdited {
+        let hasLocalPinEdit = thread.sessionId.map { locallyEditedPinSessionIds.contains($0) } ?? false
+        if !hasLocalPinEdit {
             thread.isPinned = restored.isPinned
             thread.displayOrder = restored.displayOrder
         }
@@ -388,6 +392,7 @@ class IOSThreadStore: ObservableObject {
             // Connected mode — show cached threads instantly or spinner on first launch.
             isConnectedMode = true
             locallyEditedSessionIds.removeAll()
+            locallyEditedPinSessionIds.removeAll()
             let cached = Self.loadConnectedCache()
             if cached.isEmpty {
                 isLoadingInitialThreads = true
@@ -406,6 +411,7 @@ class IOSThreadStore: ObservableObject {
             isConnectedMode = false
             isLoadingInitialThreads = false
             locallyEditedSessionIds.removeAll()
+            locallyEditedPinSessionIds.removeAll()
             pendingAttentionOverrides.removeAll()
             clearConnectedCache()
             let loaded = Self.load()
@@ -448,6 +454,7 @@ class IOSThreadStore: ObservableObject {
             hasMoreThreads = response.hasMore ?? false
             clearConnectedCache()
             locallyEditedSessionIds.removeAll()
+            locallyEditedPinSessionIds.removeAll()
             pendingAttentionOverrides.removeAll()
             return
         }
@@ -513,6 +520,8 @@ class IOSThreadStore: ObservableObject {
                 var merged: [IOSThread] = []
                 for var restored in restoredThreads {
                     if let local = localOverrides[restored.sessionId ?? ""] {
+                        let sid = restored.sessionId ?? ""
+                        let useLocalPin = locallyEditedPinSessionIds.contains(sid)
                         restored = IOSThread(
                             id: restored.id,
                             title: local.title,
@@ -520,8 +529,8 @@ class IOSThreadStore: ObservableObject {
                             lastActivityAt: restored.lastActivityAt,
                             sessionId: restored.sessionId,
                             isArchived: local.isArchived,
-                            isPinned: local.isPinned,
-                            displayOrder: local.displayOrder,
+                            isPinned: useLocalPin ? local.isPinned : restored.isPinned,
+                            displayOrder: useLocalPin ? local.displayOrder : restored.displayOrder,
                             scheduleJobId: restored.scheduleJobId,
                             hasUnseenLatestAssistantMessage: restored.hasUnseenLatestAssistantMessage,
                             latestAssistantMessageAt: restored.latestAssistantMessageAt,
@@ -838,6 +847,7 @@ class IOSThreadStore: ObservableObject {
         viewModels.removeValue(forKey: thread.id)
         if let sid = thread.sessionId {
             locallyEditedSessionIds.remove(sid)
+            locallyEditedPinSessionIds.remove(sid)
             pendingAttentionOverrides.removeValue(forKey: sid)
         }
         threads.removeAll { $0.id == thread.id }
@@ -876,7 +886,10 @@ class IOSThreadStore: ObservableObject {
 
         threads[idx].isPinned = true
         threads[idx].displayOrder = Int.max
-        if let sid = threads[idx].sessionId { locallyEditedSessionIds.insert(sid) }
+        if let sid = threads[idx].sessionId {
+            locallyEditedSessionIds.insert(sid)
+            locallyEditedPinSessionIds.insert(sid)
+        }
         recompactPinnedDisplayOrders()
         sendReorderThreads()
         saveConnectedCache()
@@ -890,7 +903,10 @@ class IOSThreadStore: ObservableObject {
 
         threads[idx].isPinned = false
         threads[idx].displayOrder = nil
-        if let sid = threads[idx].sessionId { locallyEditedSessionIds.insert(sid) }
+        if let sid = threads[idx].sessionId {
+            locallyEditedSessionIds.insert(sid)
+            locallyEditedPinSessionIds.insert(sid)
+        }
         recompactPinnedDisplayOrders()
         sendReorderThreads()
         saveConnectedCache()
