@@ -24,7 +24,7 @@ import {
   redeemVoiceInviteCode,
   revokeIngressInvite,
 } from "../runtime/invite-service.js";
-import { writeOutput } from "./integrations.js";
+import { writeOutput } from "./utils.js";
 
 export function registerContactsCommand(program: Command): void {
   const contacts = program

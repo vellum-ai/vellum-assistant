@@ -12,7 +12,7 @@ import {
 } from "../notifications/signal.js";
 import type { NotificationChannel } from "../notifications/types.js";
 import { getCliLogger } from "../util/logger.js";
-import { shouldOutputJson, writeOutput } from "./integrations.js";
+import { shouldOutputJson, writeOutput } from "./utils.js";
 
 const log = getCliLogger("cli");
 

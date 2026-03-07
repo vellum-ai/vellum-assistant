@@ -112,7 +112,6 @@ const HOST_BASH_RETRIEVAL_ALLOWLIST = new Set<string>([
 ]);
 
 const RETRIEVAL_MARKERS = [
-  "assistant integrations ",
   "assistant config get",
   "assistant email status",
   "assistant email inbox list",

@@ -22,7 +22,6 @@ Commands:
   hooks                                    Manage hooks
   mcp                                      Manage MCP (Model Context Protocol) servers
   email [options]                          Email operations (provider-agnostic)
-  integrations [options]                   Read integration configuration and readiness status
   contacts [options]                       Manage and query the contact graph
   channels [options]                       Query channel status
   channel-verification-sessions [options]  Manage channel verification sessions

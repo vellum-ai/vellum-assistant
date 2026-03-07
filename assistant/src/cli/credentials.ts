@@ -15,7 +15,7 @@ import {
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
 import { getCliLogger } from "../util/logger.js";
-import { shouldOutputJson, writeOutput } from "./integrations.js";
+import { shouldOutputJson, writeOutput } from "./utils.js";
 
 const log = getCliLogger("cli");
 

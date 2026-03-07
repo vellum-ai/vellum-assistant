@@ -7,12 +7,6 @@ metadata: {"emoji":"👥","vellum":{"display-name":"Contacts","user-invocable":t
 
 Manage the user's contacts, relationship graph, access control (trusted contacts), and invite links. This skill covers contact CRUD with multi-channel tracking, controlling who can message the assistant through external channels (Telegram, phone), and creating/managing invite links that grant access.
 
-## Prerequisites
-
-- `assistant contacts` CLI commands call the service layer directly and do not require the assistant to be running.
-- `assistant channels` and `assistant integrations` CLI commands (e.g. `assistant channels readiness`, `assistant integrations telegram config`) require the assistant to be running because they call the gateway.
-- All CLI commands support `--json` for machine-readable output.
-
 ## Contact Management
 
 ### Create or update a contact
@@ -219,12 +213,7 @@ fi
 
 # Prefer backend-provided canonical link when available.
 if [ -z "$INVITE_URL" ]; then
-  BOT_CONFIG_JSON=$(assistant integrations telegram config --json)
-  BOT_USERNAME=$(printf '%s' "$BOT_CONFIG_JSON" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-print(data.get('botUsername', ''), end='')
-")
+  BOT_USERNAME=$(assistant config get telegram.botUsername)
   if [ -z "$BOT_USERNAME" ]; then
     echo "error:no_share_url_or_bot_username"
     exit 1

@@ -18,7 +18,7 @@ import {
 } from "../runtime/verification-outbound-actions.js";
 import { verificationRateLimiter } from "../runtime/verification-rate-limiter.js";
 import { normalizePhoneNumber } from "../util/phone.js";
-import { writeOutput } from "./integrations.js";
+import { writeOutput } from "./utils.js";
 
 /**
  * Validate the --channel option. Returns the validated ChannelId or writes an

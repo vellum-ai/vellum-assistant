@@ -1,12 +1,12 @@
 import type { Command } from "commander";
 
-import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { getGatewayInternalBaseUrl } from "../config/env.js";
 import {
   initAuthSigningKey,
   isSigningKeyInitialized,
   loadOrCreateSigningKey,
   mintEdgeRelayToken,
-} from "../../runtime/auth/token-service.js";
+} from "../runtime/auth/token-service.js";
 
 export function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

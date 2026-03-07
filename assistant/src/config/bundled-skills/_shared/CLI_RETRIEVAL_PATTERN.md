@@ -1,12 +1,10 @@
 # Bundled Skill CLI Retrieval Pattern
 
-Use this pattern for setup/status reads in bundled skills:
+When running the `assistant` CLI, run it using the `bash` (not `host_bash`) tool.
 
-1. Run Vellum CLI reads through `bash` (not `host_bash`).
-2. Use domain commands (for example `assistant integrations twilio config`) instead of direct gateway `curl`.
-3. Let the CLI handle gateway auth internally; do not instruct manual bearer headers for read paths.
+# Outbound Network Requests
 
-When a skill needs outbound API calls with a stored credential (outside of Vellum CLI reads), use proxied bash:
+When a skill needs outbound API calls with a stored credential (outside of `assistant` CLI reads), use proxied `bash`:
 
 ```yaml
 bash:
@@ -16,4 +14,3 @@ bash:
   command: |
     curl -s https://api.example.com/resource
 ```
-
