@@ -219,7 +219,6 @@ The assistant uses a permission system to control which tool actions the agent c
 |---|---|---|
 | `workspace` | Yes | Workspace-scoped operations (file reads/writes/edits within workspace, sandboxed bash) are auto-allowed without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow. |
 | `strict` | No | Every tool invocation without an explicit matching trust rule prompts the user. No implicit auto-allow for any risk level. |
-| `legacy` (deprecated) | No | Low-risk tools auto-allowed, medium/high prompted. **Deprecated — will be removed in a future release.** |
 
 To switch modes:
 
@@ -229,14 +228,9 @@ assistant config set permissions.mode '"workspace"'
 
 # Strict — ALL tools require an explicit trust rule, no implicit auto-allow
 assistant config set permissions.mode '"strict"'
-
-# Legacy — low-risk tools auto-allowed, medium/high prompted (deprecated)
-assistant config set permissions.mode '"legacy"'
 ```
 
-> **Note:** Legacy mode is deprecated. If your config uses `permissions.mode: "legacy"`, switch to `workspace` or `strict`. A runtime warning is emitted on first use.
-
-Existing users with `permissions.mode: "strict"` or `permissions.mode: "legacy"` explicitly in their config will continue to use those modes unchanged.
+Existing users with `permissions.mode: "strict"` explicitly in their config will continue to use that mode unchanged.
 
 ### Trust rules
 
@@ -408,7 +402,7 @@ Once loaded, the following tools become available for the remainder of the sessi
 
 ### Permissions
 
-All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in both legacy and strict permission modes out of the box. The exception is `browser_navigate` (and `web_fetch`) with `allow_private_network=true` — these are elevated to high-risk and will prompt for approval unless a matching trust rule has `allowHighRisk: true`. Users can override the default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval (default rules cannot be removed, only disabled).
+All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in all permission modes out of the box. The exception is `browser_navigate` (and `web_fetch`) with `allow_private_network=true` — these are elevated to high-risk and will prompt for approval unless a matching trust rule has `allowHighRisk: true`. Users can override the default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval (default rules cannot be removed, only disabled).
 
 </details>
 
