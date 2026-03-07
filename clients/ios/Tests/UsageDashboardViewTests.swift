@@ -169,12 +169,12 @@ final class UsageDashboardViewTests: XCTestCase {
         let view = UsageDashboardView(store: store)
         let renderedText = Self.renderedText(from: view)
 
-        // SwiftUI List renders LabeledContent lazily — UILabel hierarchy may
-        // not fully materialise within the RunLoop window on CI runners.
-        // Use soft checks so CI isn't blocked by non-deterministic rendering.
-        let hasExpectedLabels = renderedText.contains(UsageFormatting.directInputTokensLabel)
-            && renderedText.contains("Cache Created")
-            && renderedText.contains("Cache Read")
+        XCTAssertTrue(renderedText.contains(UsageFormatting.directInputTokensLabel),
+                      "Expected rendered text to contain direct input tokens label")
+        XCTAssertTrue(renderedText.contains("Cache Created"),
+                      "Expected rendered text to contain 'Cache Created'")
+        XCTAssertTrue(renderedText.contains("Cache Read"),
+                      "Expected rendered text to contain 'Cache Read'")
 
         let expectedSummary = UsageFormatting.formatBreakdownSummary(UsageGroupBreakdownEntry(
             group: "claude-sonnet-4-20250514",
@@ -185,14 +185,8 @@ final class UsageDashboardViewTests: XCTestCase {
             totalEstimatedCostUsd: 0.003,
             eventCount: 2
         ))
-        let hasExpectedSummary = renderedText.contains(expectedSummary)
-
-        if !hasExpectedLabels || !hasExpectedSummary {
-            print("[UsageDashboardViewTests] Warning: rendered text missing expected content"
-                + " (labels=\(hasExpectedLabels), summary=\(hasExpectedSummary))"
-                + " — likely lazy List rendering on CI."
-                + " Rendered text: \(renderedText.prefix(500))")
-        }
+        XCTAssertTrue(renderedText.contains(expectedSummary),
+                      "Expected rendered text to contain breakdown summary")
     }
 
     #endif
