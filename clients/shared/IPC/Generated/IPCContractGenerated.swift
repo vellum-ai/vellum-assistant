@@ -685,7 +685,7 @@ public struct IPCChannelVerificationSessionRequest: Codable, Sendable {
     public let channel: String?
     public let sessionId: String?
     public let rebind: Bool?
-    /// E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions.
+    /// E.164 phone number for voice, Telegram handle/chat-id. Used by outbound actions.
     public let destination: String?
     /// Origin conversation ID so completion/failure pointers can route back.
     public let originConversationId: String?
@@ -715,7 +715,7 @@ public struct IPCChannelVerificationSessionResponse: Codable, Sendable {
     /// Present when action is 'status'.
     public let bound: Bool?
     public let guardianExternalUserId: String?
-    /// The channel this status pertains to (e.g. "telegram", "sms"). Present when action is 'status'.
+    /// The channel this status pertains to (e.g. "telegram", "voice"). Present when action is 'status'.
     public let channel: String?
     /// The assistant ID scoped to this status. Present when action is 'status'.
     public let assistantId: String?
@@ -736,7 +736,7 @@ public struct IPCChannelVerificationSessionResponse: Codable, Sendable {
     public let expiresAt: Int?
     /// Epoch ms after which a resend is allowed.
     public let nextResendAt: Int?
-    /// Number of SMS sends for this session.
+    /// Number of sends for this session.
     public let sendCount: Int?
     /// Telegram deep-link URL for bootstrap (M3 placeholder).
     public let telegramBootstrapUrl: String?
