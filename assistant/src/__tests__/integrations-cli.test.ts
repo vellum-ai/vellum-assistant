@@ -225,17 +225,6 @@ describe("assistant integrations CLI", () => {
     );
   });
 
-  test("passes channel query for guardian status", async () => {
-    const result = await runCli(
-      ["--json", "guardian", "status", "--channel", "telegram"],
-      { success: true },
-    );
-    expect(result.exitCode).toBe(0);
-    expect(result.fetchCalls[0]?.url).toBe(
-      "http://gateway.test/v1/channel-verification-sessions/status?channel=telegram",
-    );
-  });
-
   test("reads ingress config without gateway fetch", async () => {
     rawConfig = {
       ingress: {

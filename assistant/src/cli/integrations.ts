@@ -15,8 +15,6 @@ import {
   mintEdgeRelayToken,
 } from "../runtime/auth/token-service.js";
 
-type GuardianChannel = "telegram" | "phone";
-
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
@@ -252,21 +250,19 @@ export function registerIntegrationsCommand(program: Command): void {
     "after",
     `
 Reads integration configuration and readiness from shared assistant services.
-Some subcommands query the running assistant gateway (\`telegram\`, \`guardian\`);
+Some subcommands query the running assistant gateway (\`telegram\`);
 others read local config or call the underlying provider directly (\`twilio\`, \`ingress\`, \`voice\`).
 
 Integration categories:
   twilio       Twilio voice credential and phone number status
   telegram     Telegram bot configuration and webhook status
-  guardian     Guardian trust verification system for contacts
   ingress      Public ingress URL and local gateway target (config-only)
   voice        Voice/call readiness and ElevenLabs voice ID (config-only)
 
 Examples:
   $ assistant integrations twilio config
   $ assistant integrations twilio numbers --json
-  $ assistant integrations telegram config
-  $ assistant integrations guardian status --channel telegram`,
+  $ assistant integrations telegram config`,
   );
 
   const twilio = integrations
@@ -362,51 +358,6 @@ Examples:
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () =>
         gatewayGet("/v1/integrations/telegram/config"),
-      );
-    });
-
-  const guardian = integrations
-    .command("guardian")
-    .description("Guardian verification status");
-
-  guardian.addHelpText(
-    "after",
-    `
-Guardian is the trust verification system for contacts. It tracks whether
-contacts on each channel have completed identity verification. Requires
-the assistant to be running.
-
-Examples:
-  $ assistant integrations guardian status
-  $ assistant integrations guardian status --channel phone`,
-  );
-
-  guardian
-    .command("status")
-    .description("Get guardian status for a channel")
-    .option("--channel <channel>", "Channel: telegram|phone", "telegram")
-    .addHelpText(
-      "after",
-      `
-Returns the guardian verification state for the specified channel. Requires
-the assistant to be running.
-
-The --channel flag accepts: telegram, phone. Defaults to telegram if
-not specified. The response includes whether guardian verification is active
-and the current verification state for that channel.
-
-Examples:
-  $ assistant integrations guardian status
-  $ assistant integrations guardian status --channel telegram
-  $ assistant integrations guardian status --channel phone
-  $ assistant integrations guardian status --channel telegram --json`,
-    )
-    .action(async (opts: { channel?: GuardianChannel }, cmd: Command) => {
-      const channel = opts.channel ?? "telegram";
-      await runRead(cmd, async () =>
-        gatewayGet(
-          `/v1/channel-verification-sessions/status${toQueryString({ channel })}`,
-        ),
       );
     });
 
