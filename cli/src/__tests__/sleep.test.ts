@@ -11,22 +11,13 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Create a temp directory that acts as a fake home so the real
-// assistant-config module reads/writes here instead of ~/.vellum.
+// Create a temp directory and set BASE_DATA_DIR so the real assistant-config
+// module reads the lockfile from here instead of ~/.vellum. The lockfile
+// includes full resources, so we never need to mock homedir() — avoiding
+// process-global os mocks that leak into other test files (e.g. multi-local).
 const testDir = mkdtempSync(join(tmpdir(), "sleep-command-test-"));
 const assistantRootDir = join(testDir, ".vellum");
 process.env.BASE_DATA_DIR = testDir;
-
-// Mock homedir() so defaultLocalResources() resolves to testDir.
-const realOs = await import("node:os");
-mock.module("node:os", () => ({
-  ...realOs,
-  homedir: () => testDir,
-}));
-mock.module("os", () => ({
-  ...realOs,
-  homedir: () => testDir,
-}));
 
 const stopProcessByPidFileMock = mock(async () => true);
 
