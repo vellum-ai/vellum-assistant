@@ -55,8 +55,8 @@ export async function handleTwitterAuthStart(
   try {
     const raw = loadRawConfig();
     const mode =
-      ((getNestedValue(raw, "twitter.integrationMode") ??
-        raw.twitterIntegrationMode) as string | undefined) ?? "local_byo";
+      (getNestedValue(raw, "twitter.integrationMode") as string | undefined) ??
+      "local_byo";
     if (mode !== "local_byo") {
       ctx.send(socket, {
         type: "twitter_auth_result",
@@ -186,9 +186,10 @@ export function handleTwitterAuthStatus(
     );
     const raw = loadRawConfig();
     const mode =
-      ((getNestedValue(raw, "twitter.integrationMode") ??
-        raw.twitterIntegrationMode) as "local_byo" | "managed" | undefined) ??
-      "local_byo";
+      (getNestedValue(raw, "twitter.integrationMode") as
+        | "local_byo"
+        | "managed"
+        | undefined) ?? "local_byo";
     const meta = getCredentialMetadata("integration:twitter", "access_token");
 
     ctx.send(socket, {
