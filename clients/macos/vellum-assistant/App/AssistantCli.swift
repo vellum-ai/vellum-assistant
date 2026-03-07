@@ -55,9 +55,6 @@ final class AssistantCli {
         if let baseDir = ProcessInfo.processInfo.environment["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
             return URL(fileURLWithPath: baseDir).appendingPathComponent(".vellum")
         }
-        if let baseDir = UserDefaults.standard.string(forKey: "BASE_DATA_DIR")?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-            return URL(fileURLWithPath: baseDir).appendingPathComponent(".vellum")
-        }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".vellum")
     }
 
@@ -843,7 +840,7 @@ final class AssistantCli {
             // Only set in release builds where the broker is running.
             #if !DEBUG
             let brokerBaseDir: String
-            if let baseDir = (fullEnv["BASE_DATA_DIR"] ?? UserDefaults.standard.string(forKey: "BASE_DATA_DIR"))?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
+            if let baseDir = fullEnv["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
                 brokerBaseDir = (baseDir as NSString).appendingPathComponent(".vellum")
             } else {
                 brokerBaseDir = (NSHomeDirectory() as NSString).appendingPathComponent(".vellum")
@@ -851,18 +848,13 @@ final class AssistantCli {
             env["VELLUM_KEYCHAIN_BROKER_SOCKET"] = (brokerBaseDir as NSString)
                 .appendingPathComponent("keychain-broker.sock")
             #endif
-            // Fall back to UserDefaults for config values when they
-            // aren't in the process environment (e.g. app launched from
-            // Finder, not a terminal with these vars set).
+            // Fall back to UserDefaults for the Anthropic API key when
+            // it's not in the process environment (e.g. app launched from
+            // Finder, not a terminal with ANTHROPIC_API_KEY set).
             if env["ANTHROPIC_API_KEY"] == nil,
                let storedKey = UserDefaults.standard.string(forKey: "vellum_provider_anthropic"),
                !storedKey.isEmpty {
                 env["ANTHROPIC_API_KEY"] = storedKey
-            }
-            if env["BASE_DATA_DIR"] == nil,
-               let storedDir = UserDefaults.standard.string(forKey: "BASE_DATA_DIR")?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !storedDir.isEmpty {
-                env["BASE_DATA_DIR"] = storedDir
             }
             proc.environment = env
 

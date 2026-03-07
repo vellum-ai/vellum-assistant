@@ -7,7 +7,7 @@
  */
 
 import { execSync } from "child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
 
@@ -98,7 +98,6 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   verifyAppExists(appDisplayName);
   preApproveScreenCapture();
   ensureVellumInPath(appDisplayName);
-  publishBaseDataDir(baseDataDir);
   await ensureAssistantHatched();
   publishLockfileToHome();
   skipAssistantOnboarding();
@@ -108,7 +107,6 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
     teardown: async () => {
       retireAssistant();
       quitApp(appDisplayName);
-      unpublishBaseDataDir();
       unpublishLockfileFromHome();
       collectHatchLogs();
       cleanupTestDataDir(baseDataDir);
@@ -124,39 +122,10 @@ function getBaseDir(): string {
 }
 
 /**
- * Publishes BASE_DATA_DIR into the app's UserDefaults so the desktop
- * assistant reads the lockfile from the same per-test directory the
- * CLI writes to. The app's LockfilePaths.baseDir checks UserDefaults
- * as a fallback when the env var isn't set.
- */
-function publishBaseDataDir(baseDataDir: string | undefined): void {
-  if (!baseDataDir) return;
-  const domain = "com.vellum.vellum-assistant";
-  try {
-    execSync(
-      `defaults write ${domain} BASE_DATA_DIR -string ${JSON.stringify(baseDataDir)}`,
-      { timeout: 5_000 },
-    );
-  } catch {
-    // Best-effort — the app will fall back to ~/
-  }
-}
-
-/** Removes BASE_DATA_DIR from UserDefaults during teardown. */
-function unpublishBaseDataDir(): void {
-  const domain = "com.vellum.vellum-assistant";
-  try {
-    execSync(`defaults delete ${domain} BASE_DATA_DIR`, { timeout: 5_000 });
-  } catch {
-    // Key may not exist
-  }
-}
-
-/**
  * Copies the lockfile from the per-test BASE_DATA_DIR to the home
- * directory as a safety net. Even if the app fails to read
- * UserDefaults for BASE_DATA_DIR, it will still discover the
- * lockfile at the default home-dir location.
+ * directory so the macOS app discovers the hatched assistant.
+ * The CLI writes the lockfile under BASE_DATA_DIR when set, but the
+ * app always reads from ~/.
  */
 function publishLockfileToHome(): void {
   const src = path.join(getBaseDir(), ".vellum.lock.json");
@@ -176,7 +145,7 @@ function unpublishLockfileFromHome(): void {
   const dst = path.join(os.homedir(), ".vellum.lock.json");
   if (src === dst) return;
   try {
-    rmSync(dst, { force: true });
+    if (existsSync(dst)) unlinkSync(dst);
   } catch {
     // May not exist
   }
