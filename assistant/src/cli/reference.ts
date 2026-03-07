@@ -27,6 +27,8 @@ Commands:
                            gateway API
   contacts [options]       Manage and query the contact graph
   channels [options]       Query channel status
+  channel-verification-sessions
+                           Manage channel verification sessions
   amazon [options]         Shop on Amazon and Amazon Fresh. Requires a session
                            imported from a Ride Shotgun recording.
   autonomy [options]       View and configure autonomy tiers
