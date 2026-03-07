@@ -151,7 +151,7 @@ mock.module("../runtime/pending-interactions.js", () => ({
   resolve: resolveMock,
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   addMessage: addMessageMock,
 }));
 

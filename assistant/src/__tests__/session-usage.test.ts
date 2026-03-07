@@ -37,7 +37,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   updateConversationUsage: (
     conversationId: string,
     inputTokens: number,

@@ -253,7 +253,7 @@ mock.module("../daemon/handlers/recording.js", () => ({
 
 // ── Mock conversation store ────────────────────────────────────────────────
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -277,10 +277,13 @@ mock.module("../memory/conversation-store.js", () => ({
   getConversation: () => ({ id: "conv-mock" }),
   updateConversationTitle: noop,
   clearAll: noop,
+  deleteConversation: noop,
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
   listConversations: () => [],
   countConversations: () => 0,
   searchConversations: () => [],
-  deleteConversation: noop,
 }));
 
 mock.module("../memory/conversation-title-service.js", () => ({

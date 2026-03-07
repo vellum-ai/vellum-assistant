@@ -48,7 +48,7 @@ import {
   setVoiceBridgeDeps,
   startVoiceTurn,
 } from "../calls/voice-session-bridge.js";
-import { createConversation } from "../memory/conversation-store.js";
+import { createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 
 initializeDb();

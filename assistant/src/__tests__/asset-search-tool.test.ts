@@ -43,10 +43,7 @@ import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
-import {
-  addMessage,
-  createConversation,
-} from "../memory/conversation-store.js";
+import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { searchAttachments } from "../tools/assets/search.js";
 import { assetSearchTool } from "../tools/assets/search.js";

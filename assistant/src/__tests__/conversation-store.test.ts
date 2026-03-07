@@ -39,8 +39,8 @@ import {
   getConversationMemoryScopeId,
   getConversationThreadType,
   getMessages,
-  isLastUserMessageToolResult,
-} from "../memory/conversation-store.js";
+} from "../memory/conversation-crud.js";
+import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 
 // Initialize db once before all tests

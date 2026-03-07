@@ -58,8 +58,8 @@ import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
+import * as conversationStore from "../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import * as deliveryChannels from "../memory/delivery-channels.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";

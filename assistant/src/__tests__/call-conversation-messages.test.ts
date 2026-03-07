@@ -33,7 +33,7 @@ import {
   recordCallEvent,
   updateCallSession,
 } from "../calls/call-store.js";
-import { getMessages } from "../memory/conversation-store.js";
+import { getMessages } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
