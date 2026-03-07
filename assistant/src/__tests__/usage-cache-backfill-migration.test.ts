@@ -4,6 +4,12 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "usage-cache-backfill-test-"));
+let mockPricingOverrides: Array<{
+  provider: string;
+  modelPattern: string;
+  inputPer1M: number;
+  outputPer1M: number;
+}> = [];
 
 mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
@@ -24,6 +30,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    pricingOverrides: mockPricingOverrides,
+  }),
+}));
+
 import {
   getDb,
   getSqlite,
@@ -34,7 +46,10 @@ import {
 } from "../memory/db.js";
 import { migrateBackfillUsageCacheAccounting } from "../memory/migrations/140-backfill-usage-cache-accounting.js";
 import type { PricingUsage } from "../usage/types.js";
-import { estimateCost, resolvePricingForUsage } from "../util/pricing.js";
+import {
+  estimateCost,
+  resolvePricingForUsageWithOverrides,
+} from "../util/pricing.js";
 
 initializeDb();
 
@@ -137,6 +152,15 @@ function anthropicResponsePayload(args: {
   });
 }
 
+function foreignResponsePayload(): string {
+  return JSON.stringify({
+    usage: {
+      prompt_tokens: 321,
+      completion_tokens: 54,
+    },
+  });
+}
+
 afterAll(() => {
   resetDb();
   try {
@@ -151,9 +175,10 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     getSqlite().run(`DELETE FROM llm_request_logs`);
     getSqlite().run(`DELETE FROM llm_usage_events`);
     rawRun(`DELETE FROM memory_checkpoints WHERE key = ?`, CHECKPOINT_KEY);
+    mockPricingOverrides = [];
   });
 
-  test("rewrites historical Anthropic rows from request logs and leaves missing-log rows unchanged", () => {
+  test("rewrites historical Anthropic rows from request logs, ignores foreign logs, and leaves missing-log rows unchanged", () => {
     const model = "claude-opus-4-6";
 
     insertUsageEvent({
@@ -204,6 +229,12 @@ describe("migrateBackfillUsageCacheAccounting", () => {
       }),
     });
     insertRequestLog({
+      id: "log-target-foreign",
+      conversationId: "conv-usage-1",
+      createdAt: 2_000,
+      responsePayload: foreignResponsePayload(),
+    });
+    insertRequestLog({
       id: "log-target-2",
       conversationId: "conv-usage-1",
       createdAt: 2_500,
@@ -238,10 +269,11 @@ describe("migrateBackfillUsageCacheAccounting", () => {
         ephemeral_1h_input_tokens: 200_000,
       },
     };
-    const expectedPricing = resolvePricingForUsage(
+    const expectedPricing = resolvePricingForUsageWithOverrides(
       "anthropic",
       model,
       expectedUsage,
+      mockPricingOverrides,
     );
 
     const targetRow = rawGet<UsageEventRow>(
@@ -295,5 +327,80 @@ describe("migrateBackfillUsageCacheAccounting", () => {
       CHECKPOINT_KEY,
     );
     expect(checkpoint?.value).toBe("1");
+  });
+
+  test("uses pricing overrides when backfilling Anthropic cache-aware usage rows", () => {
+    const model = "claude-opus-4-6";
+    mockPricingOverrides = [
+      {
+        provider: "anthropic",
+        modelPattern: "claude-opus-4-6",
+        inputPer1M: 1.5,
+        outputPer1M: 7.25,
+      },
+    ];
+
+    insertUsageEvent({
+      id: "usage-target",
+      conversationId: "conv-usage-override",
+      createdAt: 2_000,
+      model,
+      inputTokens: 1_200,
+      outputTokens: 80,
+      estimatedCostUsd: estimateCost(1_200, 80, model, "anthropic"),
+    });
+    insertRequestLog({
+      id: "log-target",
+      conversationId: "conv-usage-override",
+      createdAt: 1_500,
+      responsePayload: anthropicResponsePayload({
+        inputTokens: 200,
+        outputTokens: 80,
+        cacheReadInputTokens: 700,
+        ephemeral5mInputTokens: 300,
+      }),
+    });
+
+    migrateBackfillUsageCacheAccounting(getDb());
+
+    const expectedUsage: PricingUsage = {
+      directInputTokens: 200,
+      outputTokens: 80,
+      cacheCreationInputTokens: 300,
+      cacheReadInputTokens: 700,
+      anthropicCacheCreation: {
+        ephemeral_5m_input_tokens: 300,
+        ephemeral_1h_input_tokens: 0,
+      },
+    };
+    const expectedPricing = resolvePricingForUsageWithOverrides(
+      "anthropic",
+      model,
+      expectedUsage,
+      mockPricingOverrides,
+    );
+
+    const targetRow = rawGet<UsageEventRow>(
+      `SELECT
+         input_tokens,
+         output_tokens,
+         cache_creation_input_tokens,
+         cache_read_input_tokens,
+         estimated_cost_usd,
+         pricing_status
+       FROM llm_usage_events
+       WHERE id = ?`,
+      "usage-target",
+    );
+    expect(targetRow).not.toBeNull();
+    expect(targetRow?.input_tokens).toBe(200);
+    expect(targetRow?.output_tokens).toBe(80);
+    expect(targetRow?.cache_creation_input_tokens).toBe(300);
+    expect(targetRow?.cache_read_input_tokens).toBe(700);
+    expect(targetRow?.pricing_status).toBe("priced");
+    expect(targetRow?.estimated_cost_usd).toBeCloseTo(
+      expectedPricing.estimatedCostUsd ?? 0,
+      12,
+    );
   });
 });

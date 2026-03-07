@@ -9,7 +9,7 @@ set -euo pipefail
 #   ./build.sh run            Build + launch + watch for changes (auto-rebuild)
 #   ./build.sh release        Build release .app
 #   ./build.sh binaries       Build only Bun binaries (daemon, CLI, gateway)
-#   ./build.sh test           Run tests (no .app needed)
+#   ./build.sh test [args]    Run tests (no .app needed); forwards extra args to `swift test`
 #   ./build.sh clean          Remove build artifacts
 #   ./build.sh lint           Build with strict concurrency (catches CI-only errors locally)
 #   ./build.sh release-application  Build release, package into DMG, install to /Applications
@@ -81,10 +81,19 @@ BUILD_VERSION="${BUILD_VERSION:-1}"
 # Parse arguments: command + optional flags
 UNIVERSAL_BUILD=false
 CMD="build"
+CMD_SET=false
+CMD_ARGS=()
 for arg in "$@"; do
     case "$arg" in
         --universal) UNIVERSAL_BUILD=true ;;
-        *) CMD="$arg" ;;
+        *)
+            if [ "$CMD_SET" = false ]; then
+                CMD="$arg"
+                CMD_SET=true
+            else
+                CMD_ARGS+=("$arg")
+            fi
+            ;;
     esac
 done
 
@@ -212,8 +221,12 @@ build_binaries() {
 case "$CMD" in
     test)
         echo "Running tests..."
+        SWIFT_TEST_ARGS=("${CMD_ARGS[@]}")
+        if [ ${#SWIFT_TEST_ARGS[@]} -eq 0 ]; then
+            SWIFT_TEST_ARGS=(--filter vellum_assistantTests)
+        fi
         set +e
-        TEST_OUTPUT=$(swift_with_retry swift test --filter vellum_assistantTests 2>&1)
+        TEST_OUTPUT=$(swift_with_retry swift test "${SWIFT_TEST_ARGS[@]}" 2>&1)
         TEST_EXIT=$?
         set -e
         echo "$TEST_OUTPUT"

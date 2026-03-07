@@ -224,8 +224,9 @@ mock.module("../daemon/session-history.js", () => ({
   consolidateAssistantMessages: () => {},
 }));
 
+const recordUsageMock = mock(() => {});
 mock.module("../daemon/session-usage.js", () => ({
-  recordUsage: () => {},
+  recordUsage: recordUsageMock,
 }));
 
 mock.module("../daemon/session-attachments.js", () => ({
@@ -451,6 +452,7 @@ beforeEach(() => {
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
   mockApprovalResult = { approved: false };
+  recordUsageMock.mockClear();
 });
 
 describe("session-agent-loop", () => {
@@ -591,6 +593,100 @@ describe("session-agent-loop", () => {
   });
 
   describe("context window exhaustion (context-too-large recovery)", () => {
+    test("forwards cache-aware compaction usage to recordUsage", async () => {
+      const events: ServerMessage[] = [];
+      mockEstimateTokens = 120_000;
+
+      mockReducerStepFn = (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 5_000,
+        compactionResult: {
+          compacted: true,
+          messages: msgs,
+          compactedPersistedMessages: 5,
+          summaryText: "Summary of prior conversation",
+          previousEstimatedInputTokens: 90_000,
+          estimatedInputTokens: 30_000,
+          maxInputTokens: 100_000,
+          thresholdTokens: 80_000,
+          compactedMessages: 10,
+          summaryCalls: 2,
+          summaryInputTokens: 500,
+          summaryOutputTokens: 200,
+          summaryModel: "claude-opus-4-6",
+          summaryCacheCreationInputTokens: 120,
+          summaryCacheReadInputTokens: 340,
+          summaryRawResponses: [
+            {
+              usage: {
+                cache_creation: { ephemeral_5m_input_tokens: 120 },
+                cache_read_input_tokens: 340,
+              },
+            },
+          ],
+        },
+      });
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "recovered" }],
+          },
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      const compactorCall = recordUsageMock.mock.calls.find(
+        (call) => (call as unknown[])[5] === "context_compactor",
+      ) as unknown[] | undefined;
+      expect(compactorCall).toBeDefined();
+
+      const [
+        usageCtx,
+        inputTokens,
+        outputTokens,
+        model,
+        _onEvent,
+        actor,
+        reqId,
+        cacheCreationInputTokens,
+        cacheReadInputTokens,
+        rawResponse,
+      ] = compactorCall ?? [];
+
+      expect(usageCtx).toMatchObject({ conversationId: "test-conv" });
+      expect(inputTokens).toBe(500);
+      expect(outputTokens).toBe(200);
+      expect(model).toBe("claude-opus-4-6");
+      expect(actor).toBe("context_compactor");
+      expect(reqId).toBe("test-req");
+      expect(cacheCreationInputTokens).toBe(120);
+      expect(cacheReadInputTokens).toBe(340);
+      expect(rawResponse).toEqual({
+        usage: {
+          cache_creation: { ephemeral_5m_input_tokens: 120 },
+          cache_read_input_tokens: 340,
+        },
+      });
+    });
+
     test("convergence loop applies reducer and retries when context-too-large is detected", async () => {
       const events: ServerMessage[] = [];
       let callCount = 0;

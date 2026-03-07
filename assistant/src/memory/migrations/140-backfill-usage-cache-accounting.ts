@@ -1,9 +1,10 @@
+import { getConfig } from "../../config/loader.js";
 import type {
   AnthropicCacheCreationTokenDetails,
   PricingUsage,
 } from "../../usage/types.js";
 import { getLogger } from "../../util/logger.js";
-import { resolvePricingForUsage } from "../../util/pricing.js";
+import { resolvePricingForUsageWithOverrides } from "../../util/pricing.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { withCrashRecovery } from "./validate-migration-state.js";
 
@@ -182,12 +183,13 @@ export function migrateBackfillUsageCacheAccounting(database: DrizzleDb): void {
     const requestLogsByConversation = buildRequestLogMap(requestLogRows);
     const requestOffsets = new Map<string, number>();
     const previousUsageEventCreatedAt = new Map<string, number>();
+    const pricingOverrides = getConfig().pricingOverrides;
 
     let scannedAnthropicRows = 0;
     let updatedRows = 0;
     let skippedNoConversation = 0;
     let skippedNoLogs = 0;
-    let skippedInvalidLogs = 0;
+    let ignoredUnusableLogs = 0;
     let skippedInconsistentRows = 0;
 
     const updateRow = raw.prepare(/*sql*/ `
@@ -254,16 +256,17 @@ export function migrateBackfillUsageCacheAccounting(database: DrizzleDb): void {
         let cacheCreationInputTokens = 0;
         let cacheCreation5mInputTokens = 0;
         let cacheCreation1hInputTokens = 0;
+        let usableLogCount = 0;
 
-        let invalidLogFound = false;
         for (const requestLog of windowLogs) {
           const reconstructedUsage = parseResponseUsage(
             requestLog.response_payload,
           );
           if (!reconstructedUsage) {
-            invalidLogFound = true;
-            break;
+            ignoredUnusableLogs += 1;
+            continue;
           }
+          usableLogCount += 1;
           directInputTokens += reconstructedUsage.directInputTokens;
           outputTokens += reconstructedUsage.outputTokens;
           cacheReadInputTokens += reconstructedUsage.cacheReadInputTokens;
@@ -277,8 +280,8 @@ export function migrateBackfillUsageCacheAccounting(database: DrizzleDb): void {
               ?.ephemeral_1h_input_tokens ?? 0;
         }
 
-        if (invalidLogFound) {
-          skippedInvalidLogs += 1;
+        if (usableLogCount === 0) {
+          skippedNoLogs += 1;
           continue;
         }
 
@@ -314,10 +317,11 @@ export function migrateBackfillUsageCacheAccounting(database: DrizzleDb): void {
                 }
               : null,
         };
-        const pricing = resolvePricingForUsage(
+        const pricing = resolvePricingForUsageWithOverrides(
           usageRow.provider,
           usageRow.model,
           pricingUsage,
+          pricingOverrides,
         );
 
         updateRow.run(
@@ -344,7 +348,7 @@ export function migrateBackfillUsageCacheAccounting(database: DrizzleDb): void {
         updatedRows,
         skippedNoConversation,
         skippedNoLogs,
-        skippedInvalidLogs,
+        ignoredUnusableLogs,
         skippedInconsistentRows,
       },
       "Backfilled historical Anthropic usage rows from request-log accounting",

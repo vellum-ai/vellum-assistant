@@ -461,6 +461,9 @@ export async function runAgentLoopImpl(
         onEvent,
         "context_compactor",
         reqId,
+        compacted.summaryCacheCreationInputTokens ?? 0,
+        compacted.summaryCacheReadInputTokens ?? 0,
+        collapseRawResponses(compacted.summaryRawResponses),
       );
     }
 
@@ -715,6 +718,9 @@ export async function runAgentLoopImpl(
             onEvent,
             "context_compactor",
             reqId,
+            step.compactionResult.summaryCacheCreationInputTokens ?? 0,
+            step.compactionResult.summaryCacheReadInputTokens ?? 0,
+            collapseRawResponses(step.compactionResult.summaryRawResponses),
           );
         }
 
@@ -902,6 +908,9 @@ export async function runAgentLoopImpl(
             onEvent,
             "context_compactor",
             reqId,
+            step.compactionResult.summaryCacheCreationInputTokens ?? 0,
+            step.compactionResult.summaryCacheReadInputTokens ?? 0,
+            collapseRawResponses(step.compactionResult.summaryRawResponses),
           );
         }
 
@@ -979,6 +988,9 @@ export async function runAgentLoopImpl(
                 onEvent,
                 "context_compactor",
                 reqId,
+                emergencyCompact.summaryCacheCreationInputTokens ?? 0,
+                emergencyCompact.summaryCacheReadInputTokens ?? 0,
+                collapseRawResponses(emergencyCompact.summaryRawResponses),
               );
             }
 
@@ -1074,6 +1086,9 @@ export async function runAgentLoopImpl(
               onEvent,
               "context_compactor",
               reqId,
+              emergencyCompact.summaryCacheCreationInputTokens ?? 0,
+              emergencyCompact.summaryCacheReadInputTokens ?? 0,
+              collapseRawResponses(emergencyCompact.summaryRawResponses),
             );
           }
 
@@ -1246,9 +1261,7 @@ export async function runAgentLoopImpl(
       reqId,
       state.exchangeCacheCreationInputTokens,
       state.exchangeCacheReadInputTokens,
-      state.exchangeRawResponses.length <= 1
-        ? state.exchangeRawResponses[0]
-        : state.exchangeRawResponses,
+      collapseRawResponses(state.exchangeRawResponses),
     );
 
     void getHookManager().trigger("post-message", {
@@ -1474,4 +1487,9 @@ function emitUsage(
     cacheReadInputTokens,
     rawResponse,
   );
+}
+
+function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
+  if (!rawResponses || rawResponses.length === 0) return undefined;
+  return rawResponses.length === 1 ? rawResponses[0] : rawResponses;
 }

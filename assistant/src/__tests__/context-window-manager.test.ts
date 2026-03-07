@@ -117,6 +117,71 @@ describe("ContextWindowManager", () => {
     expect(userTexts.some((text) => text.startsWith("u3 "))).toBe(true);
   });
 
+  test("aggregates cache-aware summary usage across compaction chunks", async () => {
+    let summaryCalls = 0;
+    const provider = createProvider(() => {
+      summaryCalls += 1;
+      return {
+        content: [
+          { type: "text", text: `## Goals\n- summary chunk ${summaryCalls}` },
+        ],
+        model: "claude-opus-4-6",
+        usage: {
+          inputTokens: 1_000 + summaryCalls,
+          outputTokens: 20 + summaryCalls,
+          cacheCreationInputTokens: 10 * summaryCalls,
+          cacheReadInputTokens: 100 * summaryCalls,
+        },
+        rawResponse: {
+          usage: {
+            cache_creation: {
+              ephemeral_5m_input_tokens: 10 * summaryCalls,
+              ephemeral_1h_input_tokens: 0,
+            },
+            cache_read_input_tokens: 100 * summaryCalls,
+          },
+        },
+        stopReason: "end_turn",
+      };
+    });
+    const manager = new ContextWindowManager(
+      provider,
+      "system prompt",
+      makeConfig({
+        maxInputTokens: 7_000,
+        targetInputTokens: 2_500,
+        preserveRecentUserTurns: 1,
+      }),
+    );
+    const long = "q".repeat(6_000);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+
+    expect(result.compacted).toBe(true);
+    expect(result.summaryCalls).toBe(summaryCalls);
+    expect(result.summaryCalls).toBeGreaterThan(1);
+    expect(result.summaryCacheCreationInputTokens).toBe(
+      summaryCalls * (summaryCalls + 1) * 5,
+    );
+    expect(result.summaryCacheReadInputTokens).toBe(
+      summaryCalls * (summaryCalls + 1) * 50,
+    );
+    expect(result.summaryRawResponses).toHaveLength(summaryCalls);
+    expect(result.summaryRawResponses?.[0]).toMatchObject({
+      usage: {
+        cache_creation: { ephemeral_5m_input_tokens: 10 },
+        cache_read_input_tokens: 100,
+      },
+    });
+  });
+
   test("updates an existing summary message instead of nesting summaries", async () => {
     const provider = createProvider(() => ({
       content: [{ type: "text", text: "## Goals\n- updated summary" }],
@@ -340,6 +405,51 @@ describe("ContextWindowManager", () => {
     expect(result.compacted).toBe(true);
     // The mixed user message should be counted as persisted (4 = u1 + mixed + a_tooluse + a1)
     expect(result.compactedPersistedMessages).toBe(4);
+  });
+
+  test("returns cache-aware usage metadata for compaction summaries", async () => {
+    const rawResponse = {
+      usage: {
+        cache_creation: { ephemeral_5m_input_tokens: 120 },
+        cache_read_input_tokens: 340,
+      },
+    };
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- cache-aware summary" }],
+      model: "claude-opus-4-6",
+      usage: {
+        inputTokens: 500,
+        outputTokens: 22,
+        cacheCreationInputTokens: 120,
+        cacheReadInputTokens: 340,
+      },
+      rawResponse,
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager(
+      provider,
+      "system prompt",
+      makeConfig({
+        maxInputTokens: 2600,
+        targetInputTokens: 1500,
+        preserveRecentUserTurns: 1,
+      }),
+    );
+    const long = "c".repeat(5000);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+
+    expect(result.compacted).toBe(true);
+    expect(result.summaryCalls).toBe(2);
+    expect(result.summaryInputTokens).toBe(1000);
+    expect(result.summaryCacheCreationInputTokens).toBe(240);
+    expect(result.summaryCacheReadInputTokens).toBe(680);
+    expect(result.summaryRawResponses).toEqual([rawResponse, rawResponse]);
   });
 
   test("parses legacy assistant-role context summary messages", () => {
