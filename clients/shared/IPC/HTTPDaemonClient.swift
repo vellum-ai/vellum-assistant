@@ -2138,16 +2138,10 @@ public final class HTTPTransport {
         // Parse the 401 body to check for terminal (non-refreshable) error codes.
         // The server's auth middleware returns errors in a standard envelope:
         //   { "error": { "code": "...", "message": "..." } }
-        // We also accept a top-level "code" for forward compatibility.
         let terminalCodes: Set<String> = ["credentials_revoked"]
         if let data = responseData,
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            let code: String? = {
-                if let errorObj = json["error"] as? [String: Any] {
-                    return errorObj["code"] as? String
-                }
-                return json["code"] as? String
-            }()
+            let code = (json["error"] as? [String: Any])?["code"] as? String
             if let code, terminalCodes.contains(code) {
                 // Explicitly terminal — no refresh possible
                 log.error("Terminal 401 code: \(code) — re-auth required")
