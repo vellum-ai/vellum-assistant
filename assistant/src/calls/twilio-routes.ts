@@ -389,13 +389,18 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       },
     });
 
-    // Expire pending questions on terminal status
-    if (isTerminal) {
-      expirePendingQuestions(session.id);
+    // Post-persistence processing is best-effort — failures must not
+    // propagate to the outer catch block, which would incorrectly treat
+    // them as lease-sync failures and finalize the dedupe claim.
+    try {
+      if (isTerminal) {
+        expirePendingQuestions(session.id);
 
-      if (!wasTerminal) {
-        persistCallCompletionMessage(session.conversationId, session.id).catch(
-          (err) => {
+        if (!wasTerminal) {
+          persistCallCompletionMessage(
+            session.conversationId,
+            session.id,
+          ).catch((err) => {
             log.error(
               {
                 err,
@@ -404,10 +409,15 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
               },
               "Failed to persist call completion message",
             );
-          },
-        );
-        fireCallCompletionNotifier(session.conversationId, session.id);
+          });
+          fireCallCompletionNotifier(session.conversationId, session.id);
+        }
       }
+    } catch (postErr) {
+      log.error(
+        { err: postErr, callSid, callStatus, callSessionId: session.id },
+        "Post-persistence processing failed — event and claim are intact, but side effects may be incomplete",
+      );
     }
 
     // Mark the claim as permanently processed so it never expires.
@@ -427,7 +437,14 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       // Event already written — releasing the claim would let Twilio
       // retries insert a duplicate event. Finalize instead so the
       // dedupe guard blocks subsequent attempts.
-      finalizeCallbackClaim(dedupeKey, claimId);
+      try {
+        finalizeCallbackClaim(dedupeKey, claimId);
+      } catch (finalizeErr) {
+        log.error(
+          { dedupeKey, claimId, callSid, callStatus, finalizeErr },
+          "Failed to finalize claim after event persistence — original error will still be re-thrown",
+        );
+      }
       log.warn(
         { dedupeKey, claimId, callSid, callStatus, err },
         "Post-persistence error — claim finalized to prevent duplicate events on retry",
