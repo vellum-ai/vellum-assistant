@@ -1166,7 +1166,7 @@ describe("isSideEffectTool", () => {
   describe("returns false for non-side-effect tools", () => {
     const readOnlyTools = [
       "file_read",
-      "memory_search",
+      "memory_recall",
       "memory_save",
       "web_search",
       "browser_snapshot",
