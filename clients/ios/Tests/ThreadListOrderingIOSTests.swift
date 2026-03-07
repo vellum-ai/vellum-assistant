@@ -60,6 +60,48 @@ final class ThreadListOrderingIOSTests: XCTestCase {
         )
     }
 
+    func testConnectedModeSortsPinnedThreadsWithoutOrderAfterOrderedPins() {
+        let threads = [
+            IOSThread(
+                title: "pinned-unordered",
+                lastActivityAt: Date(timeIntervalSince1970: 60),
+                sessionId: "pinned-unordered",
+                isPinned: true
+            ),
+            IOSThread(
+                title: "pinned-second",
+                lastActivityAt: Date(timeIntervalSince1970: 20),
+                sessionId: "pinned-second",
+                isPinned: true,
+                displayOrder: 1
+            ),
+            IOSThread(
+                title: "regular",
+                lastActivityAt: Date(timeIntervalSince1970: 50),
+                sessionId: "regular"
+            ),
+            IOSThread(
+                title: "pinned-first",
+                lastActivityAt: Date(timeIntervalSince1970: 10),
+                sessionId: "pinned-first",
+                isPinned: true,
+                displayOrder: 0
+            ),
+        ]
+
+        let sorted = sortThreadsForDisplay(threads, isConnectedMode: true)
+
+        XCTAssertEqual(
+            sorted.map(\.title),
+            [
+                "pinned-first",
+                "pinned-second",
+                "pinned-unordered",
+                "regular",
+            ]
+        )
+    }
+
     func testStandaloneModePreservesOriginalOrder() {
         let threads = [
             IOSThread(title: "first", sessionId: "first", isPinned: true, displayOrder: 1),
