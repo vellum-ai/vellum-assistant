@@ -309,9 +309,9 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("verify my Telegram account");
   });
 
-  test('routing section includes trigger phrase "verify voice channel"', () => {
+  test('routing section includes trigger phrase "verify phone channel"', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify voice channel");
+    expect(prompt).toContain("verify phone channel");
   });
 
   test('routing section includes trigger phrase "verify my phone number"', () => {
@@ -329,11 +329,11 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("guardian-verify-setup");
   });
 
-  test("routing section mentions voice and telegram channels but not legacy channels", () => {
+  test("routing section mentions phone and telegram channels but not legacy channels", () => {
     const prompt = buildSystemPrompt();
     const routingStart = prompt.indexOf("## Routing: Guardian Verification");
     const routingSection = prompt.substring(routingStart, routingStart + 1000);
-    expect(routingSection).toContain("voice");
+    expect(routingSection).toContain("phone");
     expect(routingSection).toContain("telegram");
   });
 

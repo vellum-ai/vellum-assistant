@@ -143,7 +143,7 @@ describe("guardian-verify-setup skill — voice auto-followup", () => {
       skillContent.split("## Step 3")[1]?.split("## Step 4")[0] ?? "";
     const voiceBullet = step3Section
       .split("\n")
-      .filter((line) => /^\s*-\s+\*\*Voice\*\*/.test(line))
+      .filter((line) => /^\s*-\s+\*\*Phone\*\*/.test(line))
       .join("\n");
     expect(voiceBullet).not.toHaveLength(0);
     expect(voiceBullet).not.toContain("wait for the user to confirm");
