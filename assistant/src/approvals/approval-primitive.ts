@@ -306,7 +306,7 @@ const GRANT_RETRY_MAX_WAIT_MS = 10_000;
  * polling to handle the voice pipeline race condition where the grant
  * may still be in-flight: `answerCall()` triggers the voice turn as
  * fire-and-forget, and the voice LLM can attempt tool execution before
- * `tryMintGuardianActionGrant`'s LLM fallback finishes minting the
+ * `tryMintGuardianActionGrant`'s classifier finishes minting the
  * grant.  Polling bridges this timing gap without changing the
  * fire-and-forget architecture.
  */
@@ -315,7 +315,7 @@ export async function consumeGrantForInvocation(
   options?: { maxWaitMs?: number; intervalMs?: number; signal?: AbortSignal },
 ): Promise<ConsumeGrantResult> {
   // Fast path: try once synchronously — covers the common case where the
-  // grant already exists (deterministic classifier, or prior turns).
+  // grant already exists.
   const first = consumeGrantSync(params);
   if (first.ok) {
     return first;
