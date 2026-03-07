@@ -263,6 +263,14 @@ struct ThreadListView: View {
             thread.latestAssistantMessageAt != nil
     }
 
+    private func scheduleGroupHasUnread(_ group: (key: String, label: String, threads: [IOSThread])) -> Bool {
+        store.isConnectedMode && group.threads.contains(where: \.hasUnseenLatestAssistantMessage)
+    }
+
+    private func scheduleGroupHasPinned(_ group: (key: String, label: String, threads: [IOSThread])) -> Bool {
+        store.isConnectedMode && group.threads.contains(where: \.isPinned)
+    }
+
     @ViewBuilder
     private func connectedThreadContextMenu(_ thread: IOSThread) -> some View {
         if canToggleThreadPin(thread) {
@@ -310,6 +318,38 @@ struct ThreadListView: View {
             content()
                 .contextMenu {
                     connectedThreadContextMenu(thread)
+                }
+        } else {
+            content()
+        }
+    }
+
+    @ViewBuilder
+    private func connectedScheduleGroupContextMenu(
+        _ group: (key: String, label: String, threads: [IOSThread])
+    ) -> some View {
+        ForEach(group.threads) { thread in
+            Menu {
+                connectedThreadContextMenu(thread)
+            } label: {
+                Label {
+                    Text(thread.title)
+                } icon: {
+                    VIconView(.messageCircle, size: 14)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func maybeConnectedScheduleGroupContextMenu<Content: View>(
+        group: (key: String, label: String, threads: [IOSThread]),
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if store.isConnectedMode {
+            content()
+                .contextMenu {
+                    connectedScheduleGroupContextMenu(group)
                 }
         } else {
             content()
@@ -481,56 +521,68 @@ struct ThreadListView: View {
             }
         } else {
             // Multi-thread group: DisclosureGroup with fully-tappable label
-            DisclosureGroup {
-                ForEach(group.threads) { thread in
-                    maybeConnectedContextMenu(thread: thread) {
-                        NavigationLink(value: thread.id) {
-                            threadRow(thread)
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                store.deleteThread(thread)
-                                if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                                    selectedThreadId = activeThreads.first?.id
+            maybeConnectedScheduleGroupContextMenu(group: group) {
+                DisclosureGroup {
+                    ForEach(group.threads) { thread in
+                        maybeConnectedContextMenu(thread: thread) {
+                            NavigationLink(value: thread.id) {
+                                threadRow(thread)
+                            }
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    store.deleteThread(thread)
+                                    if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                                        selectedThreadId = activeThreads.first?.id
+                                    }
+                                } label: {
+                                    Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                                 }
-                            } label: {
-                                Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
+                                Button {
+                                    archiveActiveThread(thread)
+                                } label: {
+                                    Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                                }
+                                .tint(VColor.warning)
                             }
-                            Button {
-                                archiveActiveThread(thread)
-                            } label: {
-                                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    beginRenaming(thread)
+                                } label: {
+                                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+                                }
+                                .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                             }
-                            .tint(VColor.warning)
-                        }
-                        .swipeActions(edge: .leading) {
-                            Button {
-                                beginRenaming(thread)
-                            } label: {
-                                Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-                            }
-                            .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                         }
                     }
+                } label: {
+                    HStack(spacing: 8) {
+                        VIconView(.messageCircle, size: 12)
+                            .foregroundStyle(.secondary)
+                        Text(group.label)
+                            .fontWeight(scheduleGroupHasUnread(group) ? .semibold : .regular)
+                            .lineLimit(1)
+                        if scheduleGroupHasPinned(group) {
+                            VIconView(.pin, size: 10)
+                                .foregroundColor(VColor.accent)
+                                .accessibilityLabel("Pinned")
+                        }
+                        if scheduleGroupHasUnread(group) {
+                            VBadge(style: .dot, color: VColor.accent)
+                                .accessibilityLabel("Unread")
+                        }
+                        Text("\(group.threads.count)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color.secondary.opacity(0.12))
+                            )
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    VIconView(.messageCircle, size: 12)
-                        .foregroundStyle(.secondary)
-                    Text(group.label)
-                        .lineLimit(1)
-                    Text("\(group.threads.count)")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Color.secondary.opacity(0.12))
-                        )
-                    Spacer()
-                }
-                .contentShape(Rectangle())
             }
         }
     }
