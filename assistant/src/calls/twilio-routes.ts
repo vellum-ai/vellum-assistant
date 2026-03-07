@@ -437,19 +437,26 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       // dedupe guard blocks subsequent attempts.
       try {
         finalizeCallbackClaim(dedupeKey, claimId);
+        log.warn(
+          { dedupeKey, claimId, callSid, callStatus, err },
+          "Post-persistence error — claim finalized to prevent duplicate events on retry",
+        );
       } catch (finalizeErr) {
         log.error(
           { dedupeKey, claimId, callSid, callStatus, finalizeErr },
           "Failed to finalize claim after event persistence — original error will still be re-thrown",
         );
       }
-      log.warn(
-        { dedupeKey, claimId, callSid, callStatus, err },
-        "Post-persistence error — claim finalized to prevent duplicate events on retry",
-      );
     } else {
       // Nothing persisted yet — safe to release so retries can reprocess
-      releaseCallbackClaim(dedupeKey, claimId);
+      try {
+        releaseCallbackClaim(dedupeKey, claimId);
+      } catch (releaseErr) {
+        log.error(
+          { dedupeKey, claimId, callSid, callStatus, releaseErr },
+          "Failed to release claim — original error will still be re-thrown",
+        );
+      }
     }
     throw err;
   }
