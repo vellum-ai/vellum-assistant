@@ -99,7 +99,6 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   preApproveScreenCapture();
   ensureVellumInPath(appDisplayName);
   await ensureAssistantHatched();
-  publishLockfileToHome();
   skipAssistantOnboarding();
   ensureApiKeyInDefaults();
 
@@ -107,7 +106,6 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
     teardown: async () => {
       retireAssistant();
       quitApp(appDisplayName);
-      unpublishLockfileFromHome();
       collectHatchLogs();
       cleanupTestDataDir(baseDataDir);
     },
@@ -115,41 +113,6 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
 }
 
 // ── Path Helpers ────────────────────────────────────────────────────
-
-/** Resolves the base data directory, respecting the BASE_DATA_DIR env var. */
-function getBaseDir(): string {
-  return process.env.BASE_DATA_DIR?.trim() || os.homedir();
-}
-
-/**
- * Copies the lockfile from the per-test BASE_DATA_DIR to the home
- * directory so the macOS app discovers the hatched assistant.
- * The CLI writes the lockfile under BASE_DATA_DIR when set, but the
- * app always reads from ~/.
- */
-function publishLockfileToHome(): void {
-  const src = path.join(getBaseDir(), ".vellum.lock.json");
-  const dst = path.join(os.homedir(), ".vellum.lock.json");
-  if (src === dst) return;
-  if (!existsSync(src)) return;
-  try {
-    copyFileSync(src, dst);
-  } catch {
-    // Best-effort
-  }
-}
-
-/** Removes the home-dir lockfile copy created by publishLockfileToHome. */
-function unpublishLockfileFromHome(): void {
-  const src = path.join(getBaseDir(), ".vellum.lock.json");
-  const dst = path.join(os.homedir(), ".vellum.lock.json");
-  if (src === dst) return;
-  try {
-    if (existsSync(dst)) unlinkSync(dst);
-  } catch {
-    // May not exist
-  }
-}
 
 /**
  * Copies hatch.log into test-results/agent-logs/ so it is included
@@ -443,9 +406,13 @@ async function ensureAssistantHatched(): Promise<void> {
   );
 }
 
-/** Returns true if the lockfile exists and contains at least one assistant. */
+/** Resolves the base data directory, respecting the BASE_DATA_DIR env var. */
+function getBaseDir(): string {
+  return process.env.BASE_DATA_DIR?.trim() || os.homedir();
+}
+
 function hasAssistantInLockfile(): boolean {
-  const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
+  const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
   if (!existsSync(lockfilePath)) return false;
   try {
     const raw = readFileSync(lockfilePath, "utf-8");
@@ -465,7 +432,7 @@ function readAssistantFromLockfile(hatchOutput: string): {
   assistantId: string;
 } {
   const diagnostics = buildDiagnostics(hatchOutput);
-  const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
+  const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
 
   if (!existsSync(lockfilePath)) {
     throw new Error(

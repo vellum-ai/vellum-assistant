@@ -6,7 +6,7 @@ import { join } from "node:path";
 // Create a temp directory that acts as a fake home, so allocateLocalResources()
 // never touches the real ~/.vellum directory.
 const testDir = mkdtempSync(join(tmpdir(), "cli-multi-local-test-"));
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 // Mock homedir() to return testDir — this isolates allocateLocalResources()
 // which uses homedir() directly for instance directory creation.
@@ -46,7 +46,7 @@ import {
 
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });
-  delete process.env.BASE_DATA_DIR;
+  delete process.env.VELLUM_LOCKFILE_DIR;
 });
 
 function writeLockfile(data: unknown): void {

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 // Point lockfile operations at a temp directory
 const testDir = mkdtempSync(join(tmpdir(), "cli-assistant-config-test-"));
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 import {
   loadLatestAssistant,
@@ -18,7 +18,7 @@ import {
 
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });
-  delete process.env.BASE_DATA_DIR;
+  delete process.env.VELLUM_LOCKFILE_DIR;
 });
 
 function writeLockfile(data: unknown): void {
