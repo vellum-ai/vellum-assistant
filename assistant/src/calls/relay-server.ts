@@ -197,7 +197,7 @@ export class RelayConnection {
 
   // Inbound voice guardian verification state
   private verificationSessionActive = false;
-  private guardianChallengeAssistantId: string | null = null;
+  private verificationAssistantId: string | null = null;
   private verificationFromNumber: string | null = null;
 
   // Outbound guardian verification state (system calls the guardian)
@@ -556,7 +556,7 @@ export class RelayConnection {
     this.setController(controller);
 
     switch (outcome.action) {
-      case "outbound_guardian_verification":
+      case "outbound_verification":
         this.startOutboundVerification(
           outcome.assistantId,
           outcome.sessionId,
@@ -588,7 +588,7 @@ export class RelayConnection {
         );
         this.startNameCapture(outcome.assistantId, outcome.fromNumber);
         return;
-      case "guardian_verification":
+      case "verification":
         if (
           resolved.actorTrust.memberRecord &&
           (resolved.actorTrust.trustClass === "guardian" ||
@@ -844,7 +844,7 @@ export class RelayConnection {
     fromNumber: string,
   ): void {
     this.verificationSessionActive = true;
-    this.guardianChallengeAssistantId = assistantId;
+    this.verificationAssistantId = assistantId;
     this.verificationFromNumber = fromNumber;
     this.connectionState = "verification_pending";
     this.verificationAttempts = 0;
@@ -852,7 +852,7 @@ export class RelayConnection {
     this.verificationCodeLength = 6;
     this.dtmfBuffer = "";
 
-    recordCallEvent(this.callSessionId, "guardian_voice_verification_started", {
+    recordCallEvent(this.callSessionId, "voice_verification_started", {
       assistantId,
       maxAttempts: this.verificationMaxAttempts,
     });
@@ -880,7 +880,7 @@ export class RelayConnection {
   ): void {
     this.verificationSessionActive = true;
     this.outboundVerificationSessionId = verificationSessionId;
-    this.guardianChallengeAssistantId = assistantId;
+    this.verificationAssistantId = assistantId;
     // For outbound guardian calls, the "to" number is the guardian's phone
     this.verificationFromNumber = toNumber;
     this.connectionState = "verification_pending";
@@ -889,15 +889,11 @@ export class RelayConnection {
     this.verificationCodeLength = 6;
     this.dtmfBuffer = "";
 
-    recordCallEvent(
-      this.callSessionId,
-      "outbound_guardian_voice_verification_started",
-      {
-        assistantId,
-        verificationSessionId,
-        maxAttempts: this.verificationMaxAttempts,
-      },
-    );
+    recordCallEvent(this.callSessionId, "outbound_voice_verification_started", {
+      assistantId,
+      verificationSessionId,
+      maxAttempts: this.verificationMaxAttempts,
+    });
 
     const introText = composeVerificationVoice(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO,
@@ -920,17 +916,17 @@ export class RelayConnection {
    * Delegates to the extracted attemptVerificationCode() and
    * interprets the structured result to drive side-effects.
    */
-  private handleGuardianCodeVerificationResult(enteredCode: string): void {
-    if (!this.guardianChallengeAssistantId || !this.verificationFromNumber) {
+  private handleVerificationCodeResult(enteredCode: string): void {
+    if (!this.verificationAssistantId || !this.verificationFromNumber) {
       return;
     }
 
     const isOutbound = this.outboundVerificationSessionId != null;
-    const assistantId = this.guardianChallengeAssistantId;
+    const assistantId = this.verificationAssistantId;
     const fromNumber = this.verificationFromNumber;
 
     const result = attemptVerificationCode({
-      guardianChallengeAssistantId: assistantId,
+      verificationAssistantId: assistantId,
       verificationFromNumber: fromNumber,
       enteredCode,
       isOutbound,
@@ -988,7 +984,7 @@ export class RelayConnection {
         if (successSession?.initiatedFromConversationId) {
           addPointerMessage(
             successSession.initiatedFromConversationId,
-            "guardian_verification_succeeded",
+            "verification_succeeded",
             successSession.toNumber,
             { channel: "voice" },
           ).catch((err) => {
@@ -1057,7 +1053,7 @@ export class RelayConnection {
         if (isOutbound && failSession.initiatedFromConversationId) {
           addPointerMessage(
             failSession.initiatedFromConversationId,
-            "guardian_verification_failed",
+            "verification_failed",
             failSession.toNumber,
             {
               channel: "voice",
@@ -1816,7 +1812,7 @@ export class RelayConnection {
       );
       if (spokenDigits.length >= this.verificationCodeLength) {
         const enteredCode = spokenDigits.slice(0, this.verificationCodeLength);
-        this.handleGuardianCodeVerificationResult(enteredCode);
+        this.handleVerificationCodeResult(enteredCode);
       } else if (spokenDigits.length > 0) {
         this.sendTextToken(
           `I heard ${spokenDigits.length} digits. Please enter all ${this.verificationCodeLength} digits of your code.`,
@@ -2001,7 +1997,7 @@ export class RelayConnection {
           this.verificationCodeLength,
         );
         this.dtmfBuffer = "";
-        this.handleGuardianCodeVerificationResult(enteredCode);
+        this.handleVerificationCodeResult(enteredCode);
       }
       return;
     }

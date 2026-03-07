@@ -84,6 +84,7 @@ export { migrateDropUsageCompositeIndexes } from "./139-drop-usage-composite-ind
 export { migrateBackfillUsageCacheAccounting } from "./140-backfill-usage-cache-accounting.js";
 export { migrateRenameVerificationTable } from "./141-rename-verification-table.js";
 export { migrateRenameVerificationSessionIdColumn } from "./142-rename-verification-session-id-column.js";
+export { migrateRenameGuardianVerificationValues } from "./143-rename-guardian-verification-values.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

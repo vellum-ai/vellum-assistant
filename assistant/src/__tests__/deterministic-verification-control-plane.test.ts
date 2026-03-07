@@ -186,17 +186,17 @@ describe("Call session mode metadata", () => {
       provider: "twilio",
       fromNumber: "+15551234567",
       toNumber: "+15559876543",
-      callMode: "guardian_verification",
+      callMode: "verification",
       verificationSessionId: "gv-session-test",
     });
 
-    expect(session.callMode).toBe("guardian_verification");
+    expect(session.callMode).toBe("verification");
     expect(session.verificationSessionId).toBe("gv-session-test");
 
     // Verify it persists to DB
     const loaded = getCallSession(session.id);
     expect(loaded).not.toBeNull();
-    expect(loaded!.callMode).toBe("guardian_verification");
+    expect(loaded!.callMode).toBe("verification");
     expect(loaded!.verificationSessionId).toBe("gv-session-test");
   });
 

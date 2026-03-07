@@ -954,7 +954,7 @@ export async function startVerificationCall(
       provider: "twilio",
       fromNumber: identityResult.fromNumber,
       toNumber: phoneNumber,
-      callMode: "guardian_verification",
+      callMode: "verification",
       verificationSessionId,
       initiatedFromConversationId: originConversationId,
     });

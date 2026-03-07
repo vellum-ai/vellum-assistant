@@ -201,34 +201,30 @@ describe("addPointerMessage", () => {
     expect(text).toContain("failed: no answer");
   });
 
-  test("adds a guardian_verification_succeeded pointer message", () => {
+  test("adds a verification_succeeded pointer message", () => {
     const convId = "conv-ptr-gv-success";
     ensureConversation(convId);
-    addPointerMessage(
-      convId,
-      "guardian_verification_succeeded",
-      "+15559876543",
-    );
+    addPointerMessage(convId, "verification_succeeded", "+15559876543");
     const text = getLatestAssistantText(convId);
     expect(text).toContain("Guardian verification");
     expect(text).toContain("+15559876543");
     expect(text).toContain("succeeded");
   });
 
-  test("adds a guardian_verification_failed pointer message without reason", () => {
+  test("adds a verification_failed pointer message without reason", () => {
     const convId = "conv-ptr-gv-fail";
     ensureConversation(convId);
-    addPointerMessage(convId, "guardian_verification_failed", "+15559876543");
+    addPointerMessage(convId, "verification_failed", "+15559876543");
     const text = getLatestAssistantText(convId);
     expect(text).toContain("Guardian verification");
     expect(text).toContain("+15559876543");
     expect(text).toContain("failed");
   });
 
-  test("adds a guardian_verification_failed pointer message with reason", () => {
+  test("adds a verification_failed pointer message with reason", () => {
     const convId = "conv-ptr-gv-fail-r";
     ensureConversation(convId);
-    addPointerMessage(convId, "guardian_verification_failed", "+15559876543", {
+    addPointerMessage(convId, "verification_failed", "+15559876543", {
       reason: "Max attempts exceeded",
     });
     const text = getLatestAssistantText(convId);

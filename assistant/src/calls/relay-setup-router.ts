@@ -34,12 +34,12 @@ export interface SetupContext {
 export type SetupOutcome =
   | { action: "normal_call"; isInbound: boolean }
   | {
-      action: "guardian_verification";
+      action: "verification";
       assistantId: string;
       fromNumber: string;
     }
   | {
-      action: "outbound_guardian_verification";
+      action: "outbound_verification";
       assistantId: string;
       sessionId: string;
       toNumber: string;
@@ -105,10 +105,10 @@ export function routeSetup(ctx: SetupContext): {
   const customParamVsId = ctx.customParameters?.verificationSessionId;
   const verificationSessionId = persistedVsId ?? customParamVsId;
 
-  if (persistedMode === "guardian_verification" && verificationSessionId) {
+  if (persistedMode === "verification" && verificationSessionId) {
     return {
       outcome: {
-        action: "outbound_guardian_verification",
+        action: "outbound_verification",
         assistantId,
         sessionId: verificationSessionId,
         toNumber: ctx.to,
@@ -128,7 +128,7 @@ export function routeSetup(ctx: SetupContext): {
     );
     return {
       outcome: {
-        action: "outbound_guardian_verification",
+        action: "outbound_verification",
         assistantId,
         sessionId: customParamVsId,
         toNumber: ctx.to,
@@ -285,7 +285,7 @@ export function routeSetup(ctx: SetupContext): {
   if (pendingChallenge) {
     return {
       outcome: {
-        action: "guardian_verification",
+        action: "verification",
         assistantId,
         fromNumber: ctx.from,
       },
