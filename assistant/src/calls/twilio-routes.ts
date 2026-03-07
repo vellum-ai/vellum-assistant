@@ -27,7 +27,6 @@ import {
   releaseCallbackClaim,
   updateCallSession,
 } from "./call-store.js";
-import { getTwilioConfig } from "./twilio-config.js";
 import type { CallStatus } from "./types.js";
 import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
@@ -113,22 +112,6 @@ export function buildWelcomeGreeting(
   // initial LLM turn via the session pipeline. Keep Twilio's relay-level
   // greeting empty by default so we don't speak a deterministic static line first.
   return "";
-}
-
-/**
- * Resolve the WebSocket relay URL from Twilio config.
- *
- * Treats wssBaseUrl as present only when it is non-empty after trimming.
- * Falls back to webhookBaseUrl, normalizing the scheme from http(s) to ws(s)
- * and stripping any trailing slash.
- */
-export function resolveRelayUrl(
-  wssBaseUrl: string,
-  webhookBaseUrl: string,
-): string {
-  const base = wssBaseUrl.trim() || webhookBaseUrl;
-  const normalized = base.replace(/\/$/, "").replace(/^http(s?)/, "ws$1");
-  return `${normalized}/v1/calls/relay`;
 }
 
 /**
@@ -252,17 +235,7 @@ function buildVoiceWebhookTwiml(
     "Voice quality profile resolved",
   );
 
-  const twilioConfig = getTwilioConfig();
-  let relayUrl: string;
-  try {
-    relayUrl = getTwilioRelayUrl(loadConfig());
-  } catch {
-    // Fallback to legacy resolution when ingress is not configured
-    relayUrl = resolveRelayUrl(
-      twilioConfig.wssBaseUrl,
-      twilioConfig.webhookBaseUrl,
-    );
-  }
+  const relayUrl = getTwilioRelayUrl(loadConfig());
   const welcomeGreeting = buildWelcomeGreeting(task, getCallWelcomeGreeting());
 
   const relayToken = mintEdgeRelayToken();
