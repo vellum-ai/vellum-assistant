@@ -144,7 +144,7 @@ Session management:
 
 Examples:
   $ assistant x status
-  $ assistant x post "Hello world"
+  $ assistant x post "Hello world" --strategy auto
   $ assistant x timeline elonmusk --count 10
   $ assistant x search "from:vaborsh AI agents" --product Latest
   $ assistant x strategy set oauth`,
