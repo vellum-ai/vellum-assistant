@@ -62,40 +62,6 @@ export {
   WhatsAppConfigSchema,
 } from "./core-schema.js";
 export type {
-  MemoryCleanupConfig,
-  MemoryConfig,
-  MemoryConflictsConfig,
-  MemoryEmbeddingsConfig,
-  MemoryEntityConfig,
-  MemoryExtractionConfig,
-  MemoryJobsConfig,
-  MemoryProfileConfig,
-  MemoryRerankingConfig,
-  MemoryRetentionConfig,
-  MemoryRetrievalConfig,
-  MemorySegmentationConfig,
-  MemorySummarizationConfig,
-  QdrantConfig,
-} from "./memory-schema.js";
-export {
-  MemoryCleanupConfigSchema,
-  MemoryConfigSchema,
-  MemoryConflictsConfigSchema,
-  MemoryDynamicBudgetConfigSchema,
-  MemoryEarlyTerminationConfigSchema,
-  MemoryEmbeddingsConfigSchema,
-  MemoryEntityConfigSchema,
-  MemoryExtractionConfigSchema,
-  MemoryJobsConfigSchema,
-  MemoryProfileConfigSchema,
-  MemoryRerankingConfigSchema,
-  MemoryRetentionConfigSchema,
-  MemoryRetrievalConfigSchema,
-  MemorySegmentationConfigSchema,
-  MemorySummarizationConfigSchema,
-  QdrantConfigSchema,
-} from "./memory-schema.js";
-export type {
   CallerIdentityConfig,
   CallsConfig,
   CallsDisclosureConfig,
@@ -127,6 +93,52 @@ export {
   McpServerConfigSchema,
   McpTransportSchema,
 } from "./schemas/mcp.js";
+export type { MemoryConfig } from "./schemas/memory.js";
+export { MemoryConfigSchema } from "./schemas/memory.js";
+export type {
+  MemoryCleanupConfig,
+  MemoryJobsConfig,
+  MemoryRetentionConfig,
+} from "./schemas/memory-lifecycle.js";
+export {
+  MemoryCleanupConfigSchema,
+  MemoryJobsConfigSchema,
+  MemoryRetentionConfigSchema,
+} from "./schemas/memory-lifecycle.js";
+export type {
+  MemoryConflictsConfig,
+  MemoryEntityConfig,
+  MemoryExtractionConfig,
+  MemoryProfileConfig,
+  MemorySummarizationConfig,
+} from "./schemas/memory-processing.js";
+export {
+  MemoryConflictsConfigSchema,
+  MemoryEntityConfigSchema,
+  MemoryExtractionConfigSchema,
+  MemoryProfileConfigSchema,
+  MemorySummarizationConfigSchema,
+} from "./schemas/memory-processing.js";
+export type {
+  MemoryRerankingConfig,
+  MemoryRetrievalConfig,
+} from "./schemas/memory-retrieval.js";
+export {
+  MemoryDynamicBudgetConfigSchema,
+  MemoryEarlyTerminationConfigSchema,
+  MemoryRerankingConfigSchema,
+  MemoryRetrievalConfigSchema,
+} from "./schemas/memory-retrieval.js";
+export type {
+  MemoryEmbeddingsConfig,
+  MemorySegmentationConfig,
+  QdrantConfig,
+} from "./schemas/memory-storage.js";
+export {
+  MemoryEmbeddingsConfigSchema,
+  MemorySegmentationConfigSchema,
+  QdrantConfigSchema,
+} from "./schemas/memory-storage.js";
 export type { NotificationsConfig } from "./schemas/notifications.js";
 export { NotificationsConfigSchema } from "./schemas/notifications.js";
 export type { SandboxConfig } from "./schemas/sandbox.js";
@@ -177,10 +189,10 @@ import {
   UiConfigSchema,
   WhatsAppConfigSchema,
 } from "./core-schema.js";
-import { MemoryConfigSchema } from "./memory-schema.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
 import { McpConfigSchema } from "./schemas/mcp.js";
+import { MemoryConfigSchema } from "./schemas/memory.js";
 import { NotificationsConfigSchema } from "./schemas/notifications.js";
 import { SandboxConfigSchema } from "./schemas/sandbox.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
