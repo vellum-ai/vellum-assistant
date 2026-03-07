@@ -259,7 +259,7 @@ Guardian bindings, verification challenges, and approval requests are all scoped
 
 ### Channel-Aware Guardian Challenges
 
-The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"voice"` -> `"Voice"`), so challenge prompts reference the correct channel name.
+The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"phone"` -> `"Phone"`), so challenge prompts reference the correct channel name.
 
 ### Operator Notes
 
