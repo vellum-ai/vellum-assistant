@@ -399,31 +399,6 @@ export function recordProcessedCallback(
 }
 
 /**
- * Try to record a processed callback. Returns true if this is a new callback
- * (inserted successfully). Returns false if the callback was already processed
- * (dedupe key already exists), indicating a replay.
- *
- * Uses INSERT ... ON CONFLICT DO NOTHING pattern for atomicity.
- *
- * @deprecated Use claimCallback + releaseCallbackClaim instead to
- * atomically claim a callback and release on failure.
- */
-export function tryRecordProcessedCallback(
-  dedupeKey: string,
-  callSessionId: string,
-): boolean {
-  return (
-    rawRun(
-      `INSERT OR IGNORE INTO processed_callbacks (id, dedupe_key, call_session_id, created_at) VALUES (?, ?, ?, ?)`,
-      uuid(),
-      dedupeKey,
-      callSessionId,
-      Date.now(),
-    ) > 0
-  );
-}
-
-/**
  * Atomically claim a callback for processing. Returns a unique claim ID
  * (string) if this caller won the claim, or null if another caller already
  * claimed it (dedupe_key conflict).
