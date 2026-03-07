@@ -71,6 +71,70 @@ export function readLockfile(): Record<string, unknown> | null {
 }
 
 /**
+ * Resolve the instance data directory from the lockfile at ~/.vellum.lock.json.
+ *
+ * Reads the lockfile from homedir() directly (NOT via readLockfile() which
+ * depends on BASE_DATA_DIR) to avoid circular dependency — this function is
+ * called at CLI bootstrap before BASE_DATA_DIR is set.
+ *
+ * Resolution:
+ *   - If activeAssistant matches a local assistant, returns its instanceDir.
+ *   - If there is exactly one local assistant and no activeAssistant, returns
+ *     its instanceDir (auto-select).
+ *   - Returns undefined in all other cases (no lockfile, no local assistants,
+ *     multiple local assistants with no active selection, malformed JSON).
+ *
+ * Synchronous (uses readFileSync) since it runs at bootstrap before any async
+ * context. Never throws — catches all errors and returns undefined for
+ * graceful degradation.
+ */
+export function resolveInstanceDataDir(): string | undefined {
+  try {
+    const lockPath = join(homedir(), ".vellum.lock.json");
+    if (!existsSync(lockPath)) return undefined;
+
+    const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+
+    const assistants = raw.assistants as
+      | Array<Record<string, unknown>>
+      | undefined;
+    if (!Array.isArray(assistants)) return undefined;
+
+    const localAssistants = assistants.filter(
+      (a) => a.cloud === "local" || a.cloud === undefined,
+    );
+    if (localAssistants.length === 0) return undefined;
+
+    const activeAssistant = raw.activeAssistant as string | undefined;
+
+    if (activeAssistant) {
+      const match = localAssistants.find(
+        (a) => a.assistantId === activeAssistant,
+      );
+      if (match) {
+        const resources = match.resources as
+          | Record<string, unknown>
+          | undefined;
+        return resources?.instanceDir as string | undefined;
+      }
+      return undefined;
+    }
+
+    if (localAssistants.length === 1) {
+      const resources = localAssistants[0].resources as
+        | Record<string, unknown>
+        | undefined;
+      return resources?.instanceDir as string | undefined;
+    }
+
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Normalize an assistant ID to its canonical form for DB operations.
  *
  * The system uses "self" as the canonical single-tenant identifier
