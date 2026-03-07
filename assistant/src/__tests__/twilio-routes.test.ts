@@ -249,7 +249,6 @@ mock.module("../calls/twilio-rest.js", () => ({
     urls: {
       voiceUrl: string;
       statusCallbackUrl: string;
-      smsUrl: string;
     },
   ) => {
     updatePhoneNumberWebhookCalls.push({

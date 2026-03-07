@@ -357,33 +357,6 @@ describe("gateway-only ingress enforcement", () => {
       };
       expect(body.error.code).toBe("GONE");
     });
-
-    test("POST /webhooks/twilio/sms returns 410", async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/webhooks/twilio/sms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: makeFormBody({ MessageSid: "SM123", AccountSid: "AC_test" }),
-      });
-      expect(res.status).toBe(410);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("GONE");
-      expect(body.error.message).toContain("Direct webhook access disabled");
-    });
-
-    test("POST /v1/calls/twilio/sms returns 410", async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/v1/calls/twilio/sms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: makeFormBody({ MessageSid: "SM123", AccountSid: "AC_test" }),
-      });
-      expect(res.status).toBe(410);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("GONE");
-    });
   });
 
   // ── Internal forwarding routes still work ─────

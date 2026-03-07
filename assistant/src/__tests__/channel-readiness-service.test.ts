@@ -217,7 +217,7 @@ describe("ChannelReadinessService", () => {
   });
 
   test("invalidateAll clears all cached snapshots", async () => {
-    const smsProbe = makeProbe(
+    const voiceProbe = makeProbe(
       "voice",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api", passed: true, message: "ok" }],
@@ -227,17 +227,17 @@ describe("ChannelReadinessService", () => {
       [{ name: "token", passed: true, message: "ok" }],
       [{ name: "webhook", passed: true, message: "ok" }],
     );
-    service.registerProbe(smsProbe);
+    service.registerProbe(voiceProbe);
     service.registerProbe(telegramProbe);
 
     await service.getReadiness(undefined, true);
-    expect(smsProbe.remoteCallCount).toBe(1);
+    expect(voiceProbe.remoteCallCount).toBe(1);
     expect(telegramProbe.remoteCallCount).toBe(1);
 
     service.invalidateAll();
 
     await service.getReadiness(undefined, true);
-    expect(smsProbe.remoteCallCount).toBe(2);
+    expect(voiceProbe.remoteCallCount).toBe(2);
     expect(telegramProbe.remoteCallCount).toBe(2);
   });
 
