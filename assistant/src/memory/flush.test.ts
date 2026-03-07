@@ -31,7 +31,6 @@ const { flushMemoryForMessages } = await import("./flush.js");
 const baseOpts = () => ({
   conversationId: "conv-1",
   scopeId: "scope-1",
-  db: {} as any,
 });
 
 describe("flushMemoryForMessages", () => {

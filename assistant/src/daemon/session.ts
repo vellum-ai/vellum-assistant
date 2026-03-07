@@ -37,7 +37,6 @@ import {
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import * as conversationStore from "../memory/conversation-store.js";
-import { getDb } from "../memory/db-connection.js";
 import { flushMemoryForMessages } from "../memory/flush.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -395,7 +394,6 @@ export class Session {
             messages: flushMessages,
             conversationId: this.conversationId,
             scopeId: this.memoryPolicy.scopeId,
-            db: getDb(),
             abortSignal: signal,
           });
 
