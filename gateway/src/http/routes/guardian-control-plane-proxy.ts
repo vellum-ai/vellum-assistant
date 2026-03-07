@@ -98,8 +98,24 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
   }
 
   return {
-    async handleCreateGuardianChallenge(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/guardian/challenge", "");
+    async handleCreateGuardianSession(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/integrations/guardian/sessions", "");
+    },
+
+    async handleResendGuardianSession(req: Request): Promise<Response> {
+      return proxyToRuntime(
+        req,
+        "/v1/integrations/guardian/sessions/resend",
+        "",
+      );
+    },
+
+    async handleCancelGuardianSession(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/integrations/guardian/sessions", "");
+    },
+
+    async handleRevokeGuardianBinding(req: Request): Promise<Response> {
+      return proxyToRuntime(req, "/v1/integrations/guardian/revoke", "");
     },
 
     async handleGetGuardianStatus(req: Request): Promise<Response> {
@@ -108,34 +124,6 @@ export function createGuardianControlPlaneProxyHandler(config: GatewayConfig) {
         req,
         "/v1/integrations/guardian/status",
         url.search,
-      );
-    },
-
-    async handleRevokeGuardian(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/guardian/revoke", "");
-    },
-
-    async handleStartGuardianOutbound(req: Request): Promise<Response> {
-      return proxyToRuntime(
-        req,
-        "/v1/integrations/guardian/outbound/start",
-        "",
-      );
-    },
-
-    async handleResendGuardianOutbound(req: Request): Promise<Response> {
-      return proxyToRuntime(
-        req,
-        "/v1/integrations/guardian/outbound/resend",
-        "",
-      );
-    },
-
-    async handleCancelGuardianOutbound(req: Request): Promise<Response> {
-      return proxyToRuntime(
-        req,
-        "/v1/integrations/guardian/outbound/cancel",
-        "",
       );
     },
 

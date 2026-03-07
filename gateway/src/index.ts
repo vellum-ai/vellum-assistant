@@ -442,11 +442,25 @@ async function main() {
         guardianControlPlaneProxy.handleGuardianVellumBootstrap(req),
     },
     {
-      path: "/v1/integrations/guardian/challenge",
+      path: "/v1/integrations/guardian/sessions",
       method: "POST",
       auth: "edge",
       handler: (req) =>
-        guardianControlPlaneProxy.handleCreateGuardianChallenge(req),
+        guardianControlPlaneProxy.handleCreateGuardianSession(req),
+    },
+    {
+      path: "/v1/integrations/guardian/sessions",
+      method: "DELETE",
+      auth: "edge",
+      handler: (req) =>
+        guardianControlPlaneProxy.handleCancelGuardianSession(req),
+    },
+    {
+      path: "/v1/integrations/guardian/sessions/resend",
+      method: "POST",
+      auth: "edge",
+      handler: (req) =>
+        guardianControlPlaneProxy.handleResendGuardianSession(req),
     },
     {
       path: "/v1/integrations/guardian/status",
@@ -458,28 +472,8 @@ async function main() {
       path: "/v1/integrations/guardian/revoke",
       method: "POST",
       auth: "edge",
-      handler: (req) => guardianControlPlaneProxy.handleRevokeGuardian(req),
-    },
-    {
-      path: "/v1/integrations/guardian/outbound/start",
-      method: "POST",
-      auth: "edge",
       handler: (req) =>
-        guardianControlPlaneProxy.handleStartGuardianOutbound(req),
-    },
-    {
-      path: "/v1/integrations/guardian/outbound/resend",
-      method: "POST",
-      auth: "edge",
-      handler: (req) =>
-        guardianControlPlaneProxy.handleResendGuardianOutbound(req),
-    },
-    {
-      path: "/v1/integrations/guardian/outbound/cancel",
-      method: "POST",
-      auth: "edge",
-      handler: (req) =>
-        guardianControlPlaneProxy.handleCancelGuardianOutbound(req),
+        guardianControlPlaneProxy.handleRevokeGuardianBinding(req),
     },
 
     // ── Guardian refresh (custom auth: accepts expired JWTs) ──
