@@ -13,29 +13,36 @@ import { exec } from "./step-runner";
 
 const _require = createRequire(import.meta.url);
 
+interface DockerRoot {
+  /** Directory to use as the Docker build context */
+  root: string;
+  /** Relative path from root to the directory containing the Dockerfiles */
+  dockerfileDir: string;
+}
+
 /**
- * Locate the directory containing `meta/Dockerfile`. Checks the source tree
- * layout first, then the bunx/node_modules layout where the `vellum` package
- * is a sibling of `@vellumai/cli`, then walks up from cwd, and finally falls
- * back to `require.resolve`.
+ * Locate the directory containing the Dockerfile. In the source tree the
+ * Dockerfiles live under `meta/`, but when installed as an npm package they
+ * are at the package root.
  */
-function findRepoRoot(): string {
-  // Source tree: cli/src/lib/ -> repo root
+function findDockerRoot(): DockerRoot {
+  // Source tree: cli/src/lib/ -> repo root (Dockerfiles in meta/)
   const sourceTreeRoot = join(import.meta.dir, "..", "..", "..");
   if (existsSync(join(sourceTreeRoot, "meta", "Dockerfile"))) {
-    return sourceTreeRoot;
+    return { root: sourceTreeRoot, dockerfileDir: "meta" };
   }
 
-  // bunx layout: @vellumai/cli/src/lib/ -> ../../../.. -> node_modules root -> vellum/
+  // bunx layout: @vellumai/cli/src/lib/ -> ../../../.. -> node_modules -> vellum/
   const bunxRoot = join(import.meta.dir, "..", "..", "..", "..", "vellum");
-  if (existsSync(join(bunxRoot, "meta", "Dockerfile"))) {
-    return bunxRoot;
+  if (existsSync(join(bunxRoot, "Dockerfile"))) {
+    return { root: bunxRoot, dockerfileDir: "." };
   }
 
+  // Walk up from cwd looking for meta/Dockerfile (source checkout)
   let dir = process.cwd();
   while (true) {
     if (existsSync(join(dir, "meta", "Dockerfile"))) {
-      return dir;
+      return { root: dir, dockerfileDir: "meta" };
     }
     const parent = dirname(dir);
     if (parent === dir) break;
@@ -46,17 +53,16 @@ function findRepoRoot(): string {
   try {
     const vellumPkgPath = _require.resolve("vellum/package.json");
     const vellumDir = dirname(vellumPkgPath);
-    if (existsSync(join(vellumDir, "meta", "Dockerfile"))) {
-      return vellumDir;
+    if (existsSync(join(vellumDir, "Dockerfile"))) {
+      return { root: vellumDir, dockerfileDir: "." };
     }
   } catch {
     // resolution failed
   }
 
   throw new Error(
-    "Could not find repository root (expected meta/Dockerfile to exist). " +
-      "Run this command from within the vellum-assistant repository, or " +
-      "ensure the vellum package is installed.",
+    "Could not find Dockerfile. Run this command from within the " +
+      "vellum-assistant repository, or ensure the vellum package is installed.",
   );
 }
 
@@ -66,9 +72,10 @@ export async function hatchDocker(
   name: string | null,
   watch: boolean,
 ): Promise<void> {
-  const repoRoot = findRepoRoot();
+  const { root: repoRoot, dockerfileDir } = findDockerRoot();
   const instanceName = name ?? `${species}-${generateRandomSuffix()}`;
-  const dockerfile = watch ? "meta/Dockerfile.development" : "meta/Dockerfile";
+  const dockerfileName = watch ? "Dockerfile.development" : "Dockerfile";
+  const dockerfile = join(dockerfileDir, dockerfileName);
   const dockerfilePath = join(repoRoot, dockerfile);
 
   if (!existsSync(dockerfilePath)) {
