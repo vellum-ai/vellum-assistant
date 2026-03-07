@@ -62,12 +62,22 @@ export async function execute(
   //
   // NOTE: `focused UI element` is a problematic AppleScript construct that
   // causes compilation errors on some macOS versions. We use the AXFocusedUIElement
-  // attribute instead, and check across all windows since the popup may not be window 1.
+  // attribute instead. The primary query is at the process level (where the
+  // attribute is defined), with a per-window fallback for edge cases.
   const checkScript = `
 tell application "System Events"
   tell process "${processName}"
     try
-      -- Check each window for a focused element (popup may not be window 1)
+      -- Query AXFocusedUIElement at the process level (most reliable).
+      -- This attribute belongs to the application, not individual windows.
+      set focusedEl to value of attribute "AXFocusedUIElement"
+      if focusedEl is not missing value then
+        set elRole to value of attribute "AXRole" of focusedEl
+        return elRole
+      end if
+    end try
+    try
+      -- Fallback: check each window (older macOS or unusual window setups)
       repeat with w in windows
         try
           set focusedEl to value of attribute "AXFocusedUIElement" of w
@@ -77,10 +87,8 @@ tell application "System Events"
           end if
         end try
       end repeat
-      return "unknown"
-    on error
-      return "unknown"
     end try
+    return "unknown"
   end tell
 end tell
 `;
