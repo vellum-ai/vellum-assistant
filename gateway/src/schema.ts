@@ -1303,7 +1303,7 @@ export function buildSchema(): Record<string, unknown> {
               name: "channel",
               in: "query",
               required: false,
-              schema: { type: "string", enum: ["voice", "telegram"] },
+              schema: { type: "string", enum: ["phone", "telegram"] },
               description: "Optional channel filter.",
             },
           ],
