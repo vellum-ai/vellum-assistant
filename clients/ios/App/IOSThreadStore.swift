@@ -551,6 +551,7 @@ class IOSThreadStore: ObservableObject {
 
                 threads = merged + privateThreads
                 locallyEditedSessionIds.removeAll()
+                locallyEditedPinSessionIds.removeAll()
             } else {
                 // Case 3: User is active (VMs exist or local threads present).
                 // Do not clear locallyEditedSessionIds — title/archive edits persist until
