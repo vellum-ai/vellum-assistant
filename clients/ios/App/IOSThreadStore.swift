@@ -171,6 +171,14 @@ class IOSThreadStore: ObservableObject {
         if !hasLocalPinEdit {
             thread.isPinned = restored.isPinned
             thread.displayOrder = restored.displayOrder
+        } else if restored.isPinned == thread.isPinned {
+            // Server has acknowledged our pin change — stop suppressing updates so
+            // pin/order changes from other clients are reflected on the next refresh.
+            if let sid = thread.sessionId {
+                locallyEditedPinSessionIds.remove(sid)
+            }
+            thread.isPinned = restored.isPinned
+            thread.displayOrder = restored.displayOrder
         }
         thread.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
         thread.latestAssistantMessageAt = restored.latestAssistantMessageAt
@@ -545,6 +553,8 @@ class IOSThreadStore: ObservableObject {
                 locallyEditedSessionIds.removeAll()
             } else {
                 // Case 3: User is active (VMs exist or local threads present).
+                // Do not clear locallyEditedSessionIds — title/archive edits persist until
+                // reconnect or rebind (which clears at IOSThreadStore:390 and :408).
                 // Deduplicate: only prepend restored threads whose sessionId
                 // doesn't already exist in the current thread list.
                 let existingSessionIds: Set<String> = Set(
