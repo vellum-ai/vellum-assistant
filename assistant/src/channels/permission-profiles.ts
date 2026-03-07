@@ -11,7 +11,7 @@
  * Each entry maps a channel ID to a ChannelPermissionProfile.
  */
 
-import { getConfig, saveConfig } from "./loader.js";
+import { getConfig, saveConfig } from "../config/loader.js";
 
 // ── Types ───────────────────────────────────────────────────────────
 
