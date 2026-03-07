@@ -79,6 +79,19 @@ Before implementing new functionality do a quick check to see if the new feature
 
 Proactively remove unused code during every change. Remove code your change makes unused, clean up adjacent dead code, delete rather than comment out, check for orphaned files. Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
 
+## Backwards Compatibility
+
+We have no external customers or users yet. Move fast and do not preserve backwards compatibility unless explicitly asked. Specifically:
+
+- **Do not** keep aliased or re-exported symbols for old import paths.
+- **Do not** add fallback reads from deprecated data stores or config locations.
+- **Do not** maintain old API response shapes, URL patterns, or wire formats alongside new ones.
+- **Do not** add migration code, shims, or adapters for old state.
+
+When a change breaks an existing interface, contract, or data format: **flag the break in the PR description** so the reviewer is aware, but proceed with the clean implementation. Only preserve compatibility if the reviewer explicitly requests it.
+
+This policy will change once the project has users. Until then, every backwards-compat shim is dead weight that slows us down.
+
 ## Extensibility Principle
 
 Vellum is a general-purpose assistant. Build new capabilities as reusable, extensible primitives that work across contexts — not narrow solutions for one use case. Ask: "Could someone reuse this in a different context?" If not, generalize.
