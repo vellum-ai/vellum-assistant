@@ -26,6 +26,32 @@ export const memorySearchDefinition: ToolDefinition = {
   },
 };
 
+export const memoryRecallDefinition: ToolDefinition = {
+  name: "memory_recall",
+  description:
+    "Deep search across all memory sources (semantic, lexical, entity graph, recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context. Prefer this over memory_search for richer, multi-source retrieval.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "The search query — be specific and descriptive",
+      },
+      max_results: {
+        type: "number",
+        description: "Maximum number of memory items to return (default: 10)",
+      },
+      scope: {
+        type: "string",
+        enum: ["default", "conversation"],
+        description:
+          'Scope to search — "default" searches all memory, "conversation" restricts to current thread',
+      },
+    },
+    required: ["query"],
+  },
+};
+
 export const memorySaveDefinition: ToolDefinition = {
   name: "memory_save",
   description:
