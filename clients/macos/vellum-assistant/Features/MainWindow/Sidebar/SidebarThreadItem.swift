@@ -31,6 +31,11 @@ struct SidebarThreadItem: View {
     private var interactionState: ThreadInteractionState { threadManager.interactionState(for: thread.id) }
     // Reserve trailing space when hovered for archive button overlay.
     private var hasTrailingIcon: Bool { isHovered || sidebar.threadPendingDeletion == thread.id }
+    private var canMarkUnread: Bool {
+        !thread.hasUnseenLatestAssistantMessage &&
+            thread.sessionId != nil &&
+            thread.latestAssistantMessageAt != nil
+    }
 
     var body: some View {
         // Always reserve 20pt leading slot so text never shifts.
@@ -178,6 +183,12 @@ struct SidebarThreadItem: View {
             } label: {
                 Label { Text("Archive thread") } icon: { VIconView(.archive, size: 14) }
             }
+            Button {
+                threadManager.markConversationUnread(threadId: thread.id)
+            } label: {
+                Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
+            }
+            .disabled(!canMarkUnread)
         }
         .pointerCursor()
         .onHover { hovering in
