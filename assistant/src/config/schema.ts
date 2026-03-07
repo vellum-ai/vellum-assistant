@@ -276,12 +276,6 @@ export const AssistantConfigSchema = z
     ),
     avatar: AvatarConfigSchema.default(AvatarConfigSchema.parse({})),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
-    featureFlags: z
-      .record(
-        z.string(),
-        z.boolean({ error: "featureFlags values must be booleans" }),
-      )
-      .default({} as Record<string, boolean>),
     assistantFeatureFlagValues: z
       .record(
         z.string(),

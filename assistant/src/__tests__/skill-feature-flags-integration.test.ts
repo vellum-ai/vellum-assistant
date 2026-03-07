@@ -24,7 +24,6 @@ const TEST_DIR = join(
 
 let currentConfig: Record<string, unknown> = {
   sandbox: { enabled: false, backend: "native" },
-  featureFlags: {},
 };
 
 const DECLARED_SKILL_ID = "hatch-new-assistant";
@@ -118,7 +117,6 @@ beforeEach(() => {
   // Reset config to defaults before each test
   currentConfig = {
     sandbox: { enabled: false, backend: "native" },
-    featureFlags: {},
   };
 });
 
@@ -179,7 +177,7 @@ describe("buildSystemPrompt feature flag filtering", () => {
     expect(result).not.toContain(`id="${DECLARED_SKILL_ID}"`);
   });
 
-  test("declared skills hidden when featureFlags is empty (registry defaults to false)", () => {
+  test("declared skills hidden when no overrides set (registry defaults to false)", () => {
     createSkillOnDisk(
       DECLARED_SKILL_ID,
       "Hatch New Assistant",

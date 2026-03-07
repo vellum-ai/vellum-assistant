@@ -20,9 +20,9 @@ let mockRegisteredTools: Map<string, Tool[]> = new Map();
 let mockUnregisteredSkillIds: string[] = [];
 let mockSkillRefCount: Map<string, number> = new Map();
 
-let currentConfig: Record<string, unknown> = { featureFlags: {} };
+let currentConfig: Record<string, unknown> = {};
 const DECLARED_SKILL_ID = "hatch-new-assistant";
-const DECLARED_LEGACY_KEY = "skills.hatch-new-assistant.enabled";
+const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -50,10 +50,6 @@ mock.module("../config/assistant-feature-flags.js", () => ({
       }
     ).assistantFeatureFlagValues;
     if (vals && typeof vals[key] === "boolean") return vals[key];
-    // Check legacy featureFlags too
-    const legacy = (config as { featureFlags?: Record<string, boolean> })
-      .featureFlags;
-    if (legacy && typeof legacy[key] === "boolean") return legacy[key];
     return true; // default enabled
   },
   loadDefaultsRegistry: () => ({}),
@@ -62,7 +58,7 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 mock.module("../config/skill-state.js", () => ({
-  skillFlagKey: (skillId: string) => `skills.${skillId}.enabled`,
+  skillFlagKey: (skillId: string) => `feature_flags.${skillId}.enabled`,
 }));
 
 mock.module("../skills/active-skill-tools.js", () => {
@@ -293,7 +289,7 @@ describe("projectSkillTools feature flag enforcement", () => {
     mockRegisteredTools = new Map();
     mockUnregisteredSkillIds = [];
     mockSkillRefCount = new Map();
-    currentConfig = { featureFlags: {} };
+    currentConfig = {};
     resetSkillToolProjection();
   });
 
@@ -308,7 +304,9 @@ describe("projectSkillTools feature flag enforcement", () => {
     const prevActive = new Map<string, string>();
 
     // Feature flag is OFF
-    currentConfig = { featureFlags: { [DECLARED_LEGACY_KEY]: false } };
+    currentConfig = {
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
+    };
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
@@ -329,7 +327,9 @@ describe("projectSkillTools feature flag enforcement", () => {
     const prevActive = new Map<string, string>();
 
     // Feature flag is ON
-    currentConfig = { featureFlags: { [DECLARED_LEGACY_KEY]: true } };
+    currentConfig = {
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: true },
+    };
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
@@ -347,8 +347,8 @@ describe("projectSkillTools feature flag enforcement", () => {
     const history = buildHistoryWithMarker(DECLARED_SKILL_ID);
     const prevActive = new Map<string, string>();
 
-    // featureFlags is empty — should default to enabled
-    currentConfig = { featureFlags: {} };
+    // No overrides — should default to enabled
+    currentConfig = {};
 
     const result = projectSkillTools(history, {
       previouslyActiveSkillIds: prevActive,
@@ -414,7 +414,7 @@ describe("projectSkillTools feature flag enforcement", () => {
 
     // Declared skill is OFF, twitter is undeclared with no persisted override so remains ON.
     currentConfig = {
-      featureFlags: { [DECLARED_LEGACY_KEY]: false },
+      assistantFeatureFlagValues: { [DECLARED_FLAG_KEY]: false },
     };
 
     const result = projectSkillTools(history, {

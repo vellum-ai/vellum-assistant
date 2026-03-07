@@ -12,9 +12,7 @@ const TEST_DIR = join(
   `vellum-skill-load-flag-test-${crypto.randomUUID()}`,
 );
 
-let currentConfig: Record<string, unknown> = {
-  featureFlags: {},
-};
+let currentConfig: Record<string, unknown> = {};
 
 const DECLARED_SKILL_ID = "hatch-new-assistant";
 const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
@@ -121,7 +119,7 @@ async function executeSkillLoad(
 describe("skill_load feature flag enforcement", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-    currentConfig = { featureFlags: {} };
+    currentConfig = {};
   });
 
   afterEach(() => {
