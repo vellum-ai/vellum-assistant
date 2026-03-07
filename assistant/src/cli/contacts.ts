@@ -207,13 +207,11 @@ Examples:
     .option("--notes <notes>", "Free-text notes about the contact")
     .option(
       "--role <role>",
-      "Contact role: contact or guardian (default: contact)",
-      "contact",
+      "Contact role: contact or guardian (default: contact for new contacts)",
     )
     .option(
       "--contact-type <type>",
-      "Contact type: human or assistant (default: human)",
-      "human",
+      "Contact type: human or assistant (default: human for new contacts)",
     )
     .option(
       "--channels <json>",
