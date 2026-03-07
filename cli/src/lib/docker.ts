@@ -10,6 +10,7 @@ import type { Species } from "./constants";
 import { discoverPublicUrl } from "./local";
 import { generateRandomSuffix } from "./random-name";
 import { exec } from "./step-runner";
+import { closeLogFile, openLogFile, writeToLogFile } from "./xdg-log";
 
 const _require = createRequire(import.meta.url);
 
@@ -92,10 +93,19 @@ export async function hatchDocker(
   console.log("");
 
   const imageTag = `vellum-assistant:${instanceName}`;
+  const logFd = openLogFile("hatch.log");
   console.log("🔨 Building Docker image...");
-  await exec("docker", ["build", "-f", dockerfile, "-t", imageTag, "."], {
-    cwd: repoRoot,
-  });
+  try {
+    await exec("docker", ["build", "-f", dockerfile, "-t", imageTag, "."], {
+      cwd: repoRoot,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    writeToLogFile(logFd, `[docker-build] ${new Date().toISOString()} ERROR\n${message}\n`);
+    closeLogFile(logFd);
+    throw err;
+  }
+  closeLogFile(logFd);
   console.log("✅ Docker image built\n");
 
   const gatewayPort = DEFAULT_GATEWAY_PORT;
