@@ -13,7 +13,6 @@ Before beginning setup, verify these conditions are met:
 
 1. **Gateway API base URL is set and reachable:** Use the injected `INTERNAL_GATEWAY_BASE_URL`, then run `curl -sf "$INTERNAL_GATEWAY_BASE_URL/healthz"` — it should return gateway health JSON (for example `{"status":"ok"}`). If it fails, tell the user to start the assistant with `vellum wake` and wait for it to become healthy before continuing.
 2. **Public ingress URL is configured.** The gateway webhook URL is derived from `${ingress.publicBaseUrl}/webhooks/telegram`. If the ingress URL is not configured, load and execute the **public-ingress** skill first (`skill_load` with `skill: "public-ingress"`) to set up an ngrok tunnel and persist the URL before continuing.
-3. **Use gateway control-plane routes only.** Telegram setup/config actions in this skill must call gateway endpoints under `/v1/integrations/telegram/*` — never call the assistant runtime port directly.
 
 ## What You Need
 
@@ -34,27 +33,53 @@ The token is collected securely via a system-level prompt and is never exposed i
 
 ### Step 2: Configure Bot and Register Commands
 
-After the token is collected, call the composite setup endpoint which validates the token, stores credentials, and registers bot commands in a single request:
+After the token is collected, run the following decomposed commands to validate the token, store configuration, and register bot commands.
+
+**2a. Validate the bot token via Telegram API:**
 
 ```bash
-curl -sf -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/telegram/setup" \
-  -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{}'
+BOT_TOKEN=$(assistant credentials reveal telegram:bot_token)
+GETME_RESPONSE=$(curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/getMe")
 ```
 
-This endpoint automatically:
+This retrieves the bot token from secure storage and validates it by calling the Telegram `getMe` API. If the `curl` call fails (non-zero exit code or empty response), the token is invalid — tell the user and ask them to re-enter the token via the secure prompt (repeat Step 1).
 
-- Retrieves the bot token from secure storage
-- Validates the token by calling the Telegram `getMe` API
-- Stores the bot token with bot username metadata
-- Generates a webhook secret if one does not already exist
-- Triggers an immediate gateway webhook reconcile
-- Registers bot commands (`/new`)
+**2b. Store the bot username in config:**
 
-If the request fails, check the response body for an error message. If the token is invalid, tell the user and ask them to re-enter the token via the secure prompt (repeat Step 1).
+```bash
+BOT_USERNAME=$(echo "$GETME_RESPONSE" | jq -r '.result.username')
+assistant config set telegram.botUsername "$BOT_USERNAME"
+```
 
-On success, check the `commandsRegistered` field in the response. Confirm to the user which commands were registered (e.g., "Registered bot commands: /new").
+This parses the bot username from the `getMe` response and stores it in the assistant config. If the `config set` command fails, report the error to the user.
+
+**2c. Generate and store webhook secret:**
+
+```bash
+assistant credentials set telegram:webhook_secret "$(uuidgen)"
+```
+
+This generates a random webhook secret and stores it in the credential vault. Skip this step if a webhook secret already exists (check with `assistant credentials reveal telegram:webhook_secret` first). If the `credentials set` command fails, report the error to the user.
+
+**2d. Register platform callback route (containerized deployments only):**
+
+```bash
+assistant platform callback-routes register --path webhooks/telegram --type telegram --json
+```
+
+This registers the Telegram webhook callback route with the platform. This is only required for containerized deployments — if the command returns a "not available" error, that is expected for local deployments and can be safely ignored. Continue to the next step.
+
+**2e. Register bot commands via Telegram API:**
+
+```bash
+curl -sf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
+  -H "Content-Type: application/json" \
+  -d '{"commands":[{"command":"new","description":"Start a new conversation"},{"command":"help","description":"Show available commands"}]}'
+```
+
+This registers the `/new` and `/help` bot commands with Telegram so they appear in the command menu. If this call fails, warn the user but do not block setup — command registration is non-critical and can be retried later.
+
+On success, confirm to the user: "Bot validated, credentials stored, and commands registered (/new, /help)."
 
 ### Step 3: Webhook Registration (Automatic)
 
@@ -148,6 +173,6 @@ The following steps still require **manual** action:
 | Step                                       | Details                                                                                            |
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | Bot token from @BotFather                  | User must create a bot and provide the token via secure prompt                                     |
-| Bot configuration and command registration | Configured via the setup skill (Step 2 above) using the `/v1/integrations/telegram/setup` endpoint |
+| Bot configuration and command registration | Configured via the setup skill (Step 2 above) using decomposed CLI and curl commands |
 | Guardian verification                      | Handled via the guardian-verify-setup skill using the outbound verification flow (Step 4 above)    |
 | Multi-assistant routing                    | Requires manual `GATEWAY_ASSISTANT_ROUTING_JSON` configuration                                     |
