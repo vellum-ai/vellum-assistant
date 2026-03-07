@@ -28,13 +28,13 @@ mock.module("../util/logger.js", () => ({
 }));
 
 let mockTelegramBinding: unknown = null;
-let mockSmsBinding: unknown = null;
+let mockVoiceBinding: unknown = null;
 let mockVellumBinding: unknown = null;
 
 mock.module("../memory/channel-guardian-store.js", () => ({
   getActiveBinding: (_assistantId: string, channel: string) => {
     if (channel === "telegram") return mockTelegramBinding;
-    if (channel === "sms") return mockSmsBinding;
+    if (channel === "voice") return mockVoiceBinding;
     if (channel === "vellum") return mockVellumBinding;
     return null;
   },
@@ -139,7 +139,7 @@ function resetTables(): void {
   db.run("DELETE FROM conversations");
 
   mockTelegramBinding = null;
-  mockSmsBinding = null;
+  mockVoiceBinding = null;
   // Pre-seed vellum binding so the self-healing path in dispatchGuardianQuestion
   // never triggers (avoids UNIQUE constraint violations on repeated dispatches).
   mockVellumBinding = {
