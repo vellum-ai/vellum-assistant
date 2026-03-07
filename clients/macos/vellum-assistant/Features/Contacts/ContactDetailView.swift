@@ -939,7 +939,22 @@ struct ContactDetailView: View {
 
         // Stash the previous callback so we can restore it after the one-shot response.
         let previousCallback = daemonClient.onChannelVerificationSessionResponse
+
+        // Timeout task that restores the previous handler if the daemon never responds.
+        let timeoutTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            guard !Task.isCancelled else { return }
+            // Only clean up if this verification is still in progress (response hasn't arrived).
+            guard verificationInProgress == channel.id else { return }
+            daemonClient.onChannelVerificationSessionResponse = previousCallback
+            errorMessage = "Verification timed out — please try again"
+            verificationInProgress = nil
+        }
+
         daemonClient.onChannelVerificationSessionResponse = { [self] response in
+            // Response arrived — cancel the timeout.
+            timeoutTask.cancel()
+
             // Restore the previous handler after consuming this one-shot response.
             daemonClient.onChannelVerificationSessionResponse = previousCallback
             // Also forward to the previous handler so SettingsStore still processes it.
@@ -971,6 +986,7 @@ struct ContactDetailView: View {
                 contactChannelId: channel.id
             )
         } catch {
+            timeoutTask.cancel()
             daemonClient.onChannelVerificationSessionResponse = previousCallback
             errorMessage = "Failed to send verification: \(error.localizedDescription)"
             verificationInProgress = nil
