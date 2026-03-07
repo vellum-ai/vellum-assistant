@@ -48,8 +48,8 @@ Examples:
       "after",
       `
 Reads platform-related environment variables and returns the current
-containerized deployment context. Does not require the assistant daemon to
-be running.
+containerized deployment context. Does not require the assistant to be
+running.
 
 Fields:
   containerized       Whether IS_CONTAINERIZED is set (boolean)
@@ -149,7 +149,7 @@ Examples:
       try {
         if (!shouldUsePlatformCallbacks()) {
           writeOutput(cmd, {
-            success: false,
+            ok: false,
             error:
               "Platform callbacks not available \u2014 not running in containerized mode",
           });
@@ -160,7 +160,7 @@ Examples:
         const callbackUrl = await registerCallbackRoute(opts.path, opts.type);
 
         writeOutput(cmd, {
-          success: true,
+          ok: true,
           callbackUrl,
           callbackPath: opts.path,
           type: opts.type,
@@ -171,7 +171,7 @@ Examples:
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { success: false, error: message });
+        writeOutput(cmd, { ok: false, error: message });
         process.exitCode = 1;
       }
     });
