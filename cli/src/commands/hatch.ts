@@ -724,8 +724,6 @@ async function hatchLocal(
     resources = await allocateLocalResources(instanceName);
   }
 
-  const baseDataDir = join(resources.instanceDir, ".vellum");
-
   console.log(`🥚 Hatching local assistant: ${instanceName}`);
   console.log(`   Species: ${species}`);
   console.log("");
@@ -761,7 +759,6 @@ async function hatchLocal(
     assistantId: instanceName,
     runtimeUrl,
     localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
-    baseDataDir,
     bearerToken,
     cloud: "local",
     species,
