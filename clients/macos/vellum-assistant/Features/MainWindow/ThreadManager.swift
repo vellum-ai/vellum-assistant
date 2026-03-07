@@ -217,7 +217,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] _ in
             self?.completedConversationCount += 1
-            self?.updateThreadTitle(id: threadId, title: "Untitled")
+            // Only set "Untitled" if the user hasn't already renamed this thread.
+            if self?.pendingRenames[threadId] == nil {
+                self?.updateThreadTitle(id: threadId, title: "Untitled")
+            }
             self?.updateLastInteracted(threadId: threadId)
         }
         threads.insert(thread, at: 0)
@@ -303,7 +306,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         if !fromUserSend {
             viewModel.onFirstUserMessage = { [weak self] _ in
                 self?.completedConversationCount += 1
-                self?.updateThreadTitle(id: threadId, title: "Untitled")
+                // Only set "Untitled" if the user hasn't already renamed this thread.
+                if self?.pendingRenames[threadId] == nil {
+                    self?.updateThreadTitle(id: threadId, title: "Untitled")
+                }
                 self?.updateLastInteracted(threadId: threadId)
             }
         }
@@ -323,7 +329,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] _ in
             self?.completedConversationCount += 1
-            self?.updateThreadTitle(id: threadId, title: "Untitled")
+            // Only set "Untitled" if the user hasn't already renamed this thread.
+            if self?.pendingRenames[threadId] == nil {
+                self?.updateThreadTitle(id: threadId, title: "Untitled")
+            }
             self?.updateLastInteracted(threadId: threadId)
         }
         threads.insert(thread, at: 0)
