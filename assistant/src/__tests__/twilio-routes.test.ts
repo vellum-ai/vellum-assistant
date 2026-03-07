@@ -368,7 +368,7 @@ import {
   handleClearTwilioCredentials,
   handleProvisionTwilioNumber,
   handleSetTwilioCredentials,
-} from "../runtime/routes/twilio-routes.js";
+} from "../runtime/routes/integrations/twilio.js";
 
 initializeDb();
 

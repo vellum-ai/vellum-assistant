@@ -209,7 +209,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/config-integrations.ts", // Vercel API token + Twitter integration OAuth
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
       "daemon/handlers/config-ingress.ts", // Ingress config (reads Twilio credentials for webhook sync)
-      "runtime/routes/twilio-routes.ts", // Twilio credential management (HTTP control-plane)
+      "runtime/routes/integrations/twilio.ts", // Twilio credential management (HTTP control-plane)
       "security/token-manager.ts", // OAuth token refresh flow
       "email/providers/index.ts", // email provider API key lookup
       "tools/network/script-proxy/session-manager.ts", // proxy credential injection at runtime
