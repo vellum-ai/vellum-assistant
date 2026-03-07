@@ -179,6 +179,42 @@ configure_shell_profile() {
     done
 }
 
+# Create a symlink so `bun` is available without ~/.bun/bin in PATH.
+# The vellum CLI shebang (#!/usr/bin/env bun) requires bun to be
+# resolvable system-wide, not just in the installer's shell session.
+# This is best-effort — failure must not abort the install script.
+symlink_bun() {
+    local bun_bin="$HOME/.bun/bin/bun"
+    if [ ! -f "$bun_bin" ]; then
+        return 0
+    fi
+
+    # Skip if bun is already resolvable outside of ~/.bun/bin
+    local resolved
+    resolved=$(command -v bun 2>/dev/null || true)
+    if [ -n "$resolved" ] && [ "$resolved" != "$bun_bin" ]; then
+        return 0
+    fi
+
+    # Try /usr/local/bin (may need sudo on some systems)
+    if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
+        if ln -sf "$bun_bin" /usr/local/bin/bun 2>/dev/null; then
+            success "Symlinked /usr/local/bin/bun → $bun_bin"
+            return 0
+        fi
+    fi
+
+    # Fallback: ~/.local/bin
+    local local_bin="$HOME/.local/bin"
+    mkdir -p "$local_bin" 2>/dev/null || true
+    if ln -sf "$bun_bin" "$local_bin/bun" 2>/dev/null; then
+        success "Symlinked $local_bin/bun → $bun_bin"
+        return 0
+    fi
+
+    return 0
+}
+
 # Create a symlink so `vellum` is available without ~/.bun/bin in PATH.
 # Tries /usr/local/bin first (works on most systems), falls back to
 # ~/.local/bin (user-writable, no sudo needed).
@@ -263,6 +299,7 @@ main() {
     ensure_bun
     configure_shell_profile
     install_vellum
+    symlink_bun
     symlink_vellum
 
     # Write a sourceable env file so the quickstart one-liner can pick up
