@@ -219,6 +219,7 @@ registerHook(
 
     const SETTING_TO_KEY: Record<string, string> = {
       activation_key: "pttActivationKey",
+      tts_voice_id: "ttsVoiceId",
       wake_word_enabled: "wakeWordEnabled",
       wake_word_keyword: "wakeWordKeyword",
       wake_word_timeout: "wakeWordTimeoutSeconds",
