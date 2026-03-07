@@ -175,7 +175,7 @@ final class OnboardingState {
         hasHatched = false
 
         // Clear stored API key so the user starts fresh
-        APIKeyManager.deleteKey()
+        APIKeyManager.deleteKey(for: "anthropic")
 
         // Reset cloud credentials (in-memory only; not persisted)
         cloudProvider = "local"

@@ -316,7 +316,7 @@ public final class SettingsStore: ObservableObject {
         self.verificationStatusPollWindow = max(self.verificationStatusPollInterval, verificationStatusPollWindow)
 
         // Seed from UserDefaults / Keychain
-        let anthropicKey = APIKeyManager.getKey()
+        let anthropicKey = APIKeyManager.getKey(for: "anthropic")
         self.hasKey = anthropicKey != nil
         self.maskedKey = Self.maskKey(anthropicKey)
         let braveKey = APIKeyManager.getKey(for: "brave")
@@ -713,7 +713,7 @@ public final class SettingsStore: ObservableObject {
     func saveAPIKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed)
+        APIKeyManager.setKey(trimmed, for: "anthropic")
         removeDeletionTombstone(type: "api_key", name: "anthropic")
         syncKeyToDaemon(provider: "anthropic", value: trimmed)
         hasKey = true
@@ -721,7 +721,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearAPIKey() {
-        APIKeyManager.deleteKey()
+        APIKeyManager.deleteKey(for: "anthropic")
         addDeletionTombstone(type: "api_key", name: "anthropic")
         deleteKeyFromDaemon(provider: "anthropic")
         hasKey = false
@@ -811,7 +811,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func refreshAPIKeyState() {
-        let anthropicKey = APIKeyManager.getKey()
+        let anthropicKey = APIKeyManager.getKey(for: "anthropic")
         hasKey = anthropicKey != nil
         maskedKey = Self.maskKey(anthropicKey)
 
@@ -1157,7 +1157,7 @@ public final class SettingsStore: ObservableObject {
             }
 
             let apiKeyProviders: [(String, String?)] = [
-                ("anthropic", APIKeyManager.getKey()),
+                ("anthropic", APIKeyManager.getKey(for: "anthropic")),
                 ("brave", APIKeyManager.getKey(for: "brave")),
                 ("perplexity", APIKeyManager.getKey(for: "perplexity")),
                 ("gemini", APIKeyManager.getKey(for: "gemini")),

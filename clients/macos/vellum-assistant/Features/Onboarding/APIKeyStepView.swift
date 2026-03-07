@@ -76,7 +76,7 @@ struct APIKeyStepView: View {
         .opacity(showContent ? 1 : 0)
         .offset(y: showContent ? 0 : 12)
         .onAppear {
-            if let existingKey = APIKeyManager.getKey() {
+            if let existingKey = APIKeyManager.getKey(for: "anthropic") {
                 apiKey = existingKey
                 hasExistingKey = true
             }
@@ -257,7 +257,7 @@ struct APIKeyStepView: View {
 
         let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed)
+        APIKeyManager.setKey(trimmed, for: "anthropic")
         APIKeyManager.syncKeyToDaemon(provider: "anthropic", value: trimmed)
 
             saveModelToConfig("claude-opus-4-6")
