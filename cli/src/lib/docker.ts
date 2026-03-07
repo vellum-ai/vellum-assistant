@@ -187,12 +187,12 @@ export async function hatchDocker(
   };
   saveAssistantEntry(dockerEntry);
 
-  // The Dockerfiles already define a CMD that runs `vellum hatch` and keeps
-  // the container alive with `exec sleep infinity`. Only override CMD when
-  // a non-default species is specified, since that requires an extra argument.
+  // The Dockerfiles already define a CMD that runs `vellum hatch --keep-alive`.
+  // Only override CMD when a non-default species is specified, since that
+  // requires an extra argument the Dockerfile doesn't include.
   const containerCmd: string[] =
     species !== "vellum"
-      ? ["sh", "-c", `vellum hatch ${species}${watch ? " --watch" : ""} && exec sleep infinity`]
+      ? ["vellum", "hatch", species, ...(watch ? ["--watch"] : []), "--keep-alive"]
       : [];
 
   if (detached) {
