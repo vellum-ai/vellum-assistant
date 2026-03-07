@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 
-import type { ChannelId } from "../channels/types.js";
+import { CHANNEL_IDS, type ChannelId, isChannelId } from "../channels/types.js";
 import {
   createInboundChallenge,
   getVerificationStatus,
@@ -19,6 +19,48 @@ import {
 import { verificationRateLimiter } from "../runtime/verification-rate-limiter.js";
 import { normalizePhoneNumber } from "../util/phone.js";
 import { writeOutput } from "./integrations.js";
+
+/**
+ * Validate the --channel option. Returns the validated ChannelId or writes an
+ * error and returns `false`. When `required` is false an absent value is fine
+ * (returns `undefined`).
+ */
+function validateChannelOpt(
+  raw: string | undefined,
+  cmd: Command,
+  required: true,
+): ChannelId | false;
+function validateChannelOpt(
+  raw: string | undefined,
+  cmd: Command,
+  required?: false,
+): ChannelId | undefined | false;
+function validateChannelOpt(
+  raw: string | undefined,
+  cmd: Command,
+  required?: boolean,
+): ChannelId | undefined | false {
+  if (raw === undefined) {
+    if (required) {
+      writeOutput(cmd, {
+        ok: false,
+        error: `The "channel" option is required. Valid values: ${CHANNEL_IDS.join(", ")}`,
+      });
+      process.exitCode = 1;
+      return false;
+    }
+    return undefined;
+  }
+  if (!isChannelId(raw)) {
+    writeOutput(cmd, {
+      ok: false,
+      error: `Invalid channel "${raw}". Valid values: ${CHANNEL_IDS.join(", ")}`,
+    });
+    process.exitCode = 1;
+    return false;
+  }
+  return raw;
+}
 
 export function registerChannelVerificationSessionsCommand(
   program: Command,
@@ -120,7 +162,8 @@ Examples:
           initializeDb();
 
           const purpose = opts.purpose ?? "guardian";
-          const channel = opts.channel as ChannelId | undefined;
+          const channel = validateChannelOpt(opts.channel, cmd);
+          if (channel === false) return;
 
           // --- Trusted contact path ---
           if (purpose === "trusted_contact") {
@@ -244,7 +287,8 @@ Examples:
     .action(async (opts: { channel?: string }, cmd: Command) => {
       try {
         initializeDb();
-        const channel = opts.channel as ChannelId | undefined;
+        const channel = validateChannelOpt(opts.channel, cmd);
+        if (channel === false) return;
         const result = getVerificationStatus(channel);
         writeOutput(cmd, result);
         if (!result.success) {
@@ -291,7 +335,8 @@ Examples:
       ) => {
         try {
           initializeDb();
-          const channel = opts.channel as ChannelId;
+          const channel = validateChannelOpt(opts.channel, cmd, true);
+          if (channel === false) return;
           const result = resendOutbound({
             channel,
             originConversationId: opts.originConversationId,
@@ -335,7 +380,8 @@ Examples:
     .action(async (opts: { channel: string }, cmd: Command) => {
       try {
         initializeDb();
-        const channel = opts.channel as ChannelId;
+        const channel = validateChannelOpt(opts.channel, cmd, true);
+        if (channel === false) return;
         cancelOutbound({ channel });
         revokePendingSessions(channel);
         writeOutput(cmd, { success: true, channel });
@@ -376,7 +422,8 @@ Examples:
     .action(async (opts: { channel?: string }, cmd: Command) => {
       try {
         initializeDb();
-        const channel = opts.channel as ChannelId | undefined;
+        const channel = validateChannelOpt(opts.channel, cmd);
+        if (channel === false) return;
         const result = revokeVerificationForChannel(channel);
         writeOutput(cmd, result);
         if (!result.success) {
