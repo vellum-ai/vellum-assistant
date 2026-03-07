@@ -180,6 +180,28 @@ describe("conversation-attention-store", () => {
   // ── recordConversationSeenSignal ────────────────────────────────
 
   describe("recordConversationSeenSignal", () => {
+    test("preserves iOS conversation-opened provenance", () => {
+      ensureConversation("conv-1");
+      projectAssistantMessage({
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        messageAt: 1000,
+      });
+
+      recordConversationSeenSignal({
+        conversationId: "conv-1",
+        sourceChannel: "vellum",
+        signalType: "ios_conversation_opened",
+        confidence: "explicit",
+        source: "ios-client",
+      });
+
+      const states = getAttentionStateByConversationIds(["conv-1"]);
+      const state = states.get("conv-1")!;
+      expect(state.lastSeenSignalType).toBe("ios_conversation_opened");
+      expect(state.lastSeenAssistantMessageId).toBe("msg-1");
+    });
+
     test("appends an immutable event row", () => {
       ensureConversation("conv-1");
       const event = recordConversationSeenSignal({

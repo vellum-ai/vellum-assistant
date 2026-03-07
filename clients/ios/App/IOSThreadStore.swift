@@ -100,6 +100,7 @@ class IOSThreadStore: ObservableObject {
     private var observedActivityThreadIds: Set<UUID> = []
     /// Number of threads per page when listing sessions from the daemon.
     private static let threadPageSize = 50
+    private static let attentionSignalType = "ios_conversation_opened"
     /// Current offset used for the next page fetch; advances by `threadPageSize` on each load.
     private var threadListOffset: Int = 0
     /// Reconnect-generation counter. Incremented only when pagination is reset due to a
@@ -588,7 +589,7 @@ class IOSThreadStore: ObservableObject {
         let signal = IPCConversationSeenSignal(
             conversationId: sessionId,
             sourceChannel: "vellum",
-            signalType: "macos_conversation_opened",
+            signalType: Self.attentionSignalType,
             confidence: "explicit",
             source: "ui-navigation",
             evidenceText: "User opened conversation in app"
@@ -808,7 +809,7 @@ class IOSThreadStore: ObservableObject {
         let signal = IPCConversationUnreadSignal(
             conversationId: sessionId,
             sourceChannel: "vellum",
-            signalType: "macos_conversation_opened",
+            signalType: Self.attentionSignalType,
             confidence: "explicit",
             source: "ui-navigation",
             evidenceText: "User selected Mark as unread"
