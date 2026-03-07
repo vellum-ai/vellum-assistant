@@ -261,7 +261,6 @@ mock.module("../calls/call-store.js", () => ({
   buildCallbackDedupeKey: () => "",
   isCallbackProcessed: () => false,
   recordProcessedCallback: () => {},
-  tryRecordProcessedCallback: () => true,
   claimCallback: () => true,
   releaseCallbackClaim: () => {},
 }));
