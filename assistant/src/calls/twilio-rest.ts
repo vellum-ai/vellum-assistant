@@ -7,7 +7,6 @@
  */
 
 import { loadConfig } from "../config/loader.js";
-import { getSecureKey } from "../security/secure-keys.js";
 import { ConfigError, ProviderError } from "../util/errors.js";
 
 export interface TwilioCredentials {
@@ -15,28 +14,25 @@ export interface TwilioCredentials {
   authToken: string;
 }
 
-/**
- * Resolve the Twilio Account SID from config, falling back to the secure
- * key store for backward compatibility with users who configured credentials
- * before the config migration.
- */
+/** Resolve the Twilio Account SID from config. */
 function resolveAccountSid(): string | undefined {
   try {
     const config = loadConfig();
-    if (config.twilio?.accountSid) return config.twilio.accountSid;
+    return config.twilio?.accountSid || undefined;
   } catch {
     // Config may not be available during early startup
+    return undefined;
   }
-  return getSecureKey("credential:twilio:account_sid") || undefined;
 }
 
-/** Resolve Twilio credentials from config and secure key store. Throws if not configured. */
+/** Resolve Twilio credentials from config. Throws if not configured. */
 export function getTwilioCredentials(): TwilioCredentials {
   const accountSid = resolveAccountSid();
-  const authToken = getSecureKey("credential:twilio:auth_token");
+  const config = loadConfig();
+  const authToken = config.twilio?.authToken || undefined;
   if (!accountSid || !authToken) {
     throw new ConfigError(
-      "Twilio credentials not configured. Set twilio.accountSid via config and credential:twilio:auth_token via the credential_store tool.",
+      "Twilio credentials not configured. Set twilio.accountSid and twilio.authToken via config.",
     );
   }
   return { accountSid, authToken };
@@ -44,9 +40,12 @@ export function getTwilioCredentials(): TwilioCredentials {
 
 /** Check whether Twilio credentials are present (non-throwing). */
 export function hasTwilioCredentials(): boolean {
-  return (
-    !!resolveAccountSid() && !!getSecureKey("credential:twilio:auth_token")
-  );
+  try {
+    const config = loadConfig();
+    return !!resolveAccountSid() && !!config.twilio?.authToken;
+  } catch {
+    return false;
+  }
 }
 
 /** Build the HTTP Basic auth header for Twilio API requests. */
