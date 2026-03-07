@@ -473,6 +473,19 @@ jobs:
             kill "$PID" 2>/dev/null || true
           fi
 
+      - name: Collect hatch and daemon logs
+        if: always() && steps.tests.outcome != 'skipped'
+        run: |
+          mkdir -p playwright/test-results/agent-logs
+          HATCH_LOG="$HOME/.config/vellum/logs/hatch.log"
+          if [ -f "$HATCH_LOG" ]; then
+            cp "$HATCH_LOG" playwright/test-results/agent-logs/hatch.log
+            echo "--- hatch.log (last 100 lines) ---"
+            tail -100 "$HATCH_LOG"
+          else
+            echo "No hatch.log found at $HATCH_LOG"
+          fi
+
       - name: Upload test artifacts
         id: upload-artifacts
         if: always() && steps.tests.outcome != 'skipped'

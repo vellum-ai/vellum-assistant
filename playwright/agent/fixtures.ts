@@ -7,7 +7,7 @@
  */
 
 import { execSync } from "child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
 
@@ -102,10 +102,18 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   skipAssistantOnboarding();
   ensureApiKeyInDefaults();
 
+  // The macOS app discovers the daemon via the lockfile at ~/.
+  // When BASE_DATA_DIR is set to a per-test temp dir, the hatch CLI
+  // writes the lockfile there instead. Copy it to the home directory
+  // so the app can find the hatched assistant.
+  const copiedLockfile = publishLockfileToHome(baseDataDir);
+
   return {
     teardown: async () => {
       retireAssistant();
       quitApp(appDisplayName);
+      removeCopiedLockfile(copiedLockfile);
+      collectHatchLogs();
       cleanupTestDataDir(baseDataDir);
     },
   };
@@ -116,6 +124,52 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
 /** Resolves the base data directory, respecting the BASE_DATA_DIR env var. */
 function getBaseDir(): string {
   return process.env.BASE_DATA_DIR?.trim() || os.homedir();
+}
+
+/**
+ * Copies the lockfile from a per-test BASE_DATA_DIR to the home directory
+ * so the macOS app (which doesn't inherit BASE_DATA_DIR) can discover
+ * the hatched assistant's socket path and gateway port.
+ */
+function publishLockfileToHome(baseDataDir: string | undefined): string | undefined {
+  if (!baseDataDir) return undefined;
+  const srcLockfile = path.join(baseDataDir, ".vellum.lock.json");
+  const homeLockfile = path.join(os.homedir(), ".vellum.lock.json");
+  if (existsSync(srcLockfile)) {
+    copyFileSync(srcLockfile, homeLockfile);
+    return homeLockfile;
+  }
+  return undefined;
+}
+
+/** Removes a lockfile copy placed in the home directory during setup. */
+function removeCopiedLockfile(lockfilePath: string | undefined): void {
+  if (!lockfilePath) return;
+  try {
+    if (existsSync(lockfilePath)) {
+      unlinkSync(lockfilePath);
+    }
+  } catch {
+    // Best-effort cleanup
+  }
+}
+
+/**
+ * Copies hatch.log into test-results/agent-logs/ so it is included
+ * in the CI artifact upload alongside screenshots and traces.
+ */
+function collectHatchLogs(): void {
+  const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  const logPath = path.join(configHome, "vellum", "logs", "hatch.log");
+  if (!existsSync(logPath)) return;
+
+  const destDir = path.join(process.cwd(), "test-results", "agent-logs");
+  mkdirSync(destDir, { recursive: true });
+  try {
+    copyFileSync(logPath, path.join(destDir, "hatch.log"));
+  } catch {
+    // Best-effort — don't fail teardown over log collection
+  }
 }
 
 /**
