@@ -225,7 +225,7 @@ matches an existing contact, that contact is updated. When --id is omitted,
 a new contact is created with a generated UUID.
 
 The --channels flag accepts a JSON array of channel objects. Each object must
-have "type" (e.g. telegram, voice, email, whatsapp) and "address" fields.
+have "type" (e.g. telegram, phone, email, whatsapp) and "address" fields.
 Optional channel fields: isPrimary (boolean), externalUserId, externalChatId,
 status (active, revoked, blocked), policy (allow, deny).
 
@@ -421,7 +421,7 @@ Examples:
     "after",
     `
 Invites are tokens that grant channel access when redeemed. Each invite is
-tied to a source channel (telegram, voice, email, whatsapp) and can
+tied to a source channel (telegram, phone, email, whatsapp) and can
 optionally have usage limits, expiration, and notes. When redeemed, the
 invite creates a channel membership linking a contact to an external
 identifier on the source channel.
@@ -448,7 +448,7 @@ Examples:
   $ assistant contacts invites list
   $ assistant contacts invites list --source-channel telegram
   $ assistant contacts invites list --status active
-  $ assistant contacts invites list --source-channel voice --json`,
+  $ assistant contacts invites list --source-channel phone --json`,
     )
     .action(
       async (
@@ -479,7 +479,7 @@ Examples:
     .description("Create a new invite")
     .requiredOption(
       "--source-channel <channel>",
-      "Source channel (e.g. telegram, voice, email, whatsapp)",
+      "Source channel (e.g. telegram, phone, email, whatsapp)",
     )
     .option("--note <note>", "Optional note")
     .option("--max-uses <n>", "Max redemptions")
@@ -501,7 +501,7 @@ Examples:
       "after",
       `
 Creates a new invite token for the specified source channel. The --source-channel
-flag is required and must be one of: telegram, voice, email, whatsapp.
+flag is required and must be one of: telegram, phone, email, whatsapp.
 
 Optional fields:
   --note                        Free-text note attached to the invite
@@ -516,7 +516,7 @@ Voice invites require three additional fields:
 
 Examples:
   $ assistant contacts invites create --source-channel telegram --note "For Alice" --max-uses 1
-  $ assistant contacts invites create --source-channel voice --expected-external-user-id "+15551234567" --friend-name "Alice" --guardian-name "Bob" --contact-name "Alice Smith"`,
+  $ assistant contacts invites create --source-channel phone --expected-external-user-id "+15551234567" --friend-name "Alice" --guardian-name "Bob" --contact-name "Alice Smith"`,
     )
     .action(
       async (

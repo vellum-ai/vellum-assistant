@@ -63,7 +63,7 @@ export interface ChannelVerificationSessionRequest {
   channel?: ChannelId; // Defaults to 'telegram'
   sessionId?: string;
   rebind?: boolean; // When true, allows creating a challenge even if a binding already exists
-  /** E.164 phone number for voice, Telegram handle/chat-id. Used by outbound actions. */
+  /** E.164 phone number for phone, Telegram handle/chat-id. Used by outbound actions. */
   destination?: string;
   /** Origin conversation ID so completion/failure pointers can route back. */
   originConversationId?: string;

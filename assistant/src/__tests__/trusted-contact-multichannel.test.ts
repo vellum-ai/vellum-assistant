@@ -359,7 +359,7 @@ describe("voice identity binding with E.164 phone numbers", () => {
 
     // Verify with matching phone identity
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       session.secret,
       phone,
       phone,
@@ -385,7 +385,7 @@ describe("voice identity binding with E.164 phone numbers", () => {
 
     // Try to verify with a different phone (anti-oracle: same error message)
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       session.secret,
       wrongPhone,
       wrongPhone,
