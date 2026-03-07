@@ -274,9 +274,6 @@ function syncChannels(
 
     if (existing) {
       const updateSet: Record<string, unknown> = {};
-      // Migrate address to canonical form if it changed
-      if (existing.address !== normalizedAddress)
-        updateSet.address = normalizedAddress;
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
       if (ch.externalUserId !== undefined)
         updateSet.externalUserId = ch.externalUserId;
