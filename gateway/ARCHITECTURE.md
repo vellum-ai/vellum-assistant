@@ -77,20 +77,20 @@ The feature-flag token is auto-generated on first gateway startup if the file do
 
 ### Guardian Verification Control-Plane Proxy
 
-Guardian verification endpoints are exposed directly by the gateway and forwarded to runtime integration handlers even when the broad runtime proxy is disabled. This keeps assistant skills and user-facing tooling on gateway URLs only.
+Channel verification session endpoints are exposed directly by the gateway and forwarded to runtime integration handlers even when the broad runtime proxy is disabled. This keeps assistant skills and user-facing tooling on gateway URLs only.
 
 **Forwarded endpoints:**
 
-| Method | Path                                        |
-| ------ | ------------------------------------------- |
-| POST   | `/v1/integrations/guardian/sessions`        |
-| DELETE | `/v1/integrations/guardian/sessions`        |
-| POST   | `/v1/integrations/guardian/sessions/resend` |
-| GET    | `/v1/integrations/guardian/status`          |
-| POST   | `/v1/integrations/guardian/revoke`          |
-| POST   | `/v1/guardian/refresh`                      |
+| Method | Path                                       |
+| ------ | ------------------------------------------ |
+| POST   | `/v1/channel-verification-sessions`        |
+| DELETE | `/v1/channel-verification-sessions`        |
+| POST   | `/v1/channel-verification-sessions/resend` |
+| GET    | `/v1/channel-verification-sessions/status` |
+| POST   | `/v1/channel-verification-sessions/revoke` |
+| POST   | `/v1/guardian/refresh`                     |
 
-The `/guardian/refresh` endpoint is the only public ingress for rotating JWT access + refresh token credentials. Clients must call this through the gateway; the runtime endpoint is not directly exposed. The gateway validates the caller's JWT and forwards to the runtime, which handles refresh token validation, rotation, and replay detection (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for the JWT auth lifecycle).
+The `/v1/guardian/refresh` endpoint is the only public ingress for rotating JWT access + refresh token credentials. Clients must call this through the gateway; the runtime endpoint is not directly exposed. The gateway validates the caller's JWT and forwards to the runtime, which handles refresh token validation, rotation, and replay detection (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for the JWT auth lifecycle).
 
 **Authentication boundary:**
 
@@ -100,10 +100,10 @@ The `/guardian/refresh` endpoint is the only public ingress for rotating JWT acc
 
 **Key source files:**
 
-| File                                                      | Purpose                                                                       |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `gateway/src/http/routes/guardian-control-plane-proxy.ts` | Guardian control-plane proxy handlers and upstream forwarding                 |
-| `gateway/src/index.ts`                                    | Route registration and JWT auth enforcement for `/v1/integrations/guardian/*` |
+| File                                                            | Purpose                                                                               |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `gateway/src/http/routes/channel-verification-session-proxy.ts` | Channel verification session proxy handlers and upstream forwarding                   |
+| `gateway/src/index.ts`                                          | Route registration and JWT auth enforcement for `/v1/channel-verification-sessions/*` |
 
 ### Runtime Health Proxy
 
@@ -407,7 +407,7 @@ sequenceDiagram
     GW->>TG: sendMessage: "You are now the guardian"
 ```
 
-The raw secret is shown only once in the desktop UI and must be sent by the user in-channel to complete verification. (Outbound session creation via `POST /v1/integrations/guardian/sessions` with a `destination` separately sends template messages/calls with the code.) Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
+The raw secret is shown only once in the desktop UI and must be sent by the user in-channel to complete verification. (Outbound session creation via `POST /v1/channel-verification-sessions` with a `destination` separately sends template messages/calls with the code.) Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
 
 #### Inbound Message Decision Chain
 
