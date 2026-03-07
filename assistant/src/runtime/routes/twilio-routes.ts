@@ -215,7 +215,9 @@ export async function handleSetTwilioCredentials(
     });
   }
 
-  // Store credentials securely (async — writes broker + encrypted store)
+  // Dual-write: secure key store is still read by the gateway for HMAC
+  // validation (gateway/src/credential-reader.ts), while the assistant reads
+  // from config via resolveAccountSid(). Both stores must stay in sync.
   const sidStored = await setSecureKeyAsync(
     "credential:twilio:account_sid",
     body.accountSid,

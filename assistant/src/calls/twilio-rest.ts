@@ -16,8 +16,9 @@ export interface TwilioCredentials {
 }
 
 /**
- * Resolve the Twilio Account SID from config.
- * Returns undefined if not found.
+ * Resolve the Twilio Account SID from config, falling back to the secure
+ * key store for backward compatibility with users who configured credentials
+ * before the config migration.
  */
 function resolveAccountSid(): string | undefined {
   try {
@@ -26,7 +27,7 @@ function resolveAccountSid(): string | undefined {
   } catch {
     // Config may not be available during early startup
   }
-  return undefined;
+  return getSecureKey("credential:twilio:account_sid") || undefined;
 }
 
 /** Resolve Twilio credentials from config and secure key store. Throws if not configured. */
