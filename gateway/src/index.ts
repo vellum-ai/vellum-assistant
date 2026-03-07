@@ -419,7 +419,9 @@ async function main() {
         contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
     },
     {
-      path: /^\/v1\/contacts\/([^/]+)$/,
+      // Keep DELETE on the invite collection unsupported; only /invites/:id
+      // should revoke an invite.
+      path: /^\/v1\/contacts\/(?!invites$)([^/]+)$/,
       method: "DELETE",
       auth: "edge",
       handler: (req, params) =>

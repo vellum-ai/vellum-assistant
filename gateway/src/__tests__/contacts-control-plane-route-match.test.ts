@@ -34,10 +34,7 @@ describe("matchContactsControlPlaneRoute", () => {
 
     // Only POST is supported
     expect(
-      matchContactsControlPlaneRoute(
-        "/v1/contact-channels/ch_1/verify",
-        "GET",
-      ),
+      matchContactsControlPlaneRoute("/v1/contact-channels/ch_1/verify", "GET"),
     ).toBeNull();
   });
 
@@ -95,6 +92,9 @@ describe("matchContactsControlPlaneRoute", () => {
   });
 
   test("returns null for unsupported method/path combinations", () => {
+    expect(
+      matchContactsControlPlaneRoute("/v1/contacts/invites", "DELETE"),
+    ).toBeNull();
     expect(
       matchContactsControlPlaneRoute("/v1/contacts/invites/redeem", "GET"),
     ).toBeNull();
