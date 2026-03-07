@@ -113,7 +113,9 @@ describe("resolveVerbosity", () => {
   });
 
   test("unknown channel without hints defaults to compact", () => {
-    expect(resolveVerbosity("sms" as NotificationChannel, {})).toBe("compact");
+    expect(resolveVerbosity("voice" as NotificationChannel, {})).toBe(
+      "compact",
+    );
   });
 });
 

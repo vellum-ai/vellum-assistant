@@ -495,8 +495,8 @@ describe("notification broadcaster", () => {
     // Simulate binding-key continuation: pairing reuses an existing bound
     // conversation (createdNewConversation=false, strategy=continue_existing_conversation)
     nextPairingResult = {
-      conversationId: "conv-bound-sms-001",
-      messageId: "msg-bound-sms-001",
+      conversationId: "conv-bound-voice-001",
+      messageId: "msg-bound-voice-001",
       strategy: "continue_existing_conversation" as const,
       createdNewConversation: false,
       threadDecisionFallbackUsed: false,

@@ -218,7 +218,6 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "calls/twilio-config.ts", // call infrastructure credential lookup
       "calls/twilio-provider.ts", // call infrastructure credential lookup
       "calls/twilio-rest.ts", // Twilio REST API credential lookup
-      "runtime/channel-invite-transports/sms.ts", // SMS invite transport phone number lookup
       "runtime/channel-invite-transports/telegram.ts", // Telegram invite transport bot token lookup
       "cli/keys.ts", // CLI credential management commands
       "cli/credentials.ts", // CLI credential management commands
@@ -226,8 +225,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/twitter-auth.ts", // Twitter OAuth token storage
       "twitter/oauth-client.ts", // Twitter OAuth API client (reads access token for API calls)
       "messaging/providers/telegram-bot/adapter.ts", // Telegram bot token lookup for connectivity check
-      "messaging/providers/sms/adapter.ts", // Twilio credential lookup for SMS connectivity check
-      "runtime/channel-readiness-service.ts", // channel readiness probes for SMS/Telegram connectivity
+      "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
       "schedule/integration-status.ts", // integration status checks for scheduled reports
       "daemon/handlers/oauth-connect.ts", // OAuth connect handler for integration setup

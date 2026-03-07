@@ -508,7 +508,7 @@ describe("notification decision strategy", () => {
 
     test("ignores thread actions for channels not in validChannels", () => {
       const result = validateThreadActions(
-        { sms: { action: "start_new" } },
+        { voice: { action: "start_new" } },
         validChannels,
         candidateSet,
       );

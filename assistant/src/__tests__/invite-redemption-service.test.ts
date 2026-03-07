@@ -206,7 +206,7 @@ describe("invite-redemption-service", () => {
 
     const outcome = redeemInvite({
       rawToken,
-      sourceChannel: "sms",
+      sourceChannel: "voice",
       externalUserId: "user-1",
     });
 
@@ -379,9 +379,9 @@ describe("invite-redemption-service", () => {
   });
 
   test("returns channel_mismatch for an active member with a valid token for a different channel", () => {
-    // Create an invite for SMS
+    // Create an invite for voice
     const { rawToken } = createInvite({
-      sourceChannel: "sms",
+      sourceChannel: "voice",
       maxUses: 5,
     });
 
