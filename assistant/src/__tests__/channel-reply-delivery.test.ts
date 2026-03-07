@@ -60,7 +60,7 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},

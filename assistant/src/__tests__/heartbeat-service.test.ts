@@ -29,7 +29,7 @@ mock.module("../config/loader.js", () => ({
 const createdConversations: Array<{ title: string; threadType: string }> = [];
 let conversationIdCounter = 0;
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},

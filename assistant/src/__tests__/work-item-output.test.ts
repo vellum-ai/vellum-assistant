@@ -39,10 +39,7 @@ mock.module("./indexer.js", () => ({
 
 import type { HandlerContext } from "../daemon/handlers/shared.js";
 import { handleWorkItemOutput } from "../daemon/handlers/work-items.js";
-import {
-  addMessage,
-  createConversation,
-} from "../memory/conversation-store.js";
+import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   createTask,

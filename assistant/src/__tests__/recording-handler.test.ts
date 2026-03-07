@@ -53,7 +53,7 @@ mock.module("../config/loader.js", () => ({
 const mockMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockMessageIdCounter = 0;
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},

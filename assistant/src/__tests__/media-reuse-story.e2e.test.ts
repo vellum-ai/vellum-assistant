@@ -110,10 +110,7 @@ import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
-import {
-  addMessage,
-  createConversation,
-} from "../memory/conversation-store.js";
+import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { assetMaterializeTool } from "../tools/assets/materialize.js";
 import { assetSearchTool, searchAttachments } from "../tools/assets/search.js";

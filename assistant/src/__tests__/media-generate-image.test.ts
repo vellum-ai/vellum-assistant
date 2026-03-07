@@ -76,7 +76,7 @@ mock.module("drizzle-orm", () => ({
   eq: () => true,
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},

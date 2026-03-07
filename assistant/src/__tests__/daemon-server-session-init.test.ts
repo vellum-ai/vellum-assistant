@@ -276,7 +276,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
   listPendingCanonicalRequests: () => [],
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -289,7 +289,6 @@ mock.module("../memory/conversation-store.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   getConversationOriginChannel: () => null,
-  getLatestConversation: () => conversation,
   createConversation: (
     titleOrOpts?: string | { title?: string; threadType?: string },
   ) => {
@@ -317,8 +316,15 @@ mock.module("../memory/conversation-store.js", () => ({
     return "default";
   },
   getMessages: () => [],
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  getLatestConversation: () => conversation,
   listConversations: () => [conversation],
   countConversations: () => 1,
+}));
+
+mock.module("../memory/conversation-store.js", () => ({
   getDisplayMetaForConversations: () => new Map(),
 }));
 

@@ -38,7 +38,7 @@ import {
   resetPointerMessageProcessor,
   setPointerMessageProcessor,
 } from "../calls/call-pointer-messages.js";
-import { addMessage, getMessages } from "../memory/conversation-store.js";
+import { addMessage, getMessages } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 

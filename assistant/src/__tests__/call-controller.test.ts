@@ -163,7 +163,7 @@ import {
   getCanonicalGuardianRequest,
   getPendingCanonicalRequestByCallSessionId,
 } from "../memory/canonical-guardian-store.js";
-import { getMessages } from "../memory/conversation-store.js";
+import { getMessages } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
