@@ -15,6 +15,8 @@ import {
   resolve,
 } from "node:path";
 
+import { z } from "zod";
+
 import {
   extractAllText,
   getConfiguredProvider,
@@ -30,6 +32,52 @@ import { getConfig } from "./loader.js";
 import { stripCommentLines } from "./system-prompt.js";
 
 const log = getLogger("skills");
+
+// ─── Zod schemas for frontmatter metadata validation ─────────────────────────
+
+const VellumMetadataSchema = z
+  .object({
+    emoji: z.string().optional(),
+    os: z.array(z.string()).optional(),
+    requires: z
+      .object({
+        bins: z.array(z.string()).optional(),
+        anyBins: z.array(z.string()).optional(),
+        env: z.array(z.string()).optional(),
+        config: z.array(z.string()).optional(),
+      })
+      .optional(),
+    primaryEnv: z.string().optional(),
+    install: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            kind: z.enum(["brew", "node", "go", "uv", "download"]),
+          })
+          .passthrough(),
+      )
+      .optional(),
+    cli: z
+      .object({
+        command: z.string(),
+        entry: z.string(),
+      })
+      .optional(),
+    "display-name": z.string().optional(),
+    "user-invocable": z.union([z.boolean(), z.string()]).optional(),
+    "disable-model-invocation": z.union([z.boolean(), z.string()]).optional(),
+    includes: z.array(z.string()).optional(),
+    "credential-setup-for": z.string().optional(),
+  })
+  .passthrough();
+
+const SkillMetadataSchema = z
+  .object({
+    emoji: z.string().optional(),
+    vellum: VellumMetadataSchema.optional(),
+  })
+  .passthrough();
 
 // ─── New interfaces for extended skill metadata ──────────────────────────────
 
@@ -350,17 +398,27 @@ function parseFrontmatter(
   // Parse new optional fields
   const homepage = fields.homepage?.trim() || undefined;
 
-  // Parse metadata as single-line JSON string, extract .vellum namespace
+  // Parse metadata as single-line JSON string, validate with Zod schema
   let metadata: VellumMetadata | undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let vellumRaw: any;
+  let parsedMeta: z.infer<typeof SkillMetadataSchema> | undefined;
+  let vellum: z.infer<typeof VellumMetadataSchema> | undefined;
+
   const metadataRaw = fields.metadata?.trim();
   if (metadataRaw) {
     try {
-      const parsed = JSON.parse(metadataRaw);
-      if (parsed && typeof parsed === "object" && parsed.vellum) {
-        metadata = parsed.vellum as VellumMetadata;
-        vellumRaw = parsed.vellum;
+      const json = JSON.parse(metadataRaw);
+      const result = SkillMetadataSchema.safeParse(json);
+      if (result.success) {
+        parsedMeta = result.data;
+        vellum = parsedMeta.vellum;
+        if (parsedMeta.vellum) {
+          metadata = parsedMeta.vellum as VellumMetadata;
+        }
+      } else {
+        log.warn(
+          { err: result.error, skillFilePath },
+          "Metadata failed schema validation",
+        );
       }
     } catch (err) {
       log.warn(
@@ -381,7 +439,7 @@ function parseFrontmatter(
   }
 
   // Read vellum-specific fields from metadata.vellum with fallback to top-level frontmatter
-  const vellumUserInvocable = vellumRaw?.["user-invocable"];
+  const vellumUserInvocable = vellum?.["user-invocable"];
   let userInvocable: boolean;
   if (typeof vellumUserInvocable === "boolean") {
     userInvocable = vellumUserInvocable;
@@ -392,7 +450,7 @@ function parseFrontmatter(
     userInvocable = userInvocableRaw !== "false";
   }
 
-  const vellumDisableModelInvocation = vellumRaw?.["disable-model-invocation"];
+  const vellumDisableModelInvocation = vellum?.["disable-model-invocation"];
   let disableModelInvocation: boolean;
   if (typeof vellumDisableModelInvocation === "boolean") {
     disableModelInvocation = vellumDisableModelInvocation;
@@ -405,20 +463,20 @@ function parseFrontmatter(
     disableModelInvocation = disableModelInvocationRaw === "true";
   }
 
-  const vellumIncludes = vellumRaw?.includes;
+  const vellumIncludes = vellum?.includes;
   const includes = Array.isArray(vellumIncludes)
     ? vellumIncludes
     : parseIncludes(fields.includes, skillFilePath);
 
   const credentialSetupFor =
-    (typeof vellumRaw?.["credential-setup-for"] === "string"
-      ? vellumRaw["credential-setup-for"]
+    (typeof vellum?.["credential-setup-for"] === "string"
+      ? vellum["credential-setup-for"]
       : undefined) ??
     (fields["credential-setup-for"]?.trim() || undefined);
 
   const displayName =
-    (typeof vellumRaw?.["display-name"] === "string"
-      ? vellumRaw["display-name"]
+    (typeof vellum?.["display-name"] === "string"
+      ? vellum["display-name"]
       : undefined) ?? name;
 
   return {
