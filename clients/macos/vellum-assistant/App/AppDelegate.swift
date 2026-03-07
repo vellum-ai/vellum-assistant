@@ -268,6 +268,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             ensureActorCredentials()
         }
 
+        // Provision an AssistantAPIKey for local assistants so they can
+        // call platform APIs (e.g. managed avatar generation).
+        ensureLocalAssistantApiKey()
+
         if isFirstLaunch {
             // Enter the bootstrap state machine. The sequence is:
             // pendingDaemon → pendingWakeupSend → pendingFirstReply → complete

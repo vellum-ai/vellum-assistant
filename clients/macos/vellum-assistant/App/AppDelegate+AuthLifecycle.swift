@@ -155,6 +155,62 @@ extension AppDelegate {
         }
     }
 
+    // MARK: - Local Assistant API Key Provisioning
+
+    /// Ensures the current local assistant has a provisioned AssistantAPIKey.
+    /// Safe to call at any time — exits early if the assistant is managed/remote,
+    /// the user isn't authenticated, or a key already exists.
+    func ensureLocalAssistantApiKey() {
+        guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else { return }
+        guard authManager.isAuthenticated else { return }
+
+        let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        guard let assistantId = storedId,
+              let assistant = LockfileAssistant.loadByName(assistantId) else { return }
+
+        // Already provisioned — skip
+        let credentialStorage = KeychainCredentialStorage()
+        let credentialAccount = "vellum_assistant_credential_\(assistant.assistantId)"
+        if let existing = credentialStorage.get(account: credentialAccount), !existing.isEmpty {
+            log.info("Local assistant \(assistant.assistantId, privacy: .public) already has an API key")
+            return
+        }
+
+        // Resolve daemon HTTP endpoint
+        let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
+        let daemonPort = Int(portString) ?? 7821
+        let daemonBaseURL = "http://localhost:\(daemonPort)"
+
+        Task {
+            // Wait for actor token — may not be available immediately on launch
+            let daemonToken: String
+            if let token = ActorTokenManager.getToken(), !token.isEmpty {
+                daemonToken = token
+            } else if let token = await ActorTokenManager.waitForToken(timeout: 10) {
+                daemonToken = token
+            } else {
+                log.warning("No actor token available for local API key provisioning")
+                return
+            }
+
+            do {
+                let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
+                let outcome = try await bootstrapService.bootstrap(
+                    runtimeAssistantId: assistant.assistantId,
+                    clientPlatform: "macos",
+                    daemonBaseURL: daemonBaseURL,
+                    daemonToken: daemonToken
+                )
+                switch outcome {
+                case .registeredWithExistingKey(let id), .registeredAndProvisioned(let id):
+                    log.info("Local assistant API key provisioned: \(id, privacy: .public)")
+                }
+            } catch {
+                log.error("Failed to provision local assistant API key: \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Switches the app to a different lockfile assistant: stops the current
     /// daemon, resets assistant-scoped state, updates persisted state, and
     /// restarts with the new assistant.
@@ -206,6 +262,7 @@ extension AppDelegate {
         if !isCurrentAssistantManaged {
             ensureActorCredentials()
         }
+        ensureLocalAssistantApiKey()
         showMainWindow()
     }
 
