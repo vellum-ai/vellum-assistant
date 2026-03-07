@@ -222,6 +222,54 @@ class BrowserManager {
     this.contextCreating = (async () => {
       await authSessionCache.load();
 
+      // Ensure Playwright's bundled Chrome for Testing is installed.
+      // Accepts the playwright module so it can be called from different scopes.
+      const ensureChromeForTesting = async (
+        pw: Awaited<ReturnType<typeof importPlaywright>>,
+      ) => {
+        let chromiumInstalled = false;
+        try {
+          const execPath = pw.chromium.executablePath();
+          chromiumInstalled = existsSync(execPath);
+        } catch {
+          // executablePath() may throw if registry is missing
+        }
+
+        if (!chromiumInstalled) {
+          log.info("Chromium not installed, installing via playwright...");
+          const proc = Bun.spawn(
+            ["bunx", "playwright", "install", "chromium"],
+            {
+              stdout: "pipe",
+              stderr: "pipe",
+            },
+          );
+          const timeoutMs = 120_000;
+          let timer: ReturnType<typeof setTimeout>;
+          const exitCode = await Promise.race([
+            proc.exited.finally(() => clearTimeout(timer)),
+            new Promise<never>(
+              (_, reject) =>
+                (timer = setTimeout(() => {
+                  proc.kill();
+                  reject(
+                    new Error(
+                      `Chromium install timed out after ${timeoutMs / 1000}s`,
+                    ),
+                  );
+                }, timeoutMs)),
+            ),
+          ]);
+          if (exitCode === 0) {
+            log.info("Chromium installed successfully");
+          } else {
+            const stderr = await new Response(proc.stderr).text();
+            const msg = stderr.trim() || `exited with code ${exitCode}`;
+            throw new Error(`Failed to install Chromium: ${msg}`);
+          }
+        }
+      };
+
       // Resolve launch function: use injected test launcher or resolve
       // playwright (may install at runtime in compiled binaries).
       let launch: LaunchFn;
@@ -230,8 +278,11 @@ class BrowserManager {
       } else {
         const pw = await importPlaywright();
 
-        // Prefer a locally-installed Google Chrome over Chrome for Testing
+        // Prefer a locally-installed Google Chrome over Chrome for Testing.
+        // If system Chrome exists but fails to launch, fall back to the
+        // bundled Chrome for Testing so browser features remain available.
         const systemChrome = findSystemChrome();
+
         if (systemChrome) {
           log.info(
             { path: systemChrome },
@@ -243,49 +294,7 @@ class BrowserManager {
               executablePath: systemChrome,
             });
         } else {
-          // Fall back to Playwright's bundled Chrome for Testing
-          let chromiumInstalled = false;
-          try {
-            const execPath = pw.chromium.executablePath();
-            chromiumInstalled = existsSync(execPath);
-          } catch {
-            // executablePath() may throw if registry is missing
-          }
-
-          if (!chromiumInstalled) {
-            log.info("Chromium not installed, installing via playwright...");
-            const proc = Bun.spawn(
-              ["bunx", "playwright", "install", "chromium"],
-              {
-                stdout: "pipe",
-                stderr: "pipe",
-              },
-            );
-            const timeoutMs = 120_000;
-            let timer: ReturnType<typeof setTimeout>;
-            const exitCode = await Promise.race([
-              proc.exited.finally(() => clearTimeout(timer)),
-              new Promise<never>(
-                (_, reject) =>
-                  (timer = setTimeout(() => {
-                    proc.kill();
-                    reject(
-                      new Error(
-                        `Chromium install timed out after ${timeoutMs / 1000}s`,
-                      ),
-                    );
-                  }, timeoutMs)),
-              ),
-            ]);
-            if (exitCode === 0) {
-              log.info("Chromium installed successfully");
-            } else {
-              const stderr = await new Response(proc.stderr).text();
-              const msg = stderr.trim() || `exited with code ${exitCode}`;
-              throw new Error(`Failed to install Chromium: ${msg}`);
-            }
-          }
-
+          await ensureChromeForTesting(pw);
           launch = pw.chromium.launchPersistentContext.bind(pw.chromium);
         }
       }
@@ -293,7 +302,26 @@ class BrowserManager {
       const profileDir = getProfileDir();
       mkdirSync(profileDir, { recursive: true });
       const headless = !canDisplayGui();
-      const ctx = await launch(profileDir, { headless });
+
+      let ctx: BrowserContext;
+      try {
+        ctx = await launch(profileDir, { headless });
+      } catch (err) {
+        // If system Chrome was selected but failed, fall back to Chrome for Testing
+        if (findSystemChrome() && !launchPersistentContext) {
+          log.warn(
+            { err },
+            "System Chrome launch failed, falling back to Chrome for Testing",
+          );
+          const pw = await importPlaywright();
+          await ensureChromeForTesting(pw);
+          ctx = await pw.chromium.launchPersistentContext(profileDir, {
+            headless,
+          });
+        } else {
+          throw err;
+        }
+      }
       log.info(
         { profileDir, headless },
         headless

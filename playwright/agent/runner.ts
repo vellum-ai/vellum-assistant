@@ -15,45 +15,10 @@
 import "dotenv/config";
 
 import { type ChildProcess, spawn } from "child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
-
-/**
- * Well-known paths where Google Chrome is installed on each platform.
- * Returns the first path that exists on disk, or null if none found.
- */
-function findSystemChrome(): string | null {
-  const candidates: string[] = [];
-
-  if (process.platform === "darwin") {
-    candidates.push(
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    );
-  } else if (process.platform === "win32") {
-    const programFiles = process.env.PROGRAMFILES || "C:\\Program Files";
-    const programFilesX86 =
-      process.env["PROGRAMFILES(X86)"] || "C:\\Program Files (x86)";
-    candidates.push(
-      path.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
-      path.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
-    );
-  } else {
-    // Linux
-    candidates.push(
-      "/usr/bin/google-chrome",
-      "/usr/bin/google-chrome-stable",
-    );
-  }
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return null;
-}
 
 import { runAgent } from "./agent";
 import { setupFixture, type FixtureContext } from "./fixtures";
@@ -264,15 +229,8 @@ async function main(): Promise<void> {
   }
   console.log();
 
-  // Launch browser — prefer system Chrome if available
-  const systemChrome = findSystemChrome();
-  if (systemChrome) {
-    console.log(`Using system Chrome: ${systemChrome}`);
-  }
-  const browser = await chromium.launch({
-    headless: !headed,
-    ...(systemChrome ? { executablePath: systemChrome } : {}),
-  });
+  // Launch browser
+  const browser = await chromium.launch({ headless: !headed });
   const results: TestCaseResult[] = [];
 
   try {
