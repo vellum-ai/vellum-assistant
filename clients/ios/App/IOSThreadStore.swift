@@ -899,6 +899,10 @@ class IOSThreadStore: ObservableObject {
         let latestAssistantMessageAt =
             threads[idx].latestAssistantMessageAt
             ?? latestLoadedAssistantMessageTimestamp(for: threads[idx].id)
+        guard let latestAssistantMessageAt else { return }
+
+        let previousLastSeenAssistantMessageAt = threads[idx].lastSeenAssistantMessageAt
+        let previousOverride = pendingAttentionOverrides[sessionId]
 
         pendingAttentionOverrides[sessionId] = .unread(
             latestAssistantMessageAt: latestAssistantMessageAt
@@ -916,7 +920,20 @@ class IOSThreadStore: ObservableObject {
             source: "ui-navigation",
             evidenceText: "User selected Mark as unread"
         )
-        try? daemonClient.send(signal)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.daemonClient.sendConversationUnread(signal)
+            } catch {
+                self.rollbackUnreadMutationIfNeeded(
+                    threadId: thread.id,
+                    sessionId: sessionId,
+                    latestAssistantMessageAt: latestAssistantMessageAt,
+                    previousLastSeenAssistantMessageAt: previousLastSeenAssistantMessageAt,
+                    previousOverride: previousOverride
+                )
+            }
+        }
     }
 
     func unarchiveThread(_ thread: IOSThread) {
@@ -932,6 +949,28 @@ class IOSThreadStore: ObservableObject {
         guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
         threads[idx].lastActivityAt = Date()
         save()
+    }
+
+    private func rollbackUnreadMutationIfNeeded(
+        threadId: UUID,
+        sessionId: String,
+        latestAssistantMessageAt: Date,
+        previousLastSeenAssistantMessageAt: Date?,
+        previousOverride: PendingAttentionOverride?
+    ) {
+        guard let idx = threads.firstIndex(where: { $0.id == threadId }),
+              threads[idx].sessionId == sessionId,
+              case .unread(let pendingLatestAssistantMessageAt) = pendingAttentionOverrides[sessionId],
+              pendingLatestAssistantMessageAt == latestAssistantMessageAt else { return }
+
+        if let previousOverride {
+            pendingAttentionOverrides[sessionId] = previousOverride
+        } else {
+            pendingAttentionOverrides.removeValue(forKey: sessionId)
+        }
+        threads[idx].hasUnseenLatestAssistantMessage = false
+        threads[idx].lastSeenAssistantMessageAt = previousLastSeenAssistantMessageAt
+        saveConnectedCache()
     }
 
     /// Returns the last message text for a thread, if available.

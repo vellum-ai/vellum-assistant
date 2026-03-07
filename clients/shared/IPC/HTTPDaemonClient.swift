@@ -40,6 +40,14 @@ struct ConversationsListResponse: Decodable {
     let hasMore: Bool?
 }
 
+private struct HTTPErrorEnvelope: Decodable {
+    struct ErrorBody: Decodable {
+        let message: String
+    }
+
+    let error: ErrorBody
+}
+
 // MARK: - HTTP Transport
 
 /// Internal helper that handles HTTP REST + SSE communication with a remote
@@ -658,7 +666,13 @@ public final class HTTPTransport {
         } else if let msg = message as? IPCConversationSeenSignal {
             Task { await self.sendConversationSeen(msg) }
         } else if let msg = message as? IPCConversationUnreadSignal {
-            Task { await self.sendConversationUnread(msg) }
+            Task {
+                do {
+                    try await self.sendConversationUnread(msg)
+                } catch {
+                    log.error("Conversation unread signal error: \(error.localizedDescription)")
+                }
+            }
         } else if let msg = message as? GuardianActionsPendingRequestMessage {
             Task { await self.fetchGuardianActionsPending(conversationId: msg.conversationId) }
         } else if let msg = message as? GuardianActionDecisionMessage {
@@ -1003,8 +1017,10 @@ public final class HTTPTransport {
         }
     }
 
-    private func sendConversationUnread(_ signal: IPCConversationUnreadSignal, isRetry: Bool = false) async {
-        guard let url = buildURL(for: .conversationsUnread) else { return }
+    func sendConversationUnread(_ signal: IPCConversationUnreadSignal, isRetry: Bool = false) async throws {
+        guard let url = buildURL(for: .conversationsUnread) else {
+            throw HTTPTransportError.invalidURL
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -1032,19 +1048,46 @@ public final class HTTPTransport {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (data, response) = try await URLSession.shared.data(for: request)
 
-            if let http = response as? HTTPURLResponse {
-                if http.statusCode == 401 && !isRetry {
-                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
-                    if case .success = refreshResult {
-                        await sendConversationUnread(signal, isRetry: true)
-                    }
-                } else if http.statusCode != 200 {
-                    log.error("Conversation unread signal failed (\(http.statusCode))")
+            guard let http = response as? HTTPURLResponse else {
+                throw HTTPTransportError.healthCheckFailed
+            }
+
+            if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                switch refreshResult {
+                case .success:
+                    try await sendConversationUnread(signal, isRetry: true)
+                    return
+                case .transientFailure:
+                    throw HTTPTransportError.authenticationFailed(
+                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication refresh failed"
+                    )
+                case .terminalFailure:
+                    throw HTTPTransportError.authenticationFailed(
+                        message: decodeHTTPErrorMessage(from: data) ?? "Authentication failed"
+                    )
                 }
             }
+
+            guard http.statusCode == 200 else {
+                throw HTTPTransportError.requestFailed(
+                    statusCode: http.statusCode,
+                    message: decodeHTTPErrorMessage(from: data)
+                )
+            }
         } catch {
-            log.error("Conversation unread signal error: \(error.localizedDescription)")
+            throw error
         }
+    }
+
+    private func decodeHTTPErrorMessage(from data: Data) -> String? {
+        if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
+            return envelope.error.message
+        }
+        guard let body = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !body.isEmpty else { return nil }
+        return body
     }
 
     // MARK: - Contacts
@@ -2282,6 +2325,8 @@ public final class HTTPTransport {
     enum HTTPTransportError: Error, LocalizedError {
         case healthCheckFailed
         case invalidURL
+        case requestFailed(statusCode: Int, message: String?)
+        case authenticationFailed(message: String)
 
         var errorDescription: String? {
             switch self {
@@ -2289,6 +2334,10 @@ public final class HTTPTransport {
                 return "Remote assistant health check failed"
             case .invalidURL:
                 return "Invalid remote assistant URL"
+            case .requestFailed(let statusCode, let message):
+                return message ?? "HTTP request failed (\(statusCode))"
+            case .authenticationFailed(let message):
+                return message
             }
         }
     }

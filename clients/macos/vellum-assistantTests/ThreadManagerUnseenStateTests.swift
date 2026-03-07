@@ -294,6 +294,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         sentMessages.removeAll()
 
         threadManager.markConversationUnread(threadId: threadId)
+        waitForPropagation()
 
         XCTAssertTrue(threadManager.threads[index].hasUnseenLatestAssistantMessage,
                       "markConversationUnread should set the unseen flag")
@@ -345,6 +346,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         sentMessages.removeAll()
 
         threadManager.markConversationUnread(threadId: threadId)
+        waitForPropagation()
 
         XCTAssertTrue(threadManager.threads[index].hasUnseenLatestAssistantMessage,
                       "Live assistant replies should allow unread even before hydration backfills timestamps")
@@ -352,6 +354,34 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         let unreadSignals = sentMessages.compactMap { $0 as? IPCConversationUnreadSignal }
         XCTAssertEqual(unreadSignals.count, 1)
         XCTAssertEqual(unreadSignals.last?.conversationId, "session-live-unread")
+    }
+
+    func testMarkConversationUnreadRollsBackWhenSendFails() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+
+        daemonClient.sendOverride = { _ in
+            throw NSError(domain: "ThreadManagerUnseenStateTests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "offline"
+            ])
+        }
+
+        threadManager.threads[index].sessionId = "session-unread-failure"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = false
+        threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
+        threadManager.threads[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 9)
+
+        threadManager.markConversationUnread(threadId: threadId)
+        waitForPropagation()
+
+        XCTAssertFalse(threadManager.threads[index].hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(
+            threadManager.threads[index].lastSeenAssistantMessageAt,
+            Date(timeIntervalSince1970: 9)
+        )
     }
 
     func testMarkConversationUnreadIgnoresThreadsWithoutAssistantReply() {
@@ -479,6 +509,7 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
 
         threadManager.markConversationUnread(threadId: firstThreadId)
         threadManager.commitPendingSeenSignals()
+        waitForPropagation()
 
         let unreadSignals = sentMessages.compactMap { $0 as? IPCConversationUnreadSignal }
         XCTAssertEqual(unreadSignals.map(\.conversationId), ["session-first"])

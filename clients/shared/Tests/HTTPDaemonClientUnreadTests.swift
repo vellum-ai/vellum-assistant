@@ -133,6 +133,47 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
         )
     }
 
+    func testAwaitedUnreadSignalThrowsDecodedRuntimeError() async throws {
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 422,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (
+                response,
+                Data(#"{"error":{"code":"UNPROCESSABLE_ENTITY","message":"Conversation has no assistant message to mark unread"}}"#.utf8)
+            )
+        }
+
+        let transport = HTTPTransport(
+            baseURL: "https://example.com",
+            bearerToken: "test-token",
+            conversationKey: "conv-local"
+        )
+
+        do {
+            try await transport.sendConversationUnread(
+                IPCConversationUnreadSignal(
+                    conversationId: "conv-123",
+                    sourceChannel: "vellum",
+                    signalType: "macos_conversation_opened",
+                    confidence: "explicit",
+                    source: "ui-navigation"
+                )
+            )
+            XCTFail("Expected sendConversationUnread to throw")
+        } catch let error as HTTPTransport.HTTPTransportError {
+            XCTAssertEqual(
+                error.errorDescription,
+                "Conversation has no assistant message to mark unread"
+            )
+        } catch {
+            XCTFail("Expected HTTPTransportError, got \(error)")
+        }
+    }
+
     func testPlatformProxyUnreadSignalPostsExpectedRequest() async throws {
         let requestExpectation = expectation(description: "platform unread request")
         var capturedRequest: URLRequest?

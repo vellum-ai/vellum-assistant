@@ -142,6 +142,7 @@ public protocol DaemonClientProtocol {
     var isBlobTransportAvailable: Bool { get }
     func subscribe() -> AsyncStream<ServerMessage>
     func send<T: Encodable>(_ message: T) throws
+    func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws
     func connect() async throws
     func disconnect()
     func startSSE()
@@ -153,6 +154,10 @@ public protocol DaemonClientProtocol {
 }
 
 extension DaemonClientProtocol {
+    public func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws {
+        try send(signal)
+    }
+
     /// Default no-op implementation for clients that don't support HTTP surface fetches.
     public func fetchSurfaceData(surfaceId: String, sessionId: String) async -> SurfaceData? { nil }
     public func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse? { nil }
@@ -927,6 +932,23 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
                 log.error("Send failed: \(error.localizedDescription)")
             }
         })
+    }
+
+    public func sendConversationUnread(_ signal: IPCConversationUnreadSignal) async throws {
+        if let override = sendOverride {
+            try override(signal)
+            return
+        }
+
+        if let httpTransport {
+            guard httpTransport.isConnected else {
+                throw SendError.notConnected
+            }
+            try await httpTransport.sendConversationUnread(signal)
+            return
+        }
+
+        try send(signal)
     }
 
     // MARK: - Surface Actions

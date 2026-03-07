@@ -540,6 +540,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         }
 
         store.markThreadUnread(storedThread)
+        waitForAsyncMutation()
 
         guard let updatedThread = store.threads.first(where: { $0.id == storedThread.id }) else {
             XCTFail("Expected updated thread")
@@ -596,6 +597,45 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
         XCTAssertTrue(sentSignals.isEmpty)
         XCTAssertTrue(store.threads.first(where: { $0.id == storedThread.id })?.hasUnseenLatestAssistantMessage ?? false)
+    }
+
+    func testMarkingSeenConnectedThreadUnreadRollsBackWhenSendFails() {
+        let daemonClient = DaemonClient()
+        daemonClient.sendOverride = { _ in
+            throw NSError(domain: "ThreadLifecycleIOSTests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "offline"
+            ])
+        }
+
+        let store = IOSThreadStore(daemonClient: daemonClient)
+        let response = makeSessionListResponse(sessions: [[
+            "id": "connected-session-unread-failure",
+            "title": "Seen thread",
+            "createdAt": 1_000,
+            "updatedAt": 2_000,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": false,
+                "latestAssistantMessageAt": 5_000,
+                "lastSeenAssistantMessageAt": 5_000,
+            ],
+        ]])
+
+        daemonClient.onSessionListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-unread-failure" }) else {
+            XCTFail("Expected connected thread")
+            return
+        }
+
+        store.markThreadUnread(storedThread)
+        waitForAsyncMutation()
+
+        guard let updatedThread = store.threads.first(where: { $0.id == storedThread.id }) else {
+            XCTFail("Expected updated thread")
+            return
+        }
+
+        XCTAssertFalse(updatedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(updatedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 5.0)
     }
 
     func testMarkingThreadWithoutAssistantReplyUnreadDoesNothing() {
@@ -929,6 +969,14 @@ final class ThreadLifecycleIOSTests: XCTestCase {
 
         XCTAssertFalse(store.threads[0].isPinned)
         XCTAssertNil(store.threads[0].displayOrder)
+    }
+
+    private func waitForAsyncMutation() {
+        let expectation = XCTestExpectation(description: "async mutation")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
     }
     #endif
 }

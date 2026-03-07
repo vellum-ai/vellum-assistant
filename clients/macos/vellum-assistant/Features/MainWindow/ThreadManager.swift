@@ -1132,13 +1132,32 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
               let sessionId = threads[idx].sessionId,
               canMarkConversationUnread(threadId: threadId, at: idx) else { return }
 
+        let latestAssistantMessageAt = threads[idx].latestAssistantMessageAt
+
+        let previousLastSeenAssistantMessageAt = threads[idx].lastSeenAssistantMessageAt
+        let previousOverride = pendingAttentionOverrides[sessionId]
+
         pendingSeenSessionIds.removeAll { $0 == sessionId }
         pendingAttentionOverrides[sessionId] = .unread(
-            latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
+            latestAssistantMessageAt: latestAssistantMessageAt
         )
         threads[idx].hasUnseenLatestAssistantMessage = true
         threads[idx].lastSeenAssistantMessageAt = nil
-        emitConversationUnreadSignal(conversationId: sessionId)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.emitConversationUnreadSignal(conversationId: sessionId)
+            } catch {
+                self.rollbackUnreadMutationIfNeeded(
+                    threadId: threadId,
+                    sessionId: sessionId,
+                    latestAssistantMessageAt: latestAssistantMessageAt,
+                    previousLastSeenAssistantMessageAt: previousLastSeenAssistantMessageAt,
+                    previousOverride: previousOverride
+                )
+                log.warning("Failed to send conversation_unread_signal for \(sessionId): \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Set a pending anchor message for scroll-to behavior on notification deep links.
@@ -1241,7 +1260,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
-    private func emitConversationUnreadSignal(conversationId: String) {
+    private func emitConversationUnreadSignal(conversationId: String) async throws {
         let signal = IPCConversationUnreadSignal(
             conversationId: conversationId,
             sourceChannel: "vellum",
@@ -1250,11 +1269,28 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             source: "ui-navigation",
             evidenceText: "User selected Mark as unread"
         )
-        do {
-            try daemonClient.send(signal)
-        } catch {
-            log.warning("Failed to send conversation_unread_signal for \(conversationId): \(error.localizedDescription)")
+        try await daemonClient.sendConversationUnread(signal)
+    }
+
+    private func rollbackUnreadMutationIfNeeded(
+        threadId: UUID,
+        sessionId: String,
+        latestAssistantMessageAt: Date?,
+        previousLastSeenAssistantMessageAt: Date?,
+        previousOverride: PendingAttentionOverride?
+    ) {
+        guard let idx = threads.firstIndex(where: { $0.id == threadId }),
+              threads[idx].sessionId == sessionId,
+              case .unread(let pendingLatestAssistantMessageAt) = pendingAttentionOverrides[sessionId],
+              pendingLatestAssistantMessageAt == latestAssistantMessageAt else { return }
+
+        if let previousOverride {
+            pendingAttentionOverrides[sessionId] = previousOverride
+        } else {
+            pendingAttentionOverrides.removeValue(forKey: sessionId)
         }
+        threads[idx].hasUnseenLatestAssistantMessage = false
+        threads[idx].lastSeenAssistantMessageAt = previousLastSeenAssistantMessageAt
     }
 
     /// Trim the previously active thread's view model to shed memory before
