@@ -99,6 +99,10 @@ function regexToOpenApiPath(escaped: string): string | null {
   // Unescape forward slashes
   let path = escaped.replace(/\\\//g, "/");
 
+  // Zero-width lookarounds constrain which parameter values are accepted,
+  // but they do not change the structural path shape we compare to the schema.
+  path = path.replace(/\(\?(?:=|!|<=|<!).*?\)/g, "");
+
   // Replace capture groups with numbered params.
   // Handles both `([^/]+)` (single segment) and `(.+)` (greedy) patterns.
   let paramIndex = 0;
@@ -257,6 +261,12 @@ describe("route-schema sync guard", () => {
     );
 
     expect(stale).toEqual([]);
+  });
+
+  test("regex route normalization ignores negative lookaheads", () => {
+    expect(
+      regexToOpenApiPath(String.raw`\/v1\/contacts\/(?!invites$)([^/]+)`),
+    ).toBe("/v1/contacts/{param1}");
   });
 });
 
