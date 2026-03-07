@@ -246,6 +246,10 @@ struct ThreadListView: View {
         renameText = thread.title
     }
 
+    private func canToggleThreadPin(_ thread: IOSThread) -> Bool {
+        store.isConnectedMode && thread.sessionId != nil
+    }
+
     private func canMarkThreadUnread(_ thread: IOSThread) -> Bool {
         store.isConnectedMode &&
             thread.sessionId != nil &&
@@ -255,17 +259,19 @@ struct ThreadListView: View {
 
     @ViewBuilder
     private func connectedThreadContextMenu(_ thread: IOSThread) -> some View {
-        Button {
-            if thread.isPinned {
-                store.unpinThread(thread)
-            } else {
-                store.pinThread(thread)
-            }
-        } label: {
-            Label {
-                Text(thread.isPinned ? "Unpin thread" : "Pin thread")
-            } icon: {
-                VIconView(thread.isPinned ? .pinOff : .pin, size: 14)
+        if canToggleThreadPin(thread) {
+            Button {
+                if thread.isPinned {
+                    store.unpinThread(thread)
+                } else {
+                    store.pinThread(thread)
+                }
+            } label: {
+                Label {
+                    Text(thread.isPinned ? "Unpin thread" : "Pin thread")
+                } icon: {
+                    VIconView(thread.isPinned ? .pinOff : .pin, size: 14)
+                }
             }
         }
 
