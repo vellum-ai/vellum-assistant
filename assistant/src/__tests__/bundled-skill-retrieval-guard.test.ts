@@ -42,7 +42,7 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
   {
     skillPath: "guardian-verify-setup/SKILL.md",
     bannedSnippets: [
-      'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/status',
+      'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/channel-verification-sessions/status',
     ],
   },
   {

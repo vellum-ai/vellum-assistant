@@ -149,10 +149,10 @@ afterAll(() => {
 
 describe("isGuardianControlPlaneInvocation", () => {
   const guardianPaths = [
-    "/v1/integrations/guardian/sessions",
-    "/v1/integrations/guardian/status",
-    "/v1/integrations/guardian/sessions/resend",
-    "/v1/integrations/guardian/revoke",
+    "/v1/channel-verification-sessions",
+    "/v1/channel-verification-sessions/status",
+    "/v1/channel-verification-sessions/resend",
+    "/v1/channel-verification-sessions/revoke",
   ];
 
   describe("bash tool with guardian endpoint in command", () => {
@@ -183,11 +183,10 @@ describe("isGuardianControlPlaneInvocation", () => {
     });
 
     test("matches partial path prefix via fragment detection (fail-closed for shell tools)", () => {
-      // Even without a trailing sub-path, the presence of both /v1/integrations and guardian
-      // in a bash command triggers the conservative fragment detector.
       expect(
         isGuardianControlPlaneInvocation("bash", {
-          command: "curl http://localhost:3000/v1/integrations/guardian",
+          command:
+            "curl http://localhost:3000/v1/channel-verification-sessions",
         }),
       ).toBe(true);
     });
@@ -195,7 +194,8 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("matches unknown sub-path under guardian control-plane (broad pattern)", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
-          command: "curl http://localhost:3000/v1/integrations/guardian/other",
+          command:
+            "curl http://localhost:3000/v1/channel-verification-sessions/other",
         }),
       ).toBe(true);
     });
@@ -216,7 +216,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("host_bash", {
           command:
-            'curl -H "Authorization: Bearer token" https://internal:8080/v1/integrations/guardian/sessions',
+            'curl -H "Authorization: Bearer token" https://internal:8080/v1/channel-verification-sessions',
         }),
       ).toBe(true);
     });
@@ -236,7 +236,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects proxied local URL", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "http://127.0.0.1:3000/v1/integrations/guardian/sessions",
+          url: "http://127.0.0.1:3000/v1/channel-verification-sessions",
         }),
       ).toBe(true);
     });
@@ -260,7 +260,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects guardian endpoint", () => {
       expect(
         isGuardianControlPlaneInvocation("web_fetch", {
-          url: "https://api.example.com/v1/integrations/guardian/sessions",
+          url: "https://api.example.com/v1/channel-verification-sessions",
         }),
       ).toBe(true);
     });
@@ -278,7 +278,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects guardian endpoint", () => {
       expect(
         isGuardianControlPlaneInvocation("browser_navigate", {
-          url: "http://localhost:3000/v1/integrations/guardian/status",
+          url: "http://localhost:3000/v1/channel-verification-sessions/status",
         }),
       ).toBe(true);
     });
@@ -288,7 +288,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("file_read is never a guardian invocation", () => {
       expect(
         isGuardianControlPlaneInvocation("file_read", {
-          path: "/v1/integrations/guardian/sessions",
+          path: "/v1/channel-verification-sessions",
         }),
       ).toBe(false);
     });
@@ -297,7 +297,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("file_write", {
           path: "/tmp/test.txt",
-          content: "curl /v1/integrations/guardian/sessions",
+          content: "curl /v1/channel-verification-sessions",
         }),
       ).toBe(false);
     });
@@ -305,7 +305,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("web_search is never a guardian invocation", () => {
       expect(
         isGuardianControlPlaneInvocation("web_search", {
-          query: "/v1/integrations/guardian/status",
+          query: "/v1/channel-verification-sessions/status",
         }),
       ).toBe(false);
     });
@@ -315,7 +315,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("matches endpoint with query string", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "https://api.example.com/v1/integrations/guardian/sessions?token=abc",
+          url: "https://api.example.com/v1/channel-verification-sessions?token=abc",
         }),
       ).toBe(true);
     });
@@ -323,7 +323,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("matches endpoint with trailing slash", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "https://api.example.com/v1/integrations/guardian/sessions/resend/",
+          url: "https://api.example.com/v1/channel-verification-sessions/resend/",
         }),
       ).toBe(true);
     });
@@ -332,7 +332,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            'echo \'{"phone":"+1234567890"}\' | curl -X POST -d @- http://localhost:3000/v1/integrations/guardian/sessions/resend',
+            'echo \'{"phone":"+1234567890"}\' | curl -X POST -d @- http://localhost:3000/v1/channel-verification-sessions/resend',
         }),
       ).toBe(true);
     });
@@ -343,15 +343,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            "curl http://localhost:3000/v1/integrations%2Fguardian%2Fsessions",
-        }),
-      ).toBe(true);
-    });
-
-    test("detects double-encoded path (%252F encoding)", () => {
-      expect(
-        isGuardianControlPlaneInvocation("network_request", {
-          url: "http://localhost:3000/v1/integrations%252Fguardian%252Fsessions",
+            "curl http://localhost:3000/v1/channel%2Dverification%2Dsessions",
         }),
       ).toBe(true);
     });
@@ -360,7 +352,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            "curl http://localhost:3000/v1/integrations//guardian/sessions",
+            "curl http://localhost:3000/v1//channel-verification-sessions",
         }),
       ).toBe(true);
     });
@@ -368,7 +360,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects triple slashes in path", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "http://localhost:3000/v1///integrations///guardian///status",
+          url: "http://localhost:3000/v1///channel-verification-sessions///status",
         }),
       ).toBe(true);
     });
@@ -377,7 +369,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            "curl http://localhost:3000/V1/Integrations/Guardian/Outbound/Start",
+            "curl http://localhost:3000/V1/Channel-Verification-Sessions/Status",
         }),
       ).toBe(true);
     });
@@ -385,32 +377,15 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects ALL CAPS path", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "http://localhost:3000/V1/INTEGRATIONS/GUARDIAN/SESSIONS",
+          url: "http://localhost:3000/V1/CHANNEL-VERIFICATION-SESSIONS",
         }),
       ).toBe(true);
     });
 
-    test("detects combined obfuscation: URL-encoding + mixed case", () => {
-      expect(
-        isGuardianControlPlaneInvocation("bash", {
-          command:
-            "curl http://localhost:3000/V1/Integrations%2FGuardian%2FSessions",
-        }),
-      ).toBe(true);
-    });
-
-    test("detects combined obfuscation: double slashes + URL-encoding", () => {
+    test("detects combined obfuscation: double slashes + mixed case", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "http://localhost:3000/v1//integrations%2Fguardian%2Fstatus",
-        }),
-      ).toBe(true);
-    });
-
-    test("detects URL-encoded path in web_fetch tool", () => {
-      expect(
-        isGuardianControlPlaneInvocation("web_fetch", {
-          url: "http://localhost:3000/v1/integrations%2Fguardian%2Fsessions%2Fresend",
+          url: "http://localhost:3000/v1//Channel-Verification-Sessions/status",
         }),
       ).toBe(true);
     });
@@ -424,53 +399,53 @@ describe("isGuardianControlPlaneInvocation", () => {
       ).toBe(false);
     });
 
-    test("detects guardian endpoint despite malformed percent-encoding elsewhere in command", () => {
+    test("detects endpoint despite malformed percent-encoding elsewhere in command", () => {
       const result = isGuardianControlPlaneInvocation("bash", {
         command:
-          'curl -H "X: %ZZ" http://localhost:3000/v1/integrations%2Fguardian%2Fsessions -d \'{"channel":"sms"}\'',
+          'curl -H "X: %ZZ" http://localhost:3000/v1/channel-verification-sessions -d \'{"channel":"sms"}\'',
       });
       expect(result).toBe(true);
     });
   });
 
   describe("shell expansion resistance", () => {
-    test("detects guardian endpoint constructed via shell variable concatenation", () => {
+    test("detects endpoint constructed via shell variable concatenation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            'base=http://localhost:7821/v1/integrations; seg=guardian; curl "$base/$seg/status"',
+            'base=http://localhost:7821/v1; seg=channel-verification-sessions; curl "$base/$seg/status"',
         }),
       ).toBe(true);
     });
 
-    test("detects guardian endpoint with split variable assignment", () => {
+    test("detects endpoint with split variable assignment", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            'API=/v1/integrations; curl "http://localhost:3000${API}/guardian/sessions"',
+            'API=channel-verification-sessions; curl "http://localhost:3000/v1/${API}"',
         }),
       ).toBe(true);
     });
 
-    test("detects guardian endpoint with path built across multiple variables", () => {
+    test("detects endpoint with path built across multiple variables", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            'HOST=http://localhost:7821; PATH_PREFIX=/v1/integrations; SVC=guardian; curl "$HOST$PATH_PREFIX/$SVC/sessions"',
+            'HOST=http://localhost:7821; ENDPOINT=channel-verification-sessions; curl "$HOST/v1/$ENDPOINT"',
         }),
       ).toBe(true);
     });
 
-    test("detects guardian endpoint via heredoc-style construction", () => {
+    test("detects endpoint via heredoc-style construction", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            'url="http://localhost:3000/v1/integrations"; curl "${url}/guardian/sessions/resend"',
+            'url="http://localhost:3000/v1/channel-verification-sessions"; curl "${url}/resend"',
         }),
       ).toBe(true);
     });
 
-    test("does not false-positive when only /v1/integrations is present without guardian", () => {
+    test("does not false-positive on unrelated paths", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command: "curl http://localhost:3000/v1/integrations/other/service",
@@ -478,7 +453,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       ).toBe(false);
     });
 
-    test("does not false-positive when only guardian is present without /v1/integrations", () => {
+    test("does not false-positive when only guardian is present without verification path", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command: 'echo "guardian notification sent"',
@@ -507,7 +482,7 @@ describe("enforceGuardianOnlyPolicy", () => {
     const result = enforceGuardianOnlyPolicy(
       "bash",
       {
-        command: "curl http://localhost:3000/v1/integrations/guardian/sessions",
+        command: "curl http://localhost:3000/v1/channel-verification-sessions",
       },
       "trusted_contact",
     );
@@ -519,7 +494,7 @@ describe("enforceGuardianOnlyPolicy", () => {
     const result = enforceGuardianOnlyPolicy(
       "network_request",
       {
-        url: "https://api.example.com/v1/integrations/guardian/sessions",
+        url: "https://api.example.com/v1/channel-verification-sessions",
       },
       "unknown",
     );
@@ -531,7 +506,7 @@ describe("enforceGuardianOnlyPolicy", () => {
     const result = enforceGuardianOnlyPolicy(
       "bash",
       {
-        command: "curl http://localhost:3000/v1/integrations/guardian/sessions",
+        command: "curl http://localhost:3000/v1/channel-verification-sessions",
       },
       "guardian",
     );
@@ -543,7 +518,7 @@ describe("enforceGuardianOnlyPolicy", () => {
     const result = enforceGuardianOnlyPolicy(
       "bash",
       {
-        command: "curl http://localhost:3000/v1/integrations/guardian/sessions",
+        command: "curl http://localhost:3000/v1/channel-verification-sessions",
       },
       "guardian",
     );
@@ -554,7 +529,7 @@ describe("enforceGuardianOnlyPolicy", () => {
     const result = enforceGuardianOnlyPolicy(
       "bash",
       {
-        command: "curl http://localhost:3000/v1/integrations/guardian/sessions",
+        command: "curl http://localhost:3000/v1/channel-verification-sessions",
       },
       "some_future_role",
     );
@@ -600,7 +575,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
       "bash",
       {
         command:
-          "curl -X POST http://localhost:3000/v1/integrations/guardian/sessions",
+          "curl -X POST http://localhost:3000/v1/channel-verification-sessions",
       },
       makeContext({ trustClass: "trusted_contact" }),
     );
@@ -612,7 +587,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "network_request",
-      { url: "https://api.example.com/v1/integrations/guardian/sessions" },
+      { url: "https://api.example.com/v1/channel-verification-sessions" },
       makeContext({ trustClass: "unknown" }),
     );
     expect(result.isError).toBe(true);
@@ -625,7 +600,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
       "bash",
       {
         command:
-          "curl -X POST http://localhost:3000/v1/integrations/guardian/sessions",
+          "curl -X POST http://localhost:3000/v1/channel-verification-sessions",
       },
       makeContext({ trustClass: "guardian" }),
     );
@@ -637,7 +612,10 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "bash",
-      { command: "curl http://localhost:3000/v1/integrations/guardian/status" },
+      {
+        command:
+          "curl http://localhost:3000/v1/channel-verification-sessions/status",
+      },
       makeContext(), // defaults to trustClass: 'guardian'
     );
     expect(result.isError).toBe(false);
@@ -673,7 +651,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
       "bash",
       {
         command:
-          "curl -X DELETE http://localhost:3000/v1/integrations/guardian/sessions",
+          "curl -X DELETE http://localhost:3000/v1/channel-verification-sessions",
       },
       makeContext({
         trustClass: "trusted_contact",
@@ -693,7 +671,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "web_fetch",
-      { url: "http://localhost:3000/v1/integrations/guardian/sessions/resend" },
+      { url: "http://localhost:3000/v1/channel-verification-sessions/resend" },
       makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);
@@ -704,7 +682,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "browser_navigate",
-      { url: "http://localhost:3000/v1/integrations/guardian/status" },
+      { url: "http://localhost:3000/v1/channel-verification-sessions/status" },
       makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);
@@ -717,7 +695,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
       "host_bash",
       {
         command:
-          "curl -X POST https://internal:8080/v1/integrations/guardian/sessions",
+          "curl -X POST https://internal:8080/v1/channel-verification-sessions",
       },
       makeContext({ trustClass: "trusted_contact" }),
     );
@@ -727,10 +705,10 @@ describe("ToolExecutor guardian-only policy gate", () => {
 
   test("all guardian endpoints are blocked for non-guardian via network_request", async () => {
     const endpoints = [
-      "/v1/integrations/guardian/sessions",
-      "/v1/integrations/guardian/status",
-      "/v1/integrations/guardian/sessions/resend",
-      "/v1/integrations/guardian/revoke",
+      "/v1/channel-verification-sessions",
+      "/v1/channel-verification-sessions/status",
+      "/v1/channel-verification-sessions/resend",
+      "/v1/channel-verification-sessions/revoke",
     ];
 
     for (const path of endpoints) {

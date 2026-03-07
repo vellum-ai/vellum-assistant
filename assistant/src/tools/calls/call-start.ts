@@ -29,7 +29,7 @@ export async function executeCallStart(
       return {
         content: [
           "Error: A guardian voice verification call is already active for this number.",
-          "Use the guardian outbound verification flow via the gateway API (`/v1/integrations/guardian/sessions` or `/sessions/resend`) and wait for completion before using `call_start`.",
+          "Use the guardian outbound verification flow via the gateway API (`/v1/channel-verification-sessions` or `/channel-verification-sessions/resend`) and wait for completion before using `call_start`.",
         ].join(" "),
         isError: true,
       };
