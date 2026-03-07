@@ -40,7 +40,7 @@ Based on the chosen channel, ask for the required destination:
 Execute the outbound start request:
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/outbound/start" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/sessions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"channel": "<channel>", "destination": "<destination>"}'
@@ -52,7 +52,7 @@ Replace `<channel>` with `voice`, `telegram`, or `slack`, and `<destination>` wi
 
 Report the exact next action based on the channel:
 
-- **Voice**: The response includes a `secret` field with the verification code. Tell the user the code BEFORE the call connects: "I'm calling [number] now. Your verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `/outbound/start` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
+- **Voice**: The response includes a `secret` field with the verification code. Tell the user the code BEFORE the call connects: "I'm calling [number] now. Your verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `/sessions` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
 - **Telegram with chat ID** (no `telegramBootstrapUrl` in response): The response includes a `secret` field. Show it in the current chat: "Your verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and reply with that 6-digit code to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3 or resend (Step 4).
 - **Telegram with handle** (`telegramBootstrapUrl` present in response): "Tap this deep-link first: [telegramBootstrapUrl]. After Telegram binds your identity, I'll send your verification code."
 - **Slack**: The response includes a `secret` field with the verification code. Show it in the current chat: "Your verification code is **[secret]**. I've also sent it to you as a Slack DM. Open the DM from the Vellum bot in Slack and reply with that 6-digit code to complete verification." The DM channel ID is captured automatically during this process for future message delivery. If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3 or resend (Step 4). **After delivering the code, immediately begin the Slack auto-check polling loop** (see [Slack Auto-Check Polling](#slack-auto-check-polling) below).
@@ -77,7 +77,7 @@ Handle each error code:
 If the user says they did not receive the code or asks to resend:
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/outbound/resend" \
+curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/sessions/resend" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"channel": "<channel>"}'
@@ -85,7 +85,7 @@ curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/outbound/re
 
 On success, report the next action based on the channel:
 
-- **Voice**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `/outbound/resend` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
+- **Voice**: The resend response includes a fresh `secret` field with a new verification code. Tell the user the new code BEFORE the call connects — just like the initial start flow: "I'm calling [number] again. Your new verification code is [secret]. When you answer the call, enter this code using your phone's keypad." The `/sessions/resend` API call already initiates the voice call. Do NOT place a separate `call_start` call. **After delivering the code, immediately begin the voice auto-check polling loop** (see [Voice Auto-Check Polling](#voice-auto-check-polling) below).
 - **Telegram**: The resend response includes a fresh `secret` field. Show the new code in the current chat: "Your new verification code is **[secret]**. I've also sent it to your Telegram. Open the Telegram bot chat and reply with that 6-digit code to complete verification." If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3.
 - **Slack**: The resend response includes a fresh `secret` field. Show the new code in the current chat: "Your new verification code is **[secret]**. I've also sent it to you as a Slack DM. Reply to the DM with that 6-digit code to complete verification. (resent)" If the response does not contain a `secret` field, treat this as a control-plane error: tell the user something went wrong and ask them to retry from Step 3. **After delivering the code, immediately begin the Slack auto-check polling loop** (see [Slack Auto-Check Polling](#slack-auto-check-polling) below).
 
@@ -106,7 +106,7 @@ Handle each error code from the resend endpoint:
 If the user wants to cancel the verification:
 
 ```bash
-curl -s -X POST "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/outbound/cancel" \
+curl -s -X DELETE "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/guardian/sessions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $GATEWAY_AUTH_TOKEN" \
   -d '{"channel": "<channel>"}'
