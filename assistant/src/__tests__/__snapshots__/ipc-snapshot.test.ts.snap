@@ -672,7 +672,7 @@ exports[`IPC message snapshots ClientMessage types telegram_config serializes to
 
 exports[`IPC message snapshots ClientMessage types guardian_verification serializes to expected JSON 1`] = `
 {
-  "action": "create_challenge",
+  "action": "create_session",
   "channel": "telegram",
   "sessionId": "sess-001",
   "type": "guardian_verification",
