@@ -1,14 +1,70 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+
+let mockTwilioPhoneNumberEnv: string | undefined;
+let mockRawConfig: Record<string, unknown> | undefined;
+let mockSecureKeys: Record<string, string>;
+let mockHasTwilioCredentials: boolean;
+let mockGatewayHealth = {
+  target: "http://127.0.0.1:7830",
+  healthy: true,
+  localDeployment: true,
+  error: undefined as string | undefined,
+};
+
+mock.module("../calls/twilio-rest.js", () => ({
+  getPhoneNumberSid: async () => null,
+  getTollFreeVerificationStatus: async () => null,
+  getTwilioCredentials: () => ({
+    accountSid: "AC_test",
+    authToken: "test-auth-token",
+  }),
+  hasTwilioCredentials: () => mockHasTwilioCredentials,
+}));
+
+mock.module("../channels/config.js", () => ({
+  getChannelInvitePolicy: () => ({
+    codeRedemptionEnabled: true,
+  }),
+}));
+
+mock.module("../config/env.js", () => ({
+  getTwilioPhoneNumberEnv: () => mockTwilioPhoneNumberEnv,
+}));
+
+mock.module("../config/loader.js", () => ({
+  loadRawConfig: () => mockRawConfig,
+  getConfig: () => ({
+    whatsapp: {
+      phoneNumber: "",
+    },
+  }),
+}));
+
+mock.module("../email/service.js", () => ({
+  getEmailService: () => ({
+    getPrimaryInboxAddress: async () => undefined,
+  }),
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getSecureKey: (key: string) => mockSecureKeys[key] ?? null,
+}));
+
+mock.module("../runtime/channel-invite-transports/whatsapp.js", () => ({
+  resolveWhatsAppDisplayNumber: () => "",
+}));
 
 import type { ChannelId } from "../channels/types.js";
 import {
   ChannelReadinessService,
+  createReadinessService,
   REMOTE_TTL_MS,
 } from "../runtime/channel-readiness-service.js";
 import type {
   ChannelProbe,
   ReadinessCheckResult,
 } from "../runtime/channel-readiness-types.js";
+import * as localGatewayHealth from "../runtime/local-gateway-health.js";
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 
@@ -44,6 +100,16 @@ describe("ChannelReadinessService", () => {
 
   beforeEach(() => {
     service = new ChannelReadinessService();
+    mockTwilioPhoneNumberEnv = undefined;
+    mockRawConfig = undefined;
+    mockSecureKeys = {};
+    mockHasTwilioCredentials = false;
+    mockGatewayHealth = {
+      target: "http://127.0.0.1:7830",
+      healthy: true,
+      localDeployment: true,
+      error: undefined,
+    };
   });
 
   test("local checks run on every call (no caching of local results)", async () => {
@@ -336,5 +402,50 @@ describe("ChannelReadinessService", () => {
     await service.getReadiness("sms", true);
 
     expect(probe.remoteCallCount).toBe(1);
+  });
+
+  test("voice readiness includes gateway_health when ingress is configured", async () => {
+    mockHasTwilioCredentials = true;
+    mockTwilioPhoneNumberEnv = "+15550001111";
+    mockRawConfig = {
+      ingress: {
+        enabled: true,
+        publicBaseUrl: "https://voice.example.com",
+      },
+    };
+    mockGatewayHealth = {
+      target: "http://127.0.0.1:7830",
+      healthy: false,
+      localDeployment: true,
+      error: "connect ECONNREFUSED 127.0.0.1:7830",
+    };
+
+    const probeLocalGatewayHealthSpy = spyOn(
+      localGatewayHealth,
+      "probeLocalGatewayHealth",
+    ).mockImplementation(async () => ({
+      ...mockGatewayHealth,
+    }));
+
+    let snapshot: Awaited<
+      ReturnType<ChannelReadinessService["getReadiness"]>
+    >[number];
+    try {
+      const readinessService = createReadinessService();
+      [snapshot] = await readinessService.getReadiness("voice");
+    } finally {
+      probeLocalGatewayHealthSpy.mockRestore();
+    }
+
+    const gatewayHealthCheck = snapshot.localChecks.find(
+      (check) => check.name === "gateway_health",
+    );
+    expect(gatewayHealthCheck).toBeDefined();
+    expect(gatewayHealthCheck?.passed).toBe(false);
+    expect(snapshot.reasons).toContainEqual({
+      code: "gateway_health",
+      text: "Local gateway is not serving requests at http://127.0.0.1:7830: connect ECONNREFUSED 127.0.0.1:7830",
+    });
+    expect(snapshot.ready).toBe(false);
   });
 });

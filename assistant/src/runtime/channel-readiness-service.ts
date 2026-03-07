@@ -17,6 +17,7 @@ import type {
   ChannelReadinessSnapshot,
   ReadinessCheckResult,
 } from "./channel-readiness-types.js";
+import { probeLocalGatewayHealth } from "./local-gateway-health.js";
 
 /** Remote check results are cached for 5 minutes before being considered stale. */
 export const REMOTE_TTL_MS = 5 * 60 * 1000;
@@ -183,7 +184,7 @@ const smsProbe: ChannelProbe = {
 
 const voiceProbe: ChannelProbe = {
   channel: "voice",
-  runLocalChecks(): ReadinessCheckResult[] {
+  async runLocalChecks(): Promise<ReadinessCheckResult[]> {
     const results: ReadinessCheckResult[] = [];
 
     const hasCreds = hasTwilioCredentials();
@@ -213,6 +214,19 @@ const voiceProbe: ChannelProbe = {
         ? "Public ingress URL is configured"
         : "Public ingress URL is not configured or disabled",
     });
+
+    if (hasIngress) {
+      const gatewayHealth = await probeLocalGatewayHealth();
+      results.push({
+        name: "gateway_health",
+        passed: gatewayHealth.healthy,
+        message: gatewayHealth.healthy
+          ? `Local gateway is serving requests at ${gatewayHealth.target}`
+          : `Local gateway is not serving requests at ${gatewayHealth.target}${
+              gatewayHealth.error ? `: ${gatewayHealth.error}` : ""
+            }`,
+      });
+    }
 
     return results;
   },
@@ -446,8 +460,9 @@ export class ChannelReadinessService {
 
   /**
    * Get readiness snapshots for the specified channel (or all registered channels).
-   * Local checks always run inline. Remote checks run only when `includeRemote`
-   * is true and the cache is stale or missing.
+   * Local checks always run on demand, including async loopback probes. Remote
+   * checks run only when `includeRemote` is true and the cache is stale or
+   * missing.
    */
   async getReadiness(
     channel?: ChannelId,
@@ -464,7 +479,7 @@ export class ChannelReadinessService {
       }
 
       const probeContext: ChannelProbeContext = {};
-      const localChecks = probe.runLocalChecks(probeContext);
+      const localChecks = await probe.runLocalChecks(probeContext);
       let remoteChecks: ReadinessCheckResult[] | undefined;
       let remoteChecksFreshlyFetched = false;
       let remoteChecksAffectReadiness = false;
