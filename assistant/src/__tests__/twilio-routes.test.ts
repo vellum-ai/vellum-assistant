@@ -761,6 +761,53 @@ describe("twilio webhook routes", () => {
       unregisterCallCompletionNotifier("conv-status-complete-1");
     });
 
+    test("terminal callback preserves lease when recordCallEvent throws", async () => {
+      const session = createTestSession(
+        "conv-status-lease-fail",
+        "CA_status_lease_fail",
+      );
+      upsertActiveCallLease({
+        callSessionId: session.id,
+        providerCallSid: "CA_status_lease_fail",
+      });
+      updateCallSession(session.id, {
+        status: "in_progress",
+        startedAt: Date.now() - 20_000,
+      });
+
+      const spy = spyOn(callStore, "recordCallEvent").mockImplementation(
+        (..._args: Parameters<typeof callStore.recordCallEvent>) => {
+          spy.mockRestore();
+          throw new Error("Simulated recordCallEvent failure");
+        },
+      );
+
+      const params = new URLSearchParams({
+        CallSid: "CA_status_lease_fail",
+        CallStatus: "completed",
+        Timestamp: "2025-01-21T10:12:00Z",
+      });
+      const req = new Request("http://127.0.0.1/v1/calls/twilio/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      });
+
+      await expect(handleStatusCallback(req)).rejects.toThrow(
+        "Simulated recordCallEvent failure",
+      );
+
+      // Lease must still be present because updateCallSession was never reached
+      const leases = listActiveCallLeases();
+      expect(leases.length).toBe(1);
+      expect(leases[0].callSessionId).toBe(session.id);
+
+      // Session must not be terminal; recordCallEvent threw before updateCallSession
+      const updated = getCallSession(session.id);
+      expect(updated).not.toBeNull();
+      expect(updated!.status).toBe("in_progress");
+    });
+
     test("completed callback does not re-fire completion notifier for already terminal call", async () => {
       const session = createTestSession(
         "conv-status-complete-2",
