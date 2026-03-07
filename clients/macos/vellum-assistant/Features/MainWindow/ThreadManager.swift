@@ -1117,6 +1117,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// guard would skip the signal.
     internal func markConversationSeen(threadId: UUID) {
         guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
+        // If the thread has a pending .unread override, opening the thread clears it
+        // so the normal seen flow proceeds rather than leaving the thread stuck as unread.
+        if let sessionId = threads[idx].sessionId,
+           case .unread = pendingAttentionOverrides[sessionId] {
+            pendingAttentionOverrides.removeValue(forKey: sessionId)
+        }
         threads[idx].hasUnseenLatestAssistantMessage = false
         if let sessionId = threads[idx].sessionId {
             pendingAttentionOverrides[sessionId] = .seen(
