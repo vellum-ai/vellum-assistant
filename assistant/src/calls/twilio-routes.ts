@@ -348,6 +348,7 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     return new Response(null, { status: 200 });
   }
 
+  let eventPersisted = false;
   try {
     const wasTerminal = isTerminalState(session.status);
 
@@ -379,11 +380,13 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     // lease is only released after persistence so vellum sleep doesn't proceed
     // before the call is fully recorded.
     updateCallSession(session.id, updates, {
-      beforeLeaseSync: () =>
+      beforeLeaseSync: () => {
         recordCallEvent(session.id, eventType, {
           twilioStatus: callStatus,
           callSid,
-        }),
+        });
+        eventPersisted = true;
+      },
     });
 
     // Expire pending questions on terminal status
@@ -420,8 +423,19 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       );
     }
   } catch (err) {
-    // Release claim so Twilio retries can reprocess
-    releaseCallbackClaim(dedupeKey, claimId);
+    if (eventPersisted) {
+      // Event already written — releasing the claim would let Twilio
+      // retries insert a duplicate event. Finalize instead so the
+      // dedupe guard blocks subsequent attempts.
+      finalizeCallbackClaim(dedupeKey, claimId);
+      log.warn(
+        { dedupeKey, claimId, callSid, callStatus, err },
+        "Post-persistence error — claim finalized to prevent duplicate events on retry",
+      );
+    } else {
+      // Nothing persisted yet — safe to release so retries can reprocess
+      releaseCallbackClaim(dedupeKey, claimId);
+    }
     throw err;
   }
 
