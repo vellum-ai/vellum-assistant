@@ -112,6 +112,8 @@ export interface CollectedCandidates {
   semanticSearchFailed: boolean;
   /** True when semantic search was known to be unavailable before retrieval (no vector or breaker open). */
   semanticUnavailable: boolean;
+  /** The error that caused semantic search to fail, if any. */
+  semanticSearchError?: unknown;
   merged: Candidate[];
 }
 

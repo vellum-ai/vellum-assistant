@@ -16,7 +16,10 @@ import {
   logMemoryEmbeddingWarning,
 } from "./embedding-backend.js";
 import { formatRecallText } from "./format-recall.js";
-import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
+import {
+  isQdrantBreakerOpen,
+  QdrantCircuitOpenError,
+} from "./qdrant-circuit-breaker.js";
 import {
   getCachedRecall,
   getMemoryVersion,
@@ -179,6 +182,7 @@ export async function collectAndMergeCandidates(
   );
 
   let semanticSearchFailed = false;
+  let semanticSearchError: unknown;
 
   // Detect when semantic search won't be available so we can compensate
   // by boosting lexical/recency/direct item limits.
@@ -368,6 +372,7 @@ export async function collectAndMergeCandidates(
           scopeIds,
         ).catch((err): Candidate[] => {
           semanticSearchFailed = true;
+          semanticSearchError = err;
           if (isQdrantConnectionError(err)) {
             log.warn(
               { err },
@@ -451,6 +456,7 @@ export async function collectAndMergeCandidates(
     earlyTerminated: canTerminateEarly,
     semanticSearchFailed,
     semanticUnavailable,
+    semanticSearchError,
     merged,
   };
 }
@@ -565,9 +571,6 @@ async function generateQueryEmbedding(
         latencyMs: Date.now() - start,
       }),
     };
-  } else if (backendStatus.degraded) {
-    // Provider exists but is degraded (e.g. no backend configured)
-    degradation = buildDegradationStatus("embedding_provider_down", config);
   }
 
   return { queryVector, provider, model, degraded, degradation, reason };
@@ -833,10 +836,14 @@ export async function buildMemoryRecall(
         ? "memory.qdrant_circuit_open"
         : "memory.semantic_search_failure");
     if (!embeddingResult.degradation) {
-      embeddingResult.degradation = buildDegradationStatus(
-        "qdrant_unavailable",
-        config,
-      );
+      const isQdrantIssue =
+        collected.semanticUnavailable ||
+        isQdrantConnectionError(collected.semanticSearchError) ||
+        collected.semanticSearchError instanceof QdrantCircuitOpenError;
+      const reason: DegradationReason = isQdrantIssue
+        ? "qdrant_unavailable"
+        : "embedding_generation_failed";
+      embeddingResult.degradation = buildDegradationStatus(reason, config);
     }
   }
 
