@@ -378,27 +378,27 @@ the assistant to be running.
 
 Examples:
   $ assistant integrations guardian status
-  $ assistant integrations guardian status --channel voice`,
+  $ assistant integrations guardian status --channel phone`,
   );
 
   guardian
     .command("status")
     .description("Get guardian status for a channel")
-    .option("--channel <channel>", "Channel: telegram|voice", "telegram")
+    .option("--channel <channel>", "Channel: telegram|phone", "telegram")
     .addHelpText(
       "after",
       `
 Returns the guardian verification state for the specified channel. Requires
 the assistant to be running.
 
-The --channel flag accepts: telegram, voice. Defaults to telegram if
+The --channel flag accepts: telegram, phone. Defaults to telegram if
 not specified. The response includes whether guardian verification is active
 and the current verification state for that channel.
 
 Examples:
   $ assistant integrations guardian status
   $ assistant integrations guardian status --channel telegram
-  $ assistant integrations guardian status --channel voice
+  $ assistant integrations guardian status --channel phone
   $ assistant integrations guardian status --channel telegram --json`,
     )
     .action(async (opts: { channel?: GuardianChannel }, cmd: Command) => {
