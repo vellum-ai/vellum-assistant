@@ -23,11 +23,27 @@ export interface McpReloadResult {
   error?: string;
 }
 
+let reloadInProgress: Promise<McpReloadResult> | null = null;
+
 /**
  * Stop all MCP servers, reload configuration from disk, and restart
  * servers with the updated config. Returns a summary of the reload.
+ *
+ * Concurrent calls are serialized — if a reload is already in progress
+ * the caller receives the same promise instead of starting a second one.
  */
-export async function reloadMcpServers(): Promise<McpReloadResult> {
+export function reloadMcpServers(): Promise<McpReloadResult> {
+  if (reloadInProgress) {
+    log.info("MCP reload already in progress, awaiting existing operation");
+    return reloadInProgress;
+  }
+  reloadInProgress = doReload().finally(() => {
+    reloadInProgress = null;
+  });
+  return reloadInProgress;
+}
+
+async function doReload(): Promise<McpReloadResult> {
   try {
     const manager = getMcpServerManager();
 
@@ -61,7 +77,7 @@ export async function reloadMcpServers(): Promise<McpReloadResult> {
         toolCount += mcpTools.length;
         servers.push({
           id: serverId,
-          connected: tools.length > 0,
+          connected: true,
           toolCount: mcpTools.length,
           tools: toolNames,
         });
