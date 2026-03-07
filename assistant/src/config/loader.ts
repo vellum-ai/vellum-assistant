@@ -58,21 +58,6 @@ function ensureMigratedDataDir(): void {
 }
 
 /**
- * Migrate deprecated raw config values before Zod validation.
- * This prevents `validateWithSchema` from silently dropping fields whose
- * values were valid in older releases but have since been removed from the
- * schema enum, which would cause a fallback to the default and silently
- * change behavior on upgrade.
- */
-function migrateRawConfig(raw: Record<string, unknown>): void {
-  const permissions = raw.permissions as Record<string, unknown> | undefined;
-  if (permissions?.mode === "legacy") {
-    permissions.mode = "workspace";
-    log.info('Migrated permissions.mode from "legacy" to "workspace".');
-  }
-}
-
-/**
  * Zod 4's .default({}) returns {} as output without running inner-schema
  * parsing, so nested object defaults are never applied. Re-parse the config
  * to cascade defaults through each nesting level.
@@ -243,10 +228,6 @@ export function loadConfig(): AssistantConfig {
         }
       }
     }
-
-    // Migrate removed config values before validation so existing configs
-    // don't silently change behavior when Zod drops unknown enum values.
-    migrateRawConfig(fileConfig);
 
     // Validate and apply defaults via Zod schema
     const config = validateWithSchema(fileConfig);
