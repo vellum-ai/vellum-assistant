@@ -61,7 +61,7 @@ Examples:
     )
     .option(
       "--channel-type <channelType>",
-      "Filter by channel type (email, telegram, sms, voice, whatsapp, slack)",
+      "Filter by channel type (email, telegram, voice, whatsapp, slack)",
     )
     .addHelpText(
       "after",
@@ -225,7 +225,7 @@ matches an existing contact, that contact is updated. When --id is omitted,
 a new contact is created with a generated UUID.
 
 The --channels flag accepts a JSON array of channel objects. Each object must
-have "type" (e.g. telegram, sms, voice, email, whatsapp) and "address" fields.
+have "type" (e.g. telegram, voice, email, whatsapp) and "address" fields.
 Optional channel fields: isPrimary (boolean), externalUserId, externalChatId,
 status (active, revoked, blocked), policy (allow, deny).
 
@@ -421,7 +421,7 @@ Examples:
     "after",
     `
 Invites are tokens that grant channel access when redeemed. Each invite is
-tied to a source channel (telegram, voice, sms, email, whatsapp) and can
+tied to a source channel (telegram, voice, email, whatsapp) and can
 optionally have usage limits, expiration, and notes. When redeemed, the
 invite creates a channel membership linking a contact to an external
 identifier on the source channel.
@@ -479,7 +479,7 @@ Examples:
     .description("Create a new invite")
     .requiredOption(
       "--source-channel <channel>",
-      "Source channel (e.g. telegram, voice, sms, email, whatsapp)",
+      "Source channel (e.g. telegram, voice, email, whatsapp)",
     )
     .option("--note <note>", "Optional note")
     .option("--max-uses <n>", "Max redemptions")
@@ -501,7 +501,7 @@ Examples:
       "after",
       `
 Creates a new invite token for the specified source channel. The --source-channel
-flag is required and must be one of: telegram, voice, sms, email, whatsapp.
+flag is required and must be one of: telegram, voice, email, whatsapp.
 
 Optional fields:
   --note                        Free-text note attached to the invite
