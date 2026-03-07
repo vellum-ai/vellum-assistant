@@ -480,11 +480,22 @@ export async function verifyTrustedContact(
     // Fire-and-forget: initiate Twilio verification call
     (async () => {
       try {
-        await startVerificationCall({
+        const result = await startVerificationCall({
           phoneNumber: normalizedPhone,
           verificationSessionId: sessionResult.sessionId,
           assistantId,
         });
+        if (!result.ok) {
+          log.error(
+            {
+              error: result.error,
+              status: result.status,
+              phoneNumber: normalizedPhone,
+              verificationSessionId: sessionResult.sessionId,
+            },
+            "Failed to initiate verification call for trusted contact",
+          );
+        }
       } catch (err) {
         log.error(
           {
