@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import * as net from "node:net";
 
+import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
 import { resolveGuardianName } from "../../config/user-reference.js";
 import {
@@ -44,6 +45,7 @@ import {
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../../runtime/verification-templates.js";
 import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
+import { normalizePhoneNumber } from "../../util/phone.js";
 import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
@@ -448,6 +450,59 @@ export async function verifyTrustedContact(
       verificationSessionId: sessionResult.sessionId,
       expiresAt: sessionResult.expiresAt,
       sendCount,
+      channel: verificationChannel,
+    };
+  }
+
+  // --- Phone verification ---
+  if (verificationChannel === "phone") {
+    const normalizedPhone = normalizePhoneNumber(destination);
+    if (!normalizedPhone) {
+      return {
+        success: false,
+        error: "Could not parse phone number",
+      };
+    }
+
+    const sessionResult = createOutboundSession({
+      channel: verificationChannel,
+      expectedPhoneE164: normalizedPhone,
+      expectedExternalUserId: normalizedPhone,
+      destinationAddress: normalizedPhone,
+      codeDigits: 6,
+      verificationPurpose: "trusted_contact",
+    });
+
+    const now = Date.now();
+    const sendCount = 1;
+    updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+
+    // Fire-and-forget: initiate Twilio verification call
+    (async () => {
+      try {
+        await startVerificationCall({
+          phoneNumber: normalizedPhone,
+          verificationSessionId: sessionResult.sessionId,
+          assistantId,
+        });
+      } catch (err) {
+        log.error(
+          {
+            err,
+            phoneNumber: normalizedPhone,
+            verificationSessionId: sessionResult.sessionId,
+          },
+          "Failed to initiate verification call for trusted contact",
+        );
+      }
+    })();
+
+    return {
+      success: true,
+      verificationSessionId: sessionResult.sessionId,
+      expiresAt: sessionResult.expiresAt,
+      sendCount,
+      secret: sessionResult.secret,
       channel: verificationChannel,
     };
   }

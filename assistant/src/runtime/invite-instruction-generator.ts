@@ -36,7 +36,7 @@ export function channelDisplayLabel(type: string): string {
       return "Email";
     case "slack":
       return "Slack";
-    case "voice":
+    case "phone":
       return "Voice";
     default:
       return type.charAt(0).toUpperCase() + type.slice(1);

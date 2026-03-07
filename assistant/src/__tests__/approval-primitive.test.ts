@@ -144,7 +144,7 @@ describe("approval-primitive / mintGrantFromDecision", () => {
         callSessionId: "call-1",
         requesterExternalUserId: "user-1",
         guardianExternalUserId: "guardian-1",
-        executionChannel: "voice",
+        executionChannel: "phone",
       }),
     );
     expect(result.ok).toBe(true);
@@ -153,7 +153,7 @@ describe("approval-primitive / mintGrantFromDecision", () => {
     expect(result.grant.callSessionId).toBe("call-1");
     expect(result.grant.requesterExternalUserId).toBe("user-1");
     expect(result.grant.guardianExternalUserId).toBe("guardian-1");
-    expect(result.grant.executionChannel).toBe("voice");
+    expect(result.grant.executionChannel).toBe("phone");
   });
 });
 

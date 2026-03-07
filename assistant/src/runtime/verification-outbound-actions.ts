@@ -267,7 +267,7 @@ export async function startOutbound(
   return {
     success: false,
     error: "unsupported_channel",
-    message: `Outbound verification is only supported for Telegram, voice, and Slack. Got: ${channel}`,
+    message: `Outbound verification is only supported for Telegram, phone, and Slack. Got: ${channel}`,
     channel,
   };
 }
@@ -820,7 +820,7 @@ export function resendOutbound(
   return {
     success: false,
     error: "unsupported_channel",
-    message: `Resend is only supported for Telegram, voice, and Slack. Got: ${channel}`,
+    message: `Resend is only supported for Telegram, phone, and Slack. Got: ${channel}`,
     channel,
   };
 }

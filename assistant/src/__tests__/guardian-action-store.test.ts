@@ -101,7 +101,7 @@ describe("guardian-action-store", () => {
     const pq = createPendingQuestion(session.id, `Question for ${convId}`);
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: convId,
       callSessionId: session.id,
       pendingQuestionId: pq.id,
@@ -319,7 +319,7 @@ describe("guardian-action-store", () => {
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: conversationId,
       callSessionId: session.id,
       pendingQuestionId: pendingQuestion.id,

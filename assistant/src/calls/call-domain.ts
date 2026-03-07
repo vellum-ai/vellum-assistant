@@ -298,7 +298,7 @@ export function createInboundVoiceSession(
 
   upsertBinding({
     conversationId: voiceConversationId,
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     externalChatId: callSid,
   });
 
@@ -312,7 +312,7 @@ export function createInboundVoiceSession(
   updateCallSession(session.id, { providerCallSid: callSid });
   session.providerCallSid = callSid;
 
-  const callerIsGuardian = isGuardian(assistantId, "voice", fromNumber);
+  const callerIsGuardian = isGuardian(assistantId, "phone", fromNumber);
   const metadataHints: string[] = [
     callerIsGuardian
       ? "Caller is the guardian"
@@ -330,7 +330,7 @@ export function createInboundVoiceSession(
     conversationId: voiceConversationId,
     context: {
       origin: "voice_inbound",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       assistantId,
       systemHint: `Inbound call from ${fromNumber}`,
       metadataHints,
@@ -457,7 +457,7 @@ export async function startCall(
 
     upsertBinding({
       conversationId: voiceConversationId,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       externalChatId: session.id,
     });
 
@@ -472,7 +472,7 @@ export async function startCall(
       conversationId: voiceConversationId,
       context: {
         origin: "voice_outbound",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         assistantId,
         systemHint: `Outbound call to ${phoneNumber}`,
         triggerTextSnippet: task,
@@ -945,7 +945,7 @@ export async function startVerificationCall(
 
     upsertBinding({
       conversationId,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       externalChatId: `guardian-verify:${verificationSessionId}`,
     });
 

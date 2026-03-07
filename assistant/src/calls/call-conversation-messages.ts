@@ -33,10 +33,10 @@ export async function persistCallCompletionMessage(
     "assistant",
     JSON.stringify([{ type: "text", text: summaryText }]),
     {
-      userMessageChannel: "voice",
-      assistantMessageChannel: "voice",
-      userMessageInterface: "voice",
-      assistantMessageInterface: "voice",
+      userMessageChannel: "phone",
+      assistantMessageChannel: "phone",
+      userMessageInterface: "phone",
+      assistantMessageInterface: "phone",
     },
   );
   return summaryText;

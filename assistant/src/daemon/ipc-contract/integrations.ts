@@ -177,7 +177,7 @@ export interface ChannelVerificationSessionResponse {
   /** Present when action is 'status'. */
   bound?: boolean;
   guardianExternalUserId?: string;
-  /** The channel this status pertains to (e.g. "telegram", "voice"). Present when action is 'status'. */
+  /** The channel this status pertains to (e.g. "telegram", "phone"). Present when action is 'status'. */
   channel?: ChannelId;
   /** The assistant ID scoped to this status. Present when action is 'status'. */
   assistantId?: string;

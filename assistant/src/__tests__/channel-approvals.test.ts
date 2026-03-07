@@ -510,7 +510,7 @@ describe("channelSupportsRichApprovalUI", () => {
   });
 
   test("returns false for voice", () => {
-    expect(channelSupportsRichApprovalUI("voice")).toBe(false);
+    expect(channelSupportsRichApprovalUI("phone")).toBe(false);
   });
 
   test("returns true for slack", () => {
