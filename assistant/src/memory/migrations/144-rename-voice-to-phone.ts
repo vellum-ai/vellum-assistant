@@ -66,6 +66,14 @@ export function migrateRenameVoiceToPhone(database: DrizzleDb): void {
     );
 
     // channel_guardian_rate_limits.channel
+    // Dedup: remove voice rows that would collide with existing phone rows
+    // on the UNIQUE index (channel, actor_external_user_id, actor_chat_id).
+    raw.exec(/*sql*/ `DELETE FROM channel_guardian_rate_limits WHERE channel = 'voice' AND EXISTS (
+        SELECT 1 FROM channel_guardian_rate_limits AS t2
+        WHERE t2.channel = 'phone'
+          AND t2.actor_external_user_id = channel_guardian_rate_limits.actor_external_user_id
+          AND t2.actor_chat_id = channel_guardian_rate_limits.actor_chat_id
+      )`);
     raw.exec(
       /*sql*/ `UPDATE channel_guardian_rate_limits SET channel = 'phone' WHERE channel = 'voice'`,
     );
