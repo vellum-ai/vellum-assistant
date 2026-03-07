@@ -64,7 +64,16 @@ function pruneAssistantPhoneNumbers(
 }
 
 function refreshGatewayTwilioState(): void {
-  void triggerGatewayTwilioReconcile(getIngressPublicBaseUrl());
+  const raw = loadRawConfig();
+  const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
+  const fromConfig = (ingress.publicBaseUrl as string)
+    ?.trim()
+    ?.replace(/\/+$/, "");
+  const url =
+    ingress.enabled !== false && fromConfig
+      ? fromConfig
+      : getIngressPublicBaseUrl();
+  void triggerGatewayTwilioReconcile(url || undefined);
 }
 
 // ---------------------------------------------------------------------------
