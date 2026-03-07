@@ -9,11 +9,11 @@ includes: ["public-ingress"]
 
 You are helping the user set up and manage phone calls via Twilio. This skill covers enabling the calls feature, placing outbound calls, receiving inbound calls, and interacting with live calls. Twilio credential storage, phone number provisioning, and public ingress are handled by the **twilio-setup** skill.
 
-## Overview
+# Overview
 
 The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls with **ElevenLabs** providing the text-to-speech voice. After Twilio setup, the assistant configures ElevenLabs as the TTS provider and prompts the user to choose a voice from a curated list of supported options.
 
-### Outbound calls
+## Outbound calls
 
 When a call is placed:
 
@@ -23,7 +23,7 @@ When a call is placed:
 4. An LLM-driven orchestrator manages the conversation — receiving caller speech (transcribed by Deepgram), generating responses via Claude, and streaming text back for TTS playback
 5. The full transcript is stored in the database for later retrieval
 
-### Inbound calls
+## Inbound calls
 
 When someone dials the assistant's Twilio phone number:
 
@@ -36,31 +36,17 @@ When someone dials the assistant's Twilio phone number:
 
 The user's assistant gets its own personal phone number through Twilio. All implicit calls (without an explicit mode) always use this assistant number. Optionally, users can call from their own phone number if it's authorized with the Twilio account — this must be explicitly requested per call via `caller_identity_mode="user_number"`.
 
-## Step 1: Verify Twilio Setup
+# Initial Setup
 
-Check whether Twilio credentials, phone number, and public ingress are already configured:
+Follow the steps below to ensure everything is prepared to make and receive phone calls.
 
-```bash
-assistant config get twilio.accountSid
-assistant credentials inspect twilio:auth_token --json  # check "hasSecret" field
-assistant config get twilio.phoneNumber
-```
+## Step 1: Twilio Setup
 
-```bash
-assistant config get calls.enabled
-```
-
-If `twilio.accountSid` has a value, `hasSecret` is `true`, `twilio.phoneNumber` is set, and `calls.enabled` is `true`, skip to the **Making Outbound Calls** section.
-
-If Twilio is not yet configured, load the **twilio-setup** skill — it handles credential storage, phone number provisioning, and public ingress setup:
-
-- Call `skill_load` with `skill: "twilio-setup"` to load the dependency skill.
-
-Once twilio-setup completes, return here to enable calls.
+Load the `twilio-setup` skill to determine whether Twilio has been fully configured and set it up if not. This is a prerequisite to all subsequent steps.
 
 ## Step 2: Enable Calls
 
-Enable the calls feature:
+Once Twilio is confirmed to be fully confiigured, enable calls by updating the config:
 
 ```bash
 assistant config set calls.enabled true
@@ -74,33 +60,7 @@ assistant config get calls.enabled
 
 ## Step 3: Choose a Voice
 
-After enabling calls, let the user choose an ElevenLabs voice. Twilio has a native ElevenLabs integration — no separate ElevenLabs account or API key is needed.
-
-### Voice consistency with in-app TTS
-
-The shared config key `elevenlabs.voiceId` is the single source of truth for ElevenLabs voice identity. Both in-app TTS and phone calls read from it (defaulting to **Rachel** — `21m00Tcm4TlvDq8ikWAM`).
-
-Before presenting the voice list, check the current shared voice:
-
-```bash
-assistant config get elevenlabs.voiceId
-```
-
-**If a non-default voice is already set**, the user chose it during voice-setup or a previous session. Tell them:
-
-> "Your assistant currently uses [voice name] for both in-app chat and phone calls. I'll keep the same voice for calls. You can change it if you'd like."
-
-Skip the selection prompt unless the user wants to change.
-
-**If the default (Rachel) is set or no override exists**, present the curated voice list below and let them pick. When they choose, set the shared config so both in-app TTS and phone calls use it:
-
-### Voice selection
-
-Present the user with a list of supported ElevenLabs voices. These are pre-made voices with stable IDs that work with Twilio ConversationRelay out of the box.
-
-**Ask the user: "Which voice would you like your assistant to use on phone calls?"**
-
-Present these voices grouped by category:
+The next step is to select a voice to use. The available voices are:
 
 #### Female voices
 
@@ -127,25 +87,25 @@ Present these voices grouped by category:
 | Charlie | Casual, Australian              | `IKne3meq5aSn9XLyUdCD` |
 | Liam    | Young, articulate               | `TX3LPaxmHKxFdv7VOQHJ` |
 
-After the user picks a voice, use `voice_config_update` to set the shared voice ID. This writes to the config file (`elevenlabs.voiceId`) for phone calls **and** pushes to the macOS app via IPC (`ttsVoiceId`) for in-app TTS in one call:
+Choose your own default voice. You should pick a voice that you think most closely matches your own identity. Set the chosen voice with:
+
+To set the chosen voice, use `voice_config_update`. This writes to the config file (`elevenlabs.voiceId`) for phone calls **and** pushes to the macOS app via IPC (`ttsVoiceId`) for in-app TTS in one call:
 
 ```
 voice_config_update setting="tts_voice_id" value="<selected-voice-id>"
 ```
 
-**If the user wants a voice not on this list**, they can browse more voices at https://elevenlabs.io/voice-library and provide the voice ID manually.
+Verify it worked with:
+
+```bash
+assistant config get elevenlabs.voiceId
+```
+
+You should tell the user what voice you chose and why, but also ask them if they'd like to see all available voices and choose one for themselves.
 
 ## Step 4: Verify Setup (Test Call)
 
-Before making real calls, offer a quick verification:
-
-1. Confirm credentials are stored: `assistant config get twilio.accountSid` should return a value and `assistant credentials inspect twilio:auth_token --json` should show `hasSecret: true`
-2. Confirm phone number is assigned: `assistant config get twilio.phoneNumber` should return a number
-3. Confirm ingress is running: `ingress.publicBaseUrl` must be set and the tunnel active
-4. Confirm calls are enabled: `calls.enabled` must be `true`
-5. Confirm voice is configured: `elevenlabs.voiceId` should be set
-
-Suggest a test call to the user's own phone: **"Want to do a quick test call to your phone to make sure everything works? This is a good way to hear how your chosen voice sounds."**
+Before making real calls, offer a quick verification. Suggest a test call to the user's own phone: **"Want to do a quick test call to your phone to make sure everything works? This is a good way to make sure everything works and that you like the way I sound."**
 
 If they agree, ask for their personal phone number and place a test call with a simple task like "Introduce yourself and confirm the call system is working."
 
@@ -153,61 +113,13 @@ If they agree, ask for their personal phone number and place a test call with a 
 
 Link the user's phone number as the trusted voice guardian so the assistant can verify inbound callers.
 
-Load the guardian-verify-setup skill with `channel: "phone"`:
+Load the `guardian-verify-setup` skill with `channel: "phone"`. The skill handles the full verification flow (outbound call, code entry, confirmation).
 
-```
-skill_load skill=guardian-verify-setup
-```
-
-The skill handles the full verification flow (outbound call, code entry, confirmation). If the user declines, skip this step.
-
-To re-check guardian status later:
+If the user declines, skip this step. To re-check guardian status later:
 
 ```bash
 assistant integrations guardian status --channel phone --json
 ```
-
-## Caller Identity
-
-All implicit calls (calls without an explicit `caller_identity_mode`) always use the assistant's Twilio phone number. This is the number that appears on the recipient's caller ID.
-
-### User-number mode (per-call only)
-
-If the user wants a specific call to appear as coming from their own phone number, they must explicitly pass `caller_identity_mode: 'user_number'` on that call. The user's phone number must be either owned by or verified with the same Twilio account.
-
-**To configure a user phone number:**
-
-```bash
-assistant config set calls.callerIdentity.userNumber "+14155559999"
-```
-
-**To use it for a specific call**, pass `caller_identity_mode: 'user_number'` when calling `call_start` — see the Making Outbound Calls section for examples. User-number mode cannot be set as a global default; it must be requested explicitly per call.
-
-### Configuration reference
-
-| Setting                                     | Description                                      | Default   |
-| ------------------------------------------- | ------------------------------------------------ | --------- |
-| `calls.callerIdentity.allowPerCallOverride` | Whether per-call mode selection is allowed       | `true`    |
-| `calls.callerIdentity.userNumber`           | Optional E.164 phone number for user-number mode | _(empty)_ |
-
-## DTMF Callee Verification
-
-An optional verification step where the callee must enter a numeric code via their phone's keypad (DTMF tones) before the call proceeds. This ensures the intended person has answered the phone.
-
-### How it works
-
-1. When the call connects and DTMF verification is enabled, a random numeric code is generated (length configured by `calls.verification.codeLength`).
-2. The verification code is shared with the guardian in the initiating conversation so they know what code was issued.
-3. The AI voice agent speaks the code digit-by-digit to the callee and asks them to enter it on their keypad.
-4. The callee enters the code via DTMF (phone keypad tones).
-5. If the code matches, the call proceeds normally. If the code is incorrect, the agent may re-prompt or end the call depending on configuration.
-
-### Configuration
-
-| Setting                         | Description                               | Default |
-| ------------------------------- | ----------------------------------------- | ------- |
-| `calls.verification.enabled`    | Enable DTMF callee verification           | `false` |
-| `calls.verification.codeLength` | Number of digits in the verification code | `6`     |
 
 ## Advanced Voice Configuration
 
@@ -221,11 +133,9 @@ To switch to a different voice after initial setup, use `voice_config_update` to
 voice_config_update setting="tts_voice_id" value="<new-voice-id>"
 ```
 
-Browse more voices at https://elevenlabs.io/voice-library.
-
 ### Advanced voice selection with an ElevenLabs account
 
-Users who have an ElevenLabs account and API key (e.g., from the **voice-setup** skill) can go beyond the curated voice list. With an API key, they can:
+Users who have an ElevenLabs account and API key can go beyond the curated voice list. With an API key, they can:
 
 - **Browse the full ElevenLabs voice library programmatically** — the ElevenLabs API (`GET https://api.elevenlabs.io/v2/voices`) supports searching by name, category, language, and accent. This returns voice IDs, names, labels, and preview URLs.
 - **Use custom or cloned voices** — if the user has created a custom voice or voice clone in their ElevenLabs account, they can use its voice ID here. These voices are available in Twilio ConversationRelay just like pre-made voices.
