@@ -15,12 +15,17 @@ struct IOSThread: Identifiable {
     /// When non-nil, this thread is backed by a daemon session (Connected mode).
     var sessionId: String?
     var isArchived: Bool
+    var isPinned: Bool
+    var displayOrder: Int?
     /// Private threads are excluded from the normal thread list and persist only
     /// for the current session. They match the macOS "temporary chat" behavior.
     var isPrivate: Bool
     /// The schedule job ID that created this thread, if any.
     /// Threads sharing the same scheduleJobId belong to the same schedule group.
     var scheduleJobId: String?
+    var hasUnseenLatestAssistantMessage: Bool
+    var latestAssistantMessageAt: Date?
+    var lastSeenAssistantMessageAt: Date?
 
     /// Whether this thread was created by a schedule or reminder trigger.
     var isScheduleThread: Bool {
@@ -28,15 +33,20 @@ struct IOSThread: Identifiable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false, isPrivate: Bool = false, scheduleJobId: String? = nil) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.lastActivityAt = lastActivityAt ?? createdAt
         self.sessionId = sessionId
         self.isArchived = isArchived
+        self.isPinned = isPinned
+        self.displayOrder = displayOrder
         self.isPrivate = isPrivate
         self.scheduleJobId = scheduleJobId
+        self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
+        self.latestAssistantMessageAt = latestAssistantMessageAt
+        self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
     }
 }
 
@@ -49,9 +59,14 @@ private struct PersistedThread: Codable {
     var createdAt: Date
     var lastActivityAt: Date?
     var isArchived: Bool?
+    var isPinned: Bool?
+    var displayOrder: Int?
     var isPrivate: Bool?
     var sessionId: String?
     var scheduleJobId: String?
+    var hasUnseenLatestAssistantMessage: Bool?
+    var latestAssistantMessageAt: Date?
+    var lastSeenAssistantMessageAt: Date?
 }
 
 // MARK: - IOSThreadStore
@@ -107,6 +122,27 @@ class IOSThreadStore: ObservableObject {
     /// since the cache was loaded. Only these threads preserve local overrides
     /// when the daemon response arrives; all others accept daemon data.
     private var locallyEditedSessionIds: Set<String> = []
+
+    private func assistantTimestamp(_ timestampMs: Int?) -> Date? {
+        guard let timestampMs else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(timestampMs) / 1000.0)
+    }
+
+    private func applySessionMetadata(
+        _ session: IPCSessionListResponseSession,
+        to thread: inout IOSThread
+    ) {
+        thread.isPinned = session.isPinned ?? false
+        thread.displayOrder = session.displayOrder.map { Int($0) }
+        thread.hasUnseenLatestAssistantMessage =
+            session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+        thread.latestAssistantMessageAt = assistantTimestamp(
+            session.assistantAttention?.latestAssistantMessageAt
+        )
+        thread.lastSeenAssistantMessageAt = assistantTimestamp(
+            session.assistantAttention?.lastSeenAssistantMessageAt
+        )
+    }
 
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
@@ -343,13 +379,14 @@ class IOSThreadStore: ObservableObject {
         var restoredThreads: [IOSThread] = []
         for session in filteredSessions {
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
-            let thread = IOSThread(
+            var thread = IOSThread(
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 lastActivityAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id,
                 scheduleJobId: session.scheduleJobId
             )
+            applySessionMetadata(session, to: &thread)
             let vm = ChatViewModel(daemonClient: daemonClient)
             vm.sessionId = session.id
             viewModels[thread.id] = vm
@@ -395,7 +432,12 @@ class IOSThreadStore: ObservableObject {
                             lastActivityAt: restored.lastActivityAt,
                             sessionId: restored.sessionId,
                             isArchived: local.isArchived,
-                            scheduleJobId: restored.scheduleJobId
+                            isPinned: restored.isPinned,
+                            displayOrder: restored.displayOrder,
+                            scheduleJobId: restored.scheduleJobId,
+                            hasUnseenLatestAssistantMessage: restored.hasUnseenLatestAssistantMessage,
+                            latestAssistantMessageAt: restored.latestAssistantMessageAt,
+                            lastSeenAssistantMessageAt: restored.lastSeenAssistantMessageAt
                         )
                     }
                     merged.append(restored)
@@ -416,6 +458,13 @@ class IOSThreadStore: ObservableObject {
                 var newThreads: [IOSThread] = []
                 for restored in restoredThreads {
                     if let sid = restored.sessionId, existingSessionIds.contains(sid) {
+                        if let existingIndex = threads.firstIndex(where: { $0.sessionId == sid }) {
+                            threads[existingIndex].isPinned = restored.isPinned
+                            threads[existingIndex].displayOrder = restored.displayOrder
+                            threads[existingIndex].hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
+                            threads[existingIndex].latestAssistantMessageAt = restored.latestAssistantMessageAt
+                            threads[existingIndex].lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
+                        }
                         viewModels.removeValue(forKey: restored.id)
                     } else {
                         newThreads.append(restored)
@@ -432,6 +481,13 @@ class IOSThreadStore: ObservableObject {
             })
             for restored in restoredThreads {
                 if let sid = restored.sessionId, existingSessionIds.contains(sid) {
+                    if let existingIndex = threads.firstIndex(where: { $0.sessionId == sid }) {
+                        threads[existingIndex].isPinned = restored.isPinned
+                        threads[existingIndex].displayOrder = restored.displayOrder
+                        threads[existingIndex].hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
+                        threads[existingIndex].latestAssistantMessageAt = restored.latestAssistantMessageAt
+                        threads[existingIndex].lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
+                    }
                     viewModels.removeValue(forKey: restored.id)
                 } else {
                     threads.append(restored)
@@ -727,7 +783,23 @@ class IOSThreadStore: ObservableObject {
             UserDefaults.standard.removeObject(forKey: Self.connectedCacheKey)
             return
         }
-        let persisted = cacheable.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: false, sessionId: $0.sessionId, scheduleJobId: $0.scheduleJobId) }
+        let persisted = cacheable.map {
+            PersistedThread(
+                id: $0.id,
+                title: $0.title,
+                createdAt: $0.createdAt,
+                lastActivityAt: $0.lastActivityAt,
+                isArchived: $0.isArchived,
+                isPinned: $0.isPinned,
+                displayOrder: $0.displayOrder,
+                isPrivate: false,
+                sessionId: $0.sessionId,
+                scheduleJobId: $0.scheduleJobId,
+                hasUnseenLatestAssistantMessage: $0.hasUnseenLatestAssistantMessage,
+                latestAssistantMessageAt: $0.latestAssistantMessageAt,
+                lastSeenAssistantMessageAt: $0.lastSeenAssistantMessageAt
+            )
+        }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.connectedCacheKey)
         }
@@ -740,7 +812,21 @@ class IOSThreadStore: ObservableObject {
         }
         return persisted.compactMap { p in
             guard p.sessionId != nil, !(p.isPrivate ?? false) else { return nil }
-            return IOSThread(id: p.id, title: p.title, createdAt: p.createdAt, lastActivityAt: p.lastActivityAt, sessionId: p.sessionId, isArchived: p.isArchived ?? false, isPrivate: false, scheduleJobId: p.scheduleJobId)
+            return IOSThread(
+                id: p.id,
+                title: p.title,
+                createdAt: p.createdAt,
+                lastActivityAt: p.lastActivityAt,
+                sessionId: p.sessionId,
+                isArchived: p.isArchived ?? false,
+                isPinned: p.isPinned ?? false,
+                displayOrder: p.displayOrder,
+                isPrivate: false,
+                scheduleJobId: p.scheduleJobId,
+                hasUnseenLatestAssistantMessage: p.hasUnseenLatestAssistantMessage ?? false,
+                latestAssistantMessageAt: p.latestAssistantMessageAt,
+                lastSeenAssistantMessageAt: p.lastSeenAssistantMessageAt
+            )
         }
     }
 

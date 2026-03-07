@@ -1,6 +1,10 @@
 import XCTest
 @testable import VellumAssistantShared
 
+#if canImport(UIKit)
+@testable import vellum_assistant_ios
+#endif
+
 /// Integration tests for thread lifecycle behaviors from the iOS perspective.
 /// Since ThreadModel and ThreadManager are macOS-only, these tests verify the
 /// shared session lifecycle mechanics that underpin thread management:
@@ -9,16 +13,34 @@ import XCTest
 final class ThreadLifecycleIOSTests: XCTestCase {
 
     private var mockClient: MockDaemonClient!
+    private let connectedCacheKey = "ios_connected_threads_cache_v1"
 
     override func setUp() {
         super.setUp()
         mockClient = MockDaemonClient()
         mockClient.isConnected = true
+        UserDefaults.standard.removeObject(forKey: connectedCacheKey)
     }
 
     override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: connectedCacheKey)
         mockClient = nil
         super.tearDown()
+    }
+
+    private func makeSessionListResponse(
+        sessions: [[String: Any]],
+        hasMore: Bool? = nil
+    ) -> SessionListResponseMessage {
+        var payload: [String: Any] = [
+            "type": "session_list_response",
+            "sessions": sessions,
+        ]
+        if let hasMore {
+            payload["hasMore"] = hasMore
+        }
+        let data = try! JSONSerialization.data(withJSONObject: payload)
+        return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
     }
 
     // MARK: - Session Create (Thread Bootstrap)
@@ -315,4 +337,49 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(vm.messages[1].text, "Answer")
         XCTAssertEqual(vm.errorText, "Temporary error")
     }
+
+    #if canImport(UIKit)
+    func testConnectedThreadsRetainPinAndAttentionMetadataAcrossCacheReload() {
+        let daemonClient = DaemonClient()
+        let store = IOSThreadStore(daemonClient: daemonClient)
+        let response = makeSessionListResponse(sessions: [[
+            "id": "connected-session-1",
+            "title": "Connected thread",
+            "createdAt": 1_000,
+            "updatedAt": 2_000,
+            "displayOrder": 7,
+            "isPinned": true,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": true,
+                "latestAssistantMessageAt": 5_000,
+                "lastSeenAssistantMessageAt": 4_000,
+            ],
+        ]])
+
+        daemonClient.onSessionListResponse?(response)
+
+        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-1" }) else {
+            XCTFail("Expected connected thread")
+            return
+        }
+
+        XCTAssertTrue(storedThread.isPinned)
+        XCTAssertEqual(storedThread.displayOrder, 7)
+        XCTAssertTrue(storedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(storedThread.latestAssistantMessageAt?.timeIntervalSince1970, 5.0)
+        XCTAssertEqual(storedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
+
+        let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
+        guard let cachedThread = reloadedStore.threads.first(where: { $0.sessionId == "connected-session-1" }) else {
+            XCTFail("Expected cached connected thread")
+            return
+        }
+
+        XCTAssertTrue(cachedThread.isPinned)
+        XCTAssertEqual(cachedThread.displayOrder, 7)
+        XCTAssertTrue(cachedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(cachedThread.latestAssistantMessageAt?.timeIntervalSince1970, 5.0)
+        XCTAssertEqual(cachedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
+    }
+    #endif
 }
