@@ -163,8 +163,11 @@ class IOSThreadStore: ObservableObject {
     private func mergeThreadMetadata(from restored: IOSThread, into thread: inout IOSThread) {
         thread.sessionId = restored.sessionId ?? thread.sessionId
         thread.scheduleJobId = restored.scheduleJobId
-        thread.isPinned = restored.isPinned
-        thread.displayOrder = restored.displayOrder
+        let isLocallyEdited = thread.sessionId.map { locallyEditedSessionIds.contains($0) } ?? false
+        if !isLocallyEdited {
+            thread.isPinned = restored.isPinned
+            thread.displayOrder = restored.displayOrder
+        }
         thread.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
         thread.latestAssistantMessageAt = restored.latestAssistantMessageAt
         thread.lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
