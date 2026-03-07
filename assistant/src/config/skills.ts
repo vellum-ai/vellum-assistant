@@ -422,9 +422,18 @@ function parseFrontmatter(
     disableModelInvocation = false;
   }
 
-  const includes = Array.isArray(vellum?.includes)
-    ? vellum.includes
-    : undefined;
+  let includes: string[] | undefined;
+  if (Array.isArray(vellum?.includes)) {
+    const normalized = [
+      ...new Set(
+        vellum.includes
+          .filter((item: unknown): item is string => typeof item === "string")
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0),
+      ),
+    ];
+    includes = normalized.length > 0 ? normalized : undefined;
+  }
 
   const credentialSetupFor =
     typeof vellum?.["credential-setup-for"] === "string"
