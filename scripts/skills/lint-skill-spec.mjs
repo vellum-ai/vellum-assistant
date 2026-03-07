@@ -18,11 +18,12 @@
  *      - Environment requirements → move to `compatibility`
  *
  * Usage:
- *   node scripts/skills/lint-skill-spec.mjs [--dir <path>] [--skip-emoji] [skill-name ...]
+ *   node scripts/skills/lint-skill-spec.mjs [--dir <path>] [--skip-emoji] [--allow-tools-json] [skill-name ...]
  *
  * Options:
- *   --dir <path>     Override the default skills directory (skills/)
- *   --skip-emoji     Skip the Vellum-specific metadata.emoji check
+ *   --dir <path>           Override the default skills directory (skills/)
+ *   --skip-emoji           Skip the Vellum-specific metadata.emoji check
+ *   --allow-tools-json     Skip the TOOLS.json prohibition check
  *
  * If no skill names are provided, all skills are checked.
  */
@@ -37,13 +38,14 @@ const DEFAULT_SKILLS_DIR = resolve(__dirname, "../../skills");
 // --- CLI flag parsing ---
 
 /**
- * Parse CLI args, extracting --dir and --skip-emoji flags.
- * Returns { skillsDir, skipEmoji, filterSkills }.
+ * Parse CLI args, extracting --dir, --skip-emoji, and --allow-tools-json flags.
+ * Returns { skillsDir, skipEmoji, allowToolsJson, filterSkills }.
  */
 function parseCLIArgs(argv) {
   const args = argv.slice(2);
   let skillsDir = DEFAULT_SKILLS_DIR;
   let skipEmoji = false;
+  let allowToolsJson = false;
   const filterSkills = [];
 
   for (let i = 0; i < args.length; i++) {
@@ -52,15 +54,17 @@ function parseCLIArgs(argv) {
       i++; // skip next arg (the path)
     } else if (args[i] === "--skip-emoji") {
       skipEmoji = true;
+    } else if (args[i] === "--allow-tools-json") {
+      allowToolsJson = true;
     } else {
       filterSkills.push(args[i]);
     }
   }
 
-  return { skillsDir, skipEmoji, filterSkills };
+  return { skillsDir, skipEmoji, allowToolsJson, filterSkills };
 }
 
-const { skillsDir: SKILLS_DIR, skipEmoji: SKIP_EMOJI, filterSkills: CLI_FILTER_SKILLS } = parseCLIArgs(process.argv);
+const { skillsDir: SKILLS_DIR, skipEmoji: SKIP_EMOJI, allowToolsJson: ALLOW_TOOLS_JSON, filterSkills: CLI_FILTER_SKILLS } = parseCLIArgs(process.argv);
 
 /**
  * Parse YAML frontmatter from a string.
@@ -324,7 +328,7 @@ function validateNonStandardFields(frontmatter) {
   return errors;
 }
 
-function validateSkill(skillName, { skillsDir, skipEmoji }) {
+function validateSkill(skillName, { skillsDir, skipEmoji, allowToolsJson }) {
   const skillDir = join(skillsDir, skillName);
   const skillMdPath = join(skillDir, "SKILL.md");
   const toolsJsonPath = join(skillDir, "TOOLS.json");
@@ -336,11 +340,13 @@ function validateSkill(skillName, { skillsDir, skipEmoji }) {
   }
 
   // 0. TOOLS.json must not exist — skills should rely on CLI tools in scripts/, not custom tool definitions
-  const toolsJsonStat = statSync(toolsJsonPath, { throwIfNoEntry: false });
-  if (toolsJsonStat?.isFile()) {
-    errors.push(
-      `${skillName}/TOOLS.json must not exist. Skills should rely on CLI tools in scripts/, not custom tool definitions.`,
-    );
+  if (!allowToolsJson) {
+    const toolsJsonStat = statSync(toolsJsonPath, { throwIfNoEntry: false });
+    if (toolsJsonStat?.isFile()) {
+      errors.push(
+        `${skillName}/TOOLS.json must not exist. Skills should rely on CLI tools in scripts/, not custom tool definitions.`,
+      );
+    }
   }
 
   // 1. SKILL.md must exist
@@ -413,6 +419,7 @@ function getSkillDirs(skillsDir, filter) {
 
   return entries
     .filter((e) => e.isDirectory())
+    .filter((e) => !e.name.startsWith("_"))
     .filter((e) => !filter || filter.length === 0 || filter.includes(e.name))
     .map((e) => e.name)
     .sort();
@@ -423,7 +430,7 @@ const skillDirs = getSkillDirs(SKILLS_DIR, CLI_FILTER_SKILLS);
 let totalErrors = 0;
 
 for (const skill of skillDirs) {
-  const errors = validateSkill(skill, { skillsDir: SKILLS_DIR, skipEmoji: SKIP_EMOJI });
+  const errors = validateSkill(skill, { skillsDir: SKILLS_DIR, skipEmoji: SKIP_EMOJI, allowToolsJson: ALLOW_TOOLS_JSON });
   for (const err of errors) {
     console.error(err);
   }
