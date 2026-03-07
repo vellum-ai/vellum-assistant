@@ -8,11 +8,11 @@ import {
 import * as conversationStore from "../../memory/conversation-store.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { truncate } from "../../util/truncate.js";
-import type { UserMessageAttachment } from "../ipc-contract.js";
 import type {
   ConversationSearchRequest,
   HistoryRequest,
   MessageContentRequest,
+  UserMessageAttachment,
 } from "../ipc-protocol.js";
 import { generateVideoThumbnail } from "../video-thumbnail.js";
 import {

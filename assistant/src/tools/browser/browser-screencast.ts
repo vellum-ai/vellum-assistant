@@ -1,4 +1,4 @@
-import type { ServerMessage } from "../../daemon/ipc-contract.js";
+import type { ServerMessage } from "../../daemon/ipc-protocol.js";
 import { browserManager } from "./browser-manager.js";
 
 // Track which sessions have an active browser page.

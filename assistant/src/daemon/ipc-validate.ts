@@ -1,6 +1,6 @@
 import { isChannelId, isInterfaceId } from "../channels/types.js";
-import type { ClientMessage } from "./ipc-contract.js";
 import inventory from "./ipc-contract-inventory.json" with { type: "json" };
+import type { ClientMessage } from "./ipc-protocol.js";
 
 /**
  * All known ClientMessage `type` discriminator values, derived from the
