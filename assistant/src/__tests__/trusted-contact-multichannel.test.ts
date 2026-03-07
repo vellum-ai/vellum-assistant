@@ -216,15 +216,24 @@ for (const config of CHANNEL_CONFIGS) {
       const json = (await resp.json()) as Record<string, unknown>;
 
       expect(json.denied).toBe(true);
-      expect(json.reason).toBe("not_a_member");
+      // Slack sends a verification challenge instead of a flat rejection
+      if (config.channel === "slack") {
+        expect(json.reason).toBe("verification_challenge_sent");
+      } else {
+        expect(json.reason).toBe("not_a_member");
+      }
       expect(deliverReplyCalls.length).toBe(1);
       const replyText = (
         deliverReplyCalls[0].payload as Record<string, unknown>
       ).text as string;
-      expect(
-        replyText.includes("you haven't been approved") ||
-          replyText.includes("you don't have access"),
-      ).toBe(true);
+      if (config.channel === "slack") {
+        expect(replyText).toContain("verification code");
+      } else {
+        expect(
+          replyText.includes("you haven't been approved") ||
+            replyText.includes("you don't have access"),
+        ).toBe(true);
+      }
     });
 
     test("guardian is notified when a non-member messages", async () => {

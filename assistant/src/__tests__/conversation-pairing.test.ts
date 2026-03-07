@@ -567,8 +567,8 @@ describe("pairDeliveryWithConversation", () => {
       unknown
     >;
     expect(upsertArgs.conversationId).toBe("conv-001");
-    expect(upsertArgs.sourceChannel).toBe("notification:sms");
-    expect(upsertArgs.externalChatId).toBe("+15559876543");
+    expect(upsertArgs.sourceChannel).toBe("notification:slack");
+    expect(upsertArgs.externalChatId).toBe("C9876ZYXWVU");
   });
 
   test("explicit reuse_existing takes precedence over binding-key reuse", async () => {
