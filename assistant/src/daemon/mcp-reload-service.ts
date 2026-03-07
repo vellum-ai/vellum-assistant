@@ -66,20 +66,20 @@ async function doReload(): Promise<McpReloadResult> {
     if (config.mcp?.servers && Object.keys(config.mcp.servers).length > 0) {
       const serverToolInfos = await manager.start(config.mcp);
       for (const { serverId, serverConfig, tools } of serverToolInfos) {
-        const toolNames = tools.map((t) => t.name);
         const mcpTools = createMcpToolsFromServer(
           tools,
           serverId,
           serverConfig,
           manager,
         );
-        registerMcpTools(mcpTools);
-        toolCount += mcpTools.length;
+        const accepted = registerMcpTools(mcpTools);
+        const acceptedNames = accepted.map((t) => t.name);
+        toolCount += accepted.length;
         servers.push({
           id: serverId,
           connected: true,
-          toolCount: mcpTools.length,
-          tools: toolNames,
+          toolCount: accepted.length,
+          tools: acceptedNames,
         });
       }
       // Include servers that were configured but failed to connect (not in serverToolInfos)
