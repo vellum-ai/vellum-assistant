@@ -300,7 +300,7 @@ describe("Slack inbound trusted contact verification", () => {
     // with the correct identity.
 
     // The actual secret was sent in the DM. For this test, let's use the
-    // session directly via the channel-guardian-service to verify the
+    // session directly via the channel-verification-service to verify the
     // consume path works.
     // The DM text contains the verification code implicitly (it's in the
     // template message). Since we need to test the full round-trip, let's

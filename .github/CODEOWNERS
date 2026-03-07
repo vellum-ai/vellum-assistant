@@ -82,7 +82,7 @@ assistant/src/approvals/ @noanflaherty
 assistant/src/runtime/channel-approvals.ts @noanflaherty
 assistant/src/runtime/channel-approval-parser.ts @noanflaherty
 assistant/src/runtime/channel-approval-types.ts @noanflaherty
-assistant/src/runtime/channel-guardian-service.ts @noanflaherty
+assistant/src/runtime/channel-verification-service.ts @noanflaherty
 assistant/src/runtime/guardian-*.ts @noanflaherty
 assistant/src/runtime/confirmation-request-guardian-bridge.ts @noanflaherty
 assistant/src/runtime/actor-trust-resolver.ts @noanflaherty
@@ -111,7 +111,7 @@ assistant/src/calls/guardian-*.ts @noanflaherty
 assistant/src/config/bundled-skills/guardian-verify-setup/ @noanflaherty
 assistant/src/config/bundled-skills/contacts/ @noanflaherty
 assistant/src/notifications/guardian-question-mode.ts @noanflaherty
-gateway/src/http/routes/guardian-control-plane-proxy.ts @noanflaherty
+gateway/src/http/routes/channel-verification-session-proxy.ts @noanflaherty
 
 # CLI
 /cli/ @dvargas92495
