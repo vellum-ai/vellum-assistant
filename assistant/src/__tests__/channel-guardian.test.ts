@@ -37,13 +37,10 @@ mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
 
-// Telegram credential metadata mock — provides the bot username for deep-link construction
+// Telegram bot username mock — production code now reads from config via getTelegramBotUsername()
 let mockBotUsername: string | undefined = "test_bot";
-mock.module("../tools/credentials/metadata-store.js", () => ({
-  getCredentialMetadata: (_service: string, _key: string) =>
-    mockBotUsername ? { accountInfo: mockBotUsername } : null,
-  upsertCredentialMetadata: () => {},
-  deleteCredentialMetadata: () => {},
+mock.module("../telegram/bot-username.js", () => ({
+  getTelegramBotUsername: () => mockBotUsername,
 }));
 
 // Call domain mock — outbound voice verification calls are fire-and-forget.
