@@ -301,11 +301,10 @@ export function resolveGuardianActionRequest(
 
 /**
  * Expire a guardian action request and all its deliveries.
- * When reason is not provided, defaults to 'sweep_timeout' for backward compatibility.
  */
 export function expireGuardianActionRequest(
   id: string,
-  reason?: ExpiredReason,
+  reason: ExpiredReason,
 ): void {
   const db = getDb();
   const now = Date.now();
@@ -313,7 +312,7 @@ export function expireGuardianActionRequest(
   db.update(guardianActionRequests)
     .set({
       status: "expired",
-      expiredReason: reason ?? "sweep_timeout",
+      expiredReason: reason,
       updatedAt: now,
     })
     .where(
