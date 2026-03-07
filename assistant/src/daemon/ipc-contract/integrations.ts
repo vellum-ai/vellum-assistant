@@ -63,7 +63,7 @@ export interface ChannelVerificationSessionRequest {
   channel?: ChannelId; // Defaults to 'telegram'
   sessionId?: string;
   rebind?: boolean; // When true, allows creating a challenge even if a binding already exists
-  /** E.164 phone number for SMS/voice, Telegram handle/chat-id. Used by outbound actions. */
+  /** E.164 phone number for voice, Telegram handle/chat-id. Used by outbound actions. */
   destination?: string;
   /** Origin conversation ID so completion/failure pointers can route back. */
   originConversationId?: string;
@@ -177,7 +177,7 @@ export interface ChannelVerificationSessionResponse {
   /** Present when action is 'status'. */
   bound?: boolean;
   guardianExternalUserId?: string;
-  /** The channel this status pertains to (e.g. "telegram", "sms"). Present when action is 'status'. */
+  /** The channel this status pertains to (e.g. "telegram", "voice"). Present when action is 'status'. */
   channel?: ChannelId;
   /** The assistant ID scoped to this status. Present when action is 'status'. */
   assistantId?: string;
@@ -198,7 +198,7 @@ export interface ChannelVerificationSessionResponse {
   expiresAt?: number;
   /** Epoch ms after which a resend is allowed. */
   nextResendAt?: number;
-  /** Number of SMS sends for this session. */
+  /** Number of sends for this session. */
   sendCount?: number;
   /** Telegram deep-link URL for bootstrap (M3 placeholder). */
   telegramBootstrapUrl?: string;
