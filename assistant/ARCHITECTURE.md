@@ -212,6 +212,7 @@ Guardian verification can be initiated through gateway HTTP endpoints (which for
 | `/v1/integrations/guardian/sessions`        | POST   | Create a guardian session. If `destination` is provided, starts outbound verification; otherwise creates an inbound challenge. Body: `{ channel, destination?, rebind? }` |
 | `/v1/integrations/guardian/sessions/resend` | POST   | Resend the verification code for an active outbound session. Body: `{ channel }`                                                                                          |
 | `/v1/integrations/guardian/sessions`        | DELETE | Cancel all active sessions (inbound + outbound) for a channel. Body: `{ channel }`                                                                                        |
+| `/v1/integrations/guardian/revoke`          | POST   | Cancel all active sessions and revoke the guardian binding. Body: `{ channel? }`                                                                                          |
 
 All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`. Skills and user-facing tooling should target the gateway URL (default `http://localhost:7830`), not the runtime port.
 
@@ -229,12 +230,12 @@ The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`
 
 **Key Source Files:**
 
-| File                                                       | Purpose                                                                            |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `src/runtime/guardian-outbound-actions.ts`                 | Shared business logic for start/resend/cancel outbound verification                |
-| `src/runtime/routes/integration-routes.ts`                 | HTTP route handlers for `/v1/integrations/guardian/outbound/*`                     |
-| `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                              |
-| `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat |
+| File                                                       | Purpose                                                                                                           |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/guardian-outbound-actions.ts`                 | Shared business logic for start/resend/cancel outbound verification                                               |
+| `src/runtime/routes/integration-routes.ts`                 | HTTP route handlers for unified guardian session API (`/v1/integrations/guardian/sessions`, `/revoke`, `/status`) |
+| `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                                                             |
+| `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat                                |
 
 **Guardian-Only Tool Invocation Gate:**
 
