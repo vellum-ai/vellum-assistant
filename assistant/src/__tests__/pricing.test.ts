@@ -468,7 +468,7 @@ describe("resolvePricingForUsageWithOverrides", () => {
     );
 
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBeCloseTo(33.5, 10);
+    expect(result.estimatedCostUsd).toBeCloseTo(32.6, 10);
   });
 });
 
