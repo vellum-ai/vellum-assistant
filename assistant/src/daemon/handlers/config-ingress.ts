@@ -209,12 +209,7 @@ export async function handleIngressConfig(
       const raw = loadRawConfig();
       const ingress = (raw?.ingress ?? {}) as Record<string, unknown>;
       const publicBaseUrl = (ingress.publicBaseUrl as string) ?? "";
-      // Backward compatibility: if `enabled` was never explicitly set,
-      // infer from whether a publicBaseUrl is configured so existing users
-      // who predate the toggle aren't silently disabled.
-      const enabled =
-        (ingress.enabled as boolean | undefined) ??
-        (publicBaseUrl ? true : false);
+      const enabled = (ingress.enabled as boolean | undefined) ?? false;
       ctx.send(socket, {
         type: "ingress_config_response",
         enabled,
