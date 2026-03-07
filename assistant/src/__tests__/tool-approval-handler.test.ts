@@ -470,7 +470,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
 
     const context = makeContext({
       trustClass: "trusted_contact",
-      executionChannel: "voice",
+      executionChannel: "phone",
     });
 
     const start = Date.now();
@@ -501,7 +501,7 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
 
     const context = makeContext({
       trustClass: "trusted_contact",
-      executionChannel: "voice",
+      executionChannel: "phone",
       signal: controller.signal,
     });
 

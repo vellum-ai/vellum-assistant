@@ -87,7 +87,7 @@ describe("getPointerFallbackMessage", () => {
     const msg = getPointerFallbackMessage({
       scenario: "verification_succeeded",
       phoneNumber: "+15559876543",
-      channel: "voice",
+      channel: "phone",
     });
     expect(msg).toContain("Guardian verification (voice)");
   });
@@ -161,7 +161,7 @@ describe("buildPointerInstruction", () => {
     const ctx: CallPointerMessageContext = {
       scenario: "verification_succeeded",
       phoneNumber: "+15559876543",
-      channel: "voice",
+      channel: "phone",
     };
     const instruction = buildPointerInstruction(ctx);
     expect(instruction).toContain("Channel: voice");

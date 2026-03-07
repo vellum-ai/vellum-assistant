@@ -244,7 +244,7 @@ describe("scoped-approval-grants / tool_signature scope", () => {
       toolName: "bash",
       inputDigest: digest,
       consumingRequestId: "c1",
-      executionChannel: "voice",
+      executionChannel: "phone",
     });
     expect(wrong.ok).toBe(false);
 
@@ -273,7 +273,7 @@ describe("scoped-approval-grants / tool_signature scope", () => {
       toolName: "bash",
       inputDigest: digest,
       consumingRequestId: "c1",
-      executionChannel: "voice",
+      executionChannel: "phone",
     });
     expect(result.ok).toBe(true);
   });
@@ -365,7 +365,7 @@ describe("scoped-approval-grants / tool_signature scope", () => {
       toolName: "bash",
       inputDigest: digest,
       consumingRequestId: "c2",
-      executionChannel: "voice",
+      executionChannel: "phone",
     });
     expect(second.ok).toBe(true);
     expect(second.grant!.id).toBe(wildcardGrant.id);

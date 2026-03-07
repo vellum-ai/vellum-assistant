@@ -21,7 +21,7 @@ export async function executeCallStart(
       ? normalizePhoneNumber(input.phone_number)
       : null;
   if (requestedPhone) {
-    const activeVoiceVerification = findActiveSession("voice");
+    const activeVoiceVerification = findActiveSession("phone");
     const verificationDestination =
       activeVoiceVerification?.destinationAddress ??
       activeVoiceVerification?.expectedPhoneE164;

@@ -48,7 +48,7 @@ describe("task_progress surface compatibility", () => {
   test("blocks ui_show when channel lacks dynamic UI support", async () => {
     const sent: ServerMessage[] = [];
     const ctx = makeContext(sent, {
-      channel: "voice",
+      channel: "phone",
       supportsDynamicUi: false,
     });
 

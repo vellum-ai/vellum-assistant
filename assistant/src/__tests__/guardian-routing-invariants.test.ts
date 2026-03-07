@@ -523,7 +523,7 @@ describe("routing invariant: code-only messages return clarification", () => {
     const req = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
@@ -557,7 +557,7 @@ describe("routing invariant: code-only messages return clarification", () => {
     const req = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
@@ -841,7 +841,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const answerRequest = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
@@ -855,7 +855,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const approvalRequest = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,

@@ -61,7 +61,7 @@ Examples:
     )
     .option(
       "--channel-type <channelType>",
-      "Filter by channel type (email, telegram, voice, whatsapp, slack)",
+      "Filter by channel type (email, telegram, phone, whatsapp, slack)",
     )
     .addHelpText(
       "after",

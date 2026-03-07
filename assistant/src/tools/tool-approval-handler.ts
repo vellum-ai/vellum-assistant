@@ -417,7 +417,7 @@ export class ToolApprovalHandler {
     // minting (2-5s). Non-voice channels get an instant sync lookup so
     // normal denials are not delayed.
     if (needsGrantConsumption && deferredConsumeParams) {
-      const isVoice = context.executionChannel === "voice";
+      const isVoice = context.executionChannel === "phone";
       const grantResult = await consumeGrantForInvocation(
         deferredConsumeParams,
         isVoice ? { signal: context.signal } : { maxWaitMs: 0 },

@@ -354,7 +354,7 @@ describe("inbound invite redemption intercept", () => {
 
   test("channel mismatch returns appropriate message", async () => {
     // Create an invite for voice, but try to redeem via Telegram
-    const { rawToken } = createInvite({ sourceChannel: "voice", maxUses: 5 });
+    const { rawToken } = createInvite({ sourceChannel: "phone", maxUses: 5 });
 
     const req = buildInviteRequest(rawToken);
     const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);

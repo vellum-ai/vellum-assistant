@@ -663,7 +663,7 @@ describe("pairDeliveryWithConversation", () => {
     // accepts NotificationChannel which is then cast internally to ChannelId.
     const result = await pairDeliveryWithConversation(
       signal,
-      "voice" as NotificationChannel,
+      "phone" as NotificationChannel,
       copy,
     );
 

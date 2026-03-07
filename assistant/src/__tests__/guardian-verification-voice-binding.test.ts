@@ -155,7 +155,7 @@ describe("startVerificationCall — voice binding", () => {
     // The conversation must have a voice channel binding
     const binding = getBindingByConversation(conversationId);
     expect(binding).not.toBeNull();
-    expect(binding!.sourceChannel).toBe("voice");
+    expect(binding!.sourceChannel).toBe("phone");
   });
 
   test("fails with 503 when voice ingress preflight fails", async () => {

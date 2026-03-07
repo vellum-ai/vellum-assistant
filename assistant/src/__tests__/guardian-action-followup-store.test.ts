@@ -78,7 +78,7 @@ function createTestRequest(convId: string) {
   const pq = createPendingQuestion(session.id, "What is the gate code?");
   return createGuardianActionRequest({
     kind: "ask_guardian",
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     sourceConversationId: convId,
     callSessionId: session.id,
     pendingQuestionId: pq.id,

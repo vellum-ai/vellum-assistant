@@ -179,7 +179,7 @@ describe("ASK_GUARDIAN canonical notification path", () => {
     expect(emitCalls.length).toBe(1);
     const signalParams = emitCalls[0] as Record<string, unknown>;
     expect(signalParams.sourceEventName).toBe("guardian.question");
-    expect(signalParams.sourceChannel).toBe("voice");
+    expect(signalParams.sourceChannel).toBe("phone");
     expect(signalParams.dedupeKey).toMatch(/^guardian:/);
 
     const hints = signalParams.attentionHints as Record<string, unknown>;

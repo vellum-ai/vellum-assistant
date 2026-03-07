@@ -78,9 +78,9 @@ export async function sendGuardianExpiryNotices(
           "assistant",
           JSON.stringify([{ type: "text", text: expiryText }]),
           {
-            userMessageChannel: "voice",
+            userMessageChannel: "phone",
             assistantMessageChannel: "vellum",
-            userMessageInterface: "voice",
+            userMessageInterface: "phone",
             assistantMessageInterface: "vellum",
           },
         );
