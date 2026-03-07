@@ -153,12 +153,6 @@ export class VoiceConfigUpdateTool implements Tool {
             description:
               "The new value for the setting (type depends on setting)",
           },
-          // Backward compat: legacy schema used activation_key directly
-          activation_key: {
-            type: "string",
-            description:
-              'Deprecated — use setting: "activation_key" with value instead',
-          },
           reason: {
             type: "string",
             description:
@@ -173,14 +167,8 @@ export class VoiceConfigUpdateTool implements Tool {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    // Backward compat: if activation_key is provided without setting/value, treat as setting: "activation_key"
-    let setting = input.setting as string | undefined;
-    let value = input.value;
-
-    if (!setting && typeof input.activation_key === "string") {
-      setting = "activation_key";
-      value = input.activation_key;
-    }
+    const setting = input.setting as string | undefined;
+    const value = input.value;
 
     if (!setting) {
       return {
