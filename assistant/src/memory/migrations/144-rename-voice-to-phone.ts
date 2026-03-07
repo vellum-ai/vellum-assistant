@@ -22,6 +22,19 @@ export function migrateRenameVoiceToPhone(database: DrizzleDb): void {
       /*sql*/ `UPDATE conversations SET origin_channel = 'phone' WHERE origin_channel = 'voice'`,
     );
 
+    // conversations.origin_interface
+    raw.exec(
+      /*sql*/ `UPDATE conversations SET origin_interface = 'phone' WHERE origin_interface = 'voice'`,
+    );
+
+    // messages.metadata — JSON blobs may contain "voice" as a channel/interface value
+    // (e.g. userMessageChannel, provenanceSourceChannel). Replace the quoted JSON
+    // string so that messageMetadataSchema (which uses z.enum(CHANNEL_IDS)) can
+    // still parse historical rows.
+    raw.exec(
+      /*sql*/ `UPDATE messages SET metadata = REPLACE(metadata, '"voice"', '"phone"') WHERE metadata LIKE '%"voice"%'`,
+    );
+
     // assistant_ingress_invites.source_channel
     raw.exec(
       /*sql*/ `UPDATE assistant_ingress_invites SET source_channel = 'phone' WHERE source_channel = 'voice'`,
