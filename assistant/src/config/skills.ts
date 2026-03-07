@@ -276,53 +276,11 @@ interface ParsedFrontmatter {
   displayName: string;
   description: string;
   body: string;
-  homepage?: string;
   userInvocable: boolean;
   disableModelInvocation: boolean;
   metadata?: VellumMetadata;
   includes?: string[];
   credentialSetupFor?: string;
-}
-
-function parseIncludes(
-  raw: string | undefined,
-  skillFilePath: string,
-): string[] | undefined {
-  if (!raw) return undefined;
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    log.warn(
-      { err, skillFilePath },
-      "Failed to parse includes JSON in frontmatter",
-    );
-    return undefined;
-  }
-
-  if (!Array.isArray(parsed)) {
-    log.warn({ skillFilePath }, "includes must be a JSON array");
-    return undefined;
-  }
-
-  if (!parsed.every((item: unknown) => typeof item === "string")) {
-    log.warn({ skillFilePath }, "includes must be an array of strings");
-    return undefined;
-  }
-
-  // Normalize: trim, remove empty strings, deduplicate preserving first-seen order
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const item of parsed as string[]) {
-    const trimmed = item.trim();
-    if (trimmed.length === 0) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    result.push(trimmed);
-  }
-
-  return result.length > 0 ? result : undefined;
 }
 
 function parseFrontmatter(
@@ -347,9 +305,6 @@ function parseFrontmatter(
     return null;
   }
 
-  // Parse new optional fields
-  const homepage = fields.homepage?.trim() || undefined;
-
   // Parse metadata as single-line JSON string, extract .vellum namespace
   let metadata: VellumMetadata | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -370,17 +325,7 @@ function parseFrontmatter(
     }
   }
 
-  // Read standalone emoji frontmatter field (written by buildSkillMarkdown)
-  const emojiField = fields.emoji?.trim() || undefined;
-
-  // If metadata doesn't already have an emoji, inject the standalone field value
-  if (emojiField && metadata && !metadata.emoji) {
-    metadata.emoji = emojiField;
-  } else if (emojiField && !metadata) {
-    metadata = { emoji: emojiField };
-  }
-
-  // Read vellum-specific fields from metadata.vellum with fallback to top-level frontmatter
+  // Read vellum-specific fields exclusively from metadata.vellum
   const vellumUserInvocable = vellumRaw?.["user-invocable"];
   let userInvocable: boolean;
   if (typeof vellumUserInvocable === "boolean") {
@@ -388,8 +333,7 @@ function parseFrontmatter(
   } else if (typeof vellumUserInvocable === "string") {
     userInvocable = vellumUserInvocable !== "false";
   } else {
-    const userInvocableRaw = fields["user-invocable"]?.trim().toLowerCase();
-    userInvocable = userInvocableRaw !== "false";
+    userInvocable = true;
   }
 
   const vellumDisableModelInvocation = vellumRaw?.["disable-model-invocation"];
@@ -399,22 +343,17 @@ function parseFrontmatter(
   } else if (typeof vellumDisableModelInvocation === "string") {
     disableModelInvocation = vellumDisableModelInvocation === "true";
   } else {
-    const disableModelInvocationRaw = fields["disable-model-invocation"]
-      ?.trim()
-      .toLowerCase();
-    disableModelInvocation = disableModelInvocationRaw === "true";
+    disableModelInvocation = false;
   }
 
-  const vellumIncludes = vellumRaw?.includes;
-  const includes = Array.isArray(vellumIncludes)
-    ? vellumIncludes
-    : parseIncludes(fields.includes, skillFilePath);
+  const includes = Array.isArray(vellumRaw?.includes)
+    ? vellumRaw.includes
+    : undefined;
 
   const credentialSetupFor =
-    (typeof vellumRaw?.["credential-setup-for"] === "string"
+    typeof vellumRaw?.["credential-setup-for"] === "string"
       ? vellumRaw["credential-setup-for"]
-      : undefined) ??
-    (fields["credential-setup-for"]?.trim() || undefined);
+      : undefined;
 
   const displayName =
     (typeof vellumRaw?.["display-name"] === "string"
@@ -426,7 +365,6 @@ function parseFrontmatter(
     displayName,
     description,
     body: stripCommentLines(body),
-    homepage,
     userInvocable,
     disableModelInvocation,
     metadata,
@@ -579,7 +517,6 @@ function readSkillFromDirectory(
       skillFilePath,
       body: parsed.body,
       emoji: parsed.metadata?.emoji,
-      homepage: parsed.homepage,
       userInvocable: parsed.userInvocable,
       disableModelInvocation: parsed.disableModelInvocation,
       source,
@@ -630,7 +567,6 @@ function readBundledSkillFromDirectory(
       body: parsed.body,
       bundled: true,
       emoji: parsed.metadata?.emoji,
-      homepage: parsed.homepage,
       userInvocable: parsed.userInvocable,
       disableModelInvocation: parsed.disableModelInvocation,
       source: "bundled",
@@ -689,7 +625,6 @@ function loadBundledSkills(): SkillSummary[] {
       skillFilePath: skill.skillFilePath,
       bundled: true,
       emoji: skill.emoji,
-      homepage: skill.homepage,
       userInvocable: skill.userInvocable,
       disableModelInvocation: skill.disableModelInvocation,
       source: "bundled",
@@ -827,7 +762,6 @@ function skillSummaryFromDefinition(
     skillFilePath: skill.skillFilePath,
     bundled: skill.bundled,
     emoji: skill.emoji,
-    homepage: skill.homepage,
     userInvocable: skill.userInvocable,
     disableModelInvocation: skill.disableModelInvocation,
     source,
@@ -880,7 +814,6 @@ export function loadSkillCatalog(
             directoryPath: directory,
             skillFilePath,
             emoji: parsed.metadata?.emoji,
-            homepage: parsed.homepage,
             userInvocable: parsed.userInvocable,
             disableModelInvocation: parsed.disableModelInvocation,
             source: "extra",
@@ -977,7 +910,6 @@ export function loadSkillCatalog(
           directoryPath: directory,
           skillFilePath,
           emoji: parsed.metadata?.emoji,
-          homepage: parsed.homepage,
           userInvocable: parsed.userInvocable,
           disableModelInvocation: parsed.disableModelInvocation,
           source: "workspace",
