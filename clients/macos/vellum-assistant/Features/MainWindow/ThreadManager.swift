@@ -1154,6 +1154,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         let previousLastSeenAssistantMessageAt = threads[idx].lastSeenAssistantMessageAt
         let previousOverride = pendingAttentionOverrides[sessionId]
+        let wasPendingSeen = pendingSeenSessionIds.contains(sessionId)
 
         pendingSeenSessionIds.removeAll { $0 == sessionId }
         pendingAttentionOverrides[sessionId] = .unread(
@@ -1171,7 +1172,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                     sessionId: sessionId,
                     latestAssistantMessageAt: latestAssistantMessageAt,
                     previousLastSeenAssistantMessageAt: previousLastSeenAssistantMessageAt,
-                    previousOverride: previousOverride
+                    previousOverride: previousOverride,
+                    wasPendingSeen: wasPendingSeen
                 )
                 log.warning("Failed to send conversation_unread_signal for \(sessionId): \(error.localizedDescription)")
             }
@@ -1339,7 +1341,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         sessionId: String,
         latestAssistantMessageAt: Date?,
         previousLastSeenAssistantMessageAt: Date?,
-        previousOverride: PendingAttentionOverride?
+        previousOverride: PendingAttentionOverride?,
+        wasPendingSeen: Bool = false
     ) {
         guard let idx = threads.firstIndex(where: { $0.id == threadId }),
               threads[idx].sessionId == sessionId,
@@ -1353,6 +1356,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         threads[idx].hasUnseenLatestAssistantMessage = false
         threads[idx].lastSeenAssistantMessageAt = previousLastSeenAssistantMessageAt
+
+        if wasPendingSeen && !pendingSeenSessionIds.contains(sessionId) {
+            pendingSeenSessionIds.append(sessionId)
+        }
     }
 
     /// Trim the previously active thread's view model to shed memory before

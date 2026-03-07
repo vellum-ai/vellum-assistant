@@ -384,6 +384,40 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         )
     }
 
+    func testUnreadRollbackRequeuesDeferredSeenSignal() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+
+        threadManager.threads[index].sessionId = "session-requeue"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = true
+        threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 5)
+
+        // mark-all-seen defers the seen signal
+        threadManager.markAllThreadsSeen()
+
+        // Fail subsequent sends so markConversationUnread triggers rollback
+        daemonClient.sendOverride = { _ in
+            throw NSError(domain: "ThreadManagerUnseenStateTests", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "offline"
+            ])
+        }
+
+        sentMessages.removeAll()
+
+        threadManager.markConversationUnread(threadId: threadId)
+        waitForPropagation()
+
+        // After rollback the deferred seen signal should be re-queued,
+        // so committing should emit a seen signal for the session.
+        threadManager.commitPendingSeenSignals()
+
+        let seenSignals = sentMessages.compactMap { $0 as? IPCConversationSeenSignal }
+        XCTAssertEqual(seenSignals.map(\.conversationId), ["session-requeue"])
+    }
+
     func testMarkConversationUnreadIgnoresThreadsWithoutAssistantReply() {
         guard let threadId = threadManager.activeThreadId,
               let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
