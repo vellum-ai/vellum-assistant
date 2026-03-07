@@ -353,12 +353,13 @@ Guardian verification can also be initiated through normal desktop chat. When th
 
 **Outbound HTTP Endpoints** (exposed via the gateway API and forwarded to the runtime):
 
-| Endpoint                                    | Method | Description                                                                                                                                                               |
-| ------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/v1/integrations/guardian/sessions`        | POST   | Create a guardian session. If `destination` is provided, starts outbound verification; otherwise creates an inbound challenge. Body: `{ channel, destination?, rebind? }` |
-| `/v1/integrations/guardian/sessions/resend` | POST   | Resend verification code for an active outbound session. Body: `{ channel }`                                                                                              |
-| `/v1/integrations/guardian/sessions`        | DELETE | Cancel all active sessions (inbound + outbound) for a channel. Body: `{ channel }`                                                                                        |
-| `/v1/integrations/guardian/revoke`          | POST   | Cancel all active sessions and revoke the guardian binding. Body: `{ channel? }`                                                                                          |
+| Endpoint                                   | Method | Description                                                                                                                                                                                                                                       |
+| ------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/channel-verification-sessions`        | POST   | Create a verification session. Supports guardian (default), outbound (with `destination`), and trusted contact (with `purpose: "trusted_contact"` + `contactChannelId`). Body: `{ channel?, destination?, rebind?, purpose?, contactChannelId? }` |
+| `/v1/channel-verification-sessions/resend` | POST   | Resend verification code for an active outbound session. Body: `{ channel }`                                                                                                                                                                      |
+| `/v1/channel-verification-sessions`        | DELETE | Cancel all active sessions (inbound + outbound) for a channel. Body: `{ channel }`                                                                                                                                                                |
+| `/v1/channel-verification-sessions/revoke` | POST   | Cancel all active sessions and revoke the guardian binding. Body: `{ channel? }`                                                                                                                                                                  |
+| `/v1/channel-verification-sessions/status` | GET    | Check guardian binding status. Query: `?channel=<channel>`                                                                                                                                                                                        |
 
 These endpoints share the same business logic as the IPC-based verification flow via `verification-outbound-actions.ts`. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly.
 

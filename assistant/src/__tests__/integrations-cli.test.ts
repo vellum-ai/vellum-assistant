@@ -232,7 +232,7 @@ describe("assistant integrations CLI", () => {
     );
     expect(result.exitCode).toBe(0);
     expect(result.fetchCalls[0]?.url).toBe(
-      "http://gateway.test/v1/integrations/guardian/status?channel=telegram",
+      "http://gateway.test/v1/channel-verification-sessions/status?channel=telegram",
     );
   });
 

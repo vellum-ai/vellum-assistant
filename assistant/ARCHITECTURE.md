@@ -207,12 +207,13 @@ Guardian verification can be initiated through gateway HTTP endpoints (which for
 
 **HTTP Endpoints:**
 
-| Endpoint                                    | Method | Description                                                                                                                                                               |
-| ------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/v1/integrations/guardian/sessions`        | POST   | Create a guardian session. If `destination` is provided, starts outbound verification; otherwise creates an inbound challenge. Body: `{ channel, destination?, rebind? }` |
-| `/v1/integrations/guardian/sessions/resend` | POST   | Resend the verification code for an active outbound session. Body: `{ channel }`                                                                                          |
-| `/v1/integrations/guardian/sessions`        | DELETE | Cancel all active sessions (inbound + outbound) for a channel. Body: `{ channel }`                                                                                        |
-| `/v1/integrations/guardian/revoke`          | POST   | Cancel all active sessions and revoke the guardian binding. Body: `{ channel? }`                                                                                          |
+| Endpoint                                   | Method | Description                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/channel-verification-sessions`        | POST   | Create a verification session. If `destination` is provided, starts outbound verification; if `purpose: "trusted_contact"` with `contactChannelId`, starts trusted contact verification; otherwise creates an inbound challenge. Body: `{ channel?, destination?, rebind?, purpose?, contactChannelId? }` |
+| `/v1/channel-verification-sessions/resend` | POST   | Resend the verification code for an active outbound session. Body: `{ channel }`                                                                                                                                                                                                                          |
+| `/v1/channel-verification-sessions`        | DELETE | Cancel all active sessions (inbound + outbound) for a channel. Body: `{ channel }`                                                                                                                                                                                                                        |
+| `/v1/channel-verification-sessions/revoke` | POST   | Cancel all active sessions and revoke the guardian binding. Body: `{ channel? }`                                                                                                                                                                                                                          |
+| `/v1/channel-verification-sessions/status` | GET    | Check guardian binding status. Query: `?channel=<channel>`                                                                                                                                                                                                                                                |
 
 All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`. Skills and user-facing tooling should target the gateway URL (default `http://localhost:7830`), not the runtime port.
 
@@ -230,16 +231,16 @@ The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`
 
 **Key Source Files:**
 
-| File                                                       | Purpose                                                                                                           |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `src/runtime/verification-outbound-actions.ts`             | Shared business logic for start/resend/cancel outbound verification                                               |
-| `src/runtime/routes/integration-routes.ts`                 | HTTP route handlers for unified guardian session API (`/v1/integrations/guardian/sessions`, `/revoke`, `/status`) |
-| `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                                                             |
-| `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat                                |
+| File                                                       | Purpose                                                                                                              |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/verification-outbound-actions.ts`             | Shared business logic for start/resend/cancel outbound verification                                                  |
+| `src/runtime/routes/integration-routes.ts`                 | HTTP route handlers for unified verification session API (`/v1/channel-verification-sessions`, `/revoke`, `/status`) |
+| `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                                                                |
+| `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat                                   |
 
 **Guardian-Only Tool Invocation Gate:**
 
-Guardian verification control-plane endpoints (`/v1/integrations/guardian/*`) are protected by a deterministic gate in the tool executor (`src/tools/executor.ts`). Before any tool invocation proceeds, the executor checks whether the invocation targets a guardian control-plane endpoint and whether the actor role is allowed. The policy uses an allowlist: only `guardian` and `undefined` (desktop/trusted) actor roles can invoke these endpoints. Non-guardian and unverified-channel actors receive a denial message explaining the restriction.
+Channel verification control-plane endpoints (`/v1/channel-verification-sessions/*`) are protected by a deterministic gate in the tool executor (`src/tools/executor.ts`). Before any tool invocation proceeds, the executor checks whether the invocation targets a guardian control-plane endpoint and whether the actor role is allowed. The policy uses an allowlist: only `guardian` and `undefined` (desktop/trusted) actor roles can invoke these endpoints. Non-guardian and unverified-channel actors receive a denial message explaining the restriction.
 
 The policy is implemented in `src/tools/guardian-control-plane-policy.ts`, which inspects tool inputs (bash commands, URLs) for guardian endpoint paths. This is a defense-in-depth measure — even if the LLM attempts to call guardian endpoints on behalf of a non-guardian actor, the tool executor blocks it deterministically.
 

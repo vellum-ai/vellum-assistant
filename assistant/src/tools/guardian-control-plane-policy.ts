@@ -4,17 +4,17 @@
  * conversationally via tools.
  *
  * Protected endpoints:
- *   /v1/integrations/guardian/sessions
- *   /v1/integrations/guardian/sessions/resend
- *   /v1/integrations/guardian/status
- *   /v1/integrations/guardian/revoke
+ *   /v1/channel-verification-sessions
+ *   /v1/channel-verification-sessions/resend
+ *   /v1/channel-verification-sessions/status
+ *   /v1/channel-verification-sessions/revoke
  */
 
 const GUARDIAN_ENDPOINT_PATHS = [
-  "/v1/integrations/guardian/sessions",
-  "/v1/integrations/guardian/sessions/resend",
-  "/v1/integrations/guardian/status",
-  "/v1/integrations/guardian/revoke",
+  "/v1/channel-verification-sessions",
+  "/v1/channel-verification-sessions/resend",
+  "/v1/channel-verification-sessions/status",
+  "/v1/channel-verification-sessions/revoke",
 ] as const;
 
 /**
@@ -22,7 +22,7 @@ const GUARDIAN_ENDPOINT_PATHS = [
  * even if the exact sub-path differs from the hardcoded list above.
  * Anchored on a path separator so it won't match inside unrelated words.
  */
-const GUARDIAN_PATH_REGEX = /\/v1\/integrations\/guardian\//;
+const GUARDIAN_PATH_REGEX = /\/v1\/channel-verification-sessions/;
 
 /** Tools whose `input.command` (string) may contain guardian endpoint paths. */
 const COMMAND_TOOLS = new Set(["bash", "host_bash"]);
@@ -69,7 +69,7 @@ function containsGuardianEndpointPath(value: string): boolean {
   for (const path of GUARDIAN_ENDPOINT_PATHS) {
     if (normalized.includes(path)) return true;
   }
-  // Broad pattern match to catch any /v1/integrations/guardian/... path
+  // Broad pattern match to catch any /v1/channel-verification-sessions... path
   if (GUARDIAN_PATH_REGEX.test(normalized)) return true;
   return false;
 }
@@ -84,7 +84,7 @@ function containsGuardianEndpointPath(value: string): boolean {
  */
 function containsGuardianFragments(command: string): boolean {
   const lower = command.toLowerCase();
-  return lower.includes("/v1/integrations") && lower.includes("guardian");
+  return lower.includes("channel-verification-sessions");
 }
 
 /**
