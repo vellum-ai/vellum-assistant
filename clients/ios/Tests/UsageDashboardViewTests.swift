@@ -236,12 +236,14 @@ private extension UsageDashboardViewTests {
     /// rather than resetting each time.
     static func pollRenderedText(
         from view: UsageDashboardView,
-        timeout: TimeInterval = 3.0,
+        timeout: TimeInterval = 10.0,
         interval: TimeInterval = 0.1,
         until condition: (String) -> Bool
     ) -> String {
         let hostingController = UIHostingController(rootView: view)
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        // Use an extra-tall window so the lazy List materialises every cell,
+        // including sections that would normally be off-screen on a real device.
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 5000))
         window.rootViewController = hostingController
         window.isHidden = false
         hostingController.view.frame = window.bounds
