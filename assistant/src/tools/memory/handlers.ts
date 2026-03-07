@@ -314,6 +314,7 @@ export interface MemoryRecallToolResult {
   text: string;
   resultCount: number;
   degraded: boolean;
+  items: Array<{ id: string; type: string; kind: string }>;
   sources: {
     lexical: number;
     semantic: number;
@@ -400,6 +401,7 @@ export async function handleMemoryRecall(
         text: "No matching memories found.",
         resultCount: 0,
         degraded,
+        items: [],
         sources: {
           lexical: 0,
           semantic: 0,
@@ -419,10 +421,17 @@ export async function handleMemoryRecall(
       maxTokens: config.memory.retrieval.maxInjectTokens,
     });
 
+    const items = formatted.selected.map((c) => ({
+      id: c.id,
+      type: c.type,
+      kind: c.kind,
+    }));
+
     const result: MemoryRecallToolResult = {
       text: formatted.text,
       resultCount: formatted.selected.length,
       degraded,
+      items,
       sources: {
         lexical: collected.lexical.length,
         semantic: collected.semantic.length,
