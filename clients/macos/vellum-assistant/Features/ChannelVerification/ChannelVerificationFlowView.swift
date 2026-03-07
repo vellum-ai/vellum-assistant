@@ -17,8 +17,8 @@ struct ChannelVerificationFlowView: View {
     let onResend: () -> Void
     let onCancelOutbound: () -> Void
     let onRevoke: () -> Void
-    let onStartChallenge: (Bool) -> Void
-    let onCancelChallenge: () -> Void
+    let onStartSession: (Bool) -> Void
+    let onCancelSession: () -> Void
 
     // Optional layout/display parameters
     var botUsername: String?
@@ -362,7 +362,7 @@ struct ChannelVerificationFlowView: View {
             }
 
             VButton(label: "Cancel", style: .tertiary) {
-                onCancelChallenge()
+                onCancelSession()
             }
         }
     }
@@ -429,7 +429,7 @@ struct ChannelVerificationFlowView: View {
                 .foregroundColor(VColor.error)
             if state.alreadyBound {
                 VButton(label: "Replace", style: .secondary) {
-                    onStartChallenge(true)
+                    onStartSession(true)
                 }
             }
         }
@@ -473,8 +473,8 @@ struct ChannelVerificationFlowView_Previews: PreviewProvider {
                     onResend: {},
                     onCancelOutbound: {},
                     onRevoke: {},
-                    onStartChallenge: { _ in },
-                    onCancelChallenge: {}
+                    onStartSession: { _ in },
+                    onCancelSession: {}
                 )
             }
         }

@@ -448,8 +448,8 @@ struct ContactDetailView: View {
                         onResend: { store.resendOutboundVerification(channel: type) },
                         onCancelOutbound: { store.cancelOutboundVerification(channel: type) },
                         onRevoke: { store.revokeChannelVerification(channel: type) },
-                        onStartChallenge: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
-                        onCancelChallenge: { store.cancelVerificationChallenge(channel: type) },
+                        onStartSession: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
+                        onCancelSession: { store.cancelVerificationSession(channel: type) },
                         botUsername: store.telegramBotUsername,
                         phoneNumber: store.twilioPhoneNumber,
                         showLabel: false
@@ -779,8 +779,8 @@ struct ContactDetailView: View {
                 onResend: { store.resendOutboundVerification(channel: channel.type) },
                 onCancelOutbound: { store.cancelOutboundVerification(channel: channel.type) },
                 onRevoke: { store.revokeChannelVerification(channel: channel.type) },
-                onStartChallenge: { rebind in store.startChannelVerification(channel: channel.type, rebind: rebind) },
-                onCancelChallenge: { store.cancelVerificationChallenge(channel: channel.type) },
+                onStartSession: { rebind in store.startChannelVerification(channel: channel.type, rebind: rebind) },
+                onCancelSession: { store.cancelVerificationSession(channel: channel.type) },
                 botUsername: store.telegramBotUsername,
                 phoneNumber: store.twilioPhoneNumber,
                 showLabel: false
