@@ -1707,24 +1707,4 @@ public struct ChatMessage: Identifiable, Equatable {
         }
         isContentStripped = true
     }
-
-    /// Build a default content order from the legacy `arrivedBeforeText` flag.
-    public static func buildDefaultContentOrder(
-        textSegmentCount: Int,
-        toolCallCount: Int,
-        arrivedBeforeText: Bool,
-        surfaceCount: Int = 0
-    ) -> [ContentBlockRef] {
-        var order: [ContentBlockRef] = []
-        if arrivedBeforeText {
-            for i in 0..<toolCallCount { order.append(.toolCall(i)) }
-            for i in 0..<textSegmentCount { order.append(.text(i)) }
-            for i in 0..<surfaceCount { order.append(.surface(i)) }
-        } else {
-            for i in 0..<textSegmentCount { order.append(.text(i)) }
-            for i in 0..<toolCallCount { order.append(.toolCall(i)) }
-            for i in 0..<surfaceCount { order.append(.surface(i)) }
-        }
-        return order
-    }
 }
