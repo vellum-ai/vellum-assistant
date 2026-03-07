@@ -26,6 +26,10 @@ final class KeychainBrokerServer {
             .trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
             return URL(fileURLWithPath: baseDir).appendingPathComponent(".vellum")
         }
+        if let baseDir = UserDefaults.standard.string(forKey: "BASE_DATA_DIR")?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
+            return URL(fileURLWithPath: baseDir).appendingPathComponent(".vellum")
+        }
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".vellum")
     }

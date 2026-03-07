@@ -122,31 +122,31 @@ function getBaseDir(): string {
 }
 
 /**
- * Publishes BASE_DATA_DIR into the macOS launchd environment so that
- * GUI apps (the desktop assistant) inherit it and read the lockfile
- * from the same per-test directory the CLI writes to.
+ * Publishes BASE_DATA_DIR into the app's UserDefaults so the desktop
+ * assistant reads the lockfile from the same per-test directory the
+ * CLI writes to. The app's LockfilePaths.baseDir checks UserDefaults
+ * as a fallback when the env var isn't set.
  */
 function publishBaseDataDir(baseDataDir: string | undefined): void {
   if (!baseDataDir) return;
+  const domain = "com.vellum.vellum-assistant";
   try {
-    execSync(`launchctl setenv BASE_DATA_DIR ${JSON.stringify(baseDataDir)}`, {
-      timeout: 5_000,
-      shell: "/bin/bash",
-    });
+    execSync(
+      `defaults write ${domain} BASE_DATA_DIR -string ${JSON.stringify(baseDataDir)}`,
+      { timeout: 5_000 },
+    );
   } catch {
     // Best-effort — the app will fall back to ~/
   }
 }
 
-/** Removes BASE_DATA_DIR from the launchd environment during teardown. */
+/** Removes BASE_DATA_DIR from UserDefaults during teardown. */
 function unpublishBaseDataDir(): void {
+  const domain = "com.vellum.vellum-assistant";
   try {
-    execSync("launchctl unsetenv BASE_DATA_DIR", {
-      timeout: 5_000,
-      shell: "/bin/bash",
-    });
+    execSync(`defaults delete ${domain} BASE_DATA_DIR`, { timeout: 5_000 });
   } catch {
-    // Best-effort cleanup
+    // Key may not exist
   }
 }
 
