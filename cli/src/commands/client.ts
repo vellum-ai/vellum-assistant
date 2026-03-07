@@ -59,11 +59,8 @@ function parseArgs(): ParsedArgs {
     // Explicit env var — skip assistant resolution, will use env values below
     entry = loadLatestAssistant();
   } else {
-    // Respect active assistant when set, otherwise fall back to latest
-    // for backward compatibility with remote-only setups.
     const active = getActiveAssistant();
-    const activeEntry = active ? findAssistantByName(active) : null;
-    entry = activeEntry ?? loadLatestAssistant();
+    entry = active ? findAssistantByName(active) : null;
   }
 
   let runtimeUrl =
@@ -106,7 +103,7 @@ ${ANSI.bold}USAGE:${ANSI.reset}
     vellum client [name] [options]
 
 ${ANSI.bold}ARGUMENTS:${ANSI.reset}
-    [name]                     Instance name (default: latest)
+    [name]                     Instance name (default: active)
 
 ${ANSI.bold}OPTIONS:${ANSI.reset}
     -u, --url <url>            Runtime URL
