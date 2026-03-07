@@ -164,22 +164,12 @@ describe("channel-delivery-store", () => {
     expect(r1.conversationId).not.toBe(r2.conversationId);
   });
 
-  test("self assistant reuses legacy key and creates scoped alias", () => {
-    // Create a conversation via the legacy (no assistantId) path
-    const legacy = recordInbound("telegram", "chat-1", "msg-1");
-
-    // Now use assistantId='self' — should reuse the legacy conversation
-    const scoped = recordInbound("telegram", "chat-1", "msg-2", {
+  test("no assistantId defaults to self-scoped key", () => {
+    const r1 = recordInbound("telegram", "chat-1", "msg-1");
+    const r2 = recordInbound("telegram", "chat-1", "msg-2", {
       assistantId: "self",
     });
-    expect(scoped.conversationId).toBe(legacy.conversationId);
-
-    // The scoped alias key should exist, so subsequent calls with 'self'
-    // resolve directly without falling back to the legacy key
-    const again = recordInbound("telegram", "chat-1", "msg-3", {
-      assistantId: "self",
-    });
-    expect(again.conversationId).toBe(legacy.conversationId);
+    expect(r1.conversationId).toBe(r2.conversationId);
   });
 
   // ── Deduplication ─────────────────────────────────────────────────
