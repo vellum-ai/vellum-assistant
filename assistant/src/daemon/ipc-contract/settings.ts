@@ -52,6 +52,8 @@ export interface McpReloadRequest {
 export interface McpReloadServerResult {
   id: string;
   connected: boolean;
+  /** True when the server is explicitly disabled in config. */
+  disabled?: boolean;
   toolCount: number;
   tools: string[];
 }

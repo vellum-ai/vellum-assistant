@@ -82,10 +82,18 @@ async function doReload(): Promise<McpReloadResult> {
           tools: acceptedNames,
         });
       }
-      // Include servers that were configured but failed to connect (not in serverToolInfos)
+      // Include servers that were configured but failed to connect or are disabled
       for (const id of serverIds) {
         if (!servers.some((s) => s.id === id)) {
-          servers.push({ id, connected: false, toolCount: 0, tools: [] });
+          const serverConfig = config.mcp!.servers![id];
+          const isDisabled = serverConfig?.enabled === false;
+          servers.push({
+            id,
+            connected: false,
+            disabled: isDisabled || undefined,
+            toolCount: 0,
+            tools: [],
+          });
         }
       }
       serverCount = servers.length;

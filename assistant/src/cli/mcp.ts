@@ -273,9 +273,11 @@ Examples:
             );
             if (response.servers && response.servers.length > 0) {
               for (const server of response.servers) {
-                const status = server.connected
-                  ? "\u2713 Connected"
-                  : "\u2717 Not connected";
+                const status = server.disabled
+                  ? "⊘ Disabled"
+                  : server.connected
+                    ? "\u2713 Connected"
+                    : "\u2717 Not connected";
                 log.info(`  ${server.id}`);
                 log.info(`    Status: ${status}`);
                 log.info(
