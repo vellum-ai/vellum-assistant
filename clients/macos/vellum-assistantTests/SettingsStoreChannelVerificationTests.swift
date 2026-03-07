@@ -79,28 +79,28 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     // MARK: - startChannelVerification (Telegram)
 
-    func testStartTelegramVerificationSetsInProgressAndSendsChallenge() {
+    func testStartTelegramVerificationSetsInProgressAndSendsSession() {
         store.startChannelVerification(channel: "telegram")
 
         XCTAssertTrue(store.telegramVerificationInProgress)
         XCTAssertNil(store.telegramVerificationError)
 
         let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let challengeMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "telegram" }
-        XCTAssertEqual(challengeMessages.count, 1)
+        let sessionMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "telegram" }
+        XCTAssertEqual(sessionMessages.count, 1)
     }
 
     // MARK: - startChannelVerification (SMS)
 
-    func testStartSmsVerificationSetsInProgressAndSendsChallenge() {
+    func testStartSmsVerificationSetsInProgressAndSendsSession() {
         store.startChannelVerification(channel: "sms")
 
         XCTAssertTrue(store.smsVerificationInProgress)
         XCTAssertNil(store.smsVerificationError)
 
         let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let challengeMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "sms" }
-        XCTAssertEqual(challengeMessages.count, 1)
+        let sessionMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "sms" }
+        XCTAssertEqual(sessionMessages.count, 1)
     }
 
     // MARK: - Successful status response
@@ -155,7 +155,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     // MARK: - Successful create_session response provides instruction
 
-    func testSuccessfulChallengeResponseProvidesInstruction() {
+    func testSuccessfulSessionResponseProvidesInstruction() {
         store.telegramVerificationInProgress = true
 
         daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
@@ -340,7 +340,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.telegramVerificationError)
     }
 
-    func testChallengeResponseStartsVerificationStatusPolling() {
+    func testSessionResponseStartsVerificationStatusPolling() {
         sentMessages.removeAll()
         let pollingStore = SettingsStore(
             daemonClient: daemonClient,
@@ -542,7 +542,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertEqual(voiceStatus.count, 1)
     }
 
-    func testStatusPollResponseDoesNotClearVerificationChallengePending() {
+    func testStatusPollResponseDoesNotClearVerificationSessionPending() {
         store.startChannelVerification(channel: "telegram")
         XCTAssertTrue(store.telegramVerificationInProgress)
 
@@ -560,7 +560,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
             error: nil
         ))
 
-        // A challenge response (with secret+instruction) should still clear the pending state
+        // A session response (with secret+instruction) should still clear the pending state
         daemonClient.onChannelVerificationSessionResponse?(ChannelVerificationSessionResponseMessage(
             type: "channel_verification_session_response",
             success: true,
@@ -602,15 +602,15 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         sentMessages.removeAll()
         let shortTimeoutStore = SettingsStore(
             daemonClient: daemonClient,
-            verificationChallengeTimeoutDuration: 0.15,
+            verificationSessionTimeoutDuration: 0.15,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
         )
 
         shortTimeoutStore.startChannelVerification(channel: "telegram")
 
-        // Manually set instruction to simulate a previous challenge's stale text
-        // that persists when a new challenge times out before the daemon responds.
+        // Manually set instruction to simulate a previous session's stale text
+        // that persists when a new session times out before the daemon responds.
         shortTimeoutStore.telegramVerificationInstruction = "Send code stale on Telegram"
 
         // Wait for the timeout to fire
@@ -628,14 +628,14 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         sentMessages.removeAll()
         let shortTimeoutStore = SettingsStore(
             daemonClient: daemonClient,
-            verificationChallengeTimeoutDuration: 0.15,
+            verificationSessionTimeoutDuration: 0.15,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
         )
 
         shortTimeoutStore.startChannelVerification(channel: "sms")
 
-        // Manually set instruction to simulate a previous challenge's stale text
+        // Manually set instruction to simulate a previous session's stale text
         shortTimeoutStore.smsVerificationInstruction = "Send code stale via SMS"
 
         // Wait for the timeout to fire
@@ -656,7 +656,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         sentMessages.removeAll()
         let shortTimeoutStore = SettingsStore(
             daemonClient: daemonClient,
-            verificationChallengeTimeoutDuration: 0.3,
+            verificationSessionTimeoutDuration: 0.3,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
         )
@@ -695,15 +695,15 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     // MARK: - Voice Channel Verification
 
-    func testStartVoiceVerificationSetsInProgressAndSendsChallenge() {
+    func testStartVoiceVerificationSetsInProgressAndSendsSession() {
         store.startChannelVerification(channel: "voice")
 
         XCTAssertTrue(store.voiceVerificationInProgress)
         XCTAssertNil(store.voiceVerificationError)
 
         let verificationMessages = sentMessages.compactMap { $0 as? ChannelVerificationSessionRequestMessage }
-        let challengeMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "voice" }
-        XCTAssertEqual(challengeMessages.count, 1)
+        let sessionMessages = verificationMessages.filter { $0.action == "create_session" && $0.channel == "voice" }
+        XCTAssertEqual(sessionMessages.count, 1)
     }
 
     func testSuccessfulStatusResponseUpdatesVoiceVerificationState() {
@@ -774,7 +774,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         sentMessages.removeAll()
         let shortTimeoutStore = SettingsStore(
             daemonClient: daemonClient,
-            verificationChallengeTimeoutDuration: 0.15,
+            verificationSessionTimeoutDuration: 0.15,
             verificationStatusPollInterval: 0.05,
             verificationStatusPollWindow: 2.0
         )

@@ -279,11 +279,11 @@ public final class SettingsStore: ObservableObject {
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
     private var lastDaemonModel: String?
-    private var pendingVerificationChallengeChannel: String?
-    private var verificationChallengeTimeoutWorkItem: DispatchWorkItem?
+    private var pendingVerificationSessionChannel: String?
+    private var verificationSessionTimeoutWorkItem: DispatchWorkItem?
     private var verificationStatusPollingWorkItems: [String: DispatchWorkItem] = [:]
     private var verificationStatusPollingDeadlines: [String: Date] = [:]
-    private let verificationChallengeTimeoutDuration: TimeInterval
+    private let verificationSessionTimeoutDuration: TimeInterval
     private let verificationStatusPollInterval: TimeInterval
     private let verificationStatusPollWindow: TimeInterval
     private static func reflectedString(_ value: Any, key: String) -> String? {
@@ -305,13 +305,13 @@ public final class SettingsStore: ObservableObject {
     init(
         daemonClient: DaemonClient? = nil,
         configPath: String? = nil,
-        verificationChallengeTimeoutDuration: TimeInterval = 12,
+        verificationSessionTimeoutDuration: TimeInterval = 12,
         verificationStatusPollInterval: TimeInterval = 2,
         verificationStatusPollWindow: TimeInterval = 600
     ) {
         self.daemonClient = daemonClient
         self.configPath = configPath
-        self.verificationChallengeTimeoutDuration = max(0.05, verificationChallengeTimeoutDuration)
+        self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
         self.verificationStatusPollWindow = max(self.verificationStatusPollInterval, verificationStatusPollWindow)
 
@@ -559,7 +559,7 @@ public final class SettingsStore: ObservableObject {
             guard let channel = self.resolveVerificationResponseChannel(response.channel) else { return }
             let isStatusPoll = response.success && response.secret == nil && response.instruction == nil && response.bound != true
             if !isStatusPoll {
-                self.clearVerificationChallengePending(for: channel)
+                self.clearVerificationSessionPending(for: channel)
             }
 
             switch channel {
@@ -1522,7 +1522,7 @@ public final class SettingsStore: ObservableObject {
         }
         do {
             guard let daemonClient else {
-                clearVerificationChallengePending(for: channel)
+                clearVerificationSessionPending(for: channel)
                 switch channel {
                 case "telegram":
                     telegramVerificationInProgress = false
@@ -1541,8 +1541,8 @@ public final class SettingsStore: ObservableObject {
                 }
                 return
             }
-            pendingVerificationChallengeChannel = channel
-            armVerificationChallengeTimeout(for: channel)
+            pendingVerificationSessionChannel = channel
+            armVerificationSessionTimeout(for: channel)
             try daemonClient.sendChannelVerificationSession(
                 action: "create_session",
                 channel: channel,
@@ -1550,7 +1550,7 @@ public final class SettingsStore: ObservableObject {
             )
         } catch {
             log.error("Failed to start \(channel) channel verification: \(error)")
-            clearVerificationChallengePending(for: channel)
+            clearVerificationSessionPending(for: channel)
             switch channel {
             case "telegram":
                 telegramVerificationInProgress = false
@@ -1570,9 +1570,9 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func cancelVerificationChallenge(channel: String) {
+    func cancelVerificationSession(channel: String) {
         stopVerificationStatusPolling(for: channel)
-        clearVerificationChallengePending(for: channel)
+        clearVerificationSessionPending(for: channel)
         switch channel {
         case "telegram":
             telegramVerificationInProgress = false
@@ -1589,11 +1589,11 @@ public final class SettingsStore: ObservableObject {
         default:
             break
         }
-        // Invalidate the pending challenge token on the backend so it can't be used after cancellation
+        // Invalidate the pending session on the backend so it can't be used after cancellation
         do {
             try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
         } catch {
-            log.error("Failed to revoke \(channel) verification challenge on cancel: \(error)")
+            log.error("Failed to revoke \(channel) verification session on cancel: \(error)")
         }
     }
 
@@ -2006,8 +2006,8 @@ public final class SettingsStore: ObservableObject {
         if let channel {
             return channel
         }
-        if let pendingVerificationChallengeChannel {
-            return pendingVerificationChallengeChannel
+        if let pendingVerificationSessionChannel {
+            return pendingVerificationSessionChannel
         }
         // Disambiguate when exactly one channel has verification in progress
         let inProgressChannels = [
@@ -2022,14 +2022,14 @@ public final class SettingsStore: ObservableObject {
         return nil
     }
 
-    private func clearVerificationChallengePending(for channel: String) {
-        if pendingVerificationChallengeChannel == channel {
-            pendingVerificationChallengeChannel = nil
-            verificationChallengeTimeoutWorkItem?.cancel()
-            verificationChallengeTimeoutWorkItem = nil
+    private func clearVerificationSessionPending(for channel: String) {
+        if pendingVerificationSessionChannel == channel {
+            pendingVerificationSessionChannel = nil
+            verificationSessionTimeoutWorkItem?.cancel()
+            verificationSessionTimeoutWorkItem = nil
         }
         // Clear stale instruction so the "Verify" button reappears
-        // when a challenge is no longer active (timeout, revoke, or error).
+        // when a session is no longer active (timeout, revoke, or error).
         switch channel {
         case "telegram":
             telegramVerificationInstruction = nil
@@ -2044,12 +2044,12 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    private func armVerificationChallengeTimeout(for channel: String) {
-        verificationChallengeTimeoutWorkItem?.cancel()
+    private func armVerificationSessionTimeout(for channel: String) {
+        verificationSessionTimeoutWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard self.pendingVerificationChallengeChannel == channel else { return }
-            self.pendingVerificationChallengeChannel = nil
+            guard self.pendingVerificationSessionChannel == channel else { return }
+            self.pendingVerificationSessionChannel = nil
             switch channel {
             case "telegram":
                 self.telegramVerificationInProgress = false
@@ -2079,8 +2079,8 @@ public final class SettingsStore: ObservableObject {
                 break
             }
         }
-        verificationChallengeTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + verificationChallengeTimeoutDuration, execute: workItem)
+        verificationSessionTimeoutWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + verificationSessionTimeoutDuration, execute: workItem)
     }
 
     private func startVerificationStatusPolling(for channel: String) {
