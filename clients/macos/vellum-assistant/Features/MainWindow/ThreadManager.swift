@@ -1130,9 +1130,9 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     internal func markConversationUnread(threadId: UUID) {
         guard let idx = threads.firstIndex(where: { $0.id == threadId }),
               let sessionId = threads[idx].sessionId,
-              !threads[idx].hasUnseenLatestAssistantMessage,
-              threads[idx].latestAssistantMessageAt != nil else { return }
+              canMarkConversationUnread(threadId: threadId, at: idx) else { return }
 
+        pendingSeenSessionIds.removeAll { $0 == sessionId }
         pendingAttentionOverrides[sessionId] = .unread(
             latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
         )
@@ -1670,12 +1670,17 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
         updateLastInteracted(threadId: threadId)
+        let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
+        // Keep the local attention timestamp current for live assistant replies
+        // so unread eligibility survives until the next session-list refresh.
+        if threads[index].latestAssistantMessageAt == nil || isNewMessage {
+            threads[index].latestAssistantMessageAt = Date()
+        }
         if threadId == activeThreadId {
             threads[index].hasUnseenLatestAssistantMessage = false
             // Only emit the IPC seen signal on meaningful transitions:
             // 1. A new assistant message appeared (different messageId)
             // 2. Streaming just completed (isStreaming went true -> false)
-            let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
             let streamingJustCompleted = previousSnapshot?.isStreaming == true && !currentSnapshot.isStreaming
             if isNewMessage || streamingJustCompleted {
                 if let sessionId = threads[index].sessionId {
@@ -1685,5 +1690,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         } else {
             threads[index].hasUnseenLatestAssistantMessage = true
         }
+    }
+
+    private func canMarkConversationUnread(threadId: UUID, at threadIndex: Int) -> Bool {
+        guard threads[threadIndex].sessionId != nil,
+              !threads[threadIndex].hasUnseenLatestAssistantMessage else { return false }
+        // Live assistant replies update the in-memory activity snapshot before
+        // session-list hydration backfills latestAssistantMessageAt.
+        return threads[threadIndex].latestAssistantMessageAt != nil
+            || latestAssistantActivitySnapshots[threadId] != nil
     }
 }
