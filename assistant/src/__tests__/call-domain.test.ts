@@ -119,6 +119,9 @@ mock.module("../calls/twilio-provider.js", () => ({
         throw new Error("Twilio unavailable");
       return { callSid: "CA_test_123" };
     }
+    async endCall() {
+      return;
+    }
   },
 }));
 
@@ -186,9 +189,19 @@ mock.module("../daemon/handlers/config-ingress.js", () => ({
     twilioReconcileCalls.push(publicBaseUrl);
     return twilioReconcileResult;
   },
+  syncTwilioWebhooks: async () => ({ success: true }),
 }));
 
-import { resolveCallerIdentity, startCall } from "../calls/call-domain.js";
+import {
+  clearActiveCallLeases,
+  getActiveCallLease,
+  listActiveCallLeases,
+} from "../calls/active-call-lease.js";
+import {
+  cancelCall,
+  resolveCallerIdentity,
+  startCall,
+} from "../calls/call-domain.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getMessages } from "../memory/conversation-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
@@ -198,6 +211,7 @@ initializeDb();
 
 beforeEach(() => {
   resetTables();
+  clearActiveCallLeases();
   twilioInitiateCallBehavior = "success";
   twilioInitiateCallCount = 0;
   twilioInitiateCallArgs = [];
@@ -414,6 +428,13 @@ describe("startCall — pointer message regression", () => {
       },
     ]);
     expect(twilioReconcileCalls).toEqual(["https://test.example.com"]);
+    if (result.ok) {
+      expect(getActiveCallLease(result.session.id)).toEqual({
+        callSessionId: result.session.id,
+        providerCallSid: "CA_test_123",
+        updatedAt: expect.any(Number),
+      });
+    }
     // Allow async pointer write to flush
     await new Promise((r) => setTimeout(r, 50));
 
@@ -531,6 +552,7 @@ describe("startCall — pointer message regression", () => {
 
     expect(result.ok).toBe(false);
     expect(twilioInitiateCallCount).toBe(1);
+    expect(listActiveCallLeases()).toHaveLength(0);
     // Allow async pointer write to flush
     await new Promise((r) => setTimeout(r, 50));
 
@@ -538,5 +560,31 @@ describe("startCall — pointer message regression", () => {
     expect(text).not.toBeNull();
     expect(text!).toContain("+15559876543");
     expect(text!).toContain("failed");
+  });
+
+  test("canceling an active call releases its persisted keepalive lease", async () => {
+    const convId = "conv-domain-cancel-releases-lease";
+    ensureConversation(convId);
+
+    const startResult = await startCall({
+      phoneNumber: "+15559876543",
+      task: "Test call",
+      conversationId: convId,
+    });
+
+    expect(startResult.ok).toBe(true);
+    if (!startResult.ok) {
+      return;
+    }
+
+    expect(getActiveCallLease(startResult.session.id)).not.toBeNull();
+
+    const cancelResult = await cancelCall({
+      callSessionId: startResult.session.id,
+      reason: "User requested",
+    });
+
+    expect(cancelResult.ok).toBe(true);
+    expect(getActiveCallLease(startResult.session.id)).toBeNull();
   });
 });

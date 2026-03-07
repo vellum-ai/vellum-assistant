@@ -9,6 +9,7 @@ import {
 } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
 import { cast, createRowMapper } from "../util/row-mapper.js";
+import { syncActiveCallLeaseFromSession } from "./active-call-lease.js";
 import { validateTransition } from "./call-state-machine.js";
 import type {
   CallEvent,
@@ -170,6 +171,9 @@ export function updateCallSession(
   >,
 ): void {
   const db = getDb();
+  const shouldSyncActiveLease =
+    Object.prototype.hasOwnProperty.call(updates, "providerCallSid") ||
+    Object.prototype.hasOwnProperty.call(updates, "status");
 
   // Validate status transition when a new status is provided
   if (updates.status) {
@@ -198,6 +202,10 @@ export function updateCallSession(
     .set({ ...updates, updatedAt: Date.now() })
     .where(eq(callSessions.id, id))
     .run();
+
+  if (shouldSyncActiveLease) {
+    syncActiveCallLeaseFromSession(getCallSession(id));
+  }
 }
 
 // ── Recovery queries ─────────────────────────────────────────────────

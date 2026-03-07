@@ -262,6 +262,53 @@ mock.module("../calls/twilio-rest.js", () => ({
   },
 }));
 
+mock.module("../daemon/handlers/config-ingress.js", () => ({
+  triggerGatewayTwilioReconcile: async (
+    ingressPublicBaseUrl: string | undefined,
+  ) => {
+    reconcileCalls.push({
+      url: `${mockGatewayInternalBaseUrl}/internal/twilio/reconcile`,
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${mockMintedToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ingressPublicBaseUrl: ingressPublicBaseUrl ?? "",
+      }),
+    });
+
+    if (reconcileShouldFail) {
+      return {
+        ok: false,
+        error:
+          "Gateway Twilio state reconcile failed: ECONNREFUSED: gateway unavailable",
+      };
+    }
+
+    return { ok: true, status: 200 };
+  },
+  syncTwilioWebhooks: async (
+    phoneNumber: string,
+    accountSid: string,
+    authToken: string,
+    ingressConfig: unknown,
+  ) => {
+    const baseUrl = resolveIngressBaseUrlFromConfig(ingressConfig);
+    updatePhoneNumberWebhookCalls.push({
+      accountSid,
+      authToken,
+      phoneNumber,
+      urls: {
+        voiceUrl: `${baseUrl}/webhooks/twilio/voice`,
+        statusCallbackUrl: `${baseUrl}/webhooks/twilio/status`,
+        smsUrl: `${baseUrl}/webhooks/twilio/sms`,
+      },
+    });
+    return { success: true };
+  },
+}));
+
 mock.module("../daemon/handlers/config-channels.js", () => ({
   getReadinessService: () => ({
     getReadiness: async () => [],
@@ -300,6 +347,11 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
 }));
 
+import {
+  clearActiveCallLeases,
+  listActiveCallLeases,
+  upsertActiveCallLease,
+} from "../calls/active-call-lease.js";
 import {
   registerCallCompletionNotifier,
   unregisterCallCompletionNotifier,
@@ -420,6 +472,7 @@ async function flushReconcileWork(): Promise<void> {
 describe("twilio webhook routes", () => {
   beforeEach(() => {
     resetTables();
+    clearActiveCallLeases();
     mockWssBaseUrl = "wss://test.example.com";
     mockWebhookBaseUrl = "https://test.example.com";
     mockIngressPublicBaseUrl = "https://ingress.example.com";
@@ -676,6 +729,10 @@ describe("twilio webhook routes", () => {
         "conv-status-complete-1",
         "CA_status_complete_1",
       );
+      upsertActiveCallLease({
+        callSessionId: session.id,
+        providerCallSid: "CA_status_complete_1",
+      });
       updateCallSession(session.id, {
         status: "in_progress",
         startedAt: Date.now() - 20_000,
@@ -703,6 +760,7 @@ describe("twilio webhook routes", () => {
       expect(updated).not.toBeNull();
       expect(updated!.status).toBe("completed");
       expect(updated!.endedAt).not.toBeNull();
+      expect(listActiveCallLeases()).toHaveLength(0);
       expect(fired).toBe(1);
 
       unregisterCallCompletionNotifier("conv-status-complete-1");
