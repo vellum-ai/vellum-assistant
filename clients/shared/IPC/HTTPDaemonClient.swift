@@ -947,6 +947,16 @@ public final class HTTPTransport {
         let prompts: [GuardianDecisionPromptWire]
     }
 
+    /// JSONSerialization cannot encode AnyCodable wrappers directly, so unwrap
+    /// them before inserting arbitrary payloads into request bodies.
+    private func jsonCompatibleDictionary(_ values: [String: AnyCodable]) -> [String: Any] {
+        var jsonCompatible: [String: Any] = [:]
+        for (key, value) in values {
+            jsonCompatible[key] = value.value
+        }
+        return jsonCompatible
+    }
+
     private func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsSeen) else { return }
 
@@ -969,7 +979,7 @@ public final class HTTPTransport {
             body["observedAt"] = observedAt
         }
         if let metadata = signal.metadata {
-            body["metadata"] = metadata
+            body["metadata"] = jsonCompatibleDictionary(metadata)
         }
 
         do {
@@ -1013,7 +1023,7 @@ public final class HTTPTransport {
             body["observedAt"] = observedAt
         }
         if let metadata = signal.metadata {
-            body["metadata"] = metadata
+            body["metadata"] = jsonCompatibleDictionary(metadata)
         }
 
         do {
@@ -1478,12 +1488,7 @@ public final class HTTPTransport {
             "actionId": action.actionId,
         ]
         if let data = action.data {
-            // Convert [String: AnyCodable] to [String: Any] for JSONSerialization
-            var dataDict: [String: Any] = [:]
-            for (key, value) in data {
-                dataDict[key] = value.value
-            }
-            body["data"] = dataDict
+            body["data"] = jsonCompatibleDictionary(data)
         }
 
         do {
