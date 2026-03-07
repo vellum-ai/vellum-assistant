@@ -276,7 +276,7 @@ graph TB
             SKILL_CATALOG["Skill Catalog<br/>bundled + managed + workspace + extra"]
             SKILL_MANIFEST["SKILL.md + TOOLS.json<br/>per-skill directory"]
             SKILL_PROJECTION["projectSkillTools()<br/>session-level projection"]
-            SKILL_DERIVE["deriveActiveSkillIds()<br/>scan &lt;loaded_skill&gt; markers"]
+            SKILL_DERIVE["deriveActiveSkills()<br/>scan &lt;loaded_skill&gt; markers"]
             SKILL_FACTORY["SkillToolFactory<br/>manifest → Tool objects"]
             SKILL_HOST_RUNNER["Host Script Runner<br/>in-process import + run()"]
             SKILL_SANDBOX_RUNNER["Sandbox Script Runner<br/>isolated subprocess"]
