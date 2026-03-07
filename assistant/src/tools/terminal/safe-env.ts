@@ -9,10 +9,6 @@ import {
   getGatewayInternalBaseUrl,
   getIngressPublicBaseUrl,
 } from "../../config/env.js";
-import {
-  isSigningKeyInitialized,
-  mintEdgeRelayToken,
-} from "../../runtime/auth/token-service.js";
 
 const SAFE_ENV_VARS = [
   "PATH",
@@ -49,11 +45,5 @@ export function buildSanitizedEnv(): Record<string, string> {
   // back to the internal base so commands remain functional in local-only mode.
   const publicGatewayBase = getIngressPublicBaseUrl()?.replace(/\/+$/, "");
   env.GATEWAY_BASE_URL = publicGatewayBase || internalGatewayBase;
-  // Mint a short-lived JWT for gateway authentication when the signing key
-  // is available (daemon context). CLI-only contexts without daemon startup
-  // will not have the key initialized — gracefully skip.
-  if (isSigningKeyInitialized()) {
-    env.GATEWAY_AUTH_TOKEN = mintEdgeRelayToken();
-  }
   return env;
 }
