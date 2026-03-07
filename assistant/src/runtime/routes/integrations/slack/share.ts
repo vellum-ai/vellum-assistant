@@ -5,19 +5,19 @@
  * without going through the legacy IPC-based Slack share flow.
  */
 
-import { getApp } from "../../memory/app-store.js";
+import { getApp } from "../../../../memory/app-store.js";
 import {
   listConversations,
   postMessage,
   userInfo,
-} from "../../messaging/providers/slack/client.js";
-import type { SlackConversation } from "../../messaging/providers/slack/types.js";
-import { getSecureKey } from "../../security/secure-keys.js";
-import { getLogger } from "../../util/logger.js";
-import { httpError } from "../http-errors.js";
-import type { RouteDefinition } from "../http-router.js";
+} from "../../../../messaging/providers/slack/client.js";
+import type { SlackConversation } from "../../../../messaging/providers/slack/types.js";
+import { getSecureKey } from "../../../../security/secure-keys.js";
+import { getLogger } from "../../../../util/logger.js";
+import { httpError } from "../../http-errors.js";
+import type { RouteDefinition } from "../../http-router.js";
 
-const log = getLogger("slack-share-routes");
+const log = getLogger("slack-share");
 
 // ---------------------------------------------------------------------------
 // Shared helpers

@@ -122,6 +122,7 @@ import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
 import { integrationRouteDefinitions } from "./routes/integration-routes.js";
+import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
@@ -131,7 +132,6 @@ import {
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
-import { slackShareRouteDefinitions } from "./routes/slack-share-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
