@@ -1,4 +1,4 @@
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
@@ -87,7 +87,6 @@ export async function handleMemorySave(
         and(
           eq(memoryItems.fingerprint, fingerprint),
           eq(memoryItems.scopeId, scopeId),
-          ne(memoryItems.status, "deleted"),
         ),
       )
       .get();
@@ -209,7 +208,6 @@ export async function handleMemoryUpdate(
         and(
           eq(memoryItems.fingerprint, fingerprint),
           eq(memoryItems.scopeId, scopeId),
-          ne(memoryItems.status, "deleted"),
         ),
       )
       .get();
