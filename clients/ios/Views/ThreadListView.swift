@@ -211,6 +211,12 @@ struct ThreadListView: View {
                 store.markConversationSeenIfNeeded(threadId: threadId)
                 store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
             }
+            .onChange(of: thread.hasUnseenLatestAssistantMessage) { _, hasUnseen in
+                guard hasUnseen else { return }
+                // The detail view can stay mounted across reconnects, so re-run
+                // the explicit seen path when the visible thread flips unread.
+                store.markConversationSeenIfNeeded(threadId: threadId)
+            }
             .onOpenURL { _ in
                 DispatchQueue.main.async {
                     store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
