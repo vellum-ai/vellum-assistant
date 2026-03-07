@@ -363,13 +363,9 @@ async function buildCommandCandidates(
       targets.push("");
     } else {
       const resolved = resolveSkillIdAndHash(rawSelector);
-      if (resolved) {
+      if (resolved && resolved.versionHash) {
         // Version-specific candidate lets rules pin to an exact skill version
-        if (resolved.versionHash) {
-          targets.push(`${resolved.id}@${resolved.versionHash}`);
-        }
-        // Bare skill id candidate for backward compat / any-version rules
-        targets.push(resolved.id);
+        targets.push(`${resolved.id}@${resolved.versionHash}`);
       }
       targets.push(rawSelector);
     }
@@ -1025,12 +1021,11 @@ function skillLoadAllowlistStrategy(
         },
       ];
     }
-    const id = resolved ? resolved.id : rawSelector;
     return [
       {
-        label: id,
+        label: rawSelector,
         description: "This skill",
-        pattern: `skill_load:${id}`,
+        pattern: `skill_load:${rawSelector}`,
       },
     ];
   }
