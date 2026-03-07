@@ -359,67 +359,6 @@ describe("gateway-only ingress enforcement", () => {
     });
   });
 
-  // ── SMS-specific direct webhook routes blocked ──────────────────────
-
-  describe("SMS webhook routes are blocked at the runtime (gateway-only)", () => {
-    test("POST /webhooks/twilio/sms returns 410 (cannot bypass gateway)", async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/webhooks/twilio/sms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: makeFormBody({
-          Body: "hello",
-          From: "+15551234567",
-          To: "+15559876543",
-          MessageSid: "SM123",
-        }),
-      });
-      expect(res.status).toBe(410);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("GONE");
-      expect(body.error.message).toContain("Direct webhook access disabled");
-    });
-
-    test("POST /v1/calls/twilio/sms returns 410 (legacy path also blocked)", async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/v1/calls/twilio/sms`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: makeFormBody({
-          Body: "hello",
-          From: "+15551234567",
-          MessageSid: "SM456",
-        }),
-      });
-      expect(res.status).toBe(410);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("GONE");
-    });
-
-    test("POST /webhooks/twilio/sms with valid auth still returns 410 (auth does not bypass gateway-only)", async () => {
-      const res = await fetch(`http://127.0.0.1:${port}/webhooks/twilio/sms`, {
-        method: "POST",
-        headers: {
-          ...AUTH_HEADERS,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: makeFormBody({
-          Body: "sneaky",
-          From: "+15551234567",
-          MessageSid: "SM789",
-        }),
-      });
-      // The gateway-only guard runs before auth for Twilio webhook paths
-      expect(res.status).toBe(410);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("GONE");
-    });
-  });
-
   // ── Internal forwarding routes still work ─────
 
   describe("internal forwarding routes are not blocked", () => {

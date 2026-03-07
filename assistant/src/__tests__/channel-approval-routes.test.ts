@@ -217,9 +217,9 @@ function ensureTestContact(): void {
         policy: "allow",
       },
       {
-        type: "sms",
-        address: "sms-user-default",
-        externalUserId: "sms-user-default",
+        type: "slack",
+        address: "slack-user-default",
+        externalUserId: "slack-user-default",
         status: "active",
         policy: "allow",
       },
@@ -887,27 +887,27 @@ describe("stale callback handling", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 15. SMS channel approval decisions
+// 15. Plain-text channel approval decisions (telegram)
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("SMS channel approval decisions", () => {
+describe("plain-text channel approval decisions", () => {
   beforeEach(() => {
     createGuardianBinding({
-      channel: "sms",
-      guardianExternalUserId: "sms-user-default",
-      guardianDeliveryChatId: "sms-chat-123",
-      guardianPrincipalId: "sms-user-default",
+      channel: "telegram",
+      guardianExternalUserId: "telegram-user-default",
+      guardianDeliveryChatId: "chat-123",
+      guardianPrincipalId: "telegram-user-default",
     });
   });
 
-  function makeSmsInboundRequest(
+  function makePlainTextInboundRequest(
     overrides: Record<string, unknown> = {},
   ): Request {
     const body = {
-      sourceChannel: "sms",
-      interface: "sms",
-      conversationExternalId: "sms-chat-123",
-      actorExternalId: "sms-user-default",
+      sourceChannel: "telegram",
+      interface: "telegram",
+      conversationExternalId: "chat-123",
+      actorExternalId: "telegram-user-default",
       externalMessageId: `msg-${Date.now()}-${Math.random()}`,
       content: "hello",
       replyCallbackUrl: "https://gateway.test/deliver",
@@ -922,14 +922,14 @@ describe("SMS channel approval decisions", () => {
     });
   }
 
-  test('plain-text "yes" via SMS triggers approve_once decision', async () => {
+  test('plain-text "yes" triggers approve_once decision', async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
     ).mockResolvedValue({ ok: true });
 
-    // Establish the conversation via SMS
-    const initReq = makeSmsInboundRequest({ content: "init" });
+    // Establish the conversation
+    const initReq = makePlainTextInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
@@ -940,29 +940,29 @@ describe("SMS channel approval decisions", () => {
     ensureConversation(conversationId!);
 
     const sessionMock = registerPendingInteraction(
-      "req-sms-1",
+      "req-pt-1",
       conversationId!,
       "shell",
     );
 
-    const req = makeSmsInboundRequest({ content: "yes" });
+    const req = makePlainTextInboundRequest({ content: "yes" });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-sms-1", "allow");
+    expect(sessionMock).toHaveBeenCalledWith("req-pt-1", "allow");
 
     deliverSpy.mockRestore();
   });
 
-  test('plain-text "no" via SMS triggers reject decision', async () => {
+  test('plain-text "no" triggers reject decision', async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
     ).mockResolvedValue({ ok: true });
 
-    const initReq = makeSmsInboundRequest({ content: "init" });
+    const initReq = makePlainTextInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
@@ -973,23 +973,23 @@ describe("SMS channel approval decisions", () => {
     ensureConversation(conversationId!);
 
     const sessionMock = registerPendingInteraction(
-      "req-sms-2",
+      "req-pt-2",
       conversationId!,
       "shell",
     );
 
-    const req = makeSmsInboundRequest({ content: "no" });
+    const req = makePlainTextInboundRequest({ content: "no" });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-sms-2", "deny");
+    expect(sessionMock).toHaveBeenCalledWith("req-pt-2", "deny");
 
     deliverSpy.mockRestore();
   });
 
-  test("non-decision SMS message during pending approval sends status reply", async () => {
+  test("non-decision message during pending approval sends status reply", async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
@@ -999,7 +999,7 @@ describe("SMS channel approval decisions", () => {
       "deliverApprovalPrompt",
     ).mockResolvedValue(undefined);
 
-    const initReq = makeSmsInboundRequest({ content: "init" });
+    const initReq = makePlainTextInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
 
     const db = getDb();
@@ -1009,22 +1009,22 @@ describe("SMS channel approval decisions", () => {
     const conversationId = events[events.length - 1]?.conversation_id;
     ensureConversation(conversationId!);
 
-    registerPendingInteraction("req-sms-3", conversationId!, "shell");
+    registerPendingInteraction("req-pt-3", conversationId!, "shell");
 
-    const req = makeSmsInboundRequest({ content: "what is happening?" });
+    const req = makePlainTextInboundRequest({ content: "what is happening?" });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(body.accepted).toBe(true);
     expect(body.approval).toBe("assistant_turn");
 
-    // SMS non-decision: status reply delivered via plain text
+    // Non-decision: status reply delivered via plain text
     expect(deliverSpy).toHaveBeenCalled();
     expect(approvalSpy).not.toHaveBeenCalled();
     const statusCall = deliverSpy.mock.calls.find(
       (call) =>
         typeof call[1] === "object" &&
-        (call[1] as { chatId?: string }).chatId === "sms-chat-123",
+        (call[1] as { chatId?: string }).chatId === "chat-123",
     );
     expect(statusCall).toBeDefined();
     const statusPayload = statusCall![1] as {
@@ -2784,23 +2784,23 @@ describe("non-decision status reply for different channels", () => {
       guardianPrincipalId: "telegram-user-default",
     });
     createGuardianBinding({
-      channel: "sms",
+      channel: "slack",
       guardianExternalUserId: "telegram-user-default",
       guardianDeliveryChatId: "chat-123",
       guardianPrincipalId: "telegram-user-default",
     });
   });
 
-  test("non-decision message on non-rich channel (sms) sends status reply", async () => {
+  test("non-decision message on slack sends status reply", async () => {
     const deliverSpy = spyOn(
       gatewayClient,
       "deliverChannelReply",
     ).mockResolvedValue({ ok: true });
 
-    // Establish the conversation using sms (non-rich channel)
+    // Establish the conversation using slack
     const initReq = makeInboundRequest({
       content: "init",
-      sourceChannel: "sms",
+      sourceChannel: "slack",
     });
     await handleChannelInbound(initReq, noopProcessMessage);
 
@@ -2811,12 +2811,12 @@ describe("non-decision status reply for different channels", () => {
     const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    registerPendingInteraction("req-status-sms", conversationId!, "shell");
+    registerPendingInteraction("req-status-slack", conversationId!, "shell");
 
     // Send a non-decision message
     const req = makeInboundRequest({
       content: "what is happening?",
-      sourceChannel: "sms",
+      sourceChannel: "slack",
     });
     const res = await handleChannelInbound(req, noopProcessMessage);
     const body = (await res.json()) as Record<string, unknown>;

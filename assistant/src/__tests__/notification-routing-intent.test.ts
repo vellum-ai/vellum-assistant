@@ -158,11 +158,7 @@ describe("routing intent enforcement", () => {
 
     test("does not expand to all channels when 3+ are connected", () => {
       const decision = makeDecision({ selectedChannels: ["telegram"] });
-      const connected: NotificationChannel[] = [
-        "vellum",
-        "telegram",
-        "telegram",
-      ];
+      const connected: NotificationChannel[] = ["vellum", "telegram", "slack"];
 
       const enforced = enforceRoutingIntent(
         decision,
@@ -171,7 +167,7 @@ describe("routing intent enforcement", () => {
       );
 
       expect(enforced.selectedChannels).toEqual(["telegram", "vellum"]);
-      expect(enforced.selectedChannels).not.toContain("telegram");
+      expect(enforced.selectedChannels).not.toContain("slack");
     });
 
     test("does not override when LLM already picked 2+ channels", () => {
