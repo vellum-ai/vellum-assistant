@@ -55,8 +55,12 @@ function parseArgs(): ParsedArgs {
       );
       process.exit(1);
     }
-  } else if (process.env.RUNTIME_URL) {
-    // Explicit env var — skip assistant resolution, will use env values below
+  } else if (
+    process.env.RUNTIME_URL ||
+    flagArgs.includes("--url") ||
+    flagArgs.includes("-u")
+  ) {
+    // Explicit URL provided via env var or flag — skip assistant resolution
     entry = loadLatestAssistant();
   } else {
     const active = getActiveAssistant();
