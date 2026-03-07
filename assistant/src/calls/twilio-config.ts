@@ -46,7 +46,7 @@ export function resolveTwilioPhoneNumber(): string {
 export function getTwilioConfig(): TwilioConfig {
   const config = loadConfig();
   const accountSid = config.twilio?.accountSid || "";
-  const authToken = getSecureKey("credential:twilio:auth_token");
+  const authToken = config.twilio?.authToken || "";
   const phoneNumber = resolveTwilioPhoneNumber();
   const webhookBaseUrl = getPublicBaseUrl(config);
 
@@ -59,7 +59,7 @@ export function getTwilioConfig(): TwilioConfig {
 
   if (!accountSid || !authToken) {
     throw new ConfigError(
-      "Twilio credentials not configured. Set twilio.accountSid via config and twilio:auth_token via the credential_store tool.",
+      "Twilio credentials not configured. Set twilio.accountSid and twilio.authToken via config.",
     );
   }
   if (!phoneNumber) {
