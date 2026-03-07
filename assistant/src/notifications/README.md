@@ -90,7 +90,7 @@ Each policy defines:
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | `start_new_conversation`         | Creates a fresh conversation per delivery. The thread is surfaced via IPC.                                                                                                                                                                   | `vellum`                                 |
 | `continue_existing_conversation` | Looks up a previously bound conversation by binding key (sourceChannel + externalChatId) and appends to it. When no bound conversation exists (first delivery to a destination), creates a new one and upserts the binding for future reuse. | `telegram`, `whatsapp`, `slack`, `email` |
-| `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                                                                                                              | `voice`                                  |
+| `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                                                                                                              | `phone`                                  |
 
 ### Helper Functions
 
