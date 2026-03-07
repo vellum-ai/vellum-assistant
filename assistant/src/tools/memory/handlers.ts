@@ -475,6 +475,13 @@ export async function handleMemoryDelete(
       };
     }
 
+    if (existing.status === "deleted") {
+      return {
+        content: `Memory item (ID: ${memoryId}) was already deleted.`,
+        isError: false,
+      };
+    }
+
     db.update(memoryItems)
       .set({
         status: "deleted",
