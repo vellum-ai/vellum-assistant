@@ -13,6 +13,7 @@ const AMAZON_CLI_PATH = join(
   import.meta.dirname ?? __dirname,
   "..",
   "cli",
+  "commands",
   "amazon.ts",
 );
 const amazonSource = readFileSync(AMAZON_CLI_PATH, "utf-8");
