@@ -1024,6 +1024,22 @@ exports[`IPC message snapshots ClientMessage types conversation_seen_signal seri
 }
 `;
 
+exports[`IPC message snapshots ClientMessage types conversation_unread_signal serializes to expected JSON 1`] = `
+{
+  "confidence": "explicit",
+  "conversationId": "conv-001",
+  "evidenceText": "User selected Mark as unread",
+  "metadata": {
+    "trigger": "context-menu",
+  },
+  "observedAt": 1700000000000,
+  "signalType": "macos_conversation_opened",
+  "source": "ui-navigation",
+  "sourceChannel": "vellum",
+  "type": "conversation_unread_signal",
+}
+`;
+
 exports[`IPC message snapshots ClientMessage types recording_status serializes to expected JSON 1`] = `
 {
   "sessionId": "rec-001",

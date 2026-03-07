@@ -258,6 +258,7 @@ mock.module("../memory/conversation-attention-store.js", () => ({
   getAttentionStateByConversationIds: () => new Map(),
   recordAttentionSignal: () => {},
   recordConversationSeenSignal: () => {},
+  markConversationUnread: () => {},
 }));
 
 mock.module("../memory/canonical-guardian-store.js", () => ({

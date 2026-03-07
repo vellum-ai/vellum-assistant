@@ -1145,6 +1145,31 @@ public struct IPCConversationSeenSignal: Codable, Sendable {
     }
 }
 
+/// Client signal indicating the user wants a conversation marked unread again.
+public struct IPCConversationUnreadSignal: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let sourceChannel: String
+    public let signalType: String
+    public let confidence: String
+    public let source: String
+    public let evidenceText: String?
+    public let observedAt: Int?
+    public let metadata: [String: AnyCodable]?
+
+    public init(type: String, conversationId: String, sourceChannel: String, signalType: String, confidence: String, source: String, evidenceText: String? = nil, observedAt: Int? = nil, metadata: [String: AnyCodable]? = nil) {
+        self.type = type
+        self.conversationId = conversationId
+        self.sourceChannel = sourceChannel
+        self.signalType = signalType
+        self.confidence = confidence
+        self.source = source
+        self.evidenceText = evidenceText
+        self.observedAt = observedAt
+        self.metadata = metadata
+    }
+}
+
 public struct IPCCuAction: Codable, Sendable {
     public let type: String
     public let sessionId: String

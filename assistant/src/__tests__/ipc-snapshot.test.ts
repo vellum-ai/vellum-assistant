@@ -632,6 +632,17 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
     observedAt: 1700000000000,
     metadata: { notificationCategory: "NOTIFICATION_INTENT" },
   },
+  conversation_unread_signal: {
+    type: "conversation_unread_signal",
+    conversationId: "conv-001",
+    sourceChannel: "vellum",
+    signalType: "macos_conversation_opened",
+    confidence: "explicit",
+    source: "ui-navigation",
+    evidenceText: "User selected Mark as unread",
+    observedAt: 1700000000000,
+    metadata: { trigger: "context-menu" },
+  },
   recording_status: {
     type: "recording_status",
     sessionId: "rec-001",
