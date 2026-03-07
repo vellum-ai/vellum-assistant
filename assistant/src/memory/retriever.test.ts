@@ -94,6 +94,7 @@ import {
   _resetQdrantBreaker,
   isQdrantBreakerOpen,
 } from "../memory/qdrant-circuit-breaker.js";
+import { bumpMemoryVersion } from "../memory/recall-cache.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
 import {
   conversations,
@@ -287,6 +288,7 @@ describe("Memory Retriever Degradation", () => {
     db.run("DELETE FROM conversations");
     _resetQdrantBreaker();
     clearEmbeddingBackendCache();
+    bumpMemoryVersion();
   });
 
   afterAll(() => {
@@ -603,16 +605,13 @@ describe("Memory Retriever Degradation", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Embedding generation failure
+  // Local embedding stub end-to-end
   // -----------------------------------------------------------------------
 
-  test("embedding generation failure: degrades gracefully with structured status", async () => {
+  test("local embedding stub: pipeline completes non-degraded with zero-vector embeddings", async () => {
     seedMemory();
 
-    // Config with a provider that will be available but the embed call will
-    // throw — simulates transient API failure. We use a config where
-    // embeddings.required=false so retrieval continues with lexical fallback.
-    const failingEmbedConfig: AssistantConfig = {
+    const localEmbedConfig: AssistantConfig = {
       ...TEST_CONFIG,
       memory: {
         ...TEST_CONFIG.memory,
@@ -624,66 +623,85 @@ describe("Memory Retriever Degradation", () => {
       },
     };
 
-    // The local stub returns zero vectors which is fine for the pipeline.
-    // The degradation path we want to test here is when no provider is
-    // configured at all — use a simulated missing-provider config.
     const result = await buildMemoryRecall(
       "API design",
       "conv-degrade-test",
-      failingEmbedConfig,
+      localEmbedConfig,
     );
 
-    // Even with a local stub that returns zeros, the pipeline proceeds
-    // non-degraded since embedding "succeeded". This verifies the
-    // non-degraded path works end-to-end with the local stub.
+    // The local stub returns zero vectors — embedding "succeeds" so the
+    // pipeline proceeds non-degraded end-to-end.
     expect(result.enabled).toBe(true);
+    expect(result.degraded).toBe(false);
     expect(result.selectedCount).toBeGreaterThan(0);
   });
 
   // -----------------------------------------------------------------------
-  // Non-degraded results are not cached as degraded
+  // Degraded results bypass the recall cache
   // -----------------------------------------------------------------------
 
   test("degraded results are not cached", async () => {
     seedMemory();
 
-    const noEmbedConfig: AssistantConfig = {
+    // Trip the circuit breaker so semantic search fails
+    const { withQdrantBreaker } =
+      await import("../memory/qdrant-circuit-breaker.js");
+    for (let i = 0; i < 5; i++) {
+      try {
+        await withQdrantBreaker(async () => {
+          throw new Error("simulated qdrant failure");
+        });
+      } catch {
+        // expected
+      }
+    }
+    expect(isQdrantBreakerOpen()).toBe(true);
+
+    // Disable early termination so semantic search is attempted and fails,
+    // which sets semanticSearchFailed=true → result.degraded=true.
+    const degradedConfig: AssistantConfig = {
       ...TEST_CONFIG,
-      apiKeys: {
-        ...TEST_CONFIG.apiKeys,
-        openai: "",
-        gemini: "",
-        ollama: "",
-      },
       memory: {
         ...TEST_CONFIG.memory,
-        embeddings: {
-          ...TEST_CONFIG.memory.embeddings,
-          provider: "openai",
-          required: false,
+        retrieval: {
+          ...TEST_CONFIG.memory.retrieval,
+          earlyTermination: {
+            ...TEST_CONFIG.memory.retrieval.earlyTermination,
+            enabled: false,
+          },
         },
       },
     };
 
-    // First call — degraded (no embedding provider)
     const first = await buildMemoryRecall(
       "API design cache test",
       "conv-degrade-test",
-      noEmbedConfig,
+      degradedConfig,
     );
-    expect(first.semanticHits).toBe(0);
+    expect(first.degraded).toBe(true);
+    expect(first.selectedCount).toBeGreaterThan(0);
 
-    // Second call with same query — should NOT be served from cache
-    // because degraded results are not cached. The latencyMs should
-    // reflect a fresh retrieval, not a cache hit.
+    // Second call with same inputs — should NOT be served from cache.
+    // If the degraded result were incorrectly cached, this call would
+    // return instantly from cache. Instead it should re-execute the
+    // pipeline and produce a fresh degraded result.
     const second = await buildMemoryRecall(
       "API design cache test",
       "conv-degrade-test",
-      noEmbedConfig,
+      degradedConfig,
     );
-
-    // Both should return results (lexical fallback works)
-    expect(first.selectedCount).toBeGreaterThan(0);
+    expect(second.degraded).toBe(true);
     expect(second.selectedCount).toBeGreaterThan(0);
+
+    // Verify the cache is empty for this query by resetting the breaker
+    // and calling again — a non-degraded result should come back (proving
+    // the degraded result was never cached).
+    _resetQdrantBreaker();
+    const recovered = await buildMemoryRecall(
+      "API design cache test",
+      "conv-degrade-test",
+      degradedConfig,
+    );
+    expect(recovered.degraded).toBe(false);
   });
 });
