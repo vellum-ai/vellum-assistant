@@ -385,12 +385,15 @@ export class Session {
 
         try {
           // Resolve DB message rows so flush has real message IDs for
-          // deduplication and extraction. The compactable messages correspond
-          // to DB rows starting after the already-compacted count.
+          // deduplication and extraction. Flush all uncompacted rows rather
+          // than slicing by in-memory count, because repairHistory() can merge
+          // consecutive same-role messages making the in-memory count smaller
+          // than the DB row count. Over-fetching is safe — isAlreadyExtracted
+          // deduplicates.
           const dbMessages = conversationStore.getMessages(this.conversationId);
           const compactedCount = this.contextCompactedMessageCount;
           let flushMessages = dbMessages
-            .slice(compactedCount, compactedCount + messages.length)
+            .slice(compactedCount)
             .map((row) => ({ id: row.id, role: row.role }));
 
           // Take the most recent N messages — older messages are more likely
