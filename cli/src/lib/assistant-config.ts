@@ -16,10 +16,7 @@ import { probePort } from "./port-probe.js";
  */
 export interface LocalInstanceResources {
   /**
-   * Instance-specific data root. The first local assistant uses `~` (workspace
-   * at `~/.vellum`); subsequent assistants use
-   * `~/.local/share/vellum/assistants/<name>/` (workspace at
-   * `~/.local/share/vellum/assistants/<name>/.vellum`).
+   * Instance-specific data root at `~/.local/share/vellum/assistants/<name>/`.
    * The daemon's `.vellum/` directory lives inside it.
    */
   instanceDir: string;
