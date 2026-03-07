@@ -17,7 +17,7 @@ import {
 import {
   mergeToolResults,
   renderHistoryContent,
-} from "../../daemon/handlers.js";
+} from "../../daemon/handlers/shared.js";
 import type { ServerMessage } from "../../daemon/ipc-protocol.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {

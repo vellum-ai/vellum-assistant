@@ -149,8 +149,8 @@ let _fetchMock: ((url: string | URL | Request) => Promise<Response>) | null =
   null;
 const originalFetch = globalThis.fetch;
 
-import type { HandlerContext } from "../daemon/handlers.js";
 import { handleTelegramConfig } from "../daemon/handlers/config.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ServerMessage,
   TelegramConfigRequest,

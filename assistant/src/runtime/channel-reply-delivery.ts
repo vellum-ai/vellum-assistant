@@ -1,4 +1,4 @@
-import { renderHistoryContent } from "../daemon/handlers.js";
+import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import * as conversationStore from "../memory/conversation-store.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
