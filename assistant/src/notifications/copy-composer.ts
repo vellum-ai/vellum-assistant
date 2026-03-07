@@ -82,7 +82,7 @@ export function buildAccessRequestIdentityLine(
       : undefined,
   );
 
-  if (sourceChannel === "voice" && callerName) {
+  if (sourceChannel === "phone" && callerName) {
     const safeName = sanitizeIdentityField(callerName);
     const safeId = sanitizeIdentityField(
       str(payload.actorExternalId, requester),

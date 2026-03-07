@@ -113,28 +113,28 @@ describe("ChannelReadinessService", () => {
   });
 
   test("local checks run on every call (no caching of local results)", async () => {
-    const probe = makeProbe("voice", [
+    const probe = makeProbe("phone", [
       { name: "creds", passed: true, message: "ok" },
     ]);
     service.registerProbe(probe);
 
-    await service.getReadiness("voice");
-    await service.getReadiness("voice");
+    await service.getReadiness("phone");
+    await service.getReadiness("phone");
 
     expect(probe.localCallCount).toBe(2);
   });
 
   test("cache miss runs local checks and returns snapshot", async () => {
-    const probe = makeProbe("voice", [
+    const probe = makeProbe("phone", [
       { name: "creds", passed: true, message: "ok" },
       { name: "phone", passed: false, message: "missing" },
     ]);
     service.registerProbe(probe);
 
-    const [snapshot] = await service.getReadiness("voice");
+    const [snapshot] = await service.getReadiness("phone");
 
     expect(probe.localCallCount).toBe(1);
-    expect(snapshot.channel).toBe("voice");
+    expect(snapshot.channel).toBe("phone");
     expect(snapshot.ready).toBe(false);
     expect(snapshot.localChecks).toHaveLength(2);
     expect(snapshot.reasons).toEqual([{ code: "phone", text: "missing" }]);
@@ -142,13 +142,13 @@ describe("ChannelReadinessService", () => {
 
   test("includeRemote=true runs remote checks on cache miss", async () => {
     const probe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api_check", passed: true, message: "remote ok" }],
     );
     service.registerProbe(probe);
 
-    const [snapshot] = await service.getReadiness("voice", true);
+    const [snapshot] = await service.getReadiness("phone", true);
 
     expect(probe.remoteCallCount).toBe(1);
     expect(snapshot.remoteChecks).toHaveLength(1);
@@ -157,32 +157,32 @@ describe("ChannelReadinessService", () => {
 
   test("cached remote checks reused within TTL", async () => {
     const probe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api_check", passed: true, message: "remote ok" }],
     );
     service.registerProbe(probe);
 
     // First call populates cache
-    await service.getReadiness("voice", true);
+    await service.getReadiness("phone", true);
     expect(probe.remoteCallCount).toBe(1);
 
     // Second call within TTL should reuse cache
-    const [snapshot] = await service.getReadiness("voice", true);
+    const [snapshot] = await service.getReadiness("phone", true);
     expect(probe.remoteCallCount).toBe(1);
     expect(snapshot.remoteChecks).toHaveLength(1);
   });
 
   test("stale cache triggers remote check re-run", async () => {
     const probe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api_check", passed: true, message: "remote ok" }],
     );
     service.registerProbe(probe);
 
     // First call
-    await service.getReadiness("voice", true);
+    await service.getReadiness("phone", true);
     expect(probe.remoteCallCount).toBe(1);
 
     // Manually age the cached snapshot beyond TTL
@@ -190,35 +190,35 @@ describe("ChannelReadinessService", () => {
       service as unknown as {
         snapshots: Map<string, { checkedAt: number }>;
       }
-    ).snapshots.get("voice::__default__")!;
+    ).snapshots.get("phone::__default__")!;
     cached.checkedAt = Date.now() - REMOTE_TTL_MS - 1;
 
     // Second call should re-run remote checks
-    await service.getReadiness("voice", true);
+    await service.getReadiness("phone", true);
     expect(probe.remoteCallCount).toBe(2);
   });
 
   test("invalidateChannel clears cache for specific channel", async () => {
     const probe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api_check", passed: true, message: "remote ok" }],
     );
     service.registerProbe(probe);
 
-    await service.getReadiness("voice", true);
+    await service.getReadiness("phone", true);
     expect(probe.remoteCallCount).toBe(1);
 
-    service.invalidateChannel("voice");
+    service.invalidateChannel("phone");
 
     // After invalidation, remote checks should run again
-    await service.getReadiness("voice", true);
+    await service.getReadiness("phone", true);
     expect(probe.remoteCallCount).toBe(2);
   });
 
   test("invalidateAll clears all cached snapshots", async () => {
     const voiceProbe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api", passed: true, message: "ok" }],
     );
@@ -273,7 +273,7 @@ describe("ChannelReadinessService", () => {
 
   test("getReadiness with no channel returns all registered channels", async () => {
     service.registerProbe(
-      makeProbe("voice", [{ name: "a", passed: true, message: "ok" }]),
+      makeProbe("phone", [{ name: "a", passed: true, message: "ok" }]),
     );
     service.registerProbe(
       makeProbe("telegram", [{ name: "b", passed: true, message: "ok" }]),
@@ -283,43 +283,43 @@ describe("ChannelReadinessService", () => {
 
     expect(snapshots).toHaveLength(2);
     const channels = snapshots.map((s) => s.channel).sort();
-    expect(channels).toEqual(["telegram", "voice"]);
+    expect(channels).toEqual(["phone", "telegram"]);
   });
 
   test("cached remote checks preserve original checkedAt (TTL not reset on reuse)", async () => {
     const probe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api_check", passed: true, message: "remote ok" }],
     );
     service.registerProbe(probe);
 
     // First call populates cache with freshly fetched remote checks
-    const [first] = await service.getReadiness("voice", true);
+    const [first] = await service.getReadiness("phone", true);
     const originalCheckedAt = first.checkedAt;
     expect(probe.remoteCallCount).toBe(1);
 
     // Second call within TTL reuses cache — checkedAt must stay at the original value
-    const [second] = await service.getReadiness("voice", true);
+    const [second] = await service.getReadiness("phone", true);
     expect(probe.remoteCallCount).toBe(1);
     expect(second.checkedAt).toBe(originalCheckedAt);
   });
 
   test("includeRemote runs remote checks when cache exists without remote data", async () => {
     const probe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api_check", passed: true, message: "remote ok" }],
     );
     service.registerProbe(probe);
 
     // First call without includeRemote — cache has no remote data
-    await service.getReadiness("voice", false);
+    await service.getReadiness("phone", false);
     expect(probe.remoteCallCount).toBe(0);
 
     // Second call with includeRemote — should run remote checks even though
     // the cached snapshot exists (because it has no remoteChecks)
-    const [snapshot] = await service.getReadiness("voice", true);
+    const [snapshot] = await service.getReadiness("phone", true);
     expect(probe.remoteCallCount).toBe(1);
     expect(snapshot.remoteChecks).toHaveLength(1);
     expect(snapshot.remoteChecks![0].passed).toBe(true);
@@ -327,13 +327,13 @@ describe("ChannelReadinessService", () => {
 
   test("failed remote check makes channel not ready", async () => {
     const probe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api_check", passed: false, message: "API unreachable" }],
     );
     service.registerProbe(probe);
 
-    const [snapshot] = await service.getReadiness("voice", true);
+    const [snapshot] = await service.getReadiness("phone", true);
 
     expect(snapshot.ready).toBe(false);
     expect(snapshot.reasons).toEqual([
@@ -343,19 +343,19 @@ describe("ChannelReadinessService", () => {
 
   test("fresh cached remote failures do not affect local-only readiness", async () => {
     const probe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api_check", passed: false, message: "API unreachable" }],
     );
     service.registerProbe(probe);
 
     // Prime remote cache with a failing check
-    await service.getReadiness("voice", true);
+    await service.getReadiness("phone", true);
 
     // Immediately call with includeRemote=false (cache is still fresh within TTL).
     // The cached remote failure should be surfaced for visibility but must NOT
     // affect readiness when the caller explicitly opted out of remote checks.
-    const [snapshot] = await service.getReadiness("voice", false);
+    const [snapshot] = await service.getReadiness("phone", false);
     expect(snapshot.ready).toBe(true);
     expect(snapshot.reasons).toEqual([]);
     // Remote checks are still visible for informational purposes
@@ -365,25 +365,25 @@ describe("ChannelReadinessService", () => {
 
   test("stale cached remote failures do not affect local-only readiness", async () => {
     const probe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "creds", passed: true, message: "ok" }],
       [{ name: "api_check", passed: false, message: "API unreachable" }],
     );
     service.registerProbe(probe);
 
     // Prime remote cache with a failing check
-    await service.getReadiness("voice", true);
+    await service.getReadiness("phone", true);
 
     // Age snapshot beyond TTL so remote checks are stale
     const cached = (
       service as unknown as {
         snapshots: Map<string, { checkedAt: number }>;
       }
-    ).snapshots.get("voice::__default__")!;
+    ).snapshots.get("phone::__default__")!;
     cached.checkedAt = Date.now() - REMOTE_TTL_MS - 1;
 
     // Local-only call should not be blocked by stale remote failure
-    const [snapshot] = await service.getReadiness("voice", false);
+    const [snapshot] = await service.getReadiness("phone", false);
     expect(snapshot.stale).toBe(true);
     expect(snapshot.ready).toBe(true);
     expect(snapshot.reasons).toEqual([]);
@@ -391,15 +391,15 @@ describe("ChannelReadinessService", () => {
 
   test("remote cache uses fixed internal scope (no per-assistantId scoping)", async () => {
     const probe = makeProbe(
-      "voice",
+      "phone",
       [{ name: "local", passed: true, message: "ok" }],
       [{ name: "remote", passed: true, message: "ok" }],
     );
     service.registerProbe(probe);
 
     // All calls share the same cache key since there is no assistantId dimension
-    await service.getReadiness("voice", true);
-    await service.getReadiness("voice", true);
+    await service.getReadiness("phone", true);
+    await service.getReadiness("phone", true);
 
     expect(probe.remoteCallCount).toBe(1);
   });
@@ -432,7 +432,7 @@ describe("ChannelReadinessService", () => {
     >[number];
     try {
       const readinessService = createReadinessService();
-      [snapshot] = await readinessService.getReadiness("voice");
+      [snapshot] = await readinessService.getReadiness("phone");
     } finally {
       probeLocalGatewayHealthSpy.mockRestore();
     }

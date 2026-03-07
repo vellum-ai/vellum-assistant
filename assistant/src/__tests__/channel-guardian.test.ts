@@ -319,7 +319,7 @@ describe("guardian service challenge validation", () => {
   });
 
   test("createInboundVerificationSession produces a non-empty instruction for voice channel", () => {
-    const result = createInboundVerificationSession("voice");
+    const result = createInboundVerificationSession("phone");
     expect(result.instruction).toBeDefined();
     expect(result.instruction.length).toBeGreaterThan(0);
     expect(result.instruction).toContain(`the code: ${result.secret}`);
@@ -419,10 +419,10 @@ describe("guardian service challenge validation", () => {
   });
 
   test("validateAndConsumeVerification succeeds with voice channel", () => {
-    const { secret } = createInboundVerificationSession("voice");
+    const { secret } = createInboundVerificationSession("phone");
 
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "phone-user-1",
       "voice-chat-1",
@@ -435,13 +435,13 @@ describe("guardian service challenge validation", () => {
 
     // validateAndConsumeVerification no longer creates bindings — that is
     // now handled by the caller (verification-intercept / relay-server).
-    const binding = getGuardianBinding("asst-1", "voice");
+    const binding = getGuardianBinding("asst-1", "phone");
     expect(binding).toBeNull();
   });
 
   test("voice and telegram guardian challenges are independent", () => {
     const telegramChallenge = createInboundVerificationSession("telegram");
-    const voiceChallenge = createInboundVerificationSession("voice");
+    const voiceChallenge = createInboundVerificationSession("phone");
 
     // Validate voice challenge against telegram channel should fail
     const crossResult = validateAndConsumeVerification(
@@ -454,7 +454,7 @@ describe("guardian service challenge validation", () => {
 
     // Validate voice challenge against correct channel should succeed
     const voiceResult = validateAndConsumeVerification(
-      "voice",
+      "phone",
       voiceChallenge.secret,
       "user-1",
       "chat-1",
@@ -569,14 +569,14 @@ describe("guardian identity check", () => {
 
   test("isGuardian works for voice channel", () => {
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "phone-user-1",
       guardianPrincipalId: "phone-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    expect(isGuardian("asst-1", "voice", "phone-user-1")).toBe(true);
-    expect(isGuardian("asst-1", "voice", "phone-user-2")).toBe(false);
+    expect(isGuardian("asst-1", "phone", "phone-user-1")).toBe(true);
+    expect(isGuardian("asst-1", "phone", "phone-user-2")).toBe(false);
     // Telegram guardian should not match voice channel
     expect(isGuardian("asst-1", "telegram", "phone-user-1")).toBe(false);
   });
@@ -779,7 +779,7 @@ describe("guardian approval request CRUD", () => {
       runId: "run-voice-1",
       requestId: "req-voice-1",
       conversationId: "conv-voice-1",
-      channel: "voice",
+      channel: "phone",
       requesterExternalUserId: "phone-user-99",
       requesterChatId: "voice-chat-99",
       guardianExternalUserId: "phone-user-42",
@@ -791,12 +791,12 @@ describe("guardian approval request CRUD", () => {
     expect(request.id).toBeDefined();
     expect(request.runId).toBe("run-voice-1");
     expect(request.requestId).toBe("req-voice-1");
-    expect(request.channel).toBe("voice");
+    expect(request.channel).toBe("phone");
     expect(request.status).toBe("pending");
 
     const found = getPendingApprovalForRequest("req-voice-1");
     expect(found).not.toBeNull();
-    expect(found!.channel).toBe("voice");
+    expect(found!.channel).toBe("phone");
   });
 
   test("getPendingApprovalByGuardianChat works for voice channel", () => {
@@ -804,7 +804,7 @@ describe("guardian approval request CRUD", () => {
       runId: "run-voice-2",
       requestId: "req-voice-2",
       conversationId: "conv-voice-2",
-      channel: "voice",
+      channel: "phone",
       requesterExternalUserId: "phone-user-99",
       requesterChatId: "voice-chat-99",
       guardianExternalUserId: "phone-user-42",
@@ -813,9 +813,9 @@ describe("guardian approval request CRUD", () => {
       expiresAt: Date.now() + 300_000,
     });
 
-    const found = getPendingApprovalByGuardianChat("voice", "voice-chat-42");
+    const found = getPendingApprovalByGuardianChat("phone", "voice-chat-42");
     expect(found).not.toBeNull();
-    expect(found!.channel).toBe("voice");
+    expect(found!.channel).toBe("phone");
 
     // Should not find it under a different channel
     const notFound = getPendingApprovalByGuardianChat(
@@ -970,7 +970,7 @@ describe("verification rate limiting store", () => {
 
     const rl42 = getRateLimit("telegram", "user-42", "chat-42");
     const rl99 = getRateLimit("telegram", "user-99", "chat-99");
-    const rlVoice = getRateLimit("voice", "user-42", "chat-42");
+    const rlVoice = getRateLimit("phone", "user-42", "chat-42");
 
     expect(rl42).not.toBeNull();
     expect(rl42!.invalidAttempts).toBe(1);
@@ -1137,7 +1137,7 @@ describe("channel-scoped guardian resolution", () => {
     });
     // Create guardian binding on voice with a different user
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
@@ -1145,10 +1145,10 @@ describe("channel-scoped guardian resolution", () => {
 
     // user-alpha is guardian for telegram but not voice
     expect(isGuardian("self", "telegram", "user-alpha")).toBe(true);
-    expect(isGuardian("self", "voice", "user-alpha")).toBe(false);
+    expect(isGuardian("self", "phone", "user-alpha")).toBe(false);
 
     // user-beta is guardian for voice but not telegram
-    expect(isGuardian("self", "voice", "user-beta")).toBe(true);
+    expect(isGuardian("self", "phone", "user-beta")).toBe(true);
     expect(isGuardian("self", "telegram", "user-beta")).toBe(false);
   });
 
@@ -1160,14 +1160,14 @@ describe("channel-scoped guardian resolution", () => {
       guardianDeliveryChatId: "chat-alpha",
     });
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
     });
 
     const bindingTelegram = getGuardianBinding("self", "telegram");
-    const bindingVoice = getGuardianBinding("self", "voice");
+    const bindingVoice = getGuardianBinding("self", "phone");
 
     expect(bindingTelegram).not.toBeNull();
     expect(bindingVoice).not.toBeNull();
@@ -1183,7 +1183,7 @@ describe("channel-scoped guardian resolution", () => {
       guardianDeliveryChatId: "chat-alpha",
     });
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "user-beta",
       guardianPrincipalId: "user-beta",
       guardianDeliveryChatId: "chat-beta",
@@ -1192,7 +1192,7 @@ describe("channel-scoped guardian resolution", () => {
     serviceRevokeBinding("self", "telegram");
 
     expect(getGuardianBinding("self", "telegram")).toBeNull();
-    expect(getGuardianBinding("self", "voice")).not.toBeNull();
+    expect(getGuardianBinding("self", "phone")).not.toBeNull();
   });
 
   test("validateAndConsumeVerification scoped to channel", () => {
@@ -1200,11 +1200,11 @@ describe("channel-scoped guardian resolution", () => {
     const { secret: secretTelegram } =
       createInboundVerificationSession("telegram");
     // Create challenge on voice
-    const { secret: secretVoice } = createInboundVerificationSession("voice");
+    const { secret: secretVoice } = createInboundVerificationSession("phone");
 
     // Attempting to consume telegram challenge on voice should fail
     const crossResult = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secretTelegram,
       "user-1",
       "chat-1",
@@ -1221,7 +1221,7 @@ describe("channel-scoped guardian resolution", () => {
     expect(resultTelegram.success).toBe(true);
 
     const resultVoice = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secretVoice,
       "user-2",
       "chat-2",
@@ -1229,7 +1229,7 @@ describe("channel-scoped guardian resolution", () => {
     expect(resultVoice.success).toBe(true);
 
     const bindingTelegram = getGuardianBinding("self", "telegram");
-    const bindingVoice = getGuardianBinding("self", "voice");
+    const bindingVoice = getGuardianBinding("self", "phone");
     expect(bindingTelegram).toBeNull();
     expect(bindingVoice).toBeNull();
   });
@@ -1366,7 +1366,7 @@ describe("IPC handler channel-aware guardian status", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
-      channel: "voice",
+      channel: "phone",
     };
 
     await handleChannelVerificationSession(msg, mockSocket, ctx);
@@ -1374,7 +1374,7 @@ describe("IPC handler channel-aware guardian status", () => {
     const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
-    expect(resp!.channel).toBe("voice");
+    expect(resp!.channel).toBe("phone");
     expect(resp!.assistantId).toBe("self");
     expect(resp!.bound).toBe(false);
   });
@@ -1475,7 +1475,7 @@ describe("IPC handler channel-aware guardian status", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
-      channel: "voice",
+      channel: "phone",
       // assistantId omitted — should default to 'self'
     };
 
@@ -1484,7 +1484,7 @@ describe("IPC handler channel-aware guardian status", () => {
     const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.assistantId).toBe("self");
-    expect(resp!.channel).toBe("voice");
+    expect(resp!.channel).toBe("phone");
   });
 
   test("status action for unbound voice does not return guardianDeliveryChatId", async () => {
@@ -1492,7 +1492,7 @@ describe("IPC handler channel-aware guardian status", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
-      channel: "voice",
+      channel: "phone",
     };
 
     await handleChannelVerificationSession(msg, mockSocket, ctx);
@@ -1505,13 +1505,13 @@ describe("IPC handler channel-aware guardian status", () => {
   });
 
   test("status action includes hasPendingChallenge when challenge exists", async () => {
-    createInboundVerificationSession("voice");
+    createInboundVerificationSession("phone");
 
     const { ctx, lastResponse } = createMockCtx();
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
-      channel: "voice",
+      channel: "phone",
     };
 
     await handleChannelVerificationSession(msg, mockSocket, ctx);
@@ -1527,7 +1527,7 @@ describe("IPC handler channel-aware guardian status", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
-      channel: "voice",
+      channel: "phone",
     };
 
     await handleChannelVerificationSession(msg, mockSocket, ctx);
@@ -1549,7 +1549,7 @@ describe("voice guardian challenge generation", () => {
   });
 
   test("createInboundVerificationSession for voice returns a high-entropy hex secret", () => {
-    const result = createInboundVerificationSession("voice");
+    const result = createInboundVerificationSession("phone");
 
     expect(result.challengeId).toBeDefined();
     expect(result.secret).toBeDefined();
@@ -1565,13 +1565,13 @@ describe("voice guardian challenge generation", () => {
   });
 
   test("voice challenge verifyCommand contains the hex secret", () => {
-    const result = createInboundVerificationSession("voice");
+    const result = createInboundVerificationSession("phone");
 
     expect(result.verifyCommand).toBe(result.secret);
   });
 
   test("voice challenge instruction contains voice-specific copy", () => {
-    const result = createInboundVerificationSession("voice");
+    const result = createInboundVerificationSession("phone");
 
     // Inbound challenges use high-entropy hex, so the voice template says
     // "enter the code" rather than "six-digit code".
@@ -1580,8 +1580,8 @@ describe("voice guardian challenge generation", () => {
   });
 
   test("voice challenge secrets are different across calls", () => {
-    const result1 = createInboundVerificationSession("voice");
-    const result2 = createInboundVerificationSession("voice");
+    const result1 = createInboundVerificationSession("phone");
+    const result2 = createInboundVerificationSession("phone");
 
     // High-entropy hex secrets: collision probability is negligible
     expect(result1.secret).toMatch(/^[0-9a-f]{64}$/);
@@ -1589,7 +1589,7 @@ describe("voice guardian challenge generation", () => {
   });
 
   test("voice ttlSeconds is 600 (10 minutes)", () => {
-    const result = createInboundVerificationSession("voice");
+    const result = createInboundVerificationSession("phone");
     expect(result.ttlSeconds).toBe(600);
   });
 });
@@ -1604,10 +1604,10 @@ describe("voice guardian challenge validation", () => {
   });
 
   test("validateAndConsumeVerification succeeds with correct voice secret", () => {
-    const { secret } = createInboundVerificationSession("voice");
+    const { secret } = createInboundVerificationSession("phone");
 
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "voice-user-1",
       "voice-chat-1",
@@ -1620,24 +1620,24 @@ describe("voice guardian challenge validation", () => {
   });
 
   test("validateAndConsumeVerification does not create a guardian binding for voice (caller responsibility)", () => {
-    const { secret } = createInboundVerificationSession("voice");
+    const { secret } = createInboundVerificationSession("phone");
 
     validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "voice-user-1",
       "voice-chat-1",
     );
 
-    const binding = getGuardianBinding("asst-1", "voice");
+    const binding = getGuardianBinding("asst-1", "phone");
     expect(binding).toBeNull();
   });
 
   test("validateAndConsumeVerification fails with wrong voice secret", () => {
-    createInboundVerificationSession("voice");
+    createInboundVerificationSession("phone");
 
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       "000000",
       "voice-user-1",
       "voice-chat-1",
@@ -1652,7 +1652,7 @@ describe("voice guardian challenge validation", () => {
   });
 
   test("voice and telegram guardian challenges are independent", () => {
-    const voiceChallenge = createInboundVerificationSession("voice");
+    const voiceChallenge = createInboundVerificationSession("phone");
     const telegramChallenge = createInboundVerificationSession("telegram");
 
     // Voice secret against telegram channel should fail
@@ -1666,7 +1666,7 @@ describe("voice guardian challenge validation", () => {
 
     // Voice secret against correct channel should succeed
     const voiceResult = validateAndConsumeVerification(
-      "voice",
+      "phone",
       voiceChallenge.secret,
       "voice-user-1",
       "voice-chat-1",
@@ -1684,10 +1684,10 @@ describe("voice guardian challenge validation", () => {
   });
 
   test("consumed voice challenge cannot be reused", () => {
-    const { secret } = createInboundVerificationSession("voice");
+    const { secret } = createInboundVerificationSession("phone");
 
     const result1 = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "voice-user-1",
       "voice-chat-1",
@@ -1695,7 +1695,7 @@ describe("voice guardian challenge validation", () => {
     expect(result1.success).toBe(true);
 
     const result2 = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "voice-user-2",
       "voice-chat-2",
@@ -1705,19 +1705,19 @@ describe("voice guardian challenge validation", () => {
 
   test("validateAndConsumeVerification succeeds even with existing voice binding (conflict check is caller responsibility)", () => {
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "old-voice-user",
       guardianPrincipalId: "old-voice-user",
       guardianDeliveryChatId: "old-voice-chat",
     });
 
-    const oldBinding = getGuardianBinding("asst-1", "voice");
+    const oldBinding = getGuardianBinding("asst-1", "phone");
     expect(oldBinding).not.toBeNull();
     expect(oldBinding!.guardianExternalUserId).toBe("old-voice-user");
 
-    const { secret } = createInboundVerificationSession("voice");
+    const { secret } = createInboundVerificationSession("phone");
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "new-voice-user",
       "new-voice-chat",
@@ -1727,7 +1727,7 @@ describe("voice guardian challenge validation", () => {
     expect(result.success).toBe(true);
 
     // The original binding is untouched (no side effects)
-    const binding = getGuardianBinding("asst-1", "voice");
+    const binding = getGuardianBinding("asst-1", "phone");
     expect(binding).not.toBeNull();
     expect(binding!.guardianExternalUserId).toBe("old-voice-user");
   });
@@ -1744,48 +1744,48 @@ describe("voice guardian identity and revocation", () => {
 
   test("isGuardian works for voice channel", () => {
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    expect(isGuardian("asst-1", "voice", "voice-user-1")).toBe(true);
-    expect(isGuardian("asst-1", "voice", "voice-user-2")).toBe(false);
+    expect(isGuardian("asst-1", "phone", "voice-user-1")).toBe(true);
+    expect(isGuardian("asst-1", "phone", "voice-user-2")).toBe(false);
     // Voice guardian should not match telegram channel
     expect(isGuardian("asst-1", "telegram", "voice-user-1")).toBe(false);
   });
 
   test("getGuardianBinding returns voice binding", () => {
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const binding = getGuardianBinding("asst-1", "voice");
+    const binding = getGuardianBinding("asst-1", "phone");
     expect(binding).not.toBeNull();
-    expect(binding!.channel).toBe("voice");
+    expect(binding!.channel).toBe("phone");
     expect(binding!.guardianExternalUserId).toBe("voice-user-1");
   });
 
   test("revokeBinding clears active voice guardian binding", () => {
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    const result = serviceRevokeBinding("asst-1", "voice");
+    const result = serviceRevokeBinding("asst-1", "phone");
     expect(result).toBe(true);
-    expect(getGuardianBinding("asst-1", "voice")).toBeNull();
+    expect(getGuardianBinding("asst-1", "phone")).toBeNull();
   });
 
   test("revokeBinding for voice does not affect telegram binding", () => {
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
@@ -1797,9 +1797,9 @@ describe("voice guardian identity and revocation", () => {
       guardianDeliveryChatId: "tg-chat-1",
     });
 
-    serviceRevokeBinding("asst-1", "voice");
+    serviceRevokeBinding("asst-1", "phone");
 
-    expect(getGuardianBinding("asst-1", "voice")).toBeNull();
+    expect(getGuardianBinding("asst-1", "phone")).toBeNull();
     expect(getGuardianBinding("asst-1", "telegram")).not.toBeNull();
   });
 });
@@ -1814,11 +1814,11 @@ describe("voice guardian rate limiting", () => {
   });
 
   test("repeated invalid voice submissions hit rate limit", () => {
-    createInboundVerificationSession("voice");
+    createInboundVerificationSession("phone");
 
     for (let i = 0; i < 5; i++) {
       const result = validateAndConsumeVerification(
-        "voice",
+        "phone",
         `${100000 + i}`,
         "voice-user-1",
         "voice-chat-1",
@@ -1828,30 +1828,30 @@ describe("voice guardian rate limiting", () => {
 
     // The 6th attempt should be rate-limited
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       "999999",
       "voice-user-1",
       "voice-chat-1",
     );
     expect(result.success).toBe(false);
 
-    const rl = getRateLimit("voice", "voice-user-1", "voice-chat-1");
+    const rl = getRateLimit("phone", "voice-user-1", "voice-chat-1");
     expect(rl).not.toBeNull();
     expect(rl!.lockedUntil).not.toBeNull();
   });
 
   test("voice rate limit does not affect telegram rate limit", () => {
-    createInboundVerificationSession("voice");
+    createInboundVerificationSession("phone");
     for (let i = 0; i < 5; i++) {
       validateAndConsumeVerification(
-        "voice",
+        "phone",
         `${100000 + i}`,
         "user-1",
         "chat-1",
       );
     }
 
-    const voiceRl = getRateLimit("voice", "user-1", "chat-1");
+    const voiceRl = getRateLimit("phone", "user-1", "chat-1");
     expect(voiceRl).not.toBeNull();
     expect(voiceRl!.lockedUntil).not.toBeNull();
 
@@ -1861,31 +1861,31 @@ describe("voice guardian rate limiting", () => {
   });
 
   test("successful voice verification resets rate limit", () => {
-    const { secret: _s } = createInboundVerificationSession("voice");
+    const { secret: _s } = createInboundVerificationSession("phone");
     validateAndConsumeVerification(
-      "voice",
+      "phone",
       "000000",
       "voice-user-1",
       "voice-chat-1",
     );
     validateAndConsumeVerification(
-      "voice",
+      "phone",
       "111111",
       "voice-user-1",
       "voice-chat-1",
     );
 
     // Valid attempt should succeed (under the 5-attempt threshold)
-    const { secret } = createInboundVerificationSession("voice");
+    const { secret } = createInboundVerificationSession("phone");
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "voice-user-1",
       "voice-chat-1",
     );
     expect(result.success).toBe(true);
 
-    const rl = getRateLimit("voice", "voice-user-1", "voice-chat-1");
+    const rl = getRateLimit("phone", "voice-user-1", "voice-chat-1");
     expect(rl).not.toBeNull();
     expect(rl!.invalidAttempts).toBe(0);
     expect(rl!.lockedUntil).toBeNull();
@@ -1902,61 +1902,61 @@ describe("pending challenge lookup", () => {
   });
 
   test("findPendingSessionForChannel returns pending challenge", () => {
-    createInboundVerificationSession("voice");
+    createInboundVerificationSession("phone");
 
-    const pending = findPendingSessionForChannel("voice");
+    const pending = findPendingSessionForChannel("phone");
     expect(pending).not.toBeNull();
-    expect(pending!.channel).toBe("voice");
+    expect(pending!.channel).toBe("phone");
     expect(pending!.status).toBe("pending");
   });
 
   test("findPendingSessionForChannel returns null when no challenge exists", () => {
-    const pending = findPendingSessionForChannel("voice");
+    const pending = findPendingSessionForChannel("phone");
     expect(pending).toBeNull();
   });
 
   test("findPendingSessionForChannel returns null for different channel", () => {
     createInboundVerificationSession("telegram");
 
-    const pending = findPendingSessionForChannel("voice");
+    const pending = findPendingSessionForChannel("phone");
     expect(pending).toBeNull();
   });
 
   test("findPendingSessionForChannel returns null after challenge is consumed", () => {
-    const { secret } = createInboundVerificationSession("voice");
+    const { secret } = createInboundVerificationSession("phone");
     validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "voice-user-1",
       "voice-chat-1",
     );
 
-    const pending = findPendingSessionForChannel("voice");
+    const pending = findPendingSessionForChannel("phone");
     expect(pending).toBeNull();
   });
 
   test("getPendingSession service helper returns pending voice challenge", () => {
-    createInboundVerificationSession("voice");
+    createInboundVerificationSession("phone");
 
-    const pending = getPendingSession("voice");
+    const pending = getPendingSession("phone");
     expect(pending).not.toBeNull();
-    expect(pending!.channel).toBe("voice");
+    expect(pending!.channel).toBe("phone");
   });
 
   test("getPendingSession returns null when no challenge exists", () => {
-    const pending = getPendingSession("voice");
+    const pending = getPendingSession("phone");
     expect(pending).toBeNull();
   });
 
   test("creating a new challenge revokes prior pending challenges", () => {
-    createInboundVerificationSession("voice");
-    const pending1 = findPendingSessionForChannel("voice");
+    createInboundVerificationSession("phone");
+    const pending1 = findPendingSessionForChannel("phone");
     expect(pending1).not.toBeNull();
     const firstId = pending1!.id;
 
     // Creating a second challenge should revoke the first
-    createInboundVerificationSession("voice");
-    const pending2 = findPendingSessionForChannel("voice");
+    createInboundVerificationSession("phone");
+    const pending2 = findPendingSessionForChannel("phone");
     expect(pending2).not.toBeNull();
     expect(pending2!.id).not.toBe(firstId);
   });
@@ -1976,7 +1976,7 @@ describe("IPC handler voice guardian verification", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "create_session",
-      channel: "voice",
+      channel: "phone",
     };
 
     await handleChannelVerificationSession(msg, mockSocket, ctx);
@@ -1988,7 +1988,7 @@ describe("IPC handler voice guardian verification", () => {
     expect(resp!.secret).toMatch(/^[0-9a-f]{64}$/);
     expect(resp!.instruction).toBeDefined();
     expect(resp!.instruction).toContain("enter the code");
-    expect(resp!.channel).toBe("voice");
+    expect(resp!.channel).toBe("phone");
   });
 
   test("status for voice reflects unbound state", async () => {
@@ -1996,7 +1996,7 @@ describe("IPC handler voice guardian verification", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
-      channel: "voice",
+      channel: "phone",
     };
 
     await handleChannelVerificationSession(msg, mockSocket, ctx);
@@ -2004,14 +2004,14 @@ describe("IPC handler voice guardian verification", () => {
     const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
-    expect(resp!.channel).toBe("voice");
+    expect(resp!.channel).toBe("phone");
     expect(resp!.bound).toBe(false);
     expect(resp!.guardianExternalUserId).toBeUndefined();
   });
 
   test("status for voice reflects bound state", async () => {
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
@@ -2021,7 +2021,7 @@ describe("IPC handler voice guardian verification", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "status",
-      channel: "voice",
+      channel: "phone",
     };
 
     await handleChannelVerificationSession(msg, mockSocket, ctx);
@@ -2032,12 +2032,12 @@ describe("IPC handler voice guardian verification", () => {
     expect(resp!.bound).toBe(true);
     expect(resp!.guardianExternalUserId).toBe("voice-user-1");
     expect(resp!.guardianDeliveryChatId).toBe("voice-chat-1");
-    expect(resp!.channel).toBe("voice");
+    expect(resp!.channel).toBe("phone");
   });
 
   test("revoke for voice clears active binding", async () => {
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
@@ -2047,7 +2047,7 @@ describe("IPC handler voice guardian verification", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "revoke",
-      channel: "voice",
+      channel: "phone",
     };
 
     await handleChannelVerificationSession(msg, mockSocket, ctx);
@@ -2058,12 +2058,12 @@ describe("IPC handler voice guardian verification", () => {
     expect(resp!.bound).toBe(false);
 
     // Verify binding is actually revoked
-    expect(getGuardianBinding("self", "voice")).toBeNull();
+    expect(getGuardianBinding("self", "phone")).toBeNull();
   });
 
   test("revoke for voice does not affect telegram binding", async () => {
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "voice-user-1",
       guardianPrincipalId: "voice-user-1",
       guardianDeliveryChatId: "voice-chat-1",
@@ -2079,12 +2079,12 @@ describe("IPC handler voice guardian verification", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "revoke",
-      channel: "voice",
+      channel: "phone",
     };
 
     await handleChannelVerificationSession(msg, mockSocket, ctx);
 
-    expect(getGuardianBinding("self", "voice")).toBeNull();
+    expect(getGuardianBinding("self", "phone")).toBeNull();
     expect(getGuardianBinding("self", "telegram")).not.toBeNull();
   });
 });
@@ -2102,7 +2102,7 @@ describe("outbound verification sessions", () => {
 
   test("createOutboundSession creates a session with expected identity fields", () => {
     const result = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
@@ -2113,7 +2113,7 @@ describe("outbound verification sessions", () => {
     expect(result.expiresAt).toBeGreaterThan(Date.now());
     expect(result.ttlSeconds).toBe(600);
 
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).not.toBeNull();
     expect(session!.expectedPhoneE164).toBe("+15551234567");
     expect(session!.destinationAddress).toBe("+15551234567");
@@ -2142,14 +2142,14 @@ describe("outbound verification sessions", () => {
 
   test("validateAndConsumeVerification succeeds with correct secret and matching identity (voice)", () => {
     const { secret } = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       expectedExternalUserId: "+15551234567",
       destinationAddress: "+15551234567",
     });
 
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "+15551234567",
       "voice-chat-1",
@@ -2180,14 +2180,14 @@ describe("outbound verification sessions", () => {
 
   test("validateAndConsumeVerification rejects correct secret with wrong identity (anti-oracle)", () => {
     const { secret } = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       expectedExternalUserId: "+15551234567",
       destinationAddress: "+15551234567",
     });
 
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "+15559999999",
       "voice-chat-wrong",
@@ -2228,7 +2228,7 @@ describe("outbound verification sessions", () => {
     const challengeHash = createHash("sha256").update(secret).digest("hex");
     createVerificationSession({
       id: "session-expired",
-      channel: "voice",
+      channel: "phone",
       challengeHash,
       expiresAt: Date.now() - 1000,
       status: "awaiting_response",
@@ -2237,7 +2237,7 @@ describe("outbound verification sessions", () => {
     });
 
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "+15551234567",
       "voice-chat-1",
@@ -2250,7 +2250,7 @@ describe("outbound verification sessions", () => {
 
   test("revoked outbound session is rejected", () => {
     const { secret, sessionId } = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
@@ -2259,7 +2259,7 @@ describe("outbound verification sessions", () => {
     serviceUpdateSessionStatus(sessionId, "revoked");
 
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "+15551234567",
       "voice-chat-1",
@@ -2272,14 +2272,14 @@ describe("outbound verification sessions", () => {
 
   test("outbound session cannot be consumed twice (replay prevention)", () => {
     const { secret } = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       expectedExternalUserId: "+15551234567",
       destinationAddress: "+15551234567",
     });
 
     const result1 = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "+15551234567",
       "voice-chat-1",
@@ -2287,7 +2287,7 @@ describe("outbound verification sessions", () => {
     expect(result1.success).toBe(true);
 
     const result2 = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "+15551234567",
       "voice-chat-1",
@@ -2343,23 +2343,23 @@ describe("outbound verification sessions", () => {
 
   test("creating a new outbound session auto-revokes prior pending/awaiting sessions", () => {
     const { sessionId: firstId } = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
 
-    const first = serviceFindActiveSession("voice");
+    const first = serviceFindActiveSession("phone");
     expect(first).not.toBeNull();
     expect(first!.id).toBe(firstId);
 
     // Create a second session — first should be revoked
     const { sessionId: secondId } = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15559876543",
       destinationAddress: "+15559876543",
     });
 
-    const second = serviceFindActiveSession("voice");
+    const second = serviceFindActiveSession("phone");
     expect(second).not.toBeNull();
     expect(second!.id).toBe(secondId);
 
@@ -2378,19 +2378,19 @@ describe("outbound verification sessions", () => {
 
   test("findActiveSession returns the most recent active session", () => {
     createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
 
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).not.toBeNull();
     expect(session!.status).toBe("awaiting_response");
     expect(session!.expectedPhoneE164).toBe("+15551234567");
   });
 
   test("findActiveSession returns null when no active session exists", () => {
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).toBeNull();
   });
 
@@ -2398,13 +2398,13 @@ describe("outbound verification sessions", () => {
 
   test("findSessionByIdentity returns session matching phone E164", () => {
     createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
 
     const session = serviceFindSessionByIdentity(
-      "voice",
+      "phone",
       undefined,
       undefined,
       "+15551234567",
@@ -2428,13 +2428,13 @@ describe("outbound verification sessions", () => {
 
   test("findSessionByIdentity returns null for non-matching identity", () => {
     createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
 
     const session = serviceFindSessionByIdentity(
-      "voice",
+      "phone",
       undefined,
       undefined,
       "+15559999999",
@@ -2491,7 +2491,7 @@ describe("outbound verification sessions", () => {
 
   test("updateSessionDelivery updates delivery tracking fields", () => {
     const { sessionId } = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
@@ -2499,7 +2499,7 @@ describe("outbound verification sessions", () => {
     const now = Date.now();
     storeUpdateSessionDelivery(sessionId, now, 1, now + 30_000);
 
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).not.toBeNull();
     expect(session!.lastSentAt).toBe(now);
     expect(session!.sendCount).toBe(1);
@@ -2530,7 +2530,7 @@ describe("outbound verification sessions", () => {
 
   test("Voice identity match succeeds via expectedExternalUserId", () => {
     const { secret } = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedExternalUserId: "voice-user-42",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
@@ -2538,7 +2538,7 @@ describe("outbound verification sessions", () => {
 
     // Actor matches expectedExternalUserId
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "voice-user-42",
       "voice-chat-1",
@@ -2562,7 +2562,7 @@ describe("outbound voice verification", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "create_session",
-      channel: "voice",
+      channel: "phone",
       destination: "+15551234567",
     };
 
@@ -2576,10 +2576,10 @@ describe("outbound voice verification", () => {
     expect(resp!.expiresAt).toBeGreaterThan(Date.now());
     expect(resp!.nextResendAt).toBeGreaterThan(Date.now());
     expect(resp!.sendCount).toBe(1);
-    expect(resp!.channel).toBe("voice");
+    expect(resp!.channel).toBe("phone");
 
     // Verify the session was created with expected identity
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).not.toBeNull();
     expect(session!.expectedPhoneE164).toBe("+15551234567");
     expect(session!.destinationAddress).toBe("+15551234567");
@@ -2588,7 +2588,7 @@ describe("outbound voice verification", () => {
   test("start_outbound rejects when active binding exists (rebind=false)", async () => {
     // Create an existing guardian binding
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15551234567",
       guardianPrincipalId: "+15551234567",
       guardianDeliveryChatId: "voice-chat-1",
@@ -2598,7 +2598,7 @@ describe("outbound voice verification", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "create_session",
-      channel: "voice",
+      channel: "phone",
       destination: "+15559876543",
       rebind: false,
     };
@@ -2614,7 +2614,7 @@ describe("outbound voice verification", () => {
   test("start_outbound allows rebind when rebind=true", async () => {
     // Create an existing guardian binding
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15551234567",
       guardianPrincipalId: "+15551234567",
       guardianDeliveryChatId: "voice-chat-1",
@@ -2624,7 +2624,7 @@ describe("outbound voice verification", () => {
     const msg: ChannelVerificationSessionRequest = {
       type: "channel_verification_session",
       action: "create_session",
-      channel: "voice",
+      channel: "phone",
       destination: "+15559876543",
       rebind: true,
     };
@@ -2644,7 +2644,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15551234567",
       },
       mockSocket,
@@ -2657,7 +2657,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "resend_session",
-        channel: "voice",
+        channel: "phone",
       },
       mockSocket,
       ctx,
@@ -2676,7 +2676,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15551234567",
       },
       mockSocket,
@@ -2687,7 +2687,7 @@ describe("outbound voice verification", () => {
     expect(startResponse!.success).toBe(true);
 
     // Manually update the session's nextResendAt to the past to simulate cooldown elapsed
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).not.toBeNull();
     storeUpdateSessionDelivery(
       session!.id,
@@ -2702,7 +2702,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "resend_session",
-        channel: "voice",
+        channel: "phone",
       },
       mockSocket,
       ctx,
@@ -2722,7 +2722,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15551234567",
       },
       mockSocket,
@@ -2730,7 +2730,7 @@ describe("outbound voice verification", () => {
     );
 
     // Set the send count to MAX_SENDS_PER_SESSION and nextResendAt to the past
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).not.toBeNull();
     storeUpdateSessionDelivery(
       session!.id,
@@ -2745,7 +2745,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "resend_session",
-        channel: "voice",
+        channel: "phone",
       },
       mockSocket,
       ctx,
@@ -2764,7 +2764,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15551234567",
       },
       mockSocket,
@@ -2772,7 +2772,7 @@ describe("outbound voice verification", () => {
     );
 
     // Verify session exists
-    const sessionBefore = serviceFindActiveSession("voice");
+    const sessionBefore = serviceFindActiveSession("phone");
     expect(sessionBefore).not.toBeNull();
 
     // Cancel it
@@ -2781,7 +2781,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "cancel_session",
-        channel: "voice",
+        channel: "phone",
       },
       mockSocket,
       ctx,
@@ -2790,17 +2790,17 @@ describe("outbound voice verification", () => {
     const resp = lastResponse();
     expect(resp).not.toBeNull();
     expect(resp!.success).toBe(true);
-    expect(resp!.channel).toBe("voice");
+    expect(resp!.channel).toBe("phone");
 
     // Verify session is no longer active
-    const sessionAfter = serviceFindActiveSession("voice");
+    const sessionAfter = serviceFindActiveSession("phone");
     expect(sessionAfter).toBeNull();
   });
 
   test("inbound voice from expected identity + correct code succeeds", () => {
     // Create an outbound session
     const { secret } = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       expectedExternalUserId: "+15551234567",
       destinationAddress: "+15551234567",
@@ -2808,7 +2808,7 @@ describe("outbound voice verification", () => {
 
     // Validate with matching identity
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "+15551234567",
       "voice-chat-1",
@@ -2823,7 +2823,7 @@ describe("outbound voice verification", () => {
   test("inbound voice from wrong identity + correct code is rejected", () => {
     // Create an outbound session with expected identity +15551234567
     const { secret } = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       expectedExternalUserId: "+15551234567",
       destinationAddress: "+15551234567",
@@ -2831,7 +2831,7 @@ describe("outbound voice verification", () => {
 
     // Try to validate with a different phone number (anti-oracle: same generic error)
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       secret,
       "+15559999999",
       "voice-chat-wrong",
@@ -2871,7 +2871,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         // no destination — unified create_session creates an inbound challenge
       },
       mockSocket,
@@ -2890,7 +2890,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "not-a-phone",
       },
       mockSocket,
@@ -2909,7 +2909,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "(555) 123-4567",
       },
       mockSocket,
@@ -2923,7 +2923,7 @@ describe("outbound voice verification", () => {
     expect(resp!.secret).toBeDefined();
 
     // Verify the session was created with the normalized E.164 number
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).not.toBeNull();
     expect(session!.expectedPhoneE164).toBe("+15551234567");
     expect(session!.destinationAddress).toBe("+15551234567");
@@ -2943,7 +2943,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "cancel_session",
-        channel: "voice",
+        channel: "phone",
       },
       mockSocket,
       ctx,
@@ -3501,7 +3501,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15551234567",
       },
       mockSocket,
@@ -3519,10 +3519,10 @@ describe("outbound voice verification", () => {
     expect(resp!.expiresAt).toBeGreaterThan(Date.now());
     expect(resp!.nextResendAt).toBeGreaterThan(Date.now());
     expect(resp!.sendCount).toBe(1);
-    expect(resp!.channel).toBe("voice");
+    expect(resp!.channel).toBe("phone");
 
     // Verify the session was created with expected identity
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).not.toBeNull();
     expect(session!.expectedPhoneE164).toBe("+15551234567");
     expect(session!.destinationAddress).toBe("+15551234567");
@@ -3543,7 +3543,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "not-a-phone",
       },
       mockSocket,
@@ -3562,7 +3562,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "555-123-4567",
       },
       mockSocket,
@@ -3578,7 +3578,7 @@ describe("outbound voice verification", () => {
     expect(resp!.secret!.length).toBe(6);
 
     // Verify the session was created with the normalized E.164 number
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).not.toBeNull();
     expect(session!.expectedPhoneE164).toBe("+15551234567");
     expect(session!.destinationAddress).toBe("+15551234567");
@@ -3594,7 +3594,7 @@ describe("outbound voice verification", () => {
 
   test("start_outbound for voice rejects when binding exists (rebind=false)", async () => {
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15551234567",
       guardianPrincipalId: "+15551234567",
       guardianDeliveryChatId: "+15551234567",
@@ -3605,7 +3605,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15559876543",
         rebind: false,
       },
@@ -3626,7 +3626,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15551234567",
       },
       mockSocket,
@@ -3639,7 +3639,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "resend_session",
-        channel: "voice",
+        channel: "phone",
       },
       mockSocket,
       ctx,
@@ -3658,7 +3658,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15551234567",
       },
       mockSocket,
@@ -3671,7 +3671,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "cancel_session",
-        channel: "voice",
+        channel: "phone",
       },
       mockSocket,
       ctx,
@@ -3682,7 +3682,7 @@ describe("outbound voice verification", () => {
     expect(resp!.success).toBe(true);
 
     // Session should no longer be active
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).toBeNull();
   });
 
@@ -3695,7 +3695,7 @@ describe("outbound voice verification", () => {
       db.insert(channelVerificationSessions)
         .values({
           id: `rate-limit-voice-${i}`,
-          channel: "voice",
+          channel: "phone",
           challengeHash: `hash-${i}`,
           expiresAt: now + 600_000,
           status: "awaiting_response",
@@ -3713,7 +3713,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15551234567",
       },
       mockSocket,
@@ -3732,7 +3732,7 @@ describe("outbound voice verification", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
       },
       mockSocket,
       ctx,
@@ -3768,7 +3768,7 @@ describe("M1–M4 hardening coverage", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15551234567",
       },
       mockSocket,
@@ -3792,7 +3792,7 @@ describe("M1–M4 hardening coverage", () => {
       {
         type: "channel_verification_session",
         action: "create_session",
-        channel: "voice",
+        channel: "phone",
         destination: "+15551234567",
       },
       mockSocket,
@@ -3800,7 +3800,7 @@ describe("M1–M4 hardening coverage", () => {
     );
 
     // Move past cooldown
-    const session = serviceFindActiveSession("voice");
+    const session = serviceFindActiveSession("phone");
     expect(session).not.toBeNull();
     storeUpdateSessionDelivery(
       session!.id,
@@ -3815,7 +3815,7 @@ describe("M1–M4 hardening coverage", () => {
       {
         type: "channel_verification_session",
         action: "resend_session",
-        channel: "voice",
+        channel: "phone",
       },
       mockSocket,
       ctx,
@@ -3869,7 +3869,7 @@ describe("M1–M4 hardening coverage", () => {
 
     // Identity-bound: 6-digit numeric code
     const boundResult = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
       identityBindingStatus: "bound",
@@ -3883,7 +3883,7 @@ describe("M1–M4 hardening coverage", () => {
   test("all identity-bound channels (voice, Telegram chat ID) use 6-digit numeric codes", () => {
     // Voice (phone E.164)
     const voicePhoneResult = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
     });
@@ -3904,7 +3904,7 @@ describe("M1–M4 hardening coverage", () => {
 
     // Voice (explicit codeDigits)
     const voiceResult = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedPhoneE164: "+15551234567",
       destinationAddress: "+15551234567",
       codeDigits: 6,

@@ -176,15 +176,15 @@ beforeEach(() => {
 
 describe("startOutbound", () => {
   test("Voice: returns missing_destination when destination is absent", async () => {
-    const result = await startOutbound({ channel: "voice" });
+    const result = await startOutbound({ channel: "phone" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("missing_destination");
-    expect(result.channel).toBe("voice");
+    expect(result.channel).toBe("phone");
   });
 
   test("Voice: returns invalid_destination for garbage phone number", async () => {
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "notaphone",
     });
     expect(result.success).toBe(false);
@@ -193,7 +193,7 @@ describe("startOutbound", () => {
 
   test("Voice: succeeds with valid E.164 number", async () => {
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15551234567",
     });
     expect(result.success).toBe(true);
@@ -202,12 +202,12 @@ describe("startOutbound", () => {
     expect(result.expiresAt).toBeGreaterThan(Date.now());
     expect(result.nextResendAt).toBeGreaterThan(Date.now());
     expect(result.sendCount).toBe(1);
-    expect(result.channel).toBe("voice");
+    expect(result.channel).toBe("phone");
   });
 
   test("Voice: succeeds with loose phone format (parentheses + dashes)", async () => {
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "(555) 987-6543",
     });
     expect(result.success).toBe(true);
@@ -264,14 +264,14 @@ describe("startOutbound", () => {
   });
 
   test("voice: returns missing_destination when absent", async () => {
-    const result = await startOutbound({ channel: "voice" });
+    const result = await startOutbound({ channel: "phone" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("missing_destination");
   });
 
   test("voice: returns invalid_destination for garbage", async () => {
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "badphone",
     });
     expect(result.success).toBe(false);
@@ -280,7 +280,7 @@ describe("startOutbound", () => {
 
   test("voice: succeeds with valid phone", async () => {
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15559876543",
     });
     expect(result.success).toBe(true);
@@ -292,7 +292,7 @@ describe("startOutbound", () => {
   test("voice: passes originConversationId to startVerificationCall", async () => {
     voiceCallInitCalls.length = 0;
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15559876543",
       originConversationId: "conv-origin-linkage-test",
     });
@@ -305,7 +305,7 @@ describe("startOutbound", () => {
   test("voice: succeeds without originConversationId (backward compat)", async () => {
     voiceCallInitCalls.length = 0;
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15551119999",
     });
     expect(result.success).toBe(true);
@@ -326,7 +326,7 @@ describe("startOutbound", () => {
 
 describe("resendOutbound", () => {
   test("returns no_active_session when no session exists", () => {
-    const result = resendOutbound({ channel: "voice" });
+    const result = resendOutbound({ channel: "phone" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("no_active_session");
   });
@@ -334,7 +334,7 @@ describe("resendOutbound", () => {
   test("Voice: succeeds when an active session exists and cooldown has passed", async () => {
     // Start a session first
     const startResult = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15551112222",
     });
     expect(startResult.success).toBe(true);
@@ -349,7 +349,7 @@ describe("resendOutbound", () => {
       );
     }
 
-    const resendResult = resendOutbound({ channel: "voice" });
+    const resendResult = resendOutbound({ channel: "phone" });
     expect(resendResult.success).toBe(true);
     expect(resendResult.verificationSessionId).toBeDefined();
     expect(resendResult.sendCount).toBe(2);
@@ -357,7 +357,7 @@ describe("resendOutbound", () => {
 
   test("Voice: preserves originConversationId on resend", async () => {
     const startResult = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15551113333",
     });
     expect(startResult.success).toBe(true);
@@ -372,7 +372,7 @@ describe("resendOutbound", () => {
     }
 
     const resendResult = resendOutbound({
-      channel: "voice",
+      channel: "phone",
       originConversationId: "conv-resend-voice-origin",
     });
     expect(resendResult.success).toBe(true);
@@ -382,7 +382,7 @@ describe("resendOutbound", () => {
   test("voice: preserves originConversationId on resend and passes it to call initiation", async () => {
     voiceCallInitCalls.length = 0;
     const startResult = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15559991111",
     });
     expect(startResult.success).toBe(true);
@@ -397,7 +397,7 @@ describe("resendOutbound", () => {
     }
 
     const resendResult = resendOutbound({
-      channel: "voice",
+      channel: "phone",
       originConversationId: "conv-resend-voice-origin",
     });
     expect(resendResult.success).toBe(true);
@@ -421,21 +421,21 @@ describe("resendOutbound", () => {
 
 describe("cancelOutbound", () => {
   test("returns no_active_session when no session exists", () => {
-    const result = cancelOutbound({ channel: "voice" });
+    const result = cancelOutbound({ channel: "phone" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("no_active_session");
   });
 
   test("succeeds when an active session exists", async () => {
     const startResult = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15553334444",
     });
     expect(startResult.success).toBe(true);
 
-    const cancelResult = cancelOutbound({ channel: "voice" });
+    const cancelResult = cancelOutbound({ channel: "phone" });
     expect(cancelResult.success).toBe(true);
-    expect(cancelResult.channel).toBe("voice");
+    expect(cancelResult.channel).toBe("phone");
   });
 });
 
@@ -457,16 +457,16 @@ describe("HTTP route: handleCreateVerificationSession (guardian path)", () => {
 
   test("creates inbound challenge when destination is absent", async () => {
     // Without a destination, the unified handler takes the inbound challenge path.
-    const req = jsonRequest({ channel: "voice" });
+    const req = jsonRequest({ channel: "phone" });
     const resp = await handleCreateVerificationSession(req, "self");
     expect(resp.status).toBe(200);
     const body = (await resp.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
-    expect(body.channel).toBe("voice");
+    expect(body.channel).toBe("phone");
   });
 
   test("returns 200 for valid voice start", async () => {
-    const req = jsonRequest({ channel: "voice", destination: "+15559999999" });
+    const req = jsonRequest({ channel: "phone", destination: "+15559999999" });
     const resp = await handleCreateVerificationSession(req, "self");
     expect(resp.status).toBe(200);
     const body = (await resp.json()) as Record<string, unknown>;
@@ -488,7 +488,7 @@ describe("HTTP route: handleResendVerificationSession (guardian path)", () => {
   });
 
   test("returns 400 for no_active_session", async () => {
-    const req = jsonRequest({ channel: "voice" });
+    const req = jsonRequest({ channel: "phone" });
     const resp = await handleResendVerificationSession(req);
     expect(resp.status).toBe(400);
     const body = (await resp.json()) as { error?: string };
@@ -498,7 +498,7 @@ describe("HTTP route: handleResendVerificationSession (guardian path)", () => {
   test("passes originConversationId through on successful resend", async () => {
     // Start a session first
     const startReq = jsonRequest({
-      channel: "voice",
+      channel: "phone",
       destination: "+15556667777",
     });
     const startResp = await handleCreateVerificationSession(startReq, "self");
@@ -516,7 +516,7 @@ describe("HTTP route: handleResendVerificationSession (guardian path)", () => {
     }
 
     const resendReq = jsonRequest({
-      channel: "voice",
+      channel: "phone",
       originConversationId: "conv-resend-http-origin",
     });
     const resendResp = await handleResendVerificationSession(resendReq);
@@ -542,7 +542,7 @@ describe("HTTP route: handleCancelVerificationSession (guardian path)", () => {
   test("returns 200 even when no active session exists", async () => {
     // The unified cancel handler silently cancels both inbound and outbound —
     // no error if nothing is active.
-    const req = jsonRequest({ channel: "voice" });
+    const req = jsonRequest({ channel: "phone" });
     const resp = await handleCancelVerificationSession(req);
     expect(resp.status).toBe(200);
     const body = (await resp.json()) as Record<string, unknown>;
@@ -552,14 +552,14 @@ describe("HTTP route: handleCancelVerificationSession (guardian path)", () => {
   test("returns 200 when active session is cancelled", async () => {
     // Start a session
     const startReq = jsonRequest({
-      channel: "voice",
+      channel: "phone",
       destination: "+15558887777",
     });
     const startResp = await handleCreateVerificationSession(startReq, "self");
     expect(startResp.status).toBe(200);
 
     // Cancel it
-    const cancelReq = jsonRequest({ channel: "voice" });
+    const cancelReq = jsonRequest({ channel: "phone" });
     const cancelResp = await handleCancelVerificationSession(cancelReq);
     expect(cancelResp.status).toBe(200);
     const body = (await cancelResp.json()) as Record<string, unknown>;
@@ -574,7 +574,7 @@ describe("HTTP route: handleCancelVerificationSession (guardian path)", () => {
 describe("origin conversation linkage", () => {
   test("startOutbound voice echoes originConversationId in result (first number)", async () => {
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15551119999",
       originConversationId: "conv-origin-voice-test-1",
     });
@@ -584,7 +584,7 @@ describe("origin conversation linkage", () => {
 
   test("startOutbound voice echoes originConversationId in result (second number)", async () => {
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15552229999",
       originConversationId: "conv-origin-voice-test",
     });
@@ -604,7 +604,7 @@ describe("origin conversation linkage", () => {
 
   test("startOutbound without originConversationId returns undefined for field", async () => {
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15553338888",
     });
     expect(result.success).toBe(true);
@@ -613,7 +613,7 @@ describe("origin conversation linkage", () => {
 
   test("HTTP handleCreateVerificationSession passes originConversationId through", async () => {
     const req = jsonRequest({
-      channel: "voice",
+      channel: "phone",
       destination: "+15557776666",
       originConversationId: "conv-origin-http-test",
     });
@@ -626,7 +626,7 @@ describe("origin conversation linkage", () => {
 
   test("voice call initiation receives originConversationId", async () => {
     const result = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15554443333",
       originConversationId: "conv-origin-voice-init",
     });
@@ -647,7 +647,7 @@ describe("origin conversation linkage", () => {
 
     // Start a voice session (no origin initially)
     const startResult = await startOutbound({
-      channel: "voice",
+      channel: "phone",
       destination: "+15552228888",
     });
     expect(startResult.success).toBe(true);
@@ -664,7 +664,7 @@ describe("origin conversation linkage", () => {
 
     // Resend with origin conversation ID
     const resendResult = resendOutbound({
-      channel: "voice",
+      channel: "phone",
       originConversationId: "conv-resend-origin-linkage",
     });
     expect(resendResult.success).toBe(true);

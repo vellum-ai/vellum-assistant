@@ -64,7 +64,7 @@ function makeSignal(
   return {
     signalId: "sig-fallback-guardian-1",
     createdAt: Date.now(),
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     sourceSessionId: "call-session-1",
     sourceEventName: "guardian.question",
     contextPayload: {

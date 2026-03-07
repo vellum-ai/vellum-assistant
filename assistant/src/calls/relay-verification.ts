@@ -126,7 +126,7 @@ export function attemptVerificationCode(
   } = params;
 
   const result = validateAndConsumeVerification(
-    "voice",
+    "phone",
     enteredCode,
     verificationFromNumber,
     verificationFromNumber,
@@ -144,7 +144,7 @@ export function attemptVerificationCode(
     if (result.verificationType === "guardian") {
       const existingBinding = getGuardianBinding(
         verificationAssistantId,
-        "voice",
+        "phone",
       );
       if (
         existingBinding &&
@@ -257,7 +257,7 @@ export function attemptInviteCodeRedemption(
   const result = redeemVoiceInviteCode({
     assistantId: inviteRedemptionAssistantId,
     callerExternalUserId: inviteRedemptionFromNumber,
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     code: enteredCode,
   });
 

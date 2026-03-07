@@ -87,7 +87,7 @@ export function routeSetup(ctx: SetupContext): {
 
   const actorTrust = resolveActorTrust({
     assistantId,
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     conversationExternalId: otherPartyNumber,
     actorExternalId: otherPartyNumber || undefined,
   });
@@ -159,7 +159,7 @@ export function routeSetup(ctx: SetupContext): {
   }
 
   // ── Inbound call ACL evaluation ─────────────────────────────────
-  const pendingChallenge = getPendingSession("voice");
+  const pendingChallenge = getPendingSession("phone");
 
   if (actorTrust.trustClass === "unknown" && !pendingChallenge) {
     // Check for blocked caller

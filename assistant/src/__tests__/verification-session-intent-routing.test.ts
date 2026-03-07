@@ -157,8 +157,8 @@ describe("channel hint extraction", () => {
     );
     expect(result.kind).toBe("direct_setup");
     if (result.kind === "direct_setup") {
-      expect(result.channelHint).toBe("voice");
-      expect(result.rewrittenContent).toContain("voice channel");
+      expect(result.channelHint).toBe("phone");
+      expect(result.rewrittenContent).toContain("phone channel");
     }
   });
 

@@ -139,7 +139,7 @@ function resolveTurnInterface(sourceInterface?: string): InterfaceId {
 function resolveCanonicalRequestSourceType(
   sourceChannel: string | undefined,
 ): "desktop" | "channel" | "voice" {
-  if (sourceChannel === "voice") {
+  if (sourceChannel === "phone") {
     return "voice";
   }
   if (sourceChannel === "vellum") {

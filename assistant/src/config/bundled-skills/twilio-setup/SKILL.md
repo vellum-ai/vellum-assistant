@@ -185,7 +185,7 @@ Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneN
 
 Link the user's phone number as the trusted voice guardian so the assistant can verify inbound callers.
 
-Load the guardian-verify-setup skill with `channel: "voice"`:
+Load the guardian-verify-setup skill with `channel: "phone"`:
 
 ```
 skill_load skill=guardian-verify-setup
@@ -196,7 +196,7 @@ The skill handles the full verification flow (outbound call, code entry, confirm
 To re-check guardian status later:
 
 ```bash
-assistant integrations guardian status --channel voice --json
+assistant integrations guardian status --channel phone --json
 ```
 
 ## Clearing Credentials

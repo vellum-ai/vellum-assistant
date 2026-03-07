@@ -323,8 +323,8 @@ describe("voice-session-bridge", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(capturedTurnChannelContext).toEqual({
-      userMessageChannel: "voice",
-      assistantMessageChannel: "voice",
+      userMessageChannel: "phone",
+      assistantMessageChannel: "phone",
     });
   });
 
@@ -358,7 +358,7 @@ describe("voice-session-bridge", () => {
       content: "Hello",
       isInbound: true,
       trustContext: {
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         trustClass: "trusted_contact",
         guardianExternalUserId: "+15550009999",
         guardianChatId: "+15550009999",
@@ -404,7 +404,7 @@ describe("voice-session-bridge", () => {
       content: "Hello",
       isInbound: true,
       trustContext: {
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         trustClass: "unknown",
       },
       onTextDelta: () => {},
@@ -447,7 +447,7 @@ describe("voice-session-bridge", () => {
       content: "Hello",
       isInbound: true,
       trustContext: {
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         trustClass: "guardian",
         guardianExternalUserId: "+15550001111",
         guardianChatId: "+15550001111",
@@ -482,7 +482,7 @@ describe("voice-session-bridge", () => {
     injectDeps(() => session);
 
     const trustCtx = {
-      sourceChannel: "voice" as const,
+      sourceChannel: "phone" as const,
       trustClass: "guardian" as const,
       guardianExternalUserId: "+15550001111",
       guardianChatId: "+15550001111",
@@ -527,7 +527,7 @@ describe("voice-session-bridge", () => {
       content: "Hello there",
       isInbound: true,
       trustContext: {
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         trustClass: "trusted_contact",
       },
       onTextDelta: () => {},
@@ -587,7 +587,7 @@ describe("voice-session-bridge", () => {
       content: "Hi",
       isInbound: true,
       trustContext: {
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         trustClass: "trusted_contact",
       },
       onTextDelta: () => {},
@@ -675,7 +675,7 @@ describe("voice-session-bridge", () => {
       content: "Delete everything",
       isInbound: true,
       trustContext: {
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         trustClass: "trusted_contact",
         guardianExternalUserId: "+15550009999",
         guardianChatId: "+15550009999",
@@ -748,7 +748,7 @@ describe("voice-session-bridge", () => {
       content: "Make a request",
       isInbound: true,
       trustContext: {
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         trustClass: "unknown",
       },
       onTextDelta: () => {},
@@ -880,7 +880,7 @@ describe("voice-session-bridge", () => {
       content: "List files",
       isInbound: true,
       trustContext: {
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         trustClass: "guardian",
         guardianExternalUserId: "+15550001111",
         guardianChatId: "+15550001111",
@@ -953,7 +953,7 @@ describe("voice-session-bridge", () => {
       content: "check github status",
       isInbound: true,
       trustContext: {
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         trustClass: "guardian",
         guardianExternalUserId: "+15550001111",
         guardianChatId: "+15550001111",

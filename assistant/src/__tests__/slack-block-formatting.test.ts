@@ -93,7 +93,7 @@ describe("isSlackCallbackUrl", () => {
   test("returns false for managed outbound URLs", () => {
     expect(
       isSlackCallbackUrl(
-        "http://localhost:7830/v1/internal/managed-gateway/outbound-send/?route_id=r1&assistant_id=a1&source_channel=voice",
+        "http://localhost:7830/v1/internal/managed-gateway/outbound-send/?route_id=r1&assistant_id=a1&source_channel=phone",
       ),
     ).toBe(false);
   });

@@ -251,9 +251,9 @@ describe("bridgeConfirmationRequestToGuardian", () => {
   });
 
   test("skips when no guardian binding exists for channel", () => {
-    const canonicalRequest = makeCanonicalRequest({ sourceChannel: "voice" });
+    const canonicalRequest = makeCanonicalRequest({ sourceChannel: "phone" });
     const trustContext = makeTrustedContactContext({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
     });
 
     const result = bridgeConfirmationRequestToGuardian({

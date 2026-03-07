@@ -100,7 +100,7 @@ describe("channel policy registry", () => {
       ["vellum", "start_new_conversation"],
       ["telegram", "continue_existing_conversation"],
       ["slack", "continue_existing_conversation"],
-      ["voice", "not_deliverable"],
+      ["phone", "not_deliverable"],
     ];
 
     for (const [channelId, expected] of expectedStrategies) {
@@ -124,12 +124,12 @@ describe("channel policy registry", () => {
   // ── Voice channel policy ─────────────────────────────────────────────
 
   test("voice is not a deliverable notification channel", () => {
-    expect(isNotificationDeliverable("voice")).toBe(false);
-    expect(getDeliverableChannels()).not.toContain("voice");
+    expect(isNotificationDeliverable("phone")).toBe(false);
+    expect(getDeliverableChannels()).not.toContain("phone");
   });
 
   test("voice uses not_deliverable strategy", () => {
-    expect(getConversationStrategy("voice")).toBe("not_deliverable");
+    expect(getConversationStrategy("phone")).toBe("not_deliverable");
   });
 
   test("deliverable channels include vellum and telegram", () => {

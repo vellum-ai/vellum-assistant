@@ -304,7 +304,7 @@ describe("non-member access request notification", () => {
   test("cross-channel fallback: voice guardian binding resolves for Telegram access request", async () => {
     // Only a voice guardian binding exists — no Telegram binding
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "guardian-voice-user",
       guardianDeliveryChatId: "guardian-voice-chat",
       guardianPrincipalId: "test-principal-id",
@@ -324,7 +324,7 @@ describe("non-member access request notification", () => {
       string,
       unknown
     >;
-    expect(payload.guardianBindingChannel).toBe("voice");
+    expect(payload.guardianBindingChannel).toBe("phone");
 
     // Canonical request has the voice guardian's external user ID
     const pending = listCanonicalGuardianRequests({
@@ -415,7 +415,7 @@ describe("access-request-helper unit tests", () => {
   test("notifyGuardianOfAccessRequest uses cross-channel binding when source-channel binding is missing", () => {
     // Only voice binding exists
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "guardian-voice",
       guardianDeliveryChatId: "voice-chat",
       guardianPrincipalId: "test-principal-id",
@@ -444,7 +444,7 @@ describe("access-request-helper unit tests", () => {
       string,
       unknown
     >;
-    expect(payload.guardianBindingChannel).toBe("voice");
+    expect(payload.guardianBindingChannel).toBe("phone");
   });
 
   test("notifyGuardianOfAccessRequest prefers source-channel binding over cross-channel fallback", () => {
@@ -457,7 +457,7 @@ describe("access-request-helper unit tests", () => {
       verifiedVia: "test",
     });
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "guardian-voice",
       guardianDeliveryChatId: "voice-chat",
       guardianPrincipalId: "test-principal-voice",
@@ -492,7 +492,7 @@ describe("access-request-helper unit tests", () => {
   test("notifyGuardianOfAccessRequest for voice channel includes actorDisplayName in contextPayload", () => {
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationExternalId: "+15559998888",
       actorExternalId: "+15559998888",
       actorDisplayName: "Alice Caller",
@@ -505,7 +505,7 @@ describe("access-request-helper unit tests", () => {
       string,
       unknown
     >;
-    expect(payload.sourceChannel).toBe("voice");
+    expect(payload.sourceChannel).toBe("phone");
     expect(payload.actorDisplayName).toBe("Alice Caller");
     expect(payload.actorExternalId).toBe("+15559998888");
     expect(payload.senderIdentifier).toBe("Alice Caller");
@@ -514,7 +514,7 @@ describe("access-request-helper unit tests", () => {
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "+15559998888",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
@@ -584,7 +584,7 @@ describe("access-request-helper unit tests", () => {
 
     const result = notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationExternalId: "+15556667777",
       actorExternalId: "+15556667777",
       actorDisplayName: "Noah",

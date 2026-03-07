@@ -35,7 +35,7 @@ describe("gateway-client managed outbound lane", () => {
 
   test("translates managed callback URL into managed outbound-send request", async () => {
     await deliverChannelReply(
-      "https://platform.test/v1/internal/managed-gateway/outbound-send/?route_id=route-123&assistant_id=assistant-123&source_channel=voice&source_update_id=CA-inbound-123&callback_token=runtime-token",
+      "https://platform.test/v1/internal/managed-gateway/outbound-send/?route_id=route-123&assistant_id=assistant-123&source_channel=phone&source_update_id=CA-inbound-123&callback_token=runtime-token",
       {
         chatId: "+15550001111",
         text: "hello from runtime",
@@ -74,7 +74,7 @@ describe("gateway-client managed outbound lane", () => {
     };
     expect(body.route_id).toBe("route-123");
     expect(body.assistant_id).toBe("assistant-123");
-    expect(body.normalized_send.sourceChannel).toBe("voice");
+    expect(body.normalized_send.sourceChannel).toBe("phone");
     expect(body.normalized_send.message.to).toBe("+15550001111");
     expect(body.normalized_send.message.content).toBe("hello from runtime");
     expect(body.normalized_send.message.externalMessageId).toStartWith(
@@ -109,7 +109,7 @@ describe("gateway-client managed outbound lane", () => {
     ) as unknown as typeof globalThis.fetch;
 
     await deliverChannelReply(
-      "https://platform.test/v1/internal/managed-gateway/outbound-send/?route_id=route-retry&assistant_id=assistant-retry&source_channel=voice&source_update_id=CA-retry",
+      "https://platform.test/v1/internal/managed-gateway/outbound-send/?route_id=route-retry&assistant_id=assistant-retry&source_channel=phone&source_update_id=CA-retry",
       {
         chatId: "+15550002222",
         text: "retry this outbound send",

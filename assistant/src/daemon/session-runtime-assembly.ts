@@ -345,7 +345,7 @@ export function resolveChannelCapabilities(
       };
     }
     case "telegram":
-    case "voice":
+    case "phone":
     case "whatsapp":
     case "slack":
     case "email":

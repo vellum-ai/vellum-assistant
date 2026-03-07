@@ -257,7 +257,7 @@ export function getFallbackMessage(context: ApprovalMessageContext): string {
       // Detect whether the code is a short numeric (identity-bound outbound)
       // or a high-entropy hex (inbound challenge/bootstrap) and adjust wording.
       const isNumeric = /^\d{4,8}$/.test(code);
-      if (context.channel === "voice") {
+      if (context.channel === "phone") {
         if (isNumeric) {
           return `To complete guardian verification, speak or enter the ${code.length}-digit code: ${code}.`;
         }

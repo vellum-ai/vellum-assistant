@@ -456,10 +456,10 @@ const accessRequestResolver: GuardianRequestResolver = {
     // Voice approvals: directly activate the trusted contact without minting
     // a verification session. The caller is already on the line and the
     // relay server's in-call wait loop will detect the approved status.
-    if (channel === "voice") {
+    if (channel === "phone") {
       try {
         upsertContactChannel({
-          sourceChannel: "voice",
+          sourceChannel: "phone",
           externalUserId: requesterExternalUserId,
           externalChatId: requesterChatId,
           status: "active",

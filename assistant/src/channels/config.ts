@@ -72,7 +72,7 @@ const CHANNEL_POLICIES = {
       codeRedemptionEnabled: true,
     },
   },
-  voice: {
+  phone: {
     notification: {
       deliveryEnabled: false,
       conversationStrategy: "not_deliverable",

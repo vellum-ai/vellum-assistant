@@ -211,7 +211,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
 function resolveCanonicalRequestSourceType(
   sourceChannel: string | undefined,
 ): "desktop" | "channel" | "voice" {
-  if (sourceChannel === "voice") {
+  if (sourceChannel === "phone") {
     return "voice";
   }
   if (sourceChannel === "vellum") {

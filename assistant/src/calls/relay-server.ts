@@ -726,10 +726,10 @@ export class RelayConnection {
         "assistant",
         JSON.stringify([{ type: "text", text: codeMsg }]),
         {
-          userMessageChannel: "voice",
-          assistantMessageChannel: "voice",
-          userMessageInterface: "voice",
-          assistantMessageInterface: "voice",
+          userMessageChannel: "phone",
+          assistantMessageChannel: "phone",
+          userMessageInterface: "phone",
+          assistantMessageInterface: "phone",
         },
       );
     }
@@ -782,7 +782,7 @@ export class RelayConnection {
     if (!params.skipMemberActivation) {
       try {
         upsertContactChannel({
-          sourceChannel: "voice",
+          sourceChannel: "phone",
           externalUserId: fromNumber,
           externalChatId: fromNumber,
           displayName: callerName,
@@ -799,7 +799,7 @@ export class RelayConnection {
 
     const updatedTrust = resolveActorTrust({
       assistantId,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationExternalId: fromNumber,
       actorExternalId: fromNumber,
     });
@@ -959,9 +959,9 @@ export class RelayConnection {
             "Guardian binding conflict: another user already holds the voice binding",
           );
         } else {
-          revokeGuardianBinding("voice");
+          revokeGuardianBinding("phone");
           createGuardianBinding({
-            channel: "voice",
+            channel: "phone",
             guardianExternalUserId: fromNumber,
             guardianDeliveryChatId: fromNumber,
             guardianPrincipalId: result.canonicalPrincipal!,
@@ -985,7 +985,7 @@ export class RelayConnection {
             successSession.initiatedFromConversationId,
             "verification_succeeded",
             successSession.toNumber,
-            { channel: "voice" },
+            { channel: "phone" },
           ).catch((err) => {
             log.warn(
               {
@@ -1011,7 +1011,7 @@ export class RelayConnection {
         if (this.controller) {
           const verifiedActorTrust = resolveActorTrust({
             assistantId,
-            sourceChannel: "voice",
+            sourceChannel: "phone",
             conversationExternalId: fromNumber,
             actorExternalId: fromNumber,
           });
@@ -1055,7 +1055,7 @@ export class RelayConnection {
             "verification_failed",
             failSession.toNumber,
             {
-              channel: "voice",
+              channel: "phone",
               reason: "Max verification attempts exceeded",
             },
           ).catch((err) => {
@@ -1197,7 +1197,7 @@ export class RelayConnection {
     try {
       const accessResult = notifyGuardianOfAccessRequest({
         canonicalAssistantId: this.accessRequestAssistantId,
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         conversationExternalId: this.accessRequestFromNumber,
         actorExternalId: this.accessRequestFromNumber,
         actorDisplayName: callerName,
@@ -1587,7 +1587,7 @@ export class RelayConnection {
    */
   private resolveGuardianLabel(): string {
     // Look up the guardian contact for a displayName fallback
-    const voiceGuardian = findGuardianForChannel("voice");
+    const voiceGuardian = findGuardianForChannel("phone");
     const guardianChannels = voiceGuardian ? null : listGuardianChannels();
     const guardianContact = voiceGuardian?.contact ?? guardianChannels?.contact;
 
@@ -1922,10 +1922,10 @@ export class RelayConnection {
             "user",
             JSON.stringify([{ type: "text", text: msg.voicePrompt }]),
             {
-              userMessageChannel: "voice",
-              assistantMessageChannel: "voice",
-              userMessageInterface: "voice",
-              assistantMessageInterface: "voice",
+              userMessageChannel: "phone",
+              assistantMessageChannel: "phone",
+              userMessageInterface: "phone",
+              assistantMessageInterface: "phone",
             },
           );
         } catch (err) {

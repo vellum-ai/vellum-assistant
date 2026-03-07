@@ -33,7 +33,7 @@ export function migrateNormalizePhoneIdentities(database: DrizzleDb): void {
     .get(checkpointKey);
   if (checkpoint) return;
 
-  const PHONE_CHANNELS = ["sms", "voice", "whatsapp"];
+  const PHONE_CHANNELS = ["sms", "phone", "whatsapp"];
 
   /**
    * Unique key scope definition for collision detection.

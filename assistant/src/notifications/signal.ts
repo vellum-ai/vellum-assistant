@@ -11,7 +11,7 @@ import type { GuardianQuestionPayload } from "./guardian-question-mode.js";
 export const NOTIFICATION_SOURCE_CHANNELS = [
   { id: "assistant_tool", description: "Assistant skill/tool invocation" },
   { id: "vellum", description: "Vellum native client (macOS/iOS)" },
-  { id: "voice", description: "Voice call pipeline" },
+  { id: "phone", description: "Phone call pipeline" },
   { id: "telegram", description: "Telegram channel" },
   { id: "slack", description: "Slack channel" },
   { id: "scheduler", description: "Scheduled task runner (reminders, cron)" },

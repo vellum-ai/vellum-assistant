@@ -10,7 +10,7 @@ export type VerificationSessionIntentResult =
   | {
       kind: "direct_setup";
       rewrittenContent: string;
-      channelHint?: "voice" | "telegram" | "slack";
+      channelHint?: "phone" | "telegram" | "slack";
     };
 
 // -- Direct setup patterns ----------------------------------------------------
@@ -48,9 +48,9 @@ const CONCEPTUAL_PATTERNS: RegExp[] = [
 
 const CHANNEL_HINT_PATTERNS: Array<{
   pattern: RegExp;
-  channel: "voice" | "telegram" | "slack";
+  channel: "phone" | "telegram" | "slack";
 }> = [
-  { pattern: /\b(?:voice|call|phone\s*call|by\s+phone)\b/i, channel: "voice" },
+  { pattern: /\b(?:voice|call|phone\s*call|by\s+phone)\b/i, channel: "phone" },
   { pattern: /\btelegram\b/i, channel: "telegram" },
   { pattern: /\bslack\b/i, channel: "slack" },
 ];
@@ -72,7 +72,7 @@ function isDirectSetupIntent(text: string): boolean {
 
 function extractChannelHint(
   text: string,
-): "voice" | "telegram" | "slack" | undefined {
+): "phone" | "telegram" | "slack" | undefined {
   for (const { pattern, channel } of CHANNEL_HINT_PATTERNS) {
     if (pattern.test(text)) return channel;
   }

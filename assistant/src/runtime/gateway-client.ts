@@ -49,7 +49,7 @@ interface ManagedOutboundCallbackContext {
   requestUrl: string;
   routeId: string;
   assistantId: string;
-  sourceChannel: "voice";
+  sourceChannel: "phone";
   sourceUpdateId?: string;
   callbackToken?: string;
 }
@@ -136,7 +136,7 @@ function parseManagedOutboundCallback(
   const assistantId = parsed.searchParams.get("assistant_id")?.trim();
   const sourceChannel = parsed.searchParams.get("source_channel")?.trim();
 
-  if (!routeId || !assistantId || sourceChannel !== "voice") {
+  if (!routeId || !assistantId || sourceChannel !== "phone") {
     throw new Error(
       "Managed outbound callback URL is missing required route_id, assistant_id, or source_channel.",
     );

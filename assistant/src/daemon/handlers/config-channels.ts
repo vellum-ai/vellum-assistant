@@ -236,7 +236,7 @@ const SESSION_TTL_SECONDS = 600;
 function toVerificationChannel(channelType: string): ChannelId | null {
   switch (channelType) {
     case "phone":
-      return "voice";
+      return "phone";
     case "telegram":
       return "telegram";
     case "slack":

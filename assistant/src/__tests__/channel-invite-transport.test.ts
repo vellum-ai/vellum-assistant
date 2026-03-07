@@ -112,7 +112,7 @@ describe("createInviteAdapterRegistry", () => {
     "email",
     "slack",
     "telegram",
-    "voice",
+    "phone",
     "whatsapp",
   ] as const;
 

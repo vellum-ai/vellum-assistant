@@ -114,10 +114,10 @@ export function registerSessionNotifiers(
         JSON.stringify([{ type: "text", text: questionText }]),
         {
           ...provenanceFromTrustContext(ctx.trustContext),
-          userMessageChannel: "voice",
-          assistantMessageChannel: "voice",
-          userMessageInterface: "voice",
-          assistantMessageInterface: "voice",
+          userMessageChannel: "phone",
+          assistantMessageChannel: "phone",
+          userMessageInterface: "phone",
+          assistantMessageInterface: "phone",
         },
       );
 

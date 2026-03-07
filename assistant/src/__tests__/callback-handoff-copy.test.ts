@@ -16,14 +16,14 @@ function buildSignal(
   return {
     signalId: "test-signal-1",
     createdAt: Date.now(),
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     sourceSessionId: "test-session-1",
     sourceEventName: "ingress.access_request.callback_handoff",
     contextPayload: {
       requestId: "req-123",
       requestCode: null,
       callSessionId: "call-456",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       reason: "timeout",
       callbackOptIn: true,
       callerPhoneNumber: "+15551234567",

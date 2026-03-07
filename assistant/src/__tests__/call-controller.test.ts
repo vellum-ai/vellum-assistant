@@ -868,7 +868,7 @@ describe("call-controller", () => {
 
   test("handleCallerUtterance: passes guardian context to startVoiceTurn", async () => {
     const trustCtx = {
-      sourceChannel: "voice" as const,
+      sourceChannel: "phone" as const,
       trustClass: "trusted_contact" as const,
       guardianExternalUserId: "+15550009999",
       guardianChatId: "+15550009999",
@@ -928,12 +928,12 @@ describe("call-controller", () => {
 
   test("setTrustContext: subsequent turns use updated guardian context", async () => {
     const initialCtx = {
-      sourceChannel: "voice" as const,
+      sourceChannel: "phone" as const,
       trustClass: "unknown" as const,
     };
 
     const upgradedCtx = {
-      sourceChannel: "voice" as const,
+      sourceChannel: "phone" as const,
       trustClass: "guardian" as const,
       guardianExternalUserId: "+15550003333",
       guardianChatId: "+15550003333",

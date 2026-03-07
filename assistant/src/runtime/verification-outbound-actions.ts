@@ -246,7 +246,7 @@ export async function startOutbound(
       params.rebind,
       originConversationId,
     );
-  } else if (channel === "voice") {
+  } else if (channel === "phone") {
     return startOutboundVoice(
       params.destination,
       assistantId,
@@ -740,7 +740,7 @@ export function resendOutbound(
       channel,
       originConversationId,
     };
-  } else if (channel === "voice") {
+  } else if (channel === "phone") {
     const newSession = createOutboundSession({
       channel,
       expectedPhoneE164: destination,

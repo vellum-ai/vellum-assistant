@@ -34,7 +34,7 @@ function hasIngressConfigured(): boolean {
 // ── Voice Probe ─────────────────────────────────────────────────────────────
 
 const voiceProbe: ChannelProbe = {
-  channel: "voice",
+  channel: "phone",
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
     const results: ReadinessCheckResult[] = [];
 

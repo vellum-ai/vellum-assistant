@@ -1,6 +1,6 @@
 export const CHANNEL_IDS = [
   "telegram",
-  "voice",
+  "phone",
   "vellum",
   "whatsapp",
   "slack",
@@ -43,7 +43,7 @@ export const INTERFACE_IDS = [
   "ios",
   "cli",
   "telegram",
-  "voice",
+  "phone",
   "vellum",
   "whatsapp",
   "slack",

@@ -672,7 +672,7 @@ Examples:
             const result = redeemVoiceInviteCode({
               code: opts.code,
               callerExternalUserId: opts.callerExternalUserId,
-              sourceChannel: "voice",
+              sourceChannel: "phone",
               ...(opts.assistantId ? { assistantId: opts.assistantId } : {}),
             });
             if (result.ok) {
