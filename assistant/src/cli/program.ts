@@ -17,7 +17,6 @@ import { registerDevCommand } from "./dev.js";
 import { registerDoctorCommand } from "./doctor.js";
 import { registerEmailCommand } from "./email.js";
 import { registerInfluencerCommand } from "./influencer.js";
-import { registerIntegrationsCommand } from "./integrations.js";
 import { registerKeysCommand } from "./keys.js";
 import { registerMapCommand } from "./map.js";
 import { registerMcpCommand } from "./mcp.js";
@@ -52,7 +51,6 @@ export function buildCliProgram(): Command {
   registerHooksCommand(program);
   registerMcpCommand(program);
   registerEmailCommand(program);
-  registerIntegrationsCommand(program);
   registerContactsCommand(program);
   registerChannelsCommand(program);
   registerChannelVerificationSessionsCommand(program);

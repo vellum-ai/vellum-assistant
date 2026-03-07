@@ -14,7 +14,7 @@ Operational procedures for inspecting, managing, and debugging the trusted conta
 BASE=http://localhost:7821
 
 # Bearer token: for operator use, retrieve from the daemon process environment
-# or use `assistant integrations` CLI commands which handle auth automatically.
+# or use `assistant` CLI commands which handle auth automatically.
 TOKEN=<your-bearer-token>
 ```
 

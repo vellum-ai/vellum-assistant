@@ -20,7 +20,6 @@ This file is the cross-system architecture index. Detailed designs live in domai
 ## Cross-Cutting Invariants
 
 - Public ingress is gateway-only; external webhook/API routes are implemented in `gateway/` and forwarded internally.
-- Bundled-skill config/status retrieval is CLI-first: `SKILL.md -> bash -> canonical vellum CLI surfaces -> gateway/runtime`. The baseline retrieval path is `assistant config` plus secure secret surfaces (`assistant keys`); domain-specific status reads (for example `assistant integrations ...` or `assistant email ...`) are follow-on surfaces, not a prerequisite for the initial migration. Direct gateway curls are reserved for control-plane writes when no CLI surface exists; keychain lookup commands are not part of bundled skill retrieval guidance.
 - Bundled-skill outbound API calls that require credentials default to proxied execution (`bash` with `network_mode: "proxied"` + `credential_ids`) rather than manual token plumbing.
 - Managed shared-identity channel routing runs in a separate managed-gateway service lane from the per-assistant `gateway/` lane. The deployable managed-gateway runtime is platform-owned; this repo keeps public contracts/fixtures under `gateway-managed/`.
 - Production LLM calls go through the provider abstraction, not provider SDKs in feature code.

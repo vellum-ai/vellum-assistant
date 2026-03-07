@@ -11,7 +11,7 @@ import {
   shouldUsePlatformCallbacks,
 } from "../inbound/platform-callback-registration.js";
 import { getCliLogger } from "../util/logger.js";
-import { shouldOutputJson, writeOutput } from "./integrations.js";
+import { shouldOutputJson, writeOutput } from "./utils.js";
 
 const log = getCliLogger("cli");
 
