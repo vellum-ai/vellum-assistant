@@ -117,9 +117,6 @@ mock.module("../util/platform.js", () => ({
   readSessionToken: () => null,
   removeSocketFile: () => {},
   writeLockfile: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
   ensureDataDir: () => {},
 }));
 

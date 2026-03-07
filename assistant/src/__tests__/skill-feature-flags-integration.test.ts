@@ -58,9 +58,6 @@ mock.module("../util/platform.js", () => ({
   getClipboardCommand: () => null,
   readSessionToken: () => null,
   removeSocketFile: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
 }));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {

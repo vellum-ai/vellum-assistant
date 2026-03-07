@@ -44,9 +44,6 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
   removeSocketFile: () => {},
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports

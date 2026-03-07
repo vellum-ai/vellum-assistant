@@ -32,8 +32,6 @@ import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
-import { migrateToDataLayout } from "../migrations/data-layout.js";
-import { migrateToWorkspaceLayout } from "../migrations/workspace-layout.js";
 import {
   emitNotificationSignal,
   registerBroadcastFn,
@@ -136,11 +134,6 @@ export async function runDaemon(): Promise<void> {
 
     await initLogfire();
 
-    // Migration order matters: first move legacy flat files into the data dir
-    // structure, then relocate the data dir into the active workspace, and
-    // finally create any directories that don't yet exist.
-    migrateToDataLayout();
-    migrateToWorkspaceLayout();
     ensureDataDir();
 
     // Load (or generate + persist) the auth signing key so tokens survive

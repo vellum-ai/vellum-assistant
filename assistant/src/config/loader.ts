@@ -17,8 +17,6 @@ import { getLogger } from "../util/logger.js";
 import {
   ensureDataDir,
   getWorkspaceConfigPath,
-  migrateToDataLayout,
-  migrateToWorkspaceLayout,
   readLockfile,
   writeLockfile,
 } from "../util/platform.js";
@@ -46,14 +44,7 @@ function getConfigPath(): string {
   return getWorkspaceConfigPath();
 }
 
-/**
- * Run migrations before creating workspace dirs, so legacy files are
- * moved into workspace/ before ensureDataDir() creates empty dirs that
- * would cause migration moves to no-op.
- */
 function ensureMigratedDataDir(): void {
-  migrateToDataLayout();
-  migrateToWorkspaceLayout();
   ensureDataDir();
 }
 

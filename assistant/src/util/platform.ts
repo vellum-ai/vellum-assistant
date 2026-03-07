@@ -352,13 +352,6 @@ export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }
 
-// Re-export migration functions so existing consumers don't break.
-export { migrateToDataLayout } from "../migrations/data-layout.js";
-export {
-  migratePath,
-  migrateToWorkspaceLayout,
-} from "../migrations/workspace-layout.js";
-
 export function ensureDataDir(): void {
   const root = getRootDir();
   const workspace = getWorkspaceDir();

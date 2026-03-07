@@ -30,8 +30,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
   normalizeAssistantId: (id: string) =>
     id === "self" || id === "" ? "self" : id,
 }));
