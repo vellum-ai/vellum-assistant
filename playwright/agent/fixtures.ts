@@ -98,6 +98,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   verifyAppExists(appDisplayName);
   preApproveScreenCapture();
   ensureVellumInPath(appDisplayName);
+  killStaleAssistantProcesses();
   await ensureAssistantHatched();
   skipAssistantOnboarding();
   ensureApiKeyInDefaults();
@@ -124,6 +125,62 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
 /** Resolves the base data directory, respecting the BASE_DATA_DIR env var. */
 function getBaseDir(): string {
   return process.env.BASE_DATA_DIR?.trim() || os.homedir();
+}
+
+/**
+ * Kills any leftover vellum-daemon and vellum-gateway processes from
+ * previous test runs (or macOS app launches) so the current hatch
+ * starts with a clean slate and avoids EADDRINUSE on the gateway port.
+ * Also removes stale lockfiles and PID files from the home directory.
+ */
+function killStaleAssistantProcesses(): void {
+  // Kill gateway and daemon processes by name
+  for (const proc of ["vellum-gateway", "vellum-daemon"]) {
+    try {
+      execSync(`pkill -f ${proc} 2>/dev/null || true`, {
+        timeout: 5_000,
+        shell: "/bin/bash",
+      });
+    } catch {
+      // Process may not exist
+    }
+  }
+
+  // Remove stale PID files so hatchLocal doesn't think a daemon is alive
+  const vellumDir = path.join(os.homedir(), ".vellum");
+  for (const pidFile of ["vellum.pid", "gateway.pid"]) {
+    try {
+      const pidPath = path.join(vellumDir, pidFile);
+      if (existsSync(pidPath)) unlinkSync(pidPath);
+    } catch {
+      // Best-effort cleanup
+    }
+  }
+
+  // Remove stale lockfile from home so hatch doesn't skip setup
+  const homeLockfile = path.join(os.homedir(), ".vellum.lock.json");
+  try {
+    if (existsSync(homeLockfile)) unlinkSync(homeLockfile);
+  } catch {
+    // Best-effort cleanup
+  }
+
+  // Also clean up instance-specific PID files under ~/.local/share/vellum/assistants/
+  const assistantsDir = path.join(os.homedir(), ".local", "share", "vellum", "assistants");
+  try {
+    if (existsSync(assistantsDir)) {
+      const entries = execSync(`find ${JSON.stringify(assistantsDir)} -name "*.pid" -type f 2>/dev/null || true`, {
+        encoding: "utf-8",
+        timeout: 5_000,
+        shell: "/bin/bash",
+      }).trim();
+      for (const pidPath of entries.split("\n").filter(Boolean)) {
+        try { unlinkSync(pidPath); } catch { /* best-effort */ }
+      }
+    }
+  } catch {
+    // Best-effort cleanup
+  }
 }
 
 /**
