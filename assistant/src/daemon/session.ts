@@ -374,6 +374,15 @@ export class Session {
         const maxMessages = flushConfig?.maxMessages ?? 50;
         const timeoutMs = flushConfig?.timeoutMs ?? 30000;
 
+        // Dedicated abort controller that fires on timeout OR when the
+        // outer signal aborts, ensuring the flush stops promptly in both
+        // cases and the timeout timer is always cleaned up.
+        const flushController = new AbortController();
+        const timeoutId = setTimeout(() => flushController.abort(), timeoutMs);
+        signal?.addEventListener("abort", () => flushController.abort(), {
+          once: true,
+        });
+
         try {
           // Resolve DB message rows so flush has real message IDs for
           // deduplication and extraction. The compactable messages correspond
@@ -390,28 +399,12 @@ export class Session {
             flushMessages = flushMessages.slice(-maxMessages);
           }
 
-          const flushPromise = flushMemoryForMessages({
+          const result = await flushMemoryForMessages({
             messages: flushMessages,
             conversationId: this.conversationId,
             scopeId: this.memoryPolicy.scopeId,
-            abortSignal: signal,
+            abortSignal: flushController.signal,
           });
-
-          const timeoutSentinel = Symbol("timeout");
-          const result = await Promise.race([
-            flushPromise,
-            new Promise<typeof timeoutSentinel>((resolve) =>
-              setTimeout(() => resolve(timeoutSentinel), timeoutMs),
-            ),
-          ]);
-
-          if (result === timeoutSentinel) {
-            log.warn(
-              { timeoutMs, conversationId: this.conversationId },
-              "Pre-compaction memory flush timed out, proceeding with compaction",
-            );
-            return;
-          }
 
           log.info(
             {
@@ -422,10 +415,19 @@ export class Session {
             `Pre-compaction memory flush: extracted ${result.flushed} items from ${flushMessages.length} messages`,
           );
         } catch (err) {
+          if (flushController.signal.aborted) {
+            log.warn(
+              { timeoutMs, conversationId: this.conversationId },
+              "Pre-compaction memory flush timed out, proceeding with compaction",
+            );
+            return;
+          }
           log.warn(
             { err, conversationId: this.conversationId },
             "Pre-compaction memory flush failed, proceeding with compaction",
           );
+        } finally {
+          clearTimeout(timeoutId);
         }
       },
     });
