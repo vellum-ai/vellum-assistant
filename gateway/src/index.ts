@@ -15,10 +15,9 @@ import { ConfigFileWatcher } from "./config-file-watcher.js";
 import { loadConfig } from "./config.js";
 import { CredentialCache } from "./credential-cache.js";
 import {
-  buildCredentialServiceMappings,
-  applyCredentialChanges,
-} from "./credential-mappings.js";
-import { CredentialWatcher } from "./credential-watcher.js";
+  CredentialWatcher,
+  type CredentialChangeEvent,
+} from "./credential-watcher.js";
 import { createRuntimeProxyHandler } from "./http/routes/runtime-proxy.js";
 import {
   createBrowserRelayWebsocketHandler,
@@ -27,9 +26,7 @@ import {
   type BrowserRelaySocketData,
 } from "./http/routes/browser-relay-websocket.js";
 import { createTelegramDeliverHandler } from "./http/routes/telegram-deliver.js";
-import { createTelegramReconcileHandler } from "./http/routes/telegram-reconcile.js";
 import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js";
-import { createTwilioReconcileHandler } from "./http/routes/twilio-reconcile.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
 import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
@@ -78,6 +75,68 @@ function generateTraceId(): string {
 }
 
 let draining = false;
+
+/**
+ * Detect which services had credential changes and log them.
+ * Returns the set of service names that changed so callers can
+ * trigger side effects (e.g. Telegram webhook reconciliation,
+ * Slack socket restart).
+ */
+function detectCredentialChanges(
+  event: CredentialChangeEvent,
+  logTarget: { info: (msg: string) => void },
+): Set<string> {
+  const changed = new Set<string>();
+  const checks: Array<{
+    changedKey: keyof CredentialChangeEvent & `${string}Changed`;
+    credentialsKey: keyof CredentialChangeEvent;
+    displayName: string;
+    serviceName: string;
+  }> = [
+    {
+      changedKey: "telegramChanged",
+      credentialsKey: "telegramCredentials",
+      displayName: "Telegram",
+      serviceName: "telegram",
+    },
+    {
+      changedKey: "twilioChanged",
+      credentialsKey: "twilioCredentials",
+      displayName: "Twilio",
+      serviceName: "twilio",
+    },
+    {
+      changedKey: "whatsappChanged",
+      credentialsKey: "whatsappCredentials",
+      displayName: "WhatsApp",
+      serviceName: "whatsapp",
+    },
+    {
+      changedKey: "slackChannelChanged",
+      credentialsKey: "slackChannelCredentials",
+      displayName: "Slack channel",
+      serviceName: "slackChannel",
+    },
+  ];
+
+  for (const {
+    changedKey,
+    credentialsKey,
+    displayName,
+    serviceName,
+  } of checks) {
+    if (!event[changedKey]) continue;
+    const creds = event[credentialsKey];
+    logTarget.info(
+      creds
+        ? `${displayName} credentials loaded from credential vault`
+        : `${displayName} credentials cleared`,
+    );
+    changed.add(serviceName);
+  }
+
+  return changed;
+}
 
 // Shared rate limiter for auth failures and unauthenticated endpoints
 const authRateLimiter = new AuthRateLimiter();
@@ -143,15 +202,6 @@ async function main() {
   const { handler: handleTelegramWebhook, dedupCache: telegramDedupCache } =
     createTelegramWebhookHandler(config, { credentials: credentialCache });
   const handleTelegramDeliver = createTelegramDeliverHandler(config);
-  const handleTelegramReconcile = createTelegramReconcileHandler(config, {
-    credentials: credentialCache,
-    configFile: configFileCache,
-  });
-  const handleTwilioReconcile = createTwilioReconcileHandler(config, {
-    credentials: credentialCache,
-    configFile: configFileCache,
-  });
-
   const isTelegramConfigured = () => telegramReady;
   const isWhatsAppConfigured = () => whatsappReady;
 
@@ -224,16 +274,6 @@ async function main() {
   // Auth middleware is applied declaratively per route — no manual
   // requireEdgeAuth/wrapWithAuthFailureTracking calls needed.
   const routes: RouteDefinition[] = [
-    // ── Internal ──
-    {
-      path: "/internal/telegram/reconcile",
-      handler: (req) => handleTelegramReconcile(req),
-    },
-    {
-      path: "/internal/twilio/reconcile",
-      handler: (req) => handleTwilioReconcile(req),
-    },
-
     // ── Webhooks (unauthenticated, validated by provider-specific mechanisms) ──
     {
       path: "/webhooks/telegram",
@@ -842,10 +882,8 @@ async function main() {
     });
   }
 
-  const credentialMappings = buildCredentialServiceMappings();
-
   const credentialWatcher = new CredentialWatcher((event) => {
-    const changed = applyCredentialChanges(event, credentialMappings, log);
+    const changed = detectCredentialChanges(event, log);
 
     // Invalidate the credential cache so subsequent reads pick up fresh values
     if (changed.size > 0) {
