@@ -58,7 +58,7 @@ const RATE_LIMIT_LOCKOUT_MS = 30 * 60 * 1000;
 // Types
 // ---------------------------------------------------------------------------
 
-export interface CreateChallengeResult {
+export interface CreateVerificationSessionResult {
   challengeId: string;
   secret: string;
   verifyCommand: string;
@@ -66,7 +66,7 @@ export interface CreateChallengeResult {
   instruction: string;
 }
 
-export type ValidateChallengeResult =
+export type ValidateVerificationResult =
   | { success: true; verificationType: "guardian" | "trusted_contact" }
   | { success: false; reason: string };
 
@@ -96,9 +96,9 @@ function generateNumericSecret(digits: number = 6): string {
 }
 
 /**
- * Create a new verification challenge for a guardian candidate.
+ * Create a new inbound verification session for a guardian candidate.
  *
- * Inbound challenges are not identity-bound: `validateAndConsumeVerification`
+ * Inbound sessions are not identity-bound: `validateAndConsumeVerification`
  * skips the identity check when no expected-identity fields are set, so
  * code secrecy is the only protection against brute-force guessing during
  * the TTL window. A 32-byte hex secret provides ~2^128 entropy, making
@@ -106,14 +106,14 @@ function generateNumericSecret(digits: number = 6): string {
  * `createOutboundSession`) use shorter 6-digit numeric codes because the
  * identity check adds a second layer of protection.
  *
- * Hashes the secret (SHA-256) and stores the challenge record with a
+ * Hashes the secret (SHA-256) and stores the session record with a
  * 10-minute TTL. The raw secret is returned so it can be displayed to
  * the user; only the hash is persisted.
  */
-export function createVerificationChallenge(
+export function createInboundVerificationSession(
   channel: string,
   sessionId?: string,
-): CreateChallengeResult {
+): CreateVerificationSessionResult {
   // High-entropy hex for unbound inbound challenges — 6-digit numeric
   // codes are only safe when identity binding provides a second factor.
   const secret = randomBytes(32).toString("hex");
@@ -166,7 +166,7 @@ export function validateAndConsumeVerification(
   actorChatId: string,
   _actorUsername?: string,
   _actorDisplayName?: string,
-): ValidateChallengeResult {
+): ValidateVerificationResult {
   // ── Rate-limit check ──
   const existing = getRateLimit(channel, actorExternalUserId, actorChatId);
   if (

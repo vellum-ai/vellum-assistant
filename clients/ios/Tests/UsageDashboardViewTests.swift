@@ -102,15 +102,7 @@ final class UsageDashboardViewTests: XCTestCase {
             XCTAssertEqual(breakdown.breakdown[0].totalCacheCreationTokens, 120)
             XCTAssertEqual(breakdown.breakdown[0].totalCacheReadTokens, 9_876)
             let entry = breakdown.breakdown[0]
-            let expectedSummary = UsageFormatting.formatBreakdownSummary(UsageGroupBreakdownEntry(
-                group: "claude-sonnet-4-20250514",
-                totalInputTokens: 700,
-                totalOutputTokens: 350,
-                totalCacheCreationTokens: 120,
-                totalCacheReadTokens: 9_876,
-                totalEstimatedCostUsd: 0.003,
-                eventCount: 2
-            ))
+            let expectedSummary = "\(UsageFormatting.formatCount(700)) direct / \(UsageFormatting.formatCount(120)) cache created / \(UsageFormatting.formatCount(9_876)) cache read / \(UsageFormatting.formatCount(350)) out"
             XCTAssertEqual(UsageFormatting.formatBreakdownSummary(entry), expectedSummary)
         } else {
             XCTFail("Expected breakdownState to be .loaded, got \(populatedStore.breakdownState)")

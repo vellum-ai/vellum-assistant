@@ -286,7 +286,7 @@ This section documents the end-to-end flow from guardian verification through in
 
 Guardian verification establishes a cryptographic trust binding between a human identity and an `(assistantId, channel)` pair. The flow is:
 
-1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_session` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
+1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a channel_verification_session IPC message (`create_session` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
 2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram).
 3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided code, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
 4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `actorExternalId` and `chatId` (DB columns: `externalUserId`, `chatId`). The verifier receives a confirmation message.
@@ -325,16 +325,16 @@ Guardian verification and ingress contact management are complementary but indep
 
 ### Key Modules
 
-| File                                            | Purpose                                                                                                                     |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `src/runtime/channel-verification-service.ts`   | Verification lifecycle: `createVerificationChallenge`, `validateAndConsumeVerification`, `getGuardianBinding`, `isGuardian` |
-| `src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel                                                     |
-| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation                                                   |
-| `src/contacts/contact-store.ts`                 | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                      |
-| `src/memory/invite-store.ts`                    | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                         |
-| `src/memory/channel-guardian-store.ts`          | Persistence for guardian bindings, verification challenges, and approval requests                                           |
-| `src/runtime/verification-outbound-actions.ts`  | Shared business logic for outbound verification (start/resend/cancel)                                                       |
-| `src/runtime/routes/integration-routes.ts`      | HTTP route handlers for outbound guardian verification endpoints                                                            |
+| File                                            | Purpose                                                                                                                          |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/channel-verification-service.ts`   | Verification lifecycle: `createInboundVerificationSession`, `validateAndConsumeVerification`, `getGuardianBinding`, `isGuardian` |
+| `src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel                                                          |
+| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation                                                        |
+| `src/contacts/contact-store.ts`                 | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                           |
+| `src/memory/invite-store.ts`                    | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                              |
+| `src/memory/channel-guardian-store.ts`          | Persistence for guardian bindings, verification challenges, and approval requests                                                |
+| `src/runtime/verification-outbound-actions.ts`  | Shared business logic for outbound verification (start/resend/cancel)                                                            |
+| `src/runtime/routes/integration-routes.ts`      | HTTP route handlers for outbound guardian verification endpoints                                                                 |
 
 ### Chat-Initiated Guardian Verification
 

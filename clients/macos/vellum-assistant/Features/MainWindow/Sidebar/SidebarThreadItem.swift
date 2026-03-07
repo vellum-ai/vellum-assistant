@@ -80,9 +80,8 @@ struct SidebarThreadItem: View {
                             .transition(.opacity)
                     case .idle:
                         if thread.hasUnseenLatestAssistantMessage {
-                            Circle()
-                                .fill(Color(hex: 0xE86B40))
-                                .frame(width: 6, height: 6)
+                            VBadge(style: .dot, color: VColor.warning)
+                                .accessibilityLabel("Unread")
                                 .frame(width: 20, height: 20)
                                 .transition(.opacity)
                         } else if thread.isPinned {

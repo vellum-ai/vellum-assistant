@@ -424,9 +424,9 @@ describe("trusted contact verification → member activation", () => {
   test("guardian inbound verification succeeds but does not create binding", async () => {
     // Create an inbound challenge (no expected identity — guardian flow)
 
-    const { createVerificationChallenge } =
+    const { createInboundVerificationSession } =
       await import("../runtime/channel-verification-service.js");
-    const { secret } = createVerificationChallenge("telegram");
+    const { secret } = createInboundVerificationSession("telegram");
 
     const result = validateAndConsumeVerification(
       "telegram",

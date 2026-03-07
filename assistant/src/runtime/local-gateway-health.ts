@@ -111,19 +111,6 @@ function resolveLocalAssistantName(): string | undefined {
     return latestAssistant.assistantId.trim();
   }
 
-  // Fallback for named instances: when BASE_DATA_DIR points to an instance
-  // directory (e.g. ~/.local/share/vellum/assistants/<name>), derive the name
-  // so vellum wake gets the correct target. Without this, vellum wake exits
-  // with "No local assistant found" for named instances when the lockfile
-  // lacks assistantId (e.g. before first hatch or during early startup).
-  const baseDir = getBaseDataDir();
-  if (baseDir) {
-    const match = baseDir.match(/[/]assistants[/]([^/]+)$/);
-    if (match && match[1].trim().length > 0) {
-      return match[1].trim();
-    }
-  }
-
   return undefined;
 }
 

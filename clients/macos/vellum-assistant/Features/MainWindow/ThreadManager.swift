@@ -217,7 +217,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] _ in
             self?.completedConversationCount += 1
-            self?.updateThreadTitle(id: threadId, title: "Untitled")
+            // Only set "Untitled" if the user hasn't already renamed this thread.
+            if self?.pendingRenames[threadId] == nil {
+                self?.updateThreadTitle(id: threadId, title: "Untitled")
+            }
             self?.updateLastInteracted(threadId: threadId)
         }
         threads.insert(thread, at: 0)
@@ -303,7 +306,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         if !fromUserSend {
             viewModel.onFirstUserMessage = { [weak self] _ in
                 self?.completedConversationCount += 1
-                self?.updateThreadTitle(id: threadId, title: "Untitled")
+                // Only set "Untitled" if the user hasn't already renamed this thread.
+                if self?.pendingRenames[threadId] == nil {
+                    self?.updateThreadTitle(id: threadId, title: "Untitled")
+                }
                 self?.updateLastInteracted(threadId: threadId)
             }
         }
@@ -323,7 +329,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] _ in
             self?.completedConversationCount += 1
-            self?.updateThreadTitle(id: threadId, title: "Untitled")
+            // Only set "Untitled" if the user hasn't already renamed this thread.
+            if self?.pendingRenames[threadId] == nil {
+                self?.updateThreadTitle(id: threadId, title: "Untitled")
+            }
             self?.updateLastInteracted(threadId: threadId)
         }
         threads.insert(thread, at: 0)
@@ -1108,6 +1117,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// guard would skip the signal.
     internal func markConversationSeen(threadId: UUID) {
         guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
+        // If the thread has a pending .unread override, opening the thread clears it
+        // so the normal seen flow proceeds rather than leaving the thread stuck as unread.
+        if let sessionId = threads[idx].sessionId,
+           case .unread = pendingAttentionOverrides[sessionId] {
+            pendingAttentionOverrides.removeValue(forKey: sessionId)
+        }
         threads[idx].hasUnseenLatestAssistantMessage = false
         if let sessionId = threads[idx].sessionId {
             pendingAttentionOverrides[sessionId] = .seen(
@@ -1232,6 +1247,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         for id in threadIds {
             if let idx = threads.firstIndex(where: { $0.id == id }) {
                 threads[idx].hasUnseenLatestAssistantMessage = true
+                threads[idx].lastSeenAssistantMessageAt = nil
+                if let sessionId = threads[idx].sessionId {
+                    pendingAttentionOverrides.removeValue(forKey: sessionId)
+                }
             }
         }
     }

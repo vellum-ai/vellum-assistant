@@ -19,8 +19,8 @@ import {
 } from "../../runtime/channel-readiness-service.js";
 import {
   countRecentSendsToDestination,
+  createInboundVerificationSession,
   createOutboundSession,
-  createVerificationChallenge,
   findActiveSession,
   getGuardianBinding,
   getPendingSession,
@@ -108,7 +108,7 @@ export function createInboundChallenge(
     };
   }
 
-  const result = createVerificationChallenge(resolvedChannel, sessionId);
+  const result = createInboundVerificationSession(resolvedChannel, sessionId);
 
   return {
     success: true,

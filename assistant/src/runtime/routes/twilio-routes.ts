@@ -69,10 +69,8 @@ function refreshGatewayTwilioState(): void {
   const fromConfig = (ingress.publicBaseUrl as string)
     ?.trim()
     ?.replace(/\/+$/, "");
-  const url =
-    ingress.enabled !== false && fromConfig
-      ? fromConfig
-      : getIngressPublicBaseUrl();
+  const isEnabled = ingress.enabled !== false;
+  const url = isEnabled ? fromConfig || getIngressPublicBaseUrl() : undefined;
   void triggerGatewayTwilioReconcile(url || undefined);
 }
 
