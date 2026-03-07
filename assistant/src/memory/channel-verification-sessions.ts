@@ -156,7 +156,7 @@ export function createInboundSession(params: {
     expectedExternalUserId: null,
     expectedChatId: null,
     expectedPhoneE164: null,
-    identityBindingStatus: "bound" as const,
+    identityBindingStatus: null,
     destinationAddress: null,
     lastSentAt: null,
     sendCount: 0,

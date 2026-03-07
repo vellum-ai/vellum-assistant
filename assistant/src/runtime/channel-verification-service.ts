@@ -100,10 +100,10 @@ function generateNumericSecret(digits: number = 6): string {
 /**
  * Create a new inbound verification session for a guardian candidate.
  *
- * Inbound sessions are not identity-bound: `validateAndConsumeVerification`
- * skips the identity check when no expected-identity fields are set, so
- * code secrecy is the only protection against brute-force guessing during
- * the TTL window. A 32-byte hex secret provides ~2^128 entropy, making
+ * Inbound sessions are not identity-bound (`identityBindingStatus: null`),
+ * so `validateAndConsumeVerification` skips the identity check and code
+ * secrecy is the only protection against brute-force guessing during the
+ * TTL window. A 32-byte hex secret provides ~2^128 entropy, making
  * enumeration infeasible. Identity-bound outbound sessions (created via
  * `createOutboundSession`) use shorter 6-digit numeric codes because the
  * identity check adds a second layer of protection.
@@ -227,10 +227,17 @@ export function validateAndConsumeVerification(
   }
 
   // ── Expected-identity check (outbound sessions) ──
-  // If the session is in 'bound' state, verify the actor matches the expected
-  // identity. If identity_binding_status is 'pending_bootstrap', allow
-  // consumption (bootstrap path handles binding separately).
-  if (challenge.identityBindingStatus === "bound") {
+  // If the session is in 'bound' state AND has at least one expected-identity
+  // field, verify the actor matches. Inbound-only sessions have no expected
+  // identity and rely on code secrecy alone. If identity_binding_status is
+  // 'pending_bootstrap', allow consumption (bootstrap path handles binding
+  // separately).
+  const hasExpectedIdentity =
+    challenge.expectedExternalUserId != null ||
+    challenge.expectedChatId != null ||
+    challenge.expectedPhoneE164 != null;
+
+  if (hasExpectedIdentity && challenge.identityBindingStatus === "bound") {
     let identityMatch = false;
 
     // For voice: verify actorExternalUserId matches expectedPhoneE164

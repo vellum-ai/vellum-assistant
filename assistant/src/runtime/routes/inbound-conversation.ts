@@ -26,11 +26,11 @@ export async function handleDeleteConversation(
 
   const scopedKey = `asst:${assistantId}:${sourceChannel}:${conversationExternalId}`;
   deleteConversationKey(scopedKey);
-  // external_conversation_bindings is currently assistant-agnostic
-  // (unique by sourceChannel + externalChatId). Restrict mutations to the
-  // canonical self-assistant route so multi-assistant legacy routes do not
-  // clobber each other's bindings.
+  // For the canonical self-assistant, also delete the legacy unscopedkey
+  // and the external conversation binding (which is assistant-agnostic).
   if (assistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
+    const legacyKey = `${sourceChannel}:${conversationExternalId}`;
+    deleteConversationKey(legacyKey);
     externalConversationStore.deleteBindingByChannelChat(
       sourceChannel,
       conversationExternalId,

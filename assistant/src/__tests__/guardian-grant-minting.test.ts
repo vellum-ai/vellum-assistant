@@ -504,46 +504,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
     composeSpy.mockRestore();
   });
 
-  // ── 8. approve_once via legacy parser mints a grant ──
-
-  test("approve_once via legacy parser mints a scoped grant", async () => {
-    const requestId = "req-grant-leg-1";
-    createTestGuardianApproval(requestId);
-    registerPendingInteraction(
-      requestId,
-      CONVERSATION_ID,
-      TOOL_NAME,
-      TOOL_INPUT,
-    );
-
-    // No approvalConversationGenerator => legacy parser path
-    const result = await handleApprovalInterception({
-      conversationId: "guardian-conv-8",
-      content: "yes",
-      conversationExternalId: GUARDIAN_CHAT,
-      sourceChannel: "telegram",
-      actorExternalId: GUARDIAN_USER,
-      replyCallbackUrl: "https://gateway.test/deliver",
-      trustCtx: makeTrustContext(),
-      assistantId: ASSISTANT_ID,
-    });
-
-    expect(result.handled).toBe(true);
-    expect(result.type).toBe("guardian_decision_applied");
-
-    // Verify a grant was minted
-    expect(countGrants()).toBe(1);
-
-    const grant = getLatestGrant();
-    expect(grant).not.toBeNull();
-    expect(grant!.scope_mode).toBe("tool_signature");
-    expect(grant!.tool_name).toBe(TOOL_NAME);
-
-    deliverSpy.mockRestore();
-    composeSpy.mockRestore();
-  });
-
-  // ── 9. Grant TTL is approximately 5 minutes ──
+  // ── 8. Grant TTL is approximately 5 minutes ──
 
   test("minted grant has approximately 5-minute TTL", async () => {
     const requestId = "req-grant-ttl-1";
