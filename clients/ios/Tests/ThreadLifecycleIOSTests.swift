@@ -707,6 +707,7 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         )))
 
         store.markThreadUnread(storedThread)
+        waitForAsyncMutation()
 
         guard let updatedThread = store.threads.first(where: { $0.id == storedThread.id }) else {
             XCTFail("Expected updated thread")
