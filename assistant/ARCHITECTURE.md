@@ -16,7 +16,7 @@ This document owns assistant-runtime architecture details. The repo-level archit
 
 - Guardian/non-guardian/unverified classification is centralized in `assistant/src/runtime/trust-context-resolver.ts`.
 - The same resolver is used by:
-  - `/channels/inbound` (Telegram/SMS/WhatsApp path) before run orchestration.
+  - `/channels/inbound` (Telegram/WhatsApp path) before run orchestration.
   - Inbound Twilio voice setup (`RelayConnection.handleSetup`) to seed call-time actor context.
 - Runtime channel runs pass this as `trustContext`, and session runtime assembly injects `<inbound_actor_context>` (via `inboundActorContextFromTrustContext()`) into provider-facing prompts.
 - Voice calls mirror the same prompt contract: `CallController` receives guardian context on setup and refreshes it immediately after successful voice challenge verification, so the first post-verification turn is grounded as `actor_role: guardian`.
@@ -113,7 +113,7 @@ All guardian approval decisions — regardless of how they arrive — route thro
 - `approve_always` is downgraded to `approve_once` for guardian-on-behalf requests (guardians cannot permanently allowlist tools for requesters).
 - Scoped grant minting only fires on explicit approve for requests with tool metadata.
 
-**Unified interaction model — buttons first, text fallback:** All guardian approval prompts follow a canonical "buttons first, text fallback" pattern. Structured button UIs are the primary interaction surface, but every prompt also carries deterministic text fallback instructions so guardians can always act even when buttons are unavailable or not used. This applies uniformly across all request kinds (`tool_approval`, `pending_question`, `access_request`) and all channels (macOS desktop, Telegram, SMS, WhatsApp).
+**Unified interaction model — buttons first, text fallback:** All guardian approval prompts follow a canonical "buttons first, text fallback" pattern. Structured button UIs are the primary interaction surface, but every prompt also carries deterministic text fallback instructions so guardians can always act even when buttons are unavailable or not used. This applies uniformly across all request kinds (`tool_approval`, `pending_question`, `access_request`) and all channels (macOS desktop, Telegram, WhatsApp).
 
 **Button-first path (deterministic):**
 
@@ -167,7 +167,7 @@ In addition to persistent trust rules (`always_allow` / `always_deny`), the appr
 
 ### Canonical Guardian Request System
 
-The canonical guardian request system provides a channel-agnostic, unified domain for all guardian approval and question flows. It replaces the fragmented per-channel storage with a single source of truth that works identically for voice calls, Telegram/SMS/WhatsApp, and desktop UI.
+The canonical guardian request system provides a channel-agnostic, unified domain for all guardian approval and question flows. It replaces the fragmented per-channel storage with a single source of truth that works identically for voice calls, Telegram/WhatsApp, and desktop UI.
 
 **Architecture layers:**
 
@@ -219,7 +219,7 @@ All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`. Skills an
 
 **Shared Business Logic:**
 
-The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `verification-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across SMS, Telegram, and voice channels. It returns `OutboundActionResult` objects that the transport layer (gateway-forwarded HTTP or IPC) maps to its respective response format.
+The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`config-channels.ts`) both delegate to the same action functions in `verification-outbound-actions.ts`. This module contains transport-agnostic business logic for starting, resending, and cancelling outbound verification flows across Telegram and voice channels. It returns `OutboundActionResult` objects that the transport layer (gateway-forwarded HTTP or IPC) maps to its respective response format.
 
 **Chat-First Orchestration Flow:**
 
@@ -227,7 +227,7 @@ The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`
 2. The conversational routing layer detects the verification-setup intent and loads the `guardian-verify-setup` skill via `skill_load`.
 3. The skill guides the assistant through collecting the channel and destination, then calls the outbound HTTP endpoints using `curl`.
 4. The assistant relays verification status (code sent, resend available, expiry) back to the user conversationally.
-5. On the channel side, the verification code arrives (SMS text, Telegram message, or voice call) and the recipient enters it to complete the binding.
+5. On the channel side, the verification code arrives (Telegram message or voice call) and the recipient enters it to complete the binding.
 
 **Key Source Files:**
 
@@ -280,7 +280,7 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
 
 **Generated messaging requirement:** All user-facing copy in the guardian timeout/follow-up path is generated through the `guardian-action-message-composer.ts` composition system, which uses a 2-tier priority chain: (1) daemon-injected LLM generator for natural, varied text; (2) deterministic fallback templates for reliability. No hardcoded user-facing strings exist in the flow files (call-controller, inbound-message-handler, session-process) outside of internal log messages and LLM-instruction prompts. A guard test (`guardian-action-no-hardcoded-copy.test.ts`) enforces this invariant.
 
-**Callback/message-back branch:** When the conversation engine classifies the guardian's intent as `call_back`, the executor starts an outbound call to the counterparty with context about the guardian's answer. When classified as `message_back`, the executor sends an SMS to the counterparty via the gateway's `/deliver/sms` endpoint. The counterparty phone number is resolved from the original call session by call direction (inbound: `fromNumber`; outbound: `toNumber`).
+**Callback branch:** When the conversation engine classifies the guardian's intent as `call_back`, the executor starts an outbound call to the counterparty with context about the guardian's answer. The counterparty phone number is resolved from the original call session by call direction (inbound: `fromNumber`; outbound: `toNumber`).
 
 **Key source files:**
 
@@ -288,55 +288,18 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/memory/guardian-action-store.ts`                   | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries        |
 | `src/runtime/guardian-action-message-composer.ts`       | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion                         |
-| `src/runtime/guardian-action-conversation-turn.ts`      | Follow-up decision engine: classifies guardian replies into `call_back`, `message_back`, `decline`, or `keep_pending` dispositions using LLM tool calling                                          |
-| `src/runtime/guardian-action-followup-executor.ts`      | Action dispatch: resolves counterparty from call session, executes `message_back` (SMS via gateway) or `call_back` (outbound call via `startCall`), finalizes follow-up state                      |
+| `src/runtime/guardian-action-conversation-turn.ts`      | Follow-up decision engine: classifies guardian replies into `call_back`, `decline`, or `keep_pending` dispositions using LLM tool calling                                                          |
+| `src/runtime/guardian-action-followup-executor.ts`      | Action dispatch: resolves counterparty from call session, executes `call_back` (outbound call via `startCall`), finalizes follow-up state                                                          |
 | `src/daemon/guardian-action-generators.ts`              | Daemon-injected generator factories: `createGuardianActionCopyGenerator` (latency-optimized text rewriting) and `createGuardianFollowUpConversationGenerator` (tool-calling intent classification) |
 | `src/calls/call-controller.ts`                          | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response                                                   |
-| `src/runtime/routes/inbound-message-handler.ts`         | Late reply interception for Telegram/SMS channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                               |
+| `src/runtime/routes/inbound-message-handler.ts`         | Late reply interception for Telegram channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                                   |
 | `src/daemon/session-process.ts`                         | Late reply interception for mac/IPC channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                                 |
 | `src/calls/guardian-action-sweep.ts`                    | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations                                                                                                           |
 | `src/memory/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`)                                                   |
 
-### SMS Channel (Twilio)
-
-The SMS channel provides text-only messaging via Twilio, sharing the same telephony provider as voice calls. It follows the same ingress/egress pattern as Telegram but uses Twilio's HMAC-SHA1 signature validation instead of a secret header.
-
-**Ingress** (`POST /webhooks/twilio/sms`):
-
-1. Twilio delivers an inbound SMS as a form-encoded POST to the gateway.
-2. The gateway validates the `X-Twilio-Signature` header using HMAC-SHA1 with the Twilio Auth Token against the canonical request URL (reconstructed from `INGRESS_PUBLIC_BASE_URL` when behind a tunnel).
-3. `MessageSid` deduplication prevents reprocessing retried webhooks.
-4. **MMS detection**: The gateway treats a message as MMS when any of: `NumMedia > 0`, any `MediaUrl<N>` key has a non-empty value, or any `MediaContentType<N>` key has a non-empty value. This catches media attachments even when Twilio omits `NumMedia`. The gateway replies with an unsupported notice and does not forward the payload. MMS payloads are explicitly rejected rather than silently dropped.
-5. **`/new` command**: When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resolves routing first. If routing is rejected, a rejection notice SMS is sent to the sender (matching Telegram `/new` rejection semantics — "This message could not be routed to an assistant"). If routing succeeds, the gateway calls `resetConversation(...)` on the runtime and sends a confirmation SMS. The message is never forwarded to the runtime.
-6. The payload is normalized into a `GatewayInboundEvent` with `sourceChannel: "sms"` and `conversationExternalId` set to the sender's phone number (E.164).
-7. **Routing** — Phone-number-based routing is checked first: the inbound `To` number is reverse-looked-up in `assistantPhoneNumbers` (a `Record<string, string>` mapping assistant IDs to E.164 numbers, propagated from the assistant config file). If a match is found, that assistant handles the message. Otherwise, the standard routing chain (conversation_id -> actor_id -> default/reject) is used. This allows multiple assistants to have dedicated phone numbers. The resolved route is passed as a `routingOverride` to `handleInbound()` so the already-resolved routing is used directly instead of re-running `resolveAssistant()` inside the handler.
-8. The event is forwarded to the runtime via `POST /channels/inbound`, including SMS-specific transport hints (`chat-first-medium`, `sms-character-limits`, etc.) and a `replyCallbackUrl` pointing to `/deliver/sms`.
-
-**Egress** (`POST /deliver/sms`):
-
-1. The runtime calls the gateway's `/deliver/sms` endpoint with `{ to, text }` or `{ chatId, text }`. The `chatId` field is an alias for `to`, allowing the runtime channel callback (which sends `{ chatId, text }`) to work without translation. When both `to` and `chatId` are provided, `to` takes precedence.
-2. The gateway authenticates the request via bearer token (same fail-closed model as `/deliver/telegram`).
-3. The gateway sends the SMS via the Twilio Messages API using the configured `TWILIO_PHONE_NUMBER` as the `From` number.
-
-**Setup**: Twilio credentials (Account SID, Auth Token) and phone number are managed via HTTP control-plane endpoints (`/v1/integrations/twilio/*`) exposed by the runtime and proxied by the gateway (see `src/runtime/routes/twilio-routes.ts`). A single phone number is shared across voice and SMS for each assistant. Both `provision` and `assign` endpoints auto-persist the number to config and secure storage, and auto-configure Twilio webhooks (voice URL, status callback, SMS URL) via the Twilio IncomingPhoneNumber API when a public ingress URL is available. When `assistantId` is provided, the number is persisted into the per-assistant mapping at `sms.assistantPhoneNumbers[assistantId]`, and the legacy `sms.phoneNumber` field is only set if it was previously empty/unset (acting as a fallback for single-assistant installs). This prevents multi-assistant assignments from clobbering each other's global outbound number. Without `assistantId`, the legacy field is always updated. Webhook configuration is best-effort — if ingress is not yet set up, the number is still assigned and webhooks can be configured later. Non-fatal webhook failures are surfaced as a `warning` field in the response.
-
-**Phone Number Resolution**: At runtime, `getTwilioConfig()` resolves the phone number using this priority chain: (1) `TWILIO_PHONE_NUMBER` env var — highest priority, explicit override; (2) `sms.phoneNumber` in config — primary source of truth written by `provision_number`/`assign_number`; (3) `credential:twilio:phone_number` secure key — backward-compatible fallback. An error is thrown if no number is found after all sources are checked.
-
-**Credential Clearing Semantics**: `clear_credentials` removes only the authentication credentials (Account SID and Auth Token) from secure storage. The phone number is preserved in both the config file (`sms.phoneNumber`) and the secure key (`credential:twilio:phone_number`) so that re-entering credentials resumes working without needing to reassign the number.
-
-**Webhook Lifecycle**: Twilio webhook URLs are managed through a shared `syncTwilioWebhooks` helper in `config.ts` that computes voice, status-callback, and SMS URLs from the ingress config and pushes them to Twilio. Webhooks are synchronized at three points:
-
-1. **Number provisioning** (`provision_number`) — immediately after purchasing a number.
-2. **Number assignment** (`assign_number`) — when an existing number is assigned to the assistant.
-3. **Ingress URL change** (`ingress_config` set) — when the public ingress URL is updated or enabled, the daemon automatically re-synchronizes Twilio webhooks (fire-and-forget) if credentials and an assigned number are present. This ensures tunnel URL changes (e.g., ngrok restart) propagate without manual re-assignment.
-
-All three paths are best-effort: webhook sync failures do not prevent the primary operation from succeeding.
-
-**Limitations (v1)**: Text-only — MMS payloads are explicitly rejected with a user-facing notice rather than silently dropped.
-
 ### WhatsApp Channel (Meta Cloud API)
 
-The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsApp Business Cloud API. It follows the same ingress/egress pattern as SMS but uses Meta's HMAC-SHA256 signature validation (`X-Hub-Signature-256`) instead of Twilio's HMAC-SHA1.
+The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsApp Business Cloud API. It follows the standard ingress/egress pattern with Meta's HMAC-SHA256 signature validation (`X-Hub-Signature-256`).
 
 **Ingress** (`GET /webhooks/whatsapp` — verification, `POST /webhooks/whatsapp` — messages):
 
@@ -367,9 +330,7 @@ These can be set via environment variables or stored in the credential vault (ke
 
 **Limitations (v1)**: Rich approval UI (inline buttons) is not supported. Contacts and location message types are acknowledged but not forwarded.
 
-**Channel Readiness**: The channel readiness HTTP endpoints (`GET /v1/channels/readiness`, `POST /v1/channels/readiness/refresh`) backed by `ChannelReadinessService` in `src/runtime/channel-readiness-service.ts` provide a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, phone number, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: SMS (Twilio credentials, phone number, ingress; remote checks query Twilio toll-free verification status for toll-free numbers) and Telegram (bot token, webhook secret, ingress). The GET endpoint returns cached snapshots; the refresh endpoint invalidates the cache first. Unknown channels return `unsupported_channel`. Route handlers live in `src/runtime/routes/channel-readiness-routes.ts`.
-
-**SMS Compliance & Admin**: The Twilio HTTP control-plane endpoints extend beyond credential and number management with compliance and admin routes: `GET /v1/integrations/twilio/sms/compliance` detects toll-free vs local number type and fetches verification status; `POST/PATCH/DELETE /v1/integrations/twilio/sms/compliance/tollfree` manage the Twilio toll-free verification lifecycle; `POST /v1/integrations/twilio/numbers/release` removes a phone number from the Twilio account and clears all local references. All compliance actions validate required fields and Twilio enum values before calling the API.
+**Channel Readiness**: The channel readiness HTTP endpoints (`GET /v1/channels/readiness`, `POST /v1/channels/readiness/refresh`) backed by `ChannelReadinessService` in `src/runtime/channel-readiness-service.ts` provide a unified readiness subsystem for all channels. Each channel registers a `ChannelProbe` that runs synchronous local checks (credential presence, ingress config) and optional async remote checks with a 5-minute TTL cache. Built-in probes: Telegram (bot token, webhook secret, ingress). The GET endpoint returns cached snapshots; the refresh endpoint invalidates the cache first. Unknown channels return `unsupported_channel`. Route handlers live in `src/runtime/routes/channel-readiness-routes.ts`.
 
 ### Slack Channel (Socket Mode)
 
@@ -415,7 +376,7 @@ Both `GET` and `POST` endpoints report `connected: true` only when both `hasBotT
 
 ### Trusted Contact Access (Channel-Agnostic)
 
-External users who are not the guardian can gain access to the assistant through a guardian-mediated verification flow. The flow is channel-agnostic — it works identically on Telegram, SMS, voice, and any future channel.
+External users who are not the guardian can gain access to the assistant through a guardian-mediated verification flow. The flow is channel-agnostic — it works identically on Telegram, voice, and any future channel.
 
 **Full design doc:** [`docs/trusted-contact-access.md`](docs/trusted-contact-access.md)
 
@@ -429,7 +390,7 @@ External users who are not the guardian can gain access to the assistant through
 6. Requester enters the code; identity binding is verified, the challenge is consumed, and an active contact channel is created in the contacts table.
 7. All subsequent messages are accepted through the ingress ACL.
 
-**Channel-agnostic design:** The entire flow operates on abstract `ChannelId` and `actorExternalId`/`conversationExternalId` fields (DB column names `externalUserId`/`externalChatId` are unchanged). Identity binding adapts per channel: Telegram uses chat IDs, SMS/voice use E.164 phone numbers, HTTP API uses caller-provided identity. No channel-specific branching exists in the trusted contact code paths.
+**Channel-agnostic design:** The entire flow operates on abstract `ChannelId` and `actorExternalId`/`conversationExternalId` fields (DB column names `externalUserId`/`externalChatId` are unchanged). Identity binding adapts per channel: Telegram uses chat IDs, voice uses E.164 phone numbers, HTTP API uses caller-provided identity. No channel-specific branching exists in the trusted contact code paths.
 
 **Lifecycle states:** `requested → pending_guardian → verification_pending → active | denied | expired`
 
@@ -482,7 +443,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 │  Registry of per-channel adapters:                           │
 │    • buildShareableInvite(token) → { url, displayText }     │
 │    • extractInboundToken(payload) → token | undefined        │
-│  Registered: Telegram  │  Deferred: SMS, Slack, Voice       │
+│  Registered: Telegram  │  Deferred: Slack, Voice             │
 ├─────────────────────────────────────────────────────────────┤
 │  Core Redemption Engine (invite-redemption-service.ts)       │
 │  Channel-agnostic token validation, expiry, use-count,       │
@@ -513,7 +474,6 @@ A complementary access-granting flow where the guardian proactively creates a sh
 | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Telegram | Shipped  | Bot username resolved from credential metadata or `TELEGRAM_BOT_USERNAME` env                                                                                 |
 | Voice    | Shipped  | Identity-bound voice code redemption via DTMF/speech in the relay state machine. Always-on canonical behavior with personalized friend/guardian name prompts. |
-| SMS      | Deferred | Needs a deep-link strategy compatible with SMS (short URL or web redemption page)                                                                             |
 | Slack    | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing                                                       |
 
 ### Voice Invite Flow (invite_redemption_pending)
@@ -598,7 +558,7 @@ When no invite exists and no pending guardian challenge is active, the relay ent
 1. The relay transitions to `awaiting_name` state and prompts the caller for their name with a timeout.
 2. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian via the notification pipeline.
 3. The relay transitions to `awaiting_guardian_decision` and plays hold music/messaging while polling the canonical request status.
-4. The guardian approves or denies via any channel (Telegram, SMS, desktop). All decisions route through `applyCanonicalGuardianDecision`, which dispatches to the `access_request` resolver in `guardian-request-resolvers.ts`.
+4. The guardian approves or denies via any channel (Telegram, desktop). All decisions route through `applyCanonicalGuardianDecision`, which dispatches to the `access_request` resolver in `guardian-request-resolvers.ts`.
 5. On approval: the resolver directly activates the caller as a trusted contact (sets channel `status: 'active'`, `policy: 'allow'`), the poll detects the approved status, the relay transitions to the normal call flow with the caller's guardian context updated.
 6. On denial or timeout: the caller hears a denial message and the call ends.
 
@@ -2123,7 +2083,7 @@ When the decision engine routes multiple guardian questions to the same conversa
 - **Multiple pending deliveries**: The guardian must prefix their reply with the 6-char hex request code (e.g. `A1B2C3 yes, allow it`). Case-insensitive matching.
 - **No match**: A disambiguation message is sent listing all active request codes.
 
-This invariant is enforced identically on mac/vellum (`session-process.ts`), Telegram, and SMS (`inbound-message-handler.ts`). All disambiguation messages are generated through the guardian action message composer (LLM with deterministic fallback).
+This invariant is enforced identically on mac/vellum (`session-process.ts`) and Telegram (`inbound-message-handler.ts`). All disambiguation messages are generated through the guardian action message composer (LLM with deterministic fallback).
 
 ### Reminder Routing Metadata
 
@@ -2135,9 +2095,8 @@ Notifications are delivered to three channel types:
 
 - **Vellum (always connected)**: Local IPC via the daemon's broadcast mechanism. The `VellumAdapter` emits a `notification_intent` message with rendered copy and optional `deepLinkMetadata` (includes `conversationId` for thread navigation and `messageId` for message-level scroll anchoring).
 - **Telegram (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/telegram` endpoint. Requires an active guardian binding for the assistant.
-- **SMS (when guardian binding exists)**: HTTP POST to the gateway's `/deliver/sms` endpoint. Follows the same pattern as Telegram; the `SmsAdapter` sends text-only messages via the Twilio Messages API. The `assistantId` is threaded through the delivery payload for multi-assistant phone number resolution.
 
-Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram, SMS) are included only when an active guardian binding exists for the assistant.
+Connected channels are resolved at signal emission time: vellum is always included, and binding-based channels (Telegram) are included only when an active guardian binding exists for the assistant.
 
 **Key modules:**
 
@@ -2152,7 +2111,6 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/notifications/thread-candidates.ts`                         | Builds per-channel candidate set of recent conversations for the decision engine                                                      |
 | `assistant/src/notifications/adapters/macos.ts`                            | Vellum adapter — broadcasts `notification_intent` via IPC with deep-link metadata                                                     |
 | `assistant/src/notifications/adapters/telegram.ts`                         | Telegram adapter — POSTs to gateway `/deliver/telegram`                                                                               |
-| `assistant/src/notifications/adapters/sms.ts`                              | SMS adapter — POSTs to gateway `/deliver/sms` via Twilio Messages API                                                                 |
 | `assistant/src/notifications/destination-resolver.ts`                      | Resolves per-channel endpoints (vellum IPC, Telegram chat ID from guardian binding)                                                   |
 | `assistant/src/notifications/copy-composer.ts`                             | Template-based fallback copy when LLM copy is unavailable                                                                             |
 | `assistant/src/notifications/preference-extractor.ts`                      | Detects preference statements in conversation messages                                                                                |
