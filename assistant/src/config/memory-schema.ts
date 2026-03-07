@@ -376,33 +376,6 @@ export const MemoryCleanupConfigSchema = z.object({
     .default(90),
 });
 
-export const MemoryPreCompactionFlushConfigSchema = z.object({
-  enabled: z
-    .boolean({
-      error: "memory.extraction.preCompactionFlush.enabled must be a boolean",
-    })
-    .default(true),
-  maxMessages: z
-    .number({
-      error:
-        "memory.extraction.preCompactionFlush.maxMessages must be a number",
-    })
-    .int("memory.extraction.preCompactionFlush.maxMessages must be an integer")
-    .positive(
-      "memory.extraction.preCompactionFlush.maxMessages must be a positive integer",
-    )
-    .default(50),
-  timeoutMs: z
-    .number({
-      error: "memory.extraction.preCompactionFlush.timeoutMs must be a number",
-    })
-    .int("memory.extraction.preCompactionFlush.timeoutMs must be an integer")
-    .positive(
-      "memory.extraction.preCompactionFlush.timeoutMs must be a positive integer",
-    )
-    .default(30000),
-});
-
 export const MemoryExtractionConfigSchema = z.object({
   useLLM: z
     .boolean({ error: "memory.extraction.useLLM must be a boolean" })
@@ -417,9 +390,6 @@ export const MemoryExtractionConfigSchema = z.object({
       error: "memory.extraction.extractFromAssistant must be a boolean",
     })
     .default(true),
-  preCompactionFlush: MemoryPreCompactionFlushConfigSchema.default(
-    MemoryPreCompactionFlushConfigSchema.parse({}),
-  ),
 });
 
 export const MemoryEntityConfigSchema = z.object({
@@ -636,9 +606,6 @@ export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryCleanupConfig = z.infer<typeof MemoryCleanupConfigSchema>;
 export type MemoryExtractionConfig = z.infer<
   typeof MemoryExtractionConfigSchema
->;
-export type MemoryPreCompactionFlushConfig = z.infer<
-  typeof MemoryPreCompactionFlushConfigSchema
 >;
 export type MemorySummarizationConfig = z.infer<
   typeof MemorySummarizationConfigSchema
