@@ -35,23 +35,16 @@ The token is collected securely via a system-level prompt and is never exposed i
 
 After the token is collected, run the following decomposed commands to validate the token, store configuration, and register bot commands.
 
-**2a. Validate the bot token via Telegram API:**
+**2a. Validate the bot token and store username in config:**
 
 ```bash
 BOT_TOKEN=$(assistant credentials reveal telegram:bot_token)
 GETME_RESPONSE=$(curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/getMe")
-```
-
-This retrieves the bot token from secure storage and validates it by calling the Telegram `getMe` API. If the `curl` call fails (non-zero exit code or empty response), the token is invalid — tell the user and ask them to re-enter the token via the secure prompt (repeat Step 1).
-
-**2b. Store the bot username in config:**
-
-```bash
 BOT_USERNAME=$(echo "$GETME_RESPONSE" | jq -r '.result.username')
 assistant config set telegram.botUsername "$BOT_USERNAME"
 ```
 
-This parses the bot username from the `getMe` response and stores it in the assistant config. If the `config set` command fails, report the error to the user.
+This retrieves the bot token from secure storage, validates it by calling the Telegram `getMe` API, parses the bot username from the response, and stores it in the assistant config. If the `curl` call fails (non-zero exit code or empty response), the token is invalid — tell the user and ask them to re-enter the token via the secure prompt (repeat Step 1). If the `config set` command fails, report the error to the user.
 
 **2c. Generate and store webhook secret:**
 
@@ -72,6 +65,7 @@ This registers the Telegram webhook callback route with the platform. This is on
 **2e. Register bot commands via Telegram API:**
 
 ```bash
+BOT_TOKEN=$(assistant credentials reveal telegram:bot_token)
 curl -sf -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setMyCommands" \
   -H "Content-Type: application/json" \
   -d '{"commands":[{"command":"new","description":"Start a new conversation"},{"command":"help","description":"Show available commands"}]}'
@@ -139,7 +133,7 @@ Summarize what was done:
 
 - Bot verified and credentials stored securely
 - Webhook registration: handled automatically by the gateway
-- Bot commands registered: /new
+- Bot commands registered: /new, /help
 - Guardian identity: {verified | not configured}
 - Guardian verification status: {verified via outbound flow | skipped}
 - Routing configuration validated
