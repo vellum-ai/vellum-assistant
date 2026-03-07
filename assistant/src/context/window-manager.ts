@@ -75,29 +75,17 @@ export interface ContextWindowManagerOptions {
   provider: Provider;
   systemPrompt: string;
   config: ContextWindowConfig;
-  /**
-   * Called just before compaction replaces messages with a summary.
-   * Receives the messages about to be compacted and the boundary index.
-   * Errors are caught and logged — compaction proceeds regardless.
-   */
-  onBeforeCompact?: (
-    messages: Message[],
-    compactionBoundary: number,
-    signal?: AbortSignal,
-  ) => Promise<void>;
 }
 
 export class ContextWindowManager {
   private readonly provider: Provider;
   private readonly systemPrompt: string;
   private readonly config: ContextWindowConfig;
-  readonly onBeforeCompact?: ContextWindowManagerOptions["onBeforeCompact"];
 
   constructor(options: ContextWindowManagerOptions) {
     this.provider = options.provider;
     this.systemPrompt = options.systemPrompt;
     this.config = options.config;
-    this.onBeforeCompact = options.onBeforeCompact;
   }
 
   async maybeCompact(
@@ -313,21 +301,6 @@ export class ContextWindowManager {
         summaryText: existingSummary ?? "",
         reason: "insufficient compactable persisted messages",
       };
-    }
-
-    if (this.onBeforeCompact) {
-      try {
-        await this.onBeforeCompact(
-          compactableMessages,
-          keepPlan.keepFromIndex,
-          signal,
-        );
-      } catch (err) {
-        log.warn(
-          { err },
-          "onBeforeCompact callback failed, proceeding with compaction",
-        );
-      }
     }
 
     const chunks = chunkMessages(
