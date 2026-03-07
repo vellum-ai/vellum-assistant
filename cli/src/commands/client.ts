@@ -60,7 +60,20 @@ function parseArgs(): ParsedArgs {
     entry = loadLatestAssistant();
   } else {
     const active = getActiveAssistant();
-    entry = active ? findAssistantByName(active) : null;
+    if (active) {
+      entry = findAssistantByName(active);
+      if (!entry) {
+        console.error(
+          `Active assistant '${active}' not found in lockfile. Set an active assistant with 'vellum use <name>'.`,
+        );
+        process.exit(1);
+      }
+    } else {
+      console.error(
+        "No active assistant set. Set one with 'vellum use <name>' or specify a name: 'vellum client <name>'.",
+      );
+      process.exit(1);
+    }
   }
 
   let runtimeUrl =
