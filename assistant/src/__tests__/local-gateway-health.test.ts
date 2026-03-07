@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let mockGatewayInternalBaseUrl = "http://127.0.0.1:7830";
 let mockIsContainerized = false;
 let mockLockfile: Record<string, unknown> | null = null;
+let mockBaseDataDir: string | undefined;
 
 mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => mockGatewayInternalBaseUrl,
@@ -10,6 +11,7 @@ mock.module("../config/env.js", () => ({
 
 mock.module("../config/env-registry.js", () => ({
   getIsContainerized: () => mockIsContainerized,
+  getBaseDataDir: () => mockBaseDataDir,
 }));
 
 mock.module("../util/platform.js", () => ({
@@ -25,6 +27,7 @@ describe("local gateway health", () => {
   beforeEach(() => {
     mockGatewayInternalBaseUrl = "http://127.0.0.1:7830";
     mockIsContainerized = false;
+    mockBaseDataDir = undefined;
     mockLockfile = {
       assistants: [
         {
@@ -148,5 +151,32 @@ describe("local gateway health", () => {
       recoveryAttempted: false,
       recoverySkipped: true,
     });
+  });
+
+  test("ensureLocalGatewayReady derives assistant name from BASE_DATA_DIR when lockfile lacks assistants", async () => {
+    mockBaseDataDir = "/home/user/.local/share/vellum/assistants/alice";
+    mockLockfile = null;
+
+    const healthStatuses = [503, 200];
+    const fetchImpl: typeof fetch = (async (): Promise<Response> => {
+      const status = healthStatuses.shift() ?? 200;
+      return new Response(status === 200 ? "ok" : "unavailable", { status });
+    }) as unknown as typeof fetch;
+
+    let wakeCalled = false;
+    const result = await ensureLocalGatewayReady({
+      fetchImpl,
+      timeoutMs: 50,
+      pollTimeoutMs: 100,
+      pollIntervalMs: 0,
+      sleepImpl: async () => {},
+      runWakeCommand: async () => {
+        wakeCalled = true;
+        return { exitCode: 0, stdout: "Wake complete.", stderr: "" };
+      },
+    });
+
+    expect(wakeCalled).toBe(true);
+    expect(result.recovered).toBe(true);
   });
 });
