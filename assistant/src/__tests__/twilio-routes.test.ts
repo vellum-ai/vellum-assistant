@@ -301,7 +301,6 @@ mock.module("../daemon/handlers/config-ingress.js", () => ({
       urls: {
         voiceUrl: `${baseUrl}/webhooks/twilio/voice`,
         statusCallbackUrl: `${baseUrl}/webhooks/twilio/status`,
-        smsUrl: `${baseUrl}/webhooks/twilio/sms`,
       },
     });
     return { success: true };
