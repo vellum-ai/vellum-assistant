@@ -1,10 +1,5 @@
 import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
-import {
-  getPhoneNumberSid,
-  getTollFreeVerificationStatus,
-  getTwilioCredentials,
-  hasTwilioCredentials,
-} from "../calls/twilio-rest.js";
+import { hasTwilioCredentials } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
 import { loadRawConfig } from "../config/loader.js";
 import { getEmailService } from "../email/service.js";
@@ -21,8 +16,6 @@ import type {
 /** Remote check results are cached for 5 minutes before being considered stale. */
 export const REMOTE_TTL_MS = 5 * 60 * 1000;
 
-// ── SMS Probe ───────────────────────────────────────────────────────────────
-
 function hasIngressConfigured(): boolean {
   try {
     const raw = loadRawConfig();
@@ -36,123 +29,6 @@ function hasIngressConfigured(): boolean {
     return false;
   }
 }
-
-const smsProbe: ChannelProbe = {
-  channel: "sms",
-  runLocalChecks(): ReadinessCheckResult[] {
-    const results: ReadinessCheckResult[] = [];
-
-    const hasCreds = hasTwilioCredentials();
-    results.push({
-      name: "twilio_credentials",
-      passed: hasCreds,
-      message: hasCreds
-        ? "Twilio credentials are configured"
-        : "Twilio Account SID and Auth Token are not configured",
-    });
-
-    const resolvedNumber = resolveTwilioPhoneNumber();
-    const hasPhone = !!resolvedNumber;
-    results.push({
-      name: "phone_number",
-      passed: hasPhone,
-      message: hasPhone
-        ? "Phone number is assigned"
-        : "No phone number assigned",
-    });
-
-    const hasIngress = hasIngressConfigured();
-    results.push({
-      name: "ingress",
-      passed: hasIngress,
-      message: hasIngress
-        ? "Public ingress URL is configured"
-        : "Public ingress URL is not configured or disabled",
-    });
-
-    return results;
-  },
-  async runRemoteChecks(): Promise<ReadinessCheckResult[]> {
-    if (!hasTwilioCredentials()) return [];
-
-    let accountSid: string;
-    let authToken: string;
-    try {
-      ({ accountSid, authToken } = getTwilioCredentials());
-    } catch {
-      return [];
-    }
-
-    const phoneNumber = resolveTwilioPhoneNumber();
-    if (!phoneNumber) return [];
-
-    // Only toll-free numbers need verification checks
-    const tollFreePrefixes = [
-      "+1800",
-      "+1833",
-      "+1844",
-      "+1855",
-      "+1866",
-      "+1877",
-      "+1888",
-    ];
-    const isTollFree = tollFreePrefixes.some((prefix) =>
-      phoneNumber.startsWith(prefix),
-    );
-    if (!isTollFree) return [];
-
-    try {
-      const phoneSid = await getPhoneNumberSid(
-        accountSid,
-        authToken,
-        phoneNumber,
-      );
-      if (!phoneSid) {
-        return [
-          {
-            name: "toll_free_verification",
-            passed: false,
-            message: `Phone number ${phoneNumber} not found on Twilio account`,
-          },
-        ];
-      }
-
-      const verification = await getTollFreeVerificationStatus(
-        accountSid,
-        authToken,
-        phoneSid,
-      );
-      if (!verification) {
-        return [
-          {
-            name: "toll_free_verification",
-            passed: false,
-            message:
-              "No toll-free verification submitted. Verification is required for SMS sending.",
-          },
-        ];
-      }
-
-      const approved = verification.status === "TWILIO_APPROVED";
-      return [
-        {
-          name: "toll_free_verification",
-          passed: approved,
-          message: `toll_free_verification: ${verification.status}`,
-        },
-      ];
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return [
-        {
-          name: "toll_free_verification",
-          passed: false,
-          message: `Failed to check toll-free verification: ${message}`,
-        },
-      ];
-    }
-  },
-};
 
 // ── Voice Probe ─────────────────────────────────────────────────────────────
 
@@ -550,10 +426,9 @@ export class ChannelReadinessService {
 
 // ── Factory ─────────────────────────────────────────────────────────────────
 
-/** Create a service instance with built-in SMS, Voice, Telegram, Email, WhatsApp, and Slack probes registered. */
+/** Create a service instance with built-in Voice, Telegram, Email, WhatsApp, and Slack probes registered. */
 export function createReadinessService(): ChannelReadinessService {
   const service = new ChannelReadinessService();
-  service.registerProbe(smsProbe);
   service.registerProbe(voiceProbe);
   service.registerProbe(telegramProbe);
   service.registerProbe(emailProbe);

@@ -1206,39 +1206,5 @@ export function twilioRouteDefinitions(): RouteDefinition[] {
       method: "POST",
       handler: async ({ req }) => handleReleaseTwilioNumber(req),
     },
-    {
-      endpoint: "integrations/twilio/sms/compliance",
-      method: "GET",
-      handler: async () => handleGetSmsCompliance(),
-    },
-    {
-      endpoint: "integrations/twilio/sms/compliance/tollfree",
-      method: "POST",
-      handler: async ({ req }) => handleSubmitTollfreeVerification(req),
-    },
-    {
-      endpoint: "integrations/twilio/sms/compliance/tollfree/:sid",
-      method: "PATCH",
-      policyKey: "integrations/twilio/sms/compliance/tollfree",
-      handler: async ({ req, params }) =>
-        handleUpdateTollfreeVerification(req, params.sid),
-    },
-    {
-      endpoint: "integrations/twilio/sms/compliance/tollfree/:sid",
-      method: "DELETE",
-      policyKey: "integrations/twilio/sms/compliance/tollfree",
-      handler: async ({ params }) =>
-        handleDeleteTollfreeVerification(params.sid),
-    },
-    {
-      endpoint: "integrations/twilio/sms/test",
-      method: "POST",
-      handler: async ({ req }) => handleSmsSendTest(req),
-    },
-    {
-      endpoint: "integrations/twilio/sms/doctor",
-      method: "POST",
-      handler: async () => handleSmsDoctor(),
-    },
   ];
 }
