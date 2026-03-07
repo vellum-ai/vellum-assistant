@@ -434,7 +434,13 @@ final class AssistantCli {
         let proc = Process()
         proc.executableURL = binaryURL
         let cliRemote = config.remote == "customHardware" ? "custom" : config.remote
-        proc.arguments = ["hatch", "--remote", cliRemote]
+        var hatchArgs = ["hatch", "--remote", cliRemote]
+        #if DEBUG
+        if cliRemote == "docker" {
+            hatchArgs.append("--watch")
+        }
+        #endif
+        proc.arguments = hatchArgs
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
