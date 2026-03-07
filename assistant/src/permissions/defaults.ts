@@ -278,11 +278,11 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     priority: 100,
   };
 
-  // memory_search is a read-only tool — always allow without prompting.
-  const memorySearchRule: DefaultRuleTemplate = {
-    id: "default:allow-memory_search-global",
-    tool: "memory_search",
-    pattern: "memory_search:*",
+  // memory_recall is a read-only tool — always allow without prompting.
+  const memoryRecallRule: DefaultRuleTemplate = {
+    id: "default:allow-memory_recall-global",
+    tool: "memory_recall",
+    pattern: "memory_recall:*",
     scope: "everywhere",
     decision: "allow",
     priority: 100,
@@ -303,6 +303,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     ...browserToolRules,
     ...uiSurfaceRules,
     viewImageRule,
-    memorySearchRule,
+    memoryRecallRule,
   ];
 }
