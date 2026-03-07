@@ -187,7 +187,7 @@ export async function handleCreateVerificationSession(
   // function and wraps the result in an HTTP response.
   if (purpose === "trusted_contact") {
     const result = await verifyTrustedContact(
-      body.contactChannelId,
+      body.contactChannelId!,
       assistantId,
     );
     const status = result.success
