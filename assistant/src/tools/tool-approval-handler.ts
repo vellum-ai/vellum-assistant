@@ -1,5 +1,5 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
-import { isToolAllowedInChannel } from "../config/channel-permission-profiles.js";
+import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
