@@ -299,11 +299,7 @@ export async function handleRevokeGuardianBinding(
     channel?: ChannelId;
   };
 
-  // Cancel any active outbound session before revoking
-  const resolvedChannel = body.channel ?? "telegram";
-  cancelOutbound({ channel: resolvedChannel });
-
-  // revokeGuardianForChannel already handles revokePendingChallenges + binding revocation
+  // revokeGuardianForChannel already handles cancelOutbound + revokePendingChallenges + binding revocation
   const result = revokeGuardianForChannel(body.channel);
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });
