@@ -98,10 +98,13 @@ export function createTwilioReconcileHandler(config: GatewayConfig) {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    const ingressPublicBaseUrlProvided =
-      typeof body.ingressPublicBaseUrl === "string";
-    const normalizedIngressPublicBaseUrl = ingressPublicBaseUrlProvided
-      ? normalizeIngressPublicBaseUrl(body.ingressPublicBaseUrl)
+    const ingressPublicBaseUrl =
+      typeof body.ingressPublicBaseUrl === "string"
+        ? body.ingressPublicBaseUrl
+        : undefined;
+    const ingressPublicBaseUrlProvided = ingressPublicBaseUrl !== undefined;
+    const normalizedIngressPublicBaseUrl = ingressPublicBaseUrl
+      ? normalizeIngressPublicBaseUrl(ingressPublicBaseUrl)
       : undefined;
 
     const result = new Promise<Response>((resolve) => {

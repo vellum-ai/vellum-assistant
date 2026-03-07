@@ -76,6 +76,7 @@ describe("/schema route", () => {
     expect(
       body.paths["/v1/integrations/guardian/sessions/resend"],
     ).toBeDefined();
+    expect(body.paths["/v1/integrations/guardian/revoke"]).toBeDefined();
     expect(body.paths["/deliver/telegram"]).toBeDefined();
     expect(body.paths["/{path}"]).toBeDefined();
   });

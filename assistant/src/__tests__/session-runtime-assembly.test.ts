@@ -631,7 +631,7 @@ describe("injectInboundActorContext", () => {
 
   test("prepends inbound_actor_context block to user message", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: "sms",
+      sourceChannel: "voice",
       canonicalActorIdentity: "guardian-user-1",
       actorIdentifier: "+15550001111",
       actorDisplayName: "Guardian Name",
@@ -735,7 +735,7 @@ describe("injectInboundActorContext", () => {
 
   test("omits member_status and member_policy when not provided", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: "sms",
+      sourceChannel: "voice",
       canonicalActorIdentity: "user-1",
       trustClass: "unknown",
       denialReason: "no_binding",
@@ -782,7 +782,7 @@ describe("applyRuntimeInjections with inboundActorContext", () => {
   test("injects inbound actor context when provided", () => {
     const result = applyRuntimeInjections(baseMessages, {
       inboundActorContext: {
-        sourceChannel: "sms",
+        sourceChannel: "voice",
         canonicalActorIdentity: "requester-1",
         actorIdentifier: "+15550002222",
         trustClass: "trusted_contact",

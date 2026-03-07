@@ -264,7 +264,7 @@ export function notifyGuardianOfAccessRequest(
           continue;
         }
 
-        if (result.channel !== "telegram" && result.channel !== "sms") {
+        if (result.channel !== "telegram") {
           continue;
         }
 

@@ -35,6 +35,7 @@ import {
   migrateAssistantContactMetadata,
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
+  migrateBackfillUsageCacheAccounting,
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
@@ -303,6 +304,9 @@ export function initializeDb(): void {
 
   // 43. Drop all composite usage indexes — they don't eliminate temp B-trees for GROUP BY
   migrateDropUsageCompositeIndexes(database);
+
+  // 44. Backfill historical Anthropic usage rows from request-log truth before dashboard reads
+  migrateBackfillUsageCacheAccounting(database);
 
   validateMigrationState(database);
 

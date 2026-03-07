@@ -120,6 +120,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private var pendingSeenSessionIds: [String] = []
     /// Task that auto-commits deferred seen signals after the undo window.
     private var pendingSeenSignalTask: Task<Void, Never>?
+    /// Local seen/unread toggles should survive a stale daemon session-list
+    /// replay until the daemon either acknowledges them or reports a newer reply.
+    private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
+
+    private enum PendingAttentionOverride {
+        case seen(latestAssistantMessageAt: Date?)
+        case unread(latestAssistantMessageAt: Date?)
+    }
 
     /// Threads that are not archived — used by the UI to populate the sidebar.
     /// Sorted: pinned first (by pinnedOrder ascending), then threads with explicit
@@ -602,13 +610,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 threads[existingIdx].isPinned = isPinned
                 threads[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil
                 threads[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
-                threads[existingIdx].hasUnseenLatestAssistantMessage = session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
-                threads[existingIdx].latestAssistantMessageAt = session.assistantAttention?.latestAssistantMessageAt.map {
-                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                }
-                threads[existingIdx].lastSeenAssistantMessageAt = session.assistantAttention?.lastSeenAssistantMessageAt.map {
-                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                }
+                mergeAssistantAttention(from: session, intoThreadAt: existingIdx)
                 if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }
                 continue
             }
@@ -1117,6 +1119,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
         threads[idx].hasUnseenLatestAssistantMessage = false
         if let sessionId = threads[idx].sessionId {
+            pendingAttentionOverrides[sessionId] = .seen(
+                latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
+            )
+            threads[idx].lastSeenAssistantMessageAt = threads[idx].latestAssistantMessageAt
             emitConversationSeenSignal(conversationId: sessionId)
         }
     }
@@ -1124,10 +1130,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     internal func markConversationUnread(threadId: UUID) {
         guard let idx = threads.firstIndex(where: { $0.id == threadId }),
               let sessionId = threads[idx].sessionId,
-              !threads[idx].hasUnseenLatestAssistantMessage,
-              threads[idx].latestAssistantMessageAt != nil else { return }
+              canMarkConversationUnread(threadId: threadId, at: idx) else { return }
 
+        pendingSeenSessionIds.removeAll { $0 == sessionId }
+        pendingAttentionOverrides[sessionId] = .unread(
+            latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
+        )
         threads[idx].hasUnseenLatestAssistantMessage = true
+        threads[idx].lastSeenAssistantMessageAt = nil
         emitConversationUnreadSignal(conversationId: sessionId)
     }
 
@@ -1287,6 +1297,66 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 sessionId: sessionId,
                 title: pendingTitle
             ))
+        }
+    }
+
+    func mergeAssistantAttention(
+        from session: IPCSessionListResponseSession,
+        intoThreadAt index: Int
+    ) {
+        threads[index].hasUnseenLatestAssistantMessage =
+            session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+        threads[index].latestAssistantMessageAt =
+            session.assistantAttention?.latestAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+        threads[index].lastSeenAssistantMessageAt =
+            session.assistantAttention?.lastSeenAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+
+        guard let sessionId = threads[index].sessionId,
+              let override = pendingAttentionOverrides[sessionId] else { return }
+
+        switch override {
+        case .seen(let targetLatestAssistantMessageAt):
+            if !threads[index].hasUnseenLatestAssistantMessage {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+            if let targetLatestAssistantMessageAt,
+               let serverLatestAssistantMessageAt = threads[index].latestAssistantMessageAt,
+               serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+
+            if let targetLatestAssistantMessageAt,
+               threads[index].latestAssistantMessageAt == nil {
+                threads[index].latestAssistantMessageAt = targetLatestAssistantMessageAt
+            }
+            threads[index].hasUnseenLatestAssistantMessage = false
+            threads[index].lastSeenAssistantMessageAt =
+                threads[index].latestAssistantMessageAt
+
+        case .unread(let targetLatestAssistantMessageAt):
+            if threads[index].hasUnseenLatestAssistantMessage {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+            if let targetLatestAssistantMessageAt,
+               let serverLatestAssistantMessageAt = threads[index].latestAssistantMessageAt,
+               serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+
+            if let targetLatestAssistantMessageAt,
+               threads[index].latestAssistantMessageAt == nil {
+                threads[index].latestAssistantMessageAt = targetLatestAssistantMessageAt
+            }
+            threads[index].hasUnseenLatestAssistantMessage = true
+            threads[index].lastSeenAssistantMessageAt = nil
         }
     }
 
@@ -1600,12 +1670,17 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
         updateLastInteracted(threadId: threadId)
+        let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
+        // Keep the local attention timestamp current for live assistant replies
+        // so unread eligibility survives until the next session-list refresh.
+        if threads[index].latestAssistantMessageAt == nil || isNewMessage {
+            threads[index].latestAssistantMessageAt = Date()
+        }
         if threadId == activeThreadId {
             threads[index].hasUnseenLatestAssistantMessage = false
             // Only emit the IPC seen signal on meaningful transitions:
             // 1. A new assistant message appeared (different messageId)
             // 2. Streaming just completed (isStreaming went true -> false)
-            let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
             let streamingJustCompleted = previousSnapshot?.isStreaming == true && !currentSnapshot.isStreaming
             if isNewMessage || streamingJustCompleted {
                 if let sessionId = threads[index].sessionId {
@@ -1615,5 +1690,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         } else {
             threads[index].hasUnseenLatestAssistantMessage = true
         }
+    }
+
+    private func canMarkConversationUnread(threadId: UUID, at threadIndex: Int) -> Bool {
+        guard threads[threadIndex].sessionId != nil,
+              !threads[threadIndex].hasUnseenLatestAssistantMessage else { return false }
+        // Live assistant replies update the in-memory activity snapshot before
+        // session-list hydration backfills latestAssistantMessageAt.
+        return threads[threadIndex].latestAssistantMessageAt != nil
+            || latestAssistantActivitySnapshots[threadId] != nil
     }
 }

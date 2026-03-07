@@ -173,7 +173,7 @@ export class DedupCache {
 
 /**
  * Simple string-keyed TTL set for deduplication.
- * Used for SMS MessageSid dedup where we only need to track whether
+ * Used for message ID dedup where we only need to track whether
  * a message ID has been seen, not cache a full response.
  *
  * Supports a reserve/unreserve pattern to prevent concurrent duplicates

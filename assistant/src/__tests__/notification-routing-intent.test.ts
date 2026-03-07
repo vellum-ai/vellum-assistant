@@ -106,7 +106,11 @@ describe("routing intent enforcement", () => {
 
     test("includes SMS when SMS is among connected channels", () => {
       const decision = makeDecision({ selectedChannels: ["vellum"] });
-      const connected: NotificationChannel[] = ["vellum", "telegram", "sms"];
+      const connected: NotificationChannel[] = [
+        "vellum",
+        "telegram",
+        "telegram",
+      ];
 
       const enforced = enforceRoutingIntent(
         decision,
@@ -114,7 +118,11 @@ describe("routing intent enforcement", () => {
         connected,
       );
 
-      expect(enforced.selectedChannels).toEqual(["vellum", "telegram", "sms"]);
+      expect(enforced.selectedChannels).toEqual([
+        "vellum",
+        "telegram",
+        "telegram",
+      ]);
       expect(enforced.reasoningSummary).toContain(
         "routing_intent=all_channels",
       );
@@ -131,7 +139,7 @@ describe("routing intent enforcement", () => {
       );
 
       expect(enforced.selectedChannels).toEqual(["vellum", "telegram"]);
-      expect(enforced.selectedChannels).not.toContain("sms");
+      expect(enforced.selectedChannels).not.toContain("telegram");
     });
   });
 
@@ -154,7 +162,11 @@ describe("routing intent enforcement", () => {
 
     test("does not expand to all channels when 3+ are connected", () => {
       const decision = makeDecision({ selectedChannels: ["telegram"] });
-      const connected: NotificationChannel[] = ["vellum", "telegram", "sms"];
+      const connected: NotificationChannel[] = [
+        "vellum",
+        "telegram",
+        "telegram",
+      ];
 
       const enforced = enforceRoutingIntent(
         decision,
@@ -163,7 +175,7 @@ describe("routing intent enforcement", () => {
       );
 
       expect(enforced.selectedChannels).toEqual(["telegram", "vellum"]);
-      expect(enforced.selectedChannels).not.toContain("sms");
+      expect(enforced.selectedChannels).not.toContain("telegram");
     });
 
     test("does not override when LLM already picked 2+ channels", () => {

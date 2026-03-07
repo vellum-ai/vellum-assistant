@@ -190,4 +190,154 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
         XCTAssertEqual(json["conversationId"] as? String, "conv-456")
         XCTAssertEqual(json["signalType"] as? String, "macos_conversation_opened")
     }
+
+    func testUnreadSignalSerializesMetadataIntoJSONBody() async throws {
+        let requestExpectation = expectation(description: "unread metadata request")
+        var capturedRequest: URLRequest?
+
+        MockURLProtocol.requestHandler = { request in
+            capturedRequest = request
+            requestExpectation.fulfill()
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"ok":true}"#.utf8))
+        }
+
+        let transport = HTTPTransport(
+            baseURL: "https://example.com",
+            bearerToken: "test-token",
+            conversationKey: "conv-local"
+        )
+
+        try transport.send(
+            IPCConversationUnreadSignal(
+                conversationId: "conv-789",
+                sourceChannel: "vellum",
+                signalType: "macos_conversation_opened",
+                confidence: "explicit",
+                source: "ui-navigation",
+                metadata: [
+                    "threadOrigin": AnyCodable("inbox"),
+                    "badgeCount": AnyCodable(3),
+                    "userInitiated": AnyCodable(true),
+                ]
+            )
+        )
+
+        await fulfillment(of: [requestExpectation], timeout: 1.0)
+
+        let request = try XCTUnwrap(capturedRequest)
+        let body = try requestBody(from: request)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        let metadata = try XCTUnwrap(json["metadata"] as? [String: Any])
+
+        XCTAssertEqual(metadata["threadOrigin"] as? String, "inbox")
+        XCTAssertEqual(metadata["badgeCount"] as? Int, 3)
+        XCTAssertEqual(metadata["userInitiated"] as? Bool, true)
+    }
+
+    func testSeenSignalSerializesMetadataIntoJSONBody() async throws {
+        let requestExpectation = expectation(description: "seen metadata request")
+        var capturedRequest: URLRequest?
+
+        MockURLProtocol.requestHandler = { request in
+            capturedRequest = request
+            requestExpectation.fulfill()
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data(#"{"ok":true}"#.utf8))
+        }
+
+        let transport = HTTPTransport(
+            baseURL: "https://example.com",
+            bearerToken: "test-token",
+            conversationKey: "conv-local"
+        )
+
+        try transport.send(
+            IPCConversationSeenSignal(
+                conversationId: "conv-321",
+                sourceChannel: "vellum",
+                signalType: "macos_conversation_seen",
+                confidence: "explicit",
+                source: "thread-selection",
+                metadata: [
+                    "view": AnyCodable("inbox"),
+                    "attempt": AnyCodable(1),
+                ]
+            )
+        )
+
+        await fulfillment(of: [requestExpectation], timeout: 1.0)
+
+        let request = try XCTUnwrap(capturedRequest)
+        let body = try requestBody(from: request)
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        let metadata = try XCTUnwrap(json["metadata"] as? [String: Any])
+
+        XCTAssertEqual(metadata["view"] as? String, "inbox")
+        XCTAssertEqual(metadata["attempt"] as? Int, 1)
+    }
+
+    func testSessionListResponsePreservesPinMetadataFromHTTPTransport() async throws {
+        let responseExpectation = expectation(description: "session list response")
+        var capturedResponse: SessionListResponseMessage?
+
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = """
+            {
+              "sessions": [
+                {
+                  "id": "session-123",
+                  "title": "Pinned thread",
+                  "createdAt": 1000,
+                  "updatedAt": 2000,
+                  "displayOrder": 7,
+                  "isPinned": true
+                }
+              ],
+              "hasMore": false
+            }
+            """
+            return (response, Data(body.utf8))
+        }
+
+        let transport = HTTPTransport(
+            baseURL: "https://example.com",
+            bearerToken: "test-token",
+            conversationKey: "conv-local"
+        )
+        transport.onMessage = { message in
+            if case let .sessionListResponse(response) = message {
+                capturedResponse = response
+                responseExpectation.fulfill()
+            }
+        }
+
+        try transport.send(SessionListRequestMessage(offset: 0, limit: 50))
+
+        await fulfillment(of: [responseExpectation], timeout: 1.0)
+
+        let session = try XCTUnwrap(capturedResponse?.sessions.first)
+        XCTAssertEqual(session.displayOrder, 7)
+        XCTAssertEqual(session.isPinned, true)
+    }
 }

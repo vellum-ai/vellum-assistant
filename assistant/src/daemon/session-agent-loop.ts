@@ -1244,6 +1244,11 @@ export async function runAgentLoopImpl(
       onEvent,
       "main_agent",
       reqId,
+      state.exchangeCacheCreationInputTokens,
+      state.exchangeCacheReadInputTokens,
+      state.exchangeRawResponses.length <= 1
+        ? state.exchangeRawResponses[0]
+        : state.exchangeRawResponses,
     );
 
     void getHookManager().trigger("post-message", {
@@ -1449,6 +1454,9 @@ function emitUsage(
   onEvent: (msg: ServerMessage) => void,
   actor: UsageActor,
   requestId: string | null = null,
+  cacheCreationInputTokens = 0,
+  cacheReadInputTokens = 0,
+  rawResponse?: unknown,
 ): void {
   recordUsage(
     {
@@ -1462,5 +1470,8 @@ function emitUsage(
     onEvent,
     actor,
     requestId,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+    rawResponse,
   );
 }

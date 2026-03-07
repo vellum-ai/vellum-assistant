@@ -33,6 +33,8 @@ struct ConversationsListResponse: Decodable {
         let conversationOriginChannel: String?
         let conversationOriginInterface: String?
         let assistantAttention: IPCAssistantAttention?
+        let displayOrder: Double?
+        let isPinned: Bool?
     }
     let sessions: [Session]
     let hasMore: Bool?
@@ -947,6 +949,16 @@ public final class HTTPTransport {
         let prompts: [GuardianDecisionPromptWire]
     }
 
+    /// JSONSerialization cannot encode AnyCodable wrappers directly, so unwrap
+    /// them before inserting arbitrary payloads into request bodies.
+    private func jsonCompatibleDictionary(_ values: [String: AnyCodable]) -> [String: Any] {
+        var jsonCompatible: [String: Any] = [:]
+        for (key, value) in values {
+            jsonCompatible[key] = value.value
+        }
+        return jsonCompatible
+    }
+
     private func sendConversationSeen(_ signal: IPCConversationSeenSignal, isRetry: Bool = false) async {
         guard let url = buildURL(for: .conversationsSeen) else { return }
 
@@ -969,7 +981,7 @@ public final class HTTPTransport {
             body["observedAt"] = observedAt
         }
         if let metadata = signal.metadata {
-            body["metadata"] = metadata
+            body["metadata"] = jsonCompatibleDictionary(metadata)
         }
 
         do {
@@ -1013,7 +1025,7 @@ public final class HTTPTransport {
             body["observedAt"] = observedAt
         }
         if let metadata = signal.metadata {
-            body["metadata"] = metadata
+            body["metadata"] = jsonCompatibleDictionary(metadata)
         }
 
         do {
@@ -1478,12 +1490,7 @@ public final class HTTPTransport {
             "actionId": action.actionId,
         ]
         if let data = action.data {
-            // Convert [String: AnyCodable] to [String: Any] for JSONSerialization
-            var dataDict: [String: Any] = [:]
-            for (key, value) in data {
-                dataDict[key] = value.value
-            }
-            body["data"] = dataDict
+            body["data"] = jsonCompatibleDictionary(data)
         }
 
         do {
@@ -1717,7 +1724,7 @@ public final class HTTPTransport {
             do {
                 let decoded = try decoder.decode(ConversationsListResponse.self, from: data)
                 let sessions = decoded.sessions.map {
-                    IPCSessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention)
+                    IPCSessionListResponseSession(id: $0.id, title: $0.title, createdAt: $0.createdAt ?? $0.updatedAt, updatedAt: $0.updatedAt, threadType: $0.threadType, source: $0.source, channelBinding: $0.channelBinding, conversationOriginChannel: $0.conversationOriginChannel, conversationOriginInterface: $0.conversationOriginInterface, assistantAttention: $0.assistantAttention, displayOrder: $0.displayOrder, isPinned: $0.isPinned)
                 }
                 onMessage?(.sessionListResponse(SessionListResponseMessage(type: "session_list_response", sessions: sessions, hasMore: decoded.hasMore)))
             } catch {

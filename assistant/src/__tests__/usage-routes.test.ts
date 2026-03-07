@@ -82,7 +82,7 @@ function seedEvents() {
       actor: "main_agent",
       provider: "anthropic",
       model: "claude-sonnet-4-20250514",
-      inputTokens: 1000,
+      inputTokens: 850,
       outputTokens: 200,
       cacheCreationInputTokens: 50,
       cacheReadInputTokens: 100,
@@ -201,7 +201,7 @@ describe("usage routes", () => {
       const res = await dispatch("GET", `usage/totals?from=${from}&to=${to}`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, number>;
-      expect(body.totalInputTokens).toBe(3500);
+      expect(body.totalInputTokens).toBe(3350);
       expect(body.totalOutputTokens).toBe(700);
       expect(body.totalCacheCreationTokens).toBe(50);
       expect(body.totalCacheReadTokens).toBe(100);
@@ -219,7 +219,9 @@ describe("usage routes", () => {
       const res = await dispatch("GET", `usage/totals?from=${from}&to=${to}`);
       const body = (await res.json()) as Record<string, number>;
       expect(body.eventCount).toBe(2);
-      expect(body.totalInputTokens).toBe(1500);
+      expect(body.totalInputTokens).toBe(1350);
+      expect(body.totalCacheCreationTokens).toBe(50);
+      expect(body.totalCacheReadTokens).toBe(100);
     });
   });
 
@@ -249,8 +251,10 @@ describe("usage routes", () => {
       };
       expect(body.buckets).toHaveLength(2);
       expect(body.buckets[0].date).toBe("2025-01-15");
+      expect(body.buckets[0].totalInputTokens).toBe(1350);
       expect(body.buckets[0].eventCount).toBe(2);
       expect(body.buckets[1].date).toBe("2025-01-16");
+      expect(body.buckets[1].totalInputTokens).toBe(2000);
       expect(body.buckets[1].eventCount).toBe(1);
     });
   });
@@ -292,12 +296,26 @@ describe("usage routes", () => {
         breakdown: Array<{
           group: string;
           totalInputTokens: number;
+          totalCacheCreationTokens: number;
+          totalCacheReadTokens: number;
+          totalEstimatedCostUsd: number;
           eventCount: number;
         }>;
       };
       expect(body.breakdown).toHaveLength(2);
-      const groups = body.breakdown.map((b) => b.group).sort();
-      expect(groups).toEqual(["anthropic", "openai"]);
+      expect(body.breakdown[0].group).toBe("anthropic");
+      expect(body.breakdown[0].totalInputTokens).toBe(1350);
+      expect(body.breakdown[0].totalCacheCreationTokens).toBe(50);
+      expect(body.breakdown[0].totalCacheReadTokens).toBe(100);
+      expect(body.breakdown[0].totalEstimatedCostUsd).toBeCloseTo(0.006);
+      expect(body.breakdown[0].eventCount).toBe(2);
+
+      expect(body.breakdown[1].group).toBe("openai");
+      expect(body.breakdown[1].totalInputTokens).toBe(2000);
+      expect(body.breakdown[1].totalCacheCreationTokens).toBe(0);
+      expect(body.breakdown[1].totalCacheReadTokens).toBe(0);
+      expect(body.breakdown[1].totalEstimatedCostUsd).toBe(0);
+      expect(body.breakdown[1].eventCount).toBe(1);
     });
 
     test("groups by actor", async () => {

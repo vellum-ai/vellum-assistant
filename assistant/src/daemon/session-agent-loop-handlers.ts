@@ -45,7 +45,10 @@ export interface EventHandlerState {
   pendingDirectiveDisplayBuffer: string;
   firstAssistantText: string;
   exchangeInputTokens: number;
+  exchangeCacheCreationInputTokens: number;
+  exchangeCacheReadInputTokens: number;
   exchangeOutputTokens: number;
+  readonly exchangeRawResponses: unknown[];
   model: string;
   orderingErrorDetected: boolean;
   deferredOrderingError: string | null;
@@ -106,7 +109,10 @@ export function createEventHandlerState(): EventHandlerState {
     pendingDirectiveDisplayBuffer: "",
     firstAssistantText: "",
     exchangeInputTokens: 0,
+    exchangeCacheCreationInputTokens: 0,
+    exchangeCacheReadInputTokens: 0,
     exchangeOutputTokens: 0,
+    exchangeRawResponses: [],
     model: "",
     orderingErrorDetected: false,
     deferredOrderingError: null,
@@ -691,8 +697,13 @@ export function handleUsage(
   event: Extract<AgentEvent, { type: "usage" }>,
 ): void {
   state.exchangeInputTokens += event.inputTokens;
+  state.exchangeCacheCreationInputTokens += event.cacheCreationInputTokens ?? 0;
+  state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;
   state.exchangeOutputTokens += event.outputTokens;
   state.model = event.model;
+  if (event.rawResponse !== undefined) {
+    state.exchangeRawResponses.push(event.rawResponse);
+  }
 
   if (event.rawRequest && event.rawResponse) {
     try {

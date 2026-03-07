@@ -54,19 +54,35 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceDir: () => mockWorkspaceDir,
 }));
 
-mock.module("../util/logger.js", () => ({
-  getLogger: () => ({
-    debug: () => {},
-    info: (...args: unknown[]) => {
-      logInfoCalls.push(args as [unknown, string]);
-    },
-    warn: (...args: unknown[]) => {
-      logWarnCalls.push(args as [unknown, string]);
-    },
-    error: (...args: unknown[]) => {
-      logErrorCalls.push(args as [unknown, string]);
-    },
-  }),
+mock.module("pino", () => {
+  function createLogger() {
+    return {
+      child: () => createLogger(),
+      debug: () => {},
+      info: (...args: unknown[]) => {
+        logInfoCalls.push(args as [unknown, string]);
+      },
+      warn: (...args: unknown[]) => {
+        logWarnCalls.push(args as [unknown, string]);
+      },
+      error: (...args: unknown[]) => {
+        logErrorCalls.push(args as [unknown, string]);
+      },
+    };
+  }
+
+  const pino = Object.assign(() => createLogger(), {
+    destination: () => ({ write: () => true }),
+    multistream: () => ({ write: () => true }),
+  });
+
+  return {
+    default: pino,
+  };
+});
+
+mock.module("pino-pretty", () => ({
+  default: () => ({ write: () => true }),
 }));
 
 mock.module("node:fs", () => ({
@@ -439,5 +455,18 @@ describe("avatar E2E integration", () => {
     // The managed path succeeded and wrote the avatar file
     expect(result.isError).toBe(false);
     expect(writeFileSyncFn).toHaveBeenCalled();
+
+    const correlationLogged = logInfoCalls.some(([meta, message]) => {
+      if (message !== "Avatar saved successfully") return false;
+      if (!meta || typeof meta !== "object" || !("correlationId" in meta)) {
+        return false;
+      }
+      return (
+        (meta as { correlationId?: unknown }).correlationId ===
+        "unique-corr-id-xyz"
+      );
+    });
+
+    expect(correlationLogged).toBe(true);
   });
 });

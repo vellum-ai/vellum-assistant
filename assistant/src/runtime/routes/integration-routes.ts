@@ -177,7 +177,7 @@ export async function handleCreateGuardianSession(
     // (e.g. "+15551234567" vs "(555) 123-4567", or "@User" vs "user")
     let rateLimitKey: string | undefined = body.destination;
     if (rateLimitKey) {
-      if (body.channel === "sms" || body.channel === "voice") {
+      if (body.channel === "voice") {
         rateLimitKey = normalizePhoneNumber(rateLimitKey) ?? rateLimitKey;
       } else if (body.channel === "telegram") {
         rateLimitKey = normalizeTelegramDestination(rateLimitKey);
@@ -299,11 +299,7 @@ export async function handleRevokeGuardianBinding(
     channel?: ChannelId;
   };
 
-  // Cancel any active outbound session before revoking
-  const resolvedChannel = body.channel ?? "telegram";
-  cancelOutbound({ channel: resolvedChannel });
-
-  // revokeGuardianForChannel already handles revokePendingChallenges + binding revocation
+  // revokeGuardianForChannel already handles cancelOutbound + revokePendingChallenges + binding revocation
   const result = revokeGuardianForChannel(body.channel);
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });

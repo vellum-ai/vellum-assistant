@@ -26,6 +26,14 @@ type TwilioCredentials = {
   authToken: string;
 };
 
+function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 let rootDir = "";
 let twilioCredentials: TwilioCredentials | null = null;
 let storedPhoneNumber: string | null = null;
@@ -76,7 +84,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     twilioAuthToken: "initial-auth-token",
     twilioAccountSid: "AC-initial",
     twilioPhoneNumber: "+15550000000",
-    smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: "https://initial.example.com",
     unmappedPolicy: "reject",
     whatsappPhoneNumberId: undefined,
@@ -233,20 +240,14 @@ describe("POST /internal/twilio/reconcile", () => {
     const handler = createTwilioReconcileHandler(config);
 
     let readCount = 0;
-    let startFirstRead: (() => void) | null = null;
-    let releaseFirstRead: (() => void) | null = null;
-    const firstReadStarted = new Promise<void>((resolve) => {
-      startFirstRead = resolve;
-    });
-    const continueFirstRead = new Promise<void>((resolve) => {
-      releaseFirstRead = resolve;
-    });
+    const firstReadStarted = createDeferred();
+    const continueFirstRead = createDeferred();
 
     readTwilioCredentialsImpl = async () => {
       readCount += 1;
       if (readCount === 1) {
-        startFirstRead?.();
-        await continueFirstRead;
+        firstReadStarted.resolve();
+        await continueFirstRead.promise;
         return {
           accountSid: "AC-first",
           authToken: "first-auth-token",
@@ -263,7 +264,7 @@ describe("POST /internal/twilio/reconcile", () => {
         ingressPublicBaseUrl: "https://first.example.com/",
       }),
     );
-    await firstReadStarted;
+    await firstReadStarted.promise;
 
     const secondReconcile = handler(
       makeRequest("POST", TOKEN, {
@@ -271,7 +272,7 @@ describe("POST /internal/twilio/reconcile", () => {
       }),
     );
 
-    releaseFirstRead?.();
+    continueFirstRead.resolve();
 
     const [firstResponse, secondResponse] = await Promise.all([
       firstReconcile,

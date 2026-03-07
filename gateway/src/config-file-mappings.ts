@@ -21,6 +21,8 @@ type ConfigFileMapping =
     };
 
 export const CONFIG_FILE_MAPPINGS: ConfigFileMapping[] = [
+  // Legacy: phone number config was originally stored under the "sms" config key.
+  // Kept for backward compatibility — the phone number is still used for voice calls.
   {
     key: "sms",
     field: "phoneNumber",

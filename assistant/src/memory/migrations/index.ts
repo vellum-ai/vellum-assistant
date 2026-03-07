@@ -81,6 +81,7 @@ export { migrateBackfillContactInteractionStats } from "./135-backfill-contact-i
 export { migrateDropAssistantIdColumns } from "./136-drop-assistant-id-columns.js";
 export { migrateUsageDashboardIndexes } from "./137-usage-dashboard-indexes.js";
 export { migrateDropUsageCompositeIndexes } from "./139-drop-usage-composite-indexes.js";
+export { migrateBackfillUsageCacheAccounting } from "./140-backfill-usage-cache-accounting.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -211,6 +211,12 @@ struct ThreadListView: View {
                 store.markConversationSeenIfNeeded(threadId: threadId)
                 store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
             }
+            .onChange(of: thread.hasUnseenLatestAssistantMessage) { _, hasUnseen in
+                guard hasUnseen else { return }
+                // The detail view can stay mounted across reconnects, so re-run
+                // the explicit seen path when the visible thread flips unread.
+                store.markConversationSeenIfNeeded(threadId: threadId)
+            }
             .onOpenURL { _ in
                 DispatchQueue.main.async {
                     store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
@@ -246,6 +252,10 @@ struct ThreadListView: View {
         renameText = thread.title
     }
 
+    private func canToggleThreadPin(_ thread: IOSThread) -> Bool {
+        store.isConnectedMode && thread.sessionId != nil
+    }
+
     private func canMarkThreadUnread(_ thread: IOSThread) -> Bool {
         store.isConnectedMode &&
             thread.sessionId != nil &&
@@ -255,17 +265,19 @@ struct ThreadListView: View {
 
     @ViewBuilder
     private func connectedThreadContextMenu(_ thread: IOSThread) -> some View {
-        Button {
-            if thread.isPinned {
-                store.unpinThread(thread)
-            } else {
-                store.pinThread(thread)
-            }
-        } label: {
-            Label {
-                Text(thread.isPinned ? "Unpin thread" : "Pin thread")
-            } icon: {
-                VIconView(thread.isPinned ? .pinOff : .pin, size: 14)
+        if canToggleThreadPin(thread) {
+            Button {
+                if thread.isPinned {
+                    store.unpinThread(thread)
+                } else {
+                    store.pinThread(thread)
+                }
+            } label: {
+                Label {
+                    Text(thread.isPinned ? "Unpin thread" : "Pin thread")
+                } icon: {
+                    VIconView(thread.isPinned ? .pinOff : .pin, size: 14)
+                }
             }
         }
 

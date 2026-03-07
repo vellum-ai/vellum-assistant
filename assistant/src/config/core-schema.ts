@@ -2,8 +2,6 @@ import { z } from "zod";
 
 const VALID_SECRET_ACTIONS = ["redact", "warn", "block", "prompt"] as const;
 const VALID_PERMISSIONS_MODES = ["strict", "workspace"] as const;
-const VALID_SMS_PROVIDERS = ["twilio"] as const;
-
 export const TimeoutConfigSchema = z.object({
   shellMaxTimeoutSec: z
     .number({ error: "timeouts.shellMaxTimeoutSec must be a number" })
@@ -243,24 +241,6 @@ export const TwilioConfigSchema = z.object({
     .default(""),
 });
 
-export const SmsConfigSchema = z.object({
-  enabled: z.boolean({ error: "sms.enabled must be a boolean" }).default(false),
-  provider: z
-    .enum(VALID_SMS_PROVIDERS, {
-      error: `sms.provider must be one of: ${VALID_SMS_PROVIDERS.join(", ")}`,
-    })
-    .default("twilio"),
-  phoneNumber: z
-    .string({ error: "sms.phoneNumber must be a string" })
-    .default(""),
-  assistantPhoneNumbers: z
-    .record(
-      z.string(),
-      z.string({ error: "sms.assistantPhoneNumbers values must be strings" }),
-    )
-    .optional(),
-});
-
 export const WhatsAppConfigSchema = z.object({
   phoneNumber: z
     .string({ error: "whatsapp.phoneNumber must be a string" })
@@ -423,7 +403,6 @@ export type ContextOverflowRecoveryConfig = z.infer<
 export type ContextWindowConfig = z.infer<typeof ContextWindowConfigSchema>;
 export type ModelPricingOverride = z.infer<typeof ModelPricingOverrideSchema>;
 export type TwilioConfig = z.infer<typeof TwilioConfigSchema>;
-export type SmsConfig = z.infer<typeof SmsConfigSchema>;
 export type WhatsAppConfig = z.infer<typeof WhatsAppConfigSchema>;
 export type IngressWebhookConfig = z.infer<typeof IngressWebhookConfigSchema>;
 export type IngressRateLimitConfig = z.infer<
