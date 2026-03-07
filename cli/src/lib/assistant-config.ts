@@ -20,7 +20,6 @@ export interface LocalInstanceResources {
    * at `~/.vellum`); subsequent assistants use
    * `~/.local/share/vellum/assistants/<name>/` (workspace at
    * `~/.local/share/vellum/assistants/<name>/.vellum`).
-   * The daemon's `.vellum/` directory lives inside it. Equivalent to
    * The daemon's `.vellum/` directory lives inside it.
    */
   instanceDir: string;
