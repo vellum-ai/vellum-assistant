@@ -8,7 +8,7 @@ import VellumAssistantShared
 struct ContactDetailView: View {
     private static let allChannelTypes = ["telegram", "sms", "email", "whatsapp", "voice", "slack"]
 
-    private static let guardianSupportedChannels: Set<String> = ["telegram", "sms", "voice", "slack"]
+    private static let verificationSupportedChannels: Set<String> = ["telegram", "sms", "voice", "slack"]
 
     /// Channels that support 6-digit code invites from this view. Voice invites
     /// require additional fields not available here, so they are excluded.
@@ -46,22 +46,22 @@ struct ContactDetailView: View {
     @State private var inviteCopiedType: String?
     @State private var channelReadiness: [String: DaemonClient.ChannelReadinessInfo] = [:]
     @State private var readinessFetchFailed = false
-    @State private var guardianDestinationTexts: [String: String] = [:]
-    @State private var guardianCountdownNow: Date = Date()
-    @State private var guardianCountdownTimer: Timer?
+    @State private var verificationDestinationTexts: [String: String] = [:]
+    @State private var verificationCountdownNow: Date = Date()
+    @State private var verificationCountdownTimer: Timer?
     /// Incremented whenever SettingsStore publishes a change, forcing SwiftUI to
-    /// re-evaluate guardian verification state derived from the store.
-    @State private var guardianStoreRevision: Int = 0
+    /// re-evaluate channel verification state derived from the store.
+    @State private var verificationStoreRevision: Int = 0
 
     var displayContact: ContactPayload {
         currentContact ?? contact
     }
 
     var body: some View {
-        // Read guardianStoreRevision so SwiftUI tracks it; the .onReceive
+        // Read verificationStoreRevision so SwiftUI tracks it; the .onReceive
         // below increments it whenever SettingsStore publishes, forcing
-        // re-evaluation of guardian verification state.
-        let _ = guardianStoreRevision
+        // re-evaluation of channel verification state.
+        let _ = verificationStoreRevision
 
         ScrollView {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -86,20 +86,20 @@ struct ContactDetailView: View {
         .onAppear {
             currentContact = contact
             if contact.role == "guardian" {
-                startGuardianCountdownTimer()
-                // Refresh guardian verification state for all supported channels
+                startVerificationCountdownTimer()
+                // Refresh channel verification state for all supported channels
                 // so the view shows current status even if the user hasn't visited
                 // the Channels settings tab yet.
-                for channel in Self.guardianSupportedChannels {
-                    store?.refreshChannelGuardianStatus(channel: channel)
+                for channel in Self.verificationSupportedChannels {
+                    store?.refreshChannelVerificationStatus(channel: channel)
                 }
             }
         }
         .onDisappear {
-            stopGuardianCountdownTimer()
+            stopVerificationCountdownTimer()
         }
         .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
-            guardianStoreRevision += 1
+            verificationStoreRevision += 1
         }
     }
 
@@ -397,9 +397,9 @@ struct ContactDetailView: View {
                 Spacer()
             }
 
-            // Guardian contacts get the full verification flow; others get standard actions
+            // Guardian contacts get the full channel verification flow; others get standard actions
             if displayContact.role == "guardian" {
-                guardianVerificationActions(for: channel)
+                channelVerificationActions(for: channel)
             } else {
                 channelActions(for: channel)
             }
@@ -432,24 +432,24 @@ struct ContactDetailView: View {
                     .foregroundColor(VColor.textMuted)
             }
 
-            // Guardian contacts get the full verification flow; others get invite button
+            // Guardian contacts get the full channel verification flow; others get invite button
             if displayContact.role == "guardian" {
-                if Self.guardianSupportedChannels.contains(type), let store {
-                    let state = store.guardianChannelState(for: type)
+                if Self.verificationSupportedChannels.contains(type), let store {
+                    let state = store.channelVerificationState(for: type)
                     let destinationBinding = Binding<String>(
-                        get: { guardianDestinationTexts[type] ?? "" },
-                        set: { guardianDestinationTexts[type] = $0 }
+                        get: { verificationDestinationTexts[type] ?? "" },
+                        set: { verificationDestinationTexts[type] = $0 }
                     )
-                    GuardianVerificationFlowView(
+                    ChannelVerificationFlowView(
                         state: state,
-                        countdownNow: $guardianCountdownNow,
+                        countdownNow: $verificationCountdownNow,
                         destinationText: destinationBinding,
-                        onStartOutbound: { dest in store.startOutboundGuardianVerification(channel: type, destination: dest) },
-                        onResend: { store.resendOutboundGuardian(channel: type) },
-                        onCancelOutbound: { store.cancelOutboundGuardian(channel: type) },
-                        onRevoke: { store.revokeChannelGuardian(channel: type) },
-                        onStartChallenge: { rebind in store.startChannelGuardianVerification(channel: type, rebind: rebind) },
-                        onCancelChallenge: { store.cancelGuardianChallenge(channel: type) },
+                        onStartOutbound: { dest in store.startOutboundVerification(channel: type, destination: dest) },
+                        onResend: { store.resendOutboundVerification(channel: type) },
+                        onCancelOutbound: { store.cancelOutboundVerification(channel: type) },
+                        onRevoke: { store.revokeChannelVerification(channel: type) },
+                        onStartChallenge: { rebind in store.startChannelVerification(channel: type, rebind: rebind) },
+                        onCancelChallenge: { store.cancelVerificationChallenge(channel: type) },
                         botUsername: store.telegramBotUsername,
                         phoneNumber: store.twilioPhoneNumber,
                         showLabel: false
@@ -760,27 +760,27 @@ struct ContactDetailView: View {
         }
     }
 
-    // MARK: - Guardian Verification Actions
+    // MARK: - Channel Verification Actions
 
     @ViewBuilder
-    private func guardianVerificationActions(for channel: ContactChannelPayload) -> some View {
-        if Self.guardianSupportedChannels.contains(channel.type), let store {
-            let state = store.guardianChannelState(for: channel.type)
+    private func channelVerificationActions(for channel: ContactChannelPayload) -> some View {
+        if Self.verificationSupportedChannels.contains(channel.type), let store {
+            let state = store.channelVerificationState(for: channel.type)
             let destinationBinding = Binding<String>(
-                get: { guardianDestinationTexts[channel.type] ?? "" },
-                set: { guardianDestinationTexts[channel.type] = $0 }
+                get: { verificationDestinationTexts[channel.type] ?? "" },
+                set: { verificationDestinationTexts[channel.type] = $0 }
             )
 
-            GuardianVerificationFlowView(
+            ChannelVerificationFlowView(
                 state: state,
-                countdownNow: $guardianCountdownNow,
+                countdownNow: $verificationCountdownNow,
                 destinationText: destinationBinding,
-                onStartOutbound: { dest in store.startOutboundGuardianVerification(channel: channel.type, destination: dest) },
-                onResend: { store.resendOutboundGuardian(channel: channel.type) },
-                onCancelOutbound: { store.cancelOutboundGuardian(channel: channel.type) },
-                onRevoke: { store.revokeChannelGuardian(channel: channel.type) },
-                onStartChallenge: { rebind in store.startChannelGuardianVerification(channel: channel.type, rebind: rebind) },
-                onCancelChallenge: { store.cancelGuardianChallenge(channel: channel.type) },
+                onStartOutbound: { dest in store.startOutboundVerification(channel: channel.type, destination: dest) },
+                onResend: { store.resendOutboundVerification(channel: channel.type) },
+                onCancelOutbound: { store.cancelOutboundVerification(channel: channel.type) },
+                onRevoke: { store.revokeChannelVerification(channel: channel.type) },
+                onStartChallenge: { rebind in store.startChannelVerification(channel: channel.type, rebind: rebind) },
+                onCancelChallenge: { store.cancelVerificationChallenge(channel: channel.type) },
                 botUsername: store.telegramBotUsername,
                 phoneNumber: store.twilioPhoneNumber,
                 showLabel: false
@@ -789,21 +789,21 @@ struct ContactDetailView: View {
         // Email and other unsupported channel types: show nothing (display-only)
     }
 
-    // MARK: - Guardian Countdown Timer
+    // MARK: - Verification Countdown Timer
 
-    private func startGuardianCountdownTimer() {
-        guard guardianCountdownTimer == nil else { return }
-        guardianCountdownNow = Date()
-        guardianCountdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+    private func startVerificationCountdownTimer() {
+        guard verificationCountdownTimer == nil else { return }
+        verificationCountdownNow = Date()
+        verificationCountdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             Task { @MainActor in
-                guardianCountdownNow = Date()
+                verificationCountdownNow = Date()
             }
         }
     }
 
-    private func stopGuardianCountdownTimer() {
-        guardianCountdownTimer?.invalidate()
-        guardianCountdownTimer = nil
+    private func stopVerificationCountdownTimer() {
+        verificationCountdownTimer?.invalidate()
+        verificationCountdownTimer = nil
     }
 
     // MARK: - Status Badge

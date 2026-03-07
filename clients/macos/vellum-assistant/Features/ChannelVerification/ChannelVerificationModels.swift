@@ -1,10 +1,10 @@
 import Foundation
 
-// MARK: - Guardian Channel State
+// MARK: - Channel Verification State
 
-/// Bundles all per-channel guardian verification state into a single value type,
-/// built from SettingsStore's @Published properties for use in guardian verification UI.
-struct GuardianChannelState {
+/// Bundles all per-channel verification state into a single value type,
+/// built from SettingsStore's @Published properties for use in channel verification UI.
+struct ChannelVerificationState {
     let channel: String
     let identity: String?
     let username: String?
@@ -21,7 +21,7 @@ struct GuardianChannelState {
     let outboundCode: String?
     let bootstrapUrl: String?
 
-    /// The most user-friendly display name for this guardian.
+    /// The most user-friendly display name for the verified identity.
     /// For telegram/slack: prefers @username, falls back to display name, then raw identity.
     /// For sms/voice: prefers display name, falls back to identity.
     var primaryIdentity: String? {
@@ -64,20 +64,20 @@ struct GuardianChannelState {
 
 @MainActor
 extension SettingsStore {
-    /// Reads all per-channel @Published guardian properties and returns them as a single struct.
-    func guardianChannelState(for channel: String) -> GuardianChannelState {
+    /// Reads all per-channel @Published verification properties and returns them as a single struct.
+    func channelVerificationState(for channel: String) -> ChannelVerificationState {
         switch channel {
         case "telegram":
-            return GuardianChannelState(
+            return ChannelVerificationState(
                 channel: channel,
-                identity: telegramGuardianIdentity,
-                username: telegramGuardianUsername,
-                displayName: telegramGuardianDisplayName,
-                verified: telegramGuardianVerified,
-                inProgress: telegramGuardianVerificationInProgress,
-                instruction: telegramGuardianInstruction,
-                error: telegramGuardianError,
-                alreadyBound: telegramGuardianAlreadyBound,
+                identity: telegramVerificationIdentity,
+                username: telegramVerificationUsername,
+                displayName: telegramVerificationDisplayName,
+                verified: telegramVerificationVerified,
+                inProgress: telegramVerificationInProgress,
+                instruction: telegramVerificationInstruction,
+                error: telegramVerificationError,
+                alreadyBound: telegramVerificationAlreadyBound,
                 outboundSessionId: telegramOutboundSessionId,
                 outboundExpiresAt: telegramOutboundExpiresAt,
                 outboundNextResendAt: telegramOutboundNextResendAt,
@@ -86,16 +86,16 @@ extension SettingsStore {
                 bootstrapUrl: telegramBootstrapUrl
             )
         case "sms":
-            return GuardianChannelState(
+            return ChannelVerificationState(
                 channel: channel,
-                identity: smsGuardianIdentity,
-                username: smsGuardianUsername,
-                displayName: smsGuardianDisplayName,
-                verified: smsGuardianVerified,
-                inProgress: smsGuardianVerificationInProgress,
-                instruction: smsGuardianInstruction,
-                error: smsGuardianError,
-                alreadyBound: smsGuardianAlreadyBound,
+                identity: smsVerificationIdentity,
+                username: smsVerificationUsername,
+                displayName: smsVerificationDisplayName,
+                verified: smsVerificationVerified,
+                inProgress: smsVerificationInProgress,
+                instruction: smsVerificationInstruction,
+                error: smsVerificationError,
+                alreadyBound: smsVerificationAlreadyBound,
                 outboundSessionId: smsOutboundSessionId,
                 outboundExpiresAt: smsOutboundExpiresAt,
                 outboundNextResendAt: smsOutboundNextResendAt,
@@ -104,16 +104,16 @@ extension SettingsStore {
                 bootstrapUrl: nil
             )
         case "voice":
-            return GuardianChannelState(
+            return ChannelVerificationState(
                 channel: channel,
-                identity: voiceGuardianIdentity,
-                username: voiceGuardianUsername,
-                displayName: voiceGuardianDisplayName,
-                verified: voiceGuardianVerified,
-                inProgress: voiceGuardianVerificationInProgress,
-                instruction: voiceGuardianInstruction,
-                error: voiceGuardianError,
-                alreadyBound: voiceGuardianAlreadyBound,
+                identity: voiceVerificationIdentity,
+                username: voiceVerificationUsername,
+                displayName: voiceVerificationDisplayName,
+                verified: voiceVerificationVerified,
+                inProgress: voiceVerificationInProgress,
+                instruction: voiceVerificationInstruction,
+                error: voiceVerificationError,
+                alreadyBound: voiceVerificationAlreadyBound,
                 outboundSessionId: voiceOutboundSessionId,
                 outboundExpiresAt: voiceOutboundExpiresAt,
                 outboundNextResendAt: voiceOutboundNextResendAt,
@@ -122,16 +122,16 @@ extension SettingsStore {
                 bootstrapUrl: nil
             )
         case "slack":
-            return GuardianChannelState(
+            return ChannelVerificationState(
                 channel: channel,
-                identity: slackGuardianIdentity,
-                username: slackGuardianUsername,
-                displayName: slackGuardianDisplayName,
-                verified: slackGuardianVerified,
-                inProgress: slackGuardianVerificationInProgress,
-                instruction: slackGuardianInstruction,
-                error: slackGuardianError,
-                alreadyBound: slackGuardianAlreadyBound,
+                identity: slackVerificationIdentity,
+                username: slackVerificationUsername,
+                displayName: slackVerificationDisplayName,
+                verified: slackVerificationVerified,
+                inProgress: slackVerificationInProgress,
+                instruction: slackVerificationInstruction,
+                error: slackVerificationError,
+                alreadyBound: slackVerificationAlreadyBound,
                 outboundSessionId: slackOutboundSessionId,
                 outboundExpiresAt: slackOutboundExpiresAt,
                 outboundNextResendAt: slackOutboundNextResendAt,
@@ -140,7 +140,7 @@ extension SettingsStore {
                 bootstrapUrl: nil
             )
         default:
-            return GuardianChannelState(
+            return ChannelVerificationState(
                 channel: channel,
                 identity: nil,
                 username: nil,
@@ -163,11 +163,11 @@ extension SettingsStore {
 
 // MARK: - Pure Helper Functions
 
-/// Extracts a guardian verification code from a raw instruction string.
+/// Extracts a verification code from a raw instruction string.
 /// Supports two formats:
 ///   1. "N-digit code: <digits>" (numeric codes, e.g. "6-digit code: 123456")
 ///   2. "the code: <hex>" (high-entropy hex codes for inbound challenges)
-func extractGuardianCommand(from instruction: String) -> String? {
+func extractVerificationCommand(from instruction: String) -> String? {
     if let code = extractNumericCode(from: instruction) {
         return code
     }
@@ -193,9 +193,9 @@ func extractNumericCode(from instruction: String) -> String? {
     return String(match[colonRange.upperBound...])
 }
 
-/// Human-readable instruction text for the guardian verification flow.
+/// Human-readable instruction text for the channel verification flow.
 /// Tells the user how to send the verification code for the given channel.
-func guardianInstructionSubtext(channel: String, botUsername: String?, phoneNumber: String?) -> String {
+func verificationInstructionSubtext(channel: String, botUsername: String?, phoneNumber: String?) -> String {
     if channel == "telegram" {
         let handle = botUsername.map { "@\($0)" } ?? "your bot"
         return "Message \(handle) with the below code within the next 10 minutes"
@@ -208,8 +208,8 @@ func guardianInstructionSubtext(channel: String, botUsername: String?, phoneNumb
     }
 }
 
-/// Placeholder text for the guardian destination input field, varying by channel.
-func guardianDestinationPlaceholder(for channel: String) -> String {
+/// Placeholder text for the verification destination input field, varying by channel.
+func verificationDestinationPlaceholder(for channel: String) -> String {
     switch channel {
     case "telegram": return "@username or chat ID"
     case "sms", "voice": return "+1234567890"
