@@ -1391,16 +1391,7 @@ extension ChatViewModel {
                 surfaceRef: SurfaceRef(from: msg, surface: surface)
             )
 
-            // If messageId is provided, attach to that specific message (rarely used now that
-            // surfaces come directly in history_response, but kept for backwards compatibility)
-            if let messageId = msg.messageId,
-               let messageUUID = UUID(uuidString: messageId),
-               let index = messages.firstIndex(where: { $0.id == messageUUID }) {
-                log.info("Attaching surface to message by messageId: \(messageId)")
-                let surfIdx = messages[index].inlineSurfaces.count
-                messages[index].inlineSurfaces.append(inlineSurface)
-                messages[index].contentOrder.append(.surface(surfIdx))
-            } else if let existingId = currentAssistantMessageId,
+            if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 log.info("Attaching surface to currentAssistantMessage: \(existingId)")
                 let surfIdx = messages[index].inlineSurfaces.count
