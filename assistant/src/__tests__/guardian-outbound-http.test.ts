@@ -196,15 +196,15 @@ beforeEach(() => {
 
 describe("startOutbound", () => {
   test("SMS: returns missing_destination when destination is absent", async () => {
-    const result = await startOutbound({ channel: "sms" });
+    const result = await startOutbound({ channel: "voice" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("missing_destination");
-    expect(result.channel).toBe("sms");
+    expect(result.channel).toBe("voice");
   });
 
   test("SMS: returns invalid_destination for garbage phone number", async () => {
     const result = await startOutbound({
-      channel: "sms",
+      channel: "voice",
       destination: "notaphone",
     });
     expect(result.success).toBe(false);
@@ -213,7 +213,7 @@ describe("startOutbound", () => {
 
   test("SMS: succeeds with valid E.164 number", async () => {
     const result = await startOutbound({
-      channel: "sms",
+      channel: "voice",
       destination: "+15551234567",
     });
     expect(result.success).toBe(true);
@@ -222,12 +222,12 @@ describe("startOutbound", () => {
     expect(result.expiresAt).toBeGreaterThan(Date.now());
     expect(result.nextResendAt).toBeGreaterThan(Date.now());
     expect(result.sendCount).toBe(1);
-    expect(result.channel).toBe("sms");
+    expect(result.channel).toBe("voice");
   });
 
   test("SMS: succeeds with loose phone format (parentheses + dashes)", async () => {
     const result = await startOutbound({
-      channel: "sms",
+      channel: "voice",
       destination: "(555) 987-6543",
     });
     expect(result.success).toBe(true);
@@ -346,7 +346,7 @@ describe("startOutbound", () => {
 
 describe("resendOutbound", () => {
   test("returns no_active_session when no session exists", () => {
-    const result = resendOutbound({ channel: "sms" });
+    const result = resendOutbound({ channel: "voice" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("no_active_session");
   });
@@ -354,7 +354,7 @@ describe("resendOutbound", () => {
   test("SMS: succeeds when an active session exists and cooldown has passed", async () => {
     // Start a session first
     const startResult = await startOutbound({
-      channel: "sms",
+      channel: "voice",
       destination: "+15551112222",
     });
     expect(startResult.success).toBe(true);
@@ -369,7 +369,7 @@ describe("resendOutbound", () => {
       );
     }
 
-    const resendResult = resendOutbound({ channel: "sms" });
+    const resendResult = resendOutbound({ channel: "voice" });
     expect(resendResult.success).toBe(true);
     expect(resendResult.verificationSessionId).toBeDefined();
     expect(resendResult.sendCount).toBe(2);
@@ -377,7 +377,7 @@ describe("resendOutbound", () => {
 
   test("SMS: preserves originConversationId on resend", async () => {
     const startResult = await startOutbound({
-      channel: "sms",
+      channel: "voice",
       destination: "+15551113333",
     });
     expect(startResult.success).toBe(true);
@@ -392,7 +392,7 @@ describe("resendOutbound", () => {
     }
 
     const resendResult = resendOutbound({
-      channel: "sms",
+      channel: "voice",
       originConversationId: "conv-resend-sms-origin",
     });
     expect(resendResult.success).toBe(true);
@@ -441,21 +441,21 @@ describe("resendOutbound", () => {
 
 describe("cancelOutbound", () => {
   test("returns no_active_session when no session exists", () => {
-    const result = cancelOutbound({ channel: "sms" });
+    const result = cancelOutbound({ channel: "voice" });
     expect(result.success).toBe(false);
     expect(result.error).toBe("no_active_session");
   });
 
   test("succeeds when an active session exists", async () => {
     const startResult = await startOutbound({
-      channel: "sms",
+      channel: "voice",
       destination: "+15553334444",
     });
     expect(startResult.success).toBe(true);
 
-    const cancelResult = cancelOutbound({ channel: "sms" });
+    const cancelResult = cancelOutbound({ channel: "voice" });
     expect(cancelResult.success).toBe(true);
-    expect(cancelResult.channel).toBe("sms");
+    expect(cancelResult.channel).toBe("voice");
   });
 });
 
@@ -477,16 +477,16 @@ describe("HTTP route: handleCreateGuardianSession", () => {
 
   test("creates inbound challenge when destination is absent", async () => {
     // Without a destination, the unified handler takes the inbound challenge path.
-    const req = jsonRequest({ channel: "sms" });
+    const req = jsonRequest({ channel: "voice" });
     const resp = await handleCreateGuardianSession(req);
     expect(resp.status).toBe(200);
     const body = (await resp.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
-    expect(body.channel).toBe("sms");
+    expect(body.channel).toBe("voice");
   });
 
   test("returns 200 for valid SMS start", async () => {
-    const req = jsonRequest({ channel: "sms", destination: "+15559999999" });
+    const req = jsonRequest({ channel: "voice", destination: "+15559999999" });
     const resp = await handleCreateGuardianSession(req);
     expect(resp.status).toBe(200);
     const body = (await resp.json()) as Record<string, unknown>;
@@ -508,7 +508,7 @@ describe("HTTP route: handleResendGuardianSession", () => {
   });
 
   test("returns 400 for no_active_session", async () => {
-    const req = jsonRequest({ channel: "sms" });
+    const req = jsonRequest({ channel: "voice" });
     const resp = await handleResendGuardianSession(req);
     expect(resp.status).toBe(400);
     const body = (await resp.json()) as { error?: string };
@@ -518,7 +518,7 @@ describe("HTTP route: handleResendGuardianSession", () => {
   test("passes originConversationId through on successful resend", async () => {
     // Start a session first
     const startReq = jsonRequest({
-      channel: "sms",
+      channel: "voice",
       destination: "+15556667777",
     });
     const startResp = await handleCreateGuardianSession(startReq);
@@ -536,7 +536,7 @@ describe("HTTP route: handleResendGuardianSession", () => {
     }
 
     const resendReq = jsonRequest({
-      channel: "sms",
+      channel: "voice",
       originConversationId: "conv-resend-http-origin",
     });
     const resendResp = await handleResendGuardianSession(resendReq);
@@ -562,7 +562,7 @@ describe("HTTP route: handleCancelGuardianSession", () => {
   test("returns 200 even when no active session exists", async () => {
     // The unified cancel handler silently cancels both inbound and outbound —
     // no error if nothing is active.
-    const req = jsonRequest({ channel: "sms" });
+    const req = jsonRequest({ channel: "voice" });
     const resp = await handleCancelGuardianSession(req);
     expect(resp.status).toBe(200);
     const body = (await resp.json()) as Record<string, unknown>;
@@ -572,14 +572,14 @@ describe("HTTP route: handleCancelGuardianSession", () => {
   test("returns 200 when active session is cancelled", async () => {
     // Start a session
     const startReq = jsonRequest({
-      channel: "sms",
+      channel: "voice",
       destination: "+15558887777",
     });
     const startResp = await handleCreateGuardianSession(startReq);
     expect(startResp.status).toBe(200);
 
     // Cancel it
-    const cancelReq = jsonRequest({ channel: "sms" });
+    const cancelReq = jsonRequest({ channel: "voice" });
     const cancelResp = await handleCancelGuardianSession(cancelReq);
     expect(cancelResp.status).toBe(200);
     const body = (await cancelResp.json()) as Record<string, unknown>;
@@ -594,7 +594,7 @@ describe("HTTP route: handleCancelGuardianSession", () => {
 describe("origin conversation linkage", () => {
   test("startOutbound SMS echoes originConversationId in result", async () => {
     const result = await startOutbound({
-      channel: "sms",
+      channel: "voice",
       destination: "+15551119999",
       originConversationId: "conv-origin-sms-test",
     });
@@ -624,7 +624,7 @@ describe("origin conversation linkage", () => {
 
   test("startOutbound without originConversationId returns undefined for field", async () => {
     const result = await startOutbound({
-      channel: "sms",
+      channel: "voice",
       destination: "+15553338888",
     });
     expect(result.success).toBe(true);
@@ -633,7 +633,7 @@ describe("origin conversation linkage", () => {
 
   test("HTTP handleCreateGuardianSession passes originConversationId through", async () => {
     const req = jsonRequest({
-      channel: "sms",
+      channel: "voice",
       destination: "+15557776666",
       originConversationId: "conv-origin-http-test",
     });

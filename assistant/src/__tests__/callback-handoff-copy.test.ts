@@ -155,13 +155,13 @@ describe("callback handoff copy template", () => {
     expect(copy.deliveryText).toContain("Frank");
   });
 
-  test("sms channel gets deliveryText fallback", () => {
+  test("telegram channel gets deliveryText fallback", () => {
     const signal = buildSignal({
       callerName: "Grace",
       callerPhoneNumber: "+15555555555",
     });
-    const result = composeFallbackCopy(signal, ["sms"]);
-    const copy = result.sms!;
+    const result = composeFallbackCopy(signal, ["telegram"]);
+    const copy = result.telegram!;
 
     expect(copy.deliveryText).toBeDefined();
     expect(copy.deliveryText!.length).toBeGreaterThan(0);

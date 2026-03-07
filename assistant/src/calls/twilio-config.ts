@@ -1,5 +1,5 @@
 import { getTwilioPhoneNumberEnv } from "../config/env.js";
-import { loadConfig } from "../config/loader.js";
+import { loadConfig, loadRawConfig } from "../config/loader.js";
 import {
   getPublicBaseUrl,
   getTwilioRelayUrl,
@@ -37,7 +37,12 @@ export function resolveTwilioPhoneNumber(): string {
   try {
     const config = loadConfig();
     if (config.twilio?.phoneNumber) return config.twilio.phoneNumber;
-    if (config.sms?.phoneNumber) return config.sms.phoneNumber;
+    // Legacy: phone number was stored under sms.phoneNumber before SMS removal
+    const raw = loadRawConfig() as Record<string, unknown> | undefined;
+    const smsSection = raw?.sms as Record<string, unknown> | undefined;
+    if (typeof smsSection?.phoneNumber === "string" && smsSection.phoneNumber) {
+      return smsSection.phoneNumber;
+    }
   } catch {
     // Config may not be available yet during early startup
   }

@@ -54,7 +54,6 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     twilioAuthToken: undefined,
     twilioAccountSid: undefined,
     twilioPhoneNumber: undefined,
-    smsDeliverAuthBypass: false,
     ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
     whatsappPhoneNumberId: undefined,
