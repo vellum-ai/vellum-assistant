@@ -74,7 +74,7 @@ interface CapturedWatcher {
 }
 
 const capturedWatchers: CapturedWatcher[] = [];
-let cpSyncCalls: { src: string; dest: string; opts?: unknown }[] = [];
+const cpSyncCalls: { src: string; dest: string; opts?: unknown }[] = [];
 
 const fakeWatcher = {
   close: () => {},
