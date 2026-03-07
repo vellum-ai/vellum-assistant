@@ -38,6 +38,7 @@ import {
   VALID_SPECIES,
 } from "../lib/constants";
 import type { RemoteHost, Species } from "../lib/constants";
+import { hatchDocker } from "../lib/docker";
 import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import {
@@ -803,8 +804,10 @@ export async function hatch(): Promise<void> {
     process.exit(1);
   }
 
-  if (watch && remote !== "local") {
-    console.error("Error: --watch is only supported for local hatch targets.");
+  if (watch && remote !== "local" && remote !== "docker") {
+    console.error(
+      "Error: --watch is only supported for local and docker hatch targets.",
+    );
     process.exit(1);
   }
 
@@ -824,8 +827,8 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "docker") {
-    console.error("Error: Docker remote host is not yet implemented.");
-    process.exit(1);
+    await hatchDocker(species, detached, name, watch);
+    return;
   }
 
   console.error(`Error: Remote host '${remote}' is not yet supported.`);

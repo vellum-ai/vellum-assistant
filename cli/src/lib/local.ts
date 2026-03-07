@@ -504,7 +504,7 @@ function isSocketResponsive(
   });
 }
 
-async function discoverPublicUrl(port?: number): Promise<string | undefined> {
+export async function discoverPublicUrl(port?: number): Promise<string | undefined> {
   const effectivePort = port ?? GATEWAY_PORT;
   const cloud = process.env.VELLUM_CLOUD;
 
