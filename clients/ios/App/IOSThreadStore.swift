@@ -122,6 +122,14 @@ class IOSThreadStore: ObservableObject {
     /// since the cache was loaded. Only these threads preserve local overrides
     /// when the daemon response arrives; all others accept daemon data.
     private var locallyEditedSessionIds: Set<String> = []
+    /// Local seen/unread mutations must survive a stale session-list replay until
+    /// the daemon acknowledges them or returns a newer assistant reply.
+    private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
+
+    private enum PendingAttentionOverride {
+        case seen(latestAssistantMessageAt: Date?)
+        case unread(latestAssistantMessageAt: Date?)
+    }
 
     private func assistantTimestamp(_ timestampMs: Int?) -> Date? {
         guard let timestampMs else { return nil }
@@ -142,6 +150,51 @@ class IOSThreadStore: ObservableObject {
         thread.lastSeenAssistantMessageAt = assistantTimestamp(
             session.assistantAttention?.lastSeenAssistantMessageAt
         )
+    }
+
+    private func applyPendingAttentionOverride(to thread: inout IOSThread) {
+        guard let sessionId = thread.sessionId,
+              let override = pendingAttentionOverrides[sessionId] else { return }
+
+        switch override {
+        case .seen(let targetLatestAssistantMessageAt):
+            if !thread.hasUnseenLatestAssistantMessage {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+            if let targetLatestAssistantMessageAt,
+               let serverLatestAssistantMessageAt = thread.latestAssistantMessageAt,
+               serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+
+            if let targetLatestAssistantMessageAt,
+               thread.latestAssistantMessageAt == nil {
+                thread.latestAssistantMessageAt = targetLatestAssistantMessageAt
+            }
+            thread.hasUnseenLatestAssistantMessage = false
+            thread.lastSeenAssistantMessageAt = thread.latestAssistantMessageAt
+
+        case .unread(let targetLatestAssistantMessageAt):
+            if thread.hasUnseenLatestAssistantMessage {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+            if let targetLatestAssistantMessageAt,
+               let serverLatestAssistantMessageAt = thread.latestAssistantMessageAt,
+               serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+
+            if let targetLatestAssistantMessageAt,
+               thread.latestAssistantMessageAt == nil {
+                thread.latestAssistantMessageAt = targetLatestAssistantMessageAt
+            }
+            thread.hasUnseenLatestAssistantMessage = true
+            thread.lastSeenAssistantMessageAt = nil
+        }
     }
 
     init(daemonClient: any DaemonClientProtocol) {
@@ -297,6 +350,7 @@ class IOSThreadStore: ObservableObject {
         viewModels.removeAll()
         observedActivityThreadIds.removeAll()
         pendingHistoryBySessionId.removeAll()
+        pendingAttentionOverrides.removeAll()
 
         if let daemon = newClient as? DaemonClient {
             // Connected mode — show cached threads instantly or spinner on first launch.
@@ -320,6 +374,7 @@ class IOSThreadStore: ObservableObject {
             isConnectedMode = false
             isLoadingInitialThreads = false
             locallyEditedSessionIds.removeAll()
+            pendingAttentionOverrides.removeAll()
             clearConnectedCache()
             let loaded = Self.load()
             if loaded.isEmpty {
@@ -361,6 +416,7 @@ class IOSThreadStore: ObservableObject {
             hasMoreThreads = response.hasMore ?? false
             clearConnectedCache()
             locallyEditedSessionIds.removeAll()
+            pendingAttentionOverrides.removeAll()
             return
         }
 
@@ -440,6 +496,7 @@ class IOSThreadStore: ObservableObject {
                             lastSeenAssistantMessageAt: restored.lastSeenAssistantMessageAt
                         )
                     }
+                    applyPendingAttentionOverride(to: &restored)
                     merged.append(restored)
                 }
 
@@ -459,15 +516,20 @@ class IOSThreadStore: ObservableObject {
                 for restored in restoredThreads {
                     if let sid = restored.sessionId, existingSessionIds.contains(sid) {
                         if let existingIndex = threads.firstIndex(where: { $0.sessionId == sid }) {
-                            threads[existingIndex].isPinned = restored.isPinned
-                            threads[existingIndex].displayOrder = restored.displayOrder
-                            threads[existingIndex].hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
-                            threads[existingIndex].latestAssistantMessageAt = restored.latestAssistantMessageAt
-                            threads[existingIndex].lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
+                            var mergedThread = threads[existingIndex]
+                            mergedThread.isPinned = restored.isPinned
+                            mergedThread.displayOrder = restored.displayOrder
+                            mergedThread.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
+                            mergedThread.latestAssistantMessageAt = restored.latestAssistantMessageAt
+                            mergedThread.lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
+                            applyPendingAttentionOverride(to: &mergedThread)
+                            threads[existingIndex] = mergedThread
                         }
                         viewModels.removeValue(forKey: restored.id)
                     } else {
-                        newThreads.append(restored)
+                        var mergedThread = restored
+                        applyPendingAttentionOverride(to: &mergedThread)
+                        newThreads.append(mergedThread)
                     }
                 }
                 threads = newThreads + threads
@@ -482,15 +544,20 @@ class IOSThreadStore: ObservableObject {
             for restored in restoredThreads {
                 if let sid = restored.sessionId, existingSessionIds.contains(sid) {
                     if let existingIndex = threads.firstIndex(where: { $0.sessionId == sid }) {
-                        threads[existingIndex].isPinned = restored.isPinned
-                        threads[existingIndex].displayOrder = restored.displayOrder
-                        threads[existingIndex].hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
-                        threads[existingIndex].latestAssistantMessageAt = restored.latestAssistantMessageAt
-                        threads[existingIndex].lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
+                        var mergedThread = threads[existingIndex]
+                        mergedThread.isPinned = restored.isPinned
+                        mergedThread.displayOrder = restored.displayOrder
+                        mergedThread.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
+                        mergedThread.latestAssistantMessageAt = restored.latestAssistantMessageAt
+                        mergedThread.lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
+                        applyPendingAttentionOverride(to: &mergedThread)
+                        threads[existingIndex] = mergedThread
                     }
                     viewModels.removeValue(forKey: restored.id)
                 } else {
-                    threads.append(restored)
+                    var mergedThread = restored
+                    applyPendingAttentionOverride(to: &mergedThread)
+                    threads.append(mergedThread)
                 }
             }
             saveConnectedCache()
@@ -582,7 +649,11 @@ class IOSThreadStore: ObservableObject {
               let sessionId = threads[idx].sessionId,
               threads[idx].hasUnseenLatestAssistantMessage else { return }
 
+        pendingAttentionOverrides[sessionId] = .seen(
+            latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
+        )
         threads[idx].hasUnseenLatestAssistantMessage = false
+        threads[idx].lastSeenAssistantMessageAt = threads[idx].latestAssistantMessageAt
         saveConnectedCache()
 
         let signal = IPCConversationSeenSignal(
@@ -740,7 +811,10 @@ class IOSThreadStore: ObservableObject {
 
     func deleteThread(_ thread: IOSThread) {
         viewModels.removeValue(forKey: thread.id)
-        if let sid = thread.sessionId { locallyEditedSessionIds.remove(sid) }
+        if let sid = thread.sessionId {
+            locallyEditedSessionIds.remove(sid)
+            pendingAttentionOverrides.removeValue(forKey: sid)
+        }
         threads.removeAll { $0.id == thread.id }
         // Always keep at least one active (non-archived) non-private thread.
         // Private threads are managed separately and should not prevent the
@@ -802,7 +876,11 @@ class IOSThreadStore: ObservableObject {
               !threads[idx].hasUnseenLatestAssistantMessage,
               threads[idx].latestAssistantMessageAt != nil else { return }
 
+        pendingAttentionOverrides[sessionId] = .unread(
+            latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
+        )
         threads[idx].hasUnseenLatestAssistantMessage = true
+        threads[idx].lastSeenAssistantMessageAt = nil
         saveConnectedCache()
 
         let signal = IPCConversationUnreadSignal(

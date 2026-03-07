@@ -28,6 +28,13 @@ protocol ThreadRestorerDelegate: AnyObject {
     func appendThreads(from response: SessionListResponseMessage)
     /// Returns an existing ChatViewModel matching the given session ID, if any.
     func existingChatViewModel(forSessionId sessionId: String) -> ChatViewModel?
+    /// Merge daemon attention metadata into an existing thread, allowing the
+    /// owner to preserve optimistic local seen/unread state until the daemon
+    /// catches up or returns a newer reply.
+    func mergeAssistantAttention(
+        from session: IPCSessionListResponseSession,
+        intoThreadAt index: Int
+    )
 }
 
 /// Handles daemon session restoration: fetching the session list on connect,
@@ -198,13 +205,7 @@ final class ThreadSessionRestorer {
                 delegate.threads[existingIdx].isPinned = isPinned
                 delegate.threads[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil
                 delegate.threads[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
-                delegate.threads[existingIdx].hasUnseenLatestAssistantMessage = session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
-                delegate.threads[existingIdx].latestAssistantMessageAt = session.assistantAttention?.latestAssistantMessageAt.map {
-                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                }
-                delegate.threads[existingIdx].lastSeenAssistantMessageAt = session.assistantAttention?.lastSeenAssistantMessageAt.map {
-                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
-                }
+                delegate.mergeAssistantAttention(from: session, intoThreadAt: existingIdx)
                 if isPinned && session.displayOrder == nil { pinnedCount += 1 }
                 continue
             }

@@ -588,6 +588,90 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertFalse(store.threads.first(where: { $0.id == storedThread.id })?.hasUnseenLatestAssistantMessage ?? true)
     }
 
+    func testSessionListRefreshPreservesLocalSeenUntilDaemonCatchesUp() {
+        let daemonClient = DaemonClient()
+        let store = IOSThreadStore(daemonClient: daemonClient)
+
+        let initialResponse = makeSessionListResponse(sessions: [[
+            "id": "connected-session-refresh-seen",
+            "title": "Unread thread",
+            "createdAt": 1_000,
+            "updatedAt": 2_000,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": true,
+                "latestAssistantMessageAt": 5_000,
+                "lastSeenAssistantMessageAt": 4_000,
+            ],
+        ]])
+        daemonClient.onSessionListResponse?(initialResponse)
+
+        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-refresh-seen" }) else {
+            XCTFail("Expected connected thread")
+            return
+        }
+
+        store.markConversationSeenIfNeeded(threadId: storedThread.id)
+
+        let staleResponse = makeSessionListResponse(sessions: [[
+            "id": "connected-session-refresh-seen",
+            "title": "Unread thread",
+            "createdAt": 1_000,
+            "updatedAt": 2_100,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": true,
+                "latestAssistantMessageAt": 5_000,
+                "lastSeenAssistantMessageAt": 4_000,
+            ],
+        ]])
+        daemonClient.onSessionListResponse?(staleResponse)
+
+        XCTAssertFalse(
+            store.threads.first(where: { $0.sessionId == "connected-session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true
+        )
+    }
+
+    func testSessionListRefreshPreservesLocalUnreadUntilDaemonCatchesUp() {
+        let daemonClient = DaemonClient()
+        let store = IOSThreadStore(daemonClient: daemonClient)
+
+        let initialResponse = makeSessionListResponse(sessions: [[
+            "id": "connected-session-refresh-unread",
+            "title": "Seen thread",
+            "createdAt": 1_000,
+            "updatedAt": 2_000,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": false,
+                "latestAssistantMessageAt": 5_000,
+                "lastSeenAssistantMessageAt": 5_000,
+            ],
+        ]])
+        daemonClient.onSessionListResponse?(initialResponse)
+
+        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-refresh-unread" }) else {
+            XCTFail("Expected connected thread")
+            return
+        }
+
+        store.markThreadUnread(storedThread)
+
+        let staleResponse = makeSessionListResponse(sessions: [[
+            "id": "connected-session-refresh-unread",
+            "title": "Seen thread",
+            "createdAt": 1_000,
+            "updatedAt": 2_100,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": false,
+                "latestAssistantMessageAt": 5_000,
+                "lastSeenAssistantMessageAt": 5_000,
+            ],
+        ]])
+        daemonClient.onSessionListResponse?(staleResponse)
+
+        XCTAssertTrue(
+            store.threads.first(where: { $0.sessionId == "connected-session-refresh-unread" })?.hasUnseenLatestAssistantMessage ?? false
+        )
+    }
+
     func testPinningConnectedThreadUpdatesLocalStateAndEmitsReorder() {
         let daemonClient = DaemonClient()
         var reorderRequests: [IPCReorderThreadsRequest] = []

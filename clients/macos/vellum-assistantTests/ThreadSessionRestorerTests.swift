@@ -73,6 +73,22 @@ final class MockThreadRestorerDelegate: ThreadRestorerDelegate {
     func appendThreads(from response: SessionListResponseMessage) {
         // no-op for tests
     }
+
+    func mergeAssistantAttention(
+        from session: IPCSessionListResponseSession,
+        intoThreadAt index: Int
+    ) {
+        threads[index].hasUnseenLatestAssistantMessage =
+            session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+        threads[index].latestAssistantMessageAt =
+            session.assistantAttention?.latestAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+        threads[index].lastSeenAssistantMessageAt =
+            session.assistantAttention?.lastSeenAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+    }
 }
 
 // MARK: - Helpers

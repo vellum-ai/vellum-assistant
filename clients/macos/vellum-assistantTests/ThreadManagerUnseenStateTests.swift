@@ -343,6 +343,80 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         XCTAssertFalse(threadManager.threads[index].hasUnseenLatestAssistantMessage)
     }
 
+    func testAttentionMergePreservesLocalSeenUntilDaemonAcknowledgesIt() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+
+        threadManager.threads[index].sessionId = "session-refresh-seen"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = true
+        threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
+        threadManager.threads[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 8)
+
+        threadManager.markConversationSeen(threadId: threadId)
+
+        let staleResponse = makeSessionListResponse(
+            sessions: [[
+                "id": "session-refresh-seen",
+                "title": "Restored thread",
+                "createdAt": 5_000,
+                "updatedAt": 6_000,
+                "assistantAttention": [
+                    "hasUnseenLatestAssistantMessage": true,
+                    "latestAssistantMessageAt": 9_000,
+                    "lastSeenAssistantMessageAt": 8_000,
+                ],
+            ]]
+        )
+        guard let session = staleResponse.sessions.first else {
+            XCTFail("Expected response session")
+            return
+        }
+
+        threadManager.mergeAssistantAttention(from: session, intoThreadAt: index)
+
+        XCTAssertFalse(
+            threadManager.threads.first(where: { $0.sessionId == "session-refresh-seen" })?.hasUnseenLatestAssistantMessage ?? true
+        )
+    }
+
+    func testAppendThreadsPreservesLocalUnreadUntilDaemonAcknowledgesIt() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+
+        threadManager.threads[index].sessionId = "session-refresh-unread"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = false
+        threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
+        threadManager.threads[index].lastSeenAssistantMessageAt = Date(timeIntervalSince1970: 9)
+
+        threadManager.markConversationUnread(threadId: threadId)
+
+        let staleResponse = makeSessionListResponse(
+            sessions: [[
+                "id": "session-refresh-unread",
+                "title": "Paginated thread",
+                "createdAt": 5_000,
+                "updatedAt": 6_000,
+                "assistantAttention": [
+                    "hasUnseenLatestAssistantMessage": false,
+                    "latestAssistantMessageAt": 9_000,
+                    "lastSeenAssistantMessageAt": 9_000,
+                ],
+            ]]
+        )
+
+        threadManager.appendThreads(from: staleResponse)
+
+        XCTAssertTrue(
+            threadManager.threads.first(where: { $0.sessionId == "session-refresh-unread" })?.hasUnseenLatestAssistantMessage ?? false
+        )
+    }
+
     func testActiveThreadDoesNotEmitSeenSignalOnEveryStreamingDelta() {
         guard let threadId = threadManager.activeThreadId,
               let index = threadManager.threads.firstIndex(where: { $0.id == threadId }),
