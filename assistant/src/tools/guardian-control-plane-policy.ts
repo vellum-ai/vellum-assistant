@@ -4,19 +4,17 @@
  * conversationally via tools.
  *
  * Protected endpoints:
- *   /v1/integrations/guardian/challenge
+ *   /v1/integrations/guardian/sessions
+ *   /v1/integrations/guardian/sessions/resend
  *   /v1/integrations/guardian/status
- *   /v1/integrations/guardian/outbound/start
- *   /v1/integrations/guardian/outbound/resend
- *   /v1/integrations/guardian/outbound/cancel
+ *   /v1/integrations/guardian/revoke
  */
 
 const GUARDIAN_ENDPOINT_PATHS = [
-  "/v1/integrations/guardian/challenge",
+  "/v1/integrations/guardian/sessions",
+  "/v1/integrations/guardian/sessions/resend",
   "/v1/integrations/guardian/status",
-  "/v1/integrations/guardian/outbound/start",
-  "/v1/integrations/guardian/outbound/resend",
-  "/v1/integrations/guardian/outbound/cancel",
+  "/v1/integrations/guardian/revoke",
 ] as const;
 
 /**
