@@ -208,7 +208,7 @@ struct ThreadListView: View {
             )
             .onAppear {
                 store.loadHistoryIfNeeded(for: threadId)
-                store.markConversationSeenIfNeeded(threadId: threadId)
+                store.markConversationSeenIfNeeded(threadId: threadId, isExplicitOpen: true)
                 store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
             }
             .onChange(of: thread.hasUnseenLatestAssistantMessage) { _, hasUnseen in

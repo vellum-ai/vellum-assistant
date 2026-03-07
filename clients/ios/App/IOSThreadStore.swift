@@ -686,14 +686,20 @@ class IOSThreadStore: ObservableObject {
 
     /// Mark a connected conversation as seen when the user explicitly opens it.
     /// If the thread has a pending .unread override (user chose "Mark as unread"),
-    /// opening the thread clears that override so the normal seen flow proceeds.
-    func markConversationSeenIfNeeded(threadId: UUID) {
+    /// only an explicit open (e.g. tapping/selecting the thread) clears that
+    /// override — passive onChange callbacks leave it intact so the user's
+    /// "mark as unread" action isn't immediately undone.
+    func markConversationSeenIfNeeded(threadId: UUID, isExplicitOpen: Bool = false) {
         guard isConnectedMode,
               let idx = threads.firstIndex(where: { $0.id == threadId }),
               let sessionId = threads[idx].sessionId,
               threads[idx].hasUnseenLatestAssistantMessage else { return }
         if case .unread = pendingAttentionOverrides[sessionId] {
-            pendingAttentionOverrides.removeValue(forKey: sessionId)
+            if isExplicitOpen {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+            } else {
+                return
+            }
         }
 
         pendingAttentionOverrides[sessionId] = .seen(
