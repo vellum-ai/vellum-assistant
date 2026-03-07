@@ -2,7 +2,7 @@
  * Channel-agnostic approval flow types.
  *
  * These types model the approval prompt/decision lifecycle for tool-use
- * confirmations surfaced through external channels (Telegram, SMS, etc.).
+ * confirmations surfaced through external channels (Telegram, Slack, etc.).
  * They are intentionally decoupled from any specific channel so that the
  * same approval flow can be reused across transports.
  */

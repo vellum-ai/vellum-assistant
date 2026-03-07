@@ -3,7 +3,7 @@
  *
  * Parses inbound user text to determine whether it matches an approval,
  * rejection, or "approve always" intent. This module is transport-agnostic
- * and can be used by any channel adapter (Telegram, SMS, etc.).
+ * and can be used by any channel adapter (Telegram, Slack, etc.).
  *
  * Both the standard and guardian approval flows now use the conversational
  * approval engine as the primary classifier. This deterministic parser is

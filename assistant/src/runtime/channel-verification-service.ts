@@ -238,7 +238,7 @@ export function validateAndConsumeVerification(
   if (hasExpectedIdentity && challenge.identityBindingStatus === "bound") {
     let identityMatch = false;
 
-    // For SMS/voice: verify actorExternalUserId matches expectedPhoneE164
+    // For voice: verify actorExternalUserId matches expectedPhoneE164
     // OR actorExternalUserId matches expectedExternalUserId
     if (challenge.expectedPhoneE164 != null) {
       if (
@@ -407,7 +407,7 @@ export interface CreateOutboundSessionResult {
  * Create an outbound verification session with expected identity pre-set.
  * Returns session info including the secret for outbound delivery.
  *
- * Channels where identity is pre-bound (SMS, voice, Telegram with known
+ * Channels where identity is pre-bound (voice, Telegram with known
  * chat ID) use 6-digit numeric codes for ease of entry. Unbound bootstrap
  * sessions (e.g. Telegram handle where identity is not yet known) use
  * high-entropy 32-byte hex secrets to prevent brute-force guessing during
@@ -511,7 +511,7 @@ export function updateSessionDelivery(
 }
 
 /**
- * Count total SMS sends to a destination across all sessions within a
+ * Count total sends to a destination across all sessions within a
  * rolling time window. Prevents circumvention of per-session limits by
  * repeatedly creating new sessions to the same phone number.
  */

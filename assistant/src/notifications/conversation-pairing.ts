@@ -42,7 +42,7 @@ const log = getLogger("notification-conversation-pairing");
  * Prefix applied to sourceChannel values in notification bindings so they
  * occupy a separate namespace from messaging adapter bindings in the
  * external_conversation_bindings table.  Without this, notification pairing
- * and messaging adapters (Telegram, SMS, etc.) would destructively overwrite
+ * and messaging adapters (Telegram, Slack, etc.) would destructively overwrite
  * each other's bindings since both use (sourceChannel, externalChatId) as key.
  */
 const NOTIFICATION_CHANNEL_PREFIX = "notification:";

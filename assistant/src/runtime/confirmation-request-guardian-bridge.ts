@@ -3,7 +3,7 @@
  *
  * When a trusted-contact channel session creates a confirmation_request (tool approval),
  * this helper emits a guardian.question notification signal and persists canonical
- * delivery rows to guardian destinations (Telegram/SMS/Vellum), enabling the guardian
+ * delivery rows to guardian destinations (Telegram/Slack/Vellum), enabling the guardian
  * to approve via callback/request-code path.
  *
  * Modeled after the tool-grant-request-helper pattern. Designed to be called from

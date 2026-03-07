@@ -95,7 +95,7 @@ function buildSystemPrompt(
     `- \`title\` and \`body\` are for native notification popups (e.g. vellum desktop/mobile) — keep them short and glanceable (title ≤ 8 words, body ≤ 2 sentences).`,
     `- \`deliveryText\` is the channel-native message for chat channels (e.g. telegram). It must read naturally as a standalone message.`,
     `  - Do not prepend mechanical labels like "Thread:".`,
-    `  - Do not mention channel or transport names (e.g. Telegram, SMS, email) unless the event context explicitly requires it.`,
+    `  - Do not mention channel or transport names (e.g. Telegram, Slack, email) unless the event context explicitly requires it.`,
     `  - Do not repeat title/body verbatim unless that repetition is truly necessary.`,
     `  - Avoid meta-send phrasing (e.g. "I'd like to send a notification", "May I go ahead with that?"). Write the recipient-facing message directly.`,
     `  - For telegram: 1-2 concise sentences.`,

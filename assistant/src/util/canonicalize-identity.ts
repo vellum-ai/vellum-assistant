@@ -5,7 +5,7 @@
  * trust lookups, member matching, and guardian binding comparisons are
  * immune to formatting variance across channels.
  *
- * Phone-like channels (sms, voice, whatsapp) normalize to E.164 using the
+ * Phone-like channels (voice, whatsapp) normalize to E.164 using the
  * existing phone utilities. Non-phone channels (telegram, slack, etc.)
  * pass through the platform-stable ID as-is after whitespace trimming.
  */
