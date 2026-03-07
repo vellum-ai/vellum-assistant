@@ -468,5 +468,126 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertTrue(sentSignals.isEmpty)
         XCTAssertFalse(store.threads.first(where: { $0.id == storedThread.id })?.hasUnseenLatestAssistantMessage ?? true)
     }
+
+    func testPinningConnectedThreadUpdatesLocalStateAndEmitsReorder() {
+        let daemonClient = DaemonClient()
+        var reorderRequests: [IPCReorderThreadsRequest] = []
+        daemonClient.sendOverride = { message in
+            if let request = message as? IPCReorderThreadsRequest {
+                reorderRequests.append(request)
+            }
+        }
+
+        let store = IOSThreadStore(daemonClient: daemonClient)
+        let response = makeSessionListResponse(sessions: [
+            [
+                "id": "connected-session-pinned",
+                "title": "Pinned thread",
+                "createdAt": 1_000,
+                "updatedAt": 2_000,
+                "displayOrder": 0,
+                "isPinned": true,
+            ],
+            [
+                "id": "connected-session-unpinned",
+                "title": "Unpinned thread",
+                "createdAt": 1_000,
+                "updatedAt": 3_000,
+            ],
+        ])
+
+        daemonClient.onSessionListResponse?(response)
+        guard let thread = store.threads.first(where: { $0.sessionId == "connected-session-unpinned" }) else {
+            XCTFail("Expected unpinned connected thread")
+            return
+        }
+
+        store.pinThread(thread)
+
+        guard let updatedThread = store.threads.first(where: { $0.id == thread.id }) else {
+            XCTFail("Expected updated thread")
+            return
+        }
+
+        XCTAssertTrue(updatedThread.isPinned)
+        XCTAssertEqual(updatedThread.displayOrder, 1)
+        XCTAssertEqual(reorderRequests.count, 1)
+
+        let updatesBySessionId = Dictionary(
+            uniqueKeysWithValues: reorderRequests[0].updates.map { ($0.sessionId, $0) }
+        )
+        XCTAssertEqual(updatesBySessionId["connected-session-pinned"]?.displayOrder, 0)
+        XCTAssertEqual(updatesBySessionId["connected-session-pinned"]?.isPinned, true)
+        XCTAssertEqual(updatesBySessionId["connected-session-unpinned"]?.displayOrder, 1)
+        XCTAssertEqual(updatesBySessionId["connected-session-unpinned"]?.isPinned, true)
+    }
+
+    func testUnpinningConnectedThreadRecompactsPinnedOrderAndEmitsReorder() {
+        let daemonClient = DaemonClient()
+        var reorderRequests: [IPCReorderThreadsRequest] = []
+        daemonClient.sendOverride = { message in
+            if let request = message as? IPCReorderThreadsRequest {
+                reorderRequests.append(request)
+            }
+        }
+
+        let store = IOSThreadStore(daemonClient: daemonClient)
+        let response = makeSessionListResponse(sessions: [
+            [
+                "id": "connected-session-first",
+                "title": "First pinned thread",
+                "createdAt": 1_000,
+                "updatedAt": 2_000,
+                "displayOrder": 0,
+                "isPinned": true,
+            ],
+            [
+                "id": "connected-session-second",
+                "title": "Second pinned thread",
+                "createdAt": 1_000,
+                "updatedAt": 3_000,
+                "displayOrder": 1,
+                "isPinned": true,
+            ],
+        ])
+
+        daemonClient.onSessionListResponse?(response)
+        guard let thread = store.threads.first(where: { $0.sessionId == "connected-session-first" }) else {
+            XCTFail("Expected pinned connected thread")
+            return
+        }
+
+        store.unpinThread(thread)
+
+        guard let firstThread = store.threads.first(where: { $0.sessionId == "connected-session-first" }),
+              let secondThread = store.threads.first(where: { $0.sessionId == "connected-session-second" }) else {
+            XCTFail("Expected connected threads")
+            return
+        }
+
+        XCTAssertFalse(firstThread.isPinned)
+        XCTAssertNil(firstThread.displayOrder)
+        XCTAssertTrue(secondThread.isPinned)
+        XCTAssertEqual(secondThread.displayOrder, 0)
+        XCTAssertEqual(reorderRequests.count, 1)
+
+        let updatesBySessionId = Dictionary(
+            uniqueKeysWithValues: reorderRequests[0].updates.map { ($0.sessionId, $0) }
+        )
+        XCTAssertNil(updatesBySessionId["connected-session-first"]?.displayOrder)
+        XCTAssertEqual(updatesBySessionId["connected-session-first"]?.isPinned, false)
+        XCTAssertEqual(updatesBySessionId["connected-session-second"]?.displayOrder, 0)
+        XCTAssertEqual(updatesBySessionId["connected-session-second"]?.isPinned, true)
+    }
+
+    func testPinningStandaloneThreadDoesNothing() {
+        let store = IOSThreadStore(daemonClient: mockClient)
+        let thread = store.threads[0]
+
+        store.pinThread(thread)
+
+        XCTAssertFalse(store.threads[0].isPinned)
+        XCTAssertNil(store.threads[0].displayOrder)
+    }
     #endif
 }

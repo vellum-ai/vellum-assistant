@@ -769,6 +769,32 @@ class IOSThreadStore: ObservableObject {
         saveConnectedCache()
     }
 
+    func pinThread(_ thread: IOSThread) {
+        guard isConnectedMode,
+              let idx = threads.firstIndex(where: { $0.id == thread.id }),
+              threads[idx].sessionId != nil,
+              !threads[idx].isPinned else { return }
+
+        threads[idx].isPinned = true
+        threads[idx].displayOrder = Int.max
+        recompactPinnedDisplayOrders()
+        sendReorderThreads()
+        saveConnectedCache()
+    }
+
+    func unpinThread(_ thread: IOSThread) {
+        guard isConnectedMode,
+              let idx = threads.firstIndex(where: { $0.id == thread.id }),
+              threads[idx].sessionId != nil,
+              threads[idx].isPinned else { return }
+
+        threads[idx].isPinned = false
+        threads[idx].displayOrder = nil
+        recompactPinnedDisplayOrders()
+        sendReorderThreads()
+        saveConnectedCache()
+    }
+
     func unarchiveThread(_ thread: IOSThread) {
         guard let idx = threads.firstIndex(where: { $0.id == thread.id }) else { return }
         threads[idx].isArchived = false
@@ -791,6 +817,38 @@ class IOSThreadStore: ObservableObject {
         let text = last.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         return String(text.prefix(80))
+    }
+
+    private func recompactPinnedDisplayOrders() {
+        let pinned = threads.enumerated()
+            .filter { $0.element.isPinned }
+            .sorted { ($0.element.displayOrder ?? Int.max) < ($1.element.displayOrder ?? Int.max) }
+
+        for (order, item) in pinned.enumerated() {
+            threads[item.offset].displayOrder = order
+        }
+    }
+
+    private func sendReorderThreads() {
+        let updates = threads.compactMap { thread -> IPCReorderThreadsRequestUpdate? in
+            guard let sessionId = thread.sessionId, !thread.isArchived, !thread.isPrivate else {
+                return nil
+            }
+
+            return IPCReorderThreadsRequestUpdate(
+                sessionId: sessionId,
+                displayOrder: thread.displayOrder.map(Double.init),
+                isPinned: thread.isPinned
+            )
+        }
+        guard !updates.isEmpty else { return }
+
+        do {
+            try daemonClient.send(IPCReorderThreadsRequest(
+                type: "reorder_threads",
+                updates: updates
+            ))
+        } catch {}
     }
 
     // MARK: - Persistence
