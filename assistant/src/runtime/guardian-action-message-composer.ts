@@ -75,7 +75,7 @@ export const GUARDIAN_ACTION_COPY_MAX_TOKENS = 200;
 export const GUARDIAN_ACTION_COPY_SYSTEM_PROMPT =
   "You are an assistant writing one user-facing message about a guardian action in a voice call scenario. " +
   "Keep it concise, natural, and conversational. Preserve factual details exactly. " +
-  "These messages are spoken aloud or sent as SMS, so use a warm, human tone. " +
+  "These messages are spoken aloud, so use a warm, human tone. " +
   "Do not mention internal systems, scenario IDs, or technical details. " +
   "Return plain text only.";
 
@@ -132,7 +132,7 @@ export function buildGuardianActionGenerationPrompt(
       : "";
   return [
     "Rewrite the following guardian action message as a natural, conversational reply.",
-    "These messages are for voice call scenarios and may be spoken aloud or sent as SMS.",
+    "These messages are for voice call scenarios and may be spoken aloud.",
     "Keep the same concrete facts and next-step guidance.",
     keywordClause,
     `Context JSON: ${JSON.stringify(context)}`,
@@ -165,7 +165,7 @@ export function includesRequiredKeywords(
  * Return a scenario-specific deterministic fallback message.
  *
  * Each template produces natural, conversational text suitable for voice
- * or SMS delivery.
+ * delivery.
  */
 export function getGuardianActionFallbackMessage(
   context: GuardianActionMessageContext,
@@ -248,7 +248,7 @@ export function getGuardianActionFallbackMessage(
         : "Got it! Your answer has been applied to the current active request on the call.";
 
     case "outbound_message_copy":
-      // This SMS is sent TO the original caller relaying the guardian's answer.
+      // This message is sent TO the original caller relaying the guardian's answer.
       // When lateAnswerText is available, include it — that's the whole point of message_back.
       if (context.lateAnswerText && context.questionText) {
         return `Hi! You asked "${context.questionText}" earlier. Here's the answer: ${context.lateAnswerText}`;
