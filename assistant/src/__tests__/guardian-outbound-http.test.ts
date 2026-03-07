@@ -5,8 +5,8 @@
  * Verifies:
  * - startOutbound / resendOutbound / cancelOutbound return correct result
  *   shapes and stable error codes.
- * - HTTP route handlers (handleStartOutbound / handleResendOutbound /
- *   handleCancelOutbound) wire through to the shared module and return
+ * - HTTP route handlers (handleCreateGuardianSession / handleResendGuardianSession /
+ *   handleCancelGuardianSession) wire through to the shared module and return
  *   appropriate HTTP status codes.
  * - Rate limiting, missing/invalid destination, already_bound, and
  *   no_active_session error paths all produce the expected error codes.
@@ -136,9 +136,9 @@ import {
   startOutbound,
 } from "../runtime/guardian-outbound-actions.js";
 import {
-  handleCancelOutbound,
-  handleResendOutbound,
-  handleStartOutbound,
+  handleCancelGuardianSession,
+  handleCreateGuardianSession,
+  handleResendGuardianSession,
 } from "../runtime/routes/integration-routes.js";
 
 // Initialize the database (creates all tables)
@@ -463,10 +463,10 @@ describe("cancelOutbound", () => {
 // HTTP route handlers
 // ===========================================================================
 
-describe("HTTP route: handleStartOutbound", () => {
+describe("HTTP route: handleCreateGuardianSession", () => {
   test("returns 400 when channel is missing", async () => {
     const req = jsonRequest({ destination: "+15551234567" });
-    const resp = await handleStartOutbound(req);
+    const resp = await handleCreateGuardianSession(req);
     expect(resp.status).toBe(400);
     const body = (await resp.json()) as {
       error: { message: string; code: string };
@@ -475,17 +475,19 @@ describe("HTTP route: handleStartOutbound", () => {
     expect(body.error.message).toContain("channel");
   });
 
-  test("returns 400 for missing destination (SMS)", async () => {
+  test("creates inbound challenge when destination is absent", async () => {
+    // Without a destination, the unified handler takes the inbound challenge path.
     const req = jsonRequest({ channel: "sms" });
-    const resp = await handleStartOutbound(req);
-    expect(resp.status).toBe(400);
-    const body = (await resp.json()) as { error?: string };
-    expect(body.error).toBe("missing_destination");
+    const resp = await handleCreateGuardianSession(req);
+    expect(resp.status).toBe(200);
+    const body = (await resp.json()) as Record<string, unknown>;
+    expect(body.success).toBe(true);
+    expect(body.channel).toBe("sms");
   });
 
   test("returns 200 for valid SMS start", async () => {
     const req = jsonRequest({ channel: "sms", destination: "+15559999999" });
-    const resp = await handleStartOutbound(req);
+    const resp = await handleCreateGuardianSession(req);
     expect(resp.status).toBe(200);
     const body = (await resp.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
@@ -493,10 +495,10 @@ describe("HTTP route: handleStartOutbound", () => {
   });
 });
 
-describe("HTTP route: handleResendOutbound", () => {
+describe("HTTP route: handleResendGuardianSession", () => {
   test("returns 400 when channel is missing", async () => {
     const req = jsonRequest({});
-    const resp = await handleResendOutbound(req);
+    const resp = await handleResendGuardianSession(req);
     expect(resp.status).toBe(400);
     const body = (await resp.json()) as {
       error: { message: string; code: string };
@@ -507,7 +509,7 @@ describe("HTTP route: handleResendOutbound", () => {
 
   test("returns 400 for no_active_session", async () => {
     const req = jsonRequest({ channel: "sms" });
-    const resp = await handleResendOutbound(req);
+    const resp = await handleResendGuardianSession(req);
     expect(resp.status).toBe(400);
     const body = (await resp.json()) as { error?: string };
     expect(body.error).toBe("no_active_session");
@@ -519,7 +521,7 @@ describe("HTTP route: handleResendOutbound", () => {
       channel: "sms",
       destination: "+15556667777",
     });
-    const startResp = await handleStartOutbound(startReq);
+    const startResp = await handleCreateGuardianSession(startReq);
     expect(startResp.status).toBe(200);
     const startBody = (await startResp.json()) as Record<string, unknown>;
 
@@ -537,7 +539,7 @@ describe("HTTP route: handleResendOutbound", () => {
       channel: "sms",
       originConversationId: "conv-resend-http-origin",
     });
-    const resendResp = await handleResendOutbound(resendReq);
+    const resendResp = await handleResendGuardianSession(resendReq);
     expect(resendResp.status).toBe(200);
     const resendBody = (await resendResp.json()) as Record<string, unknown>;
     expect(resendBody.success).toBe(true);
@@ -545,10 +547,10 @@ describe("HTTP route: handleResendOutbound", () => {
   });
 });
 
-describe("HTTP route: handleCancelOutbound", () => {
+describe("HTTP route: handleCancelGuardianSession", () => {
   test("returns 400 when channel is missing", async () => {
     const req = jsonRequest({});
-    const resp = await handleCancelOutbound(req);
+    const resp = await handleCancelGuardianSession(req);
     expect(resp.status).toBe(400);
     const body = (await resp.json()) as {
       error: { message: string; code: string };
@@ -557,12 +559,14 @@ describe("HTTP route: handleCancelOutbound", () => {
     expect(body.error.message).toContain("channel");
   });
 
-  test("returns 400 for no_active_session", async () => {
+  test("returns 200 even when no active session exists", async () => {
+    // The unified cancel handler silently cancels both inbound and outbound —
+    // no error if nothing is active.
     const req = jsonRequest({ channel: "sms" });
-    const resp = await handleCancelOutbound(req);
-    expect(resp.status).toBe(400);
-    const body = (await resp.json()) as { error?: string };
-    expect(body.error).toBe("no_active_session");
+    const resp = await handleCancelGuardianSession(req);
+    expect(resp.status).toBe(200);
+    const body = (await resp.json()) as Record<string, unknown>;
+    expect(body.success).toBe(true);
   });
 
   test("returns 200 when active session is cancelled", async () => {
@@ -571,12 +575,12 @@ describe("HTTP route: handleCancelOutbound", () => {
       channel: "sms",
       destination: "+15558887777",
     });
-    const startResp = await handleStartOutbound(startReq);
+    const startResp = await handleCreateGuardianSession(startReq);
     expect(startResp.status).toBe(200);
 
     // Cancel it
     const cancelReq = jsonRequest({ channel: "sms" });
-    const cancelResp = await handleCancelOutbound(cancelReq);
+    const cancelResp = await handleCancelGuardianSession(cancelReq);
     expect(cancelResp.status).toBe(200);
     const body = (await cancelResp.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
@@ -627,13 +631,13 @@ describe("origin conversation linkage", () => {
     expect(result.originConversationId).toBeUndefined();
   });
 
-  test("HTTP handleStartOutbound passes originConversationId through", async () => {
+  test("HTTP handleCreateGuardianSession passes originConversationId through", async () => {
     const req = jsonRequest({
       channel: "sms",
       destination: "+15557776666",
       originConversationId: "conv-origin-http-test",
     });
-    const resp = await handleStartOutbound(req);
+    const resp = await handleCreateGuardianSession(req);
     expect(resp.status).toBe(200);
     const body = (await resp.json()) as Record<string, unknown>;
     expect(body.success).toBe(true);
