@@ -1,23 +1,35 @@
 import { spawn as nodeSpawn } from "child_process";
 import { existsSync } from "fs";
+import { createRequire } from "module";
 import { dirname, join } from "path";
 
 import { saveAssistantEntry } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
+import { discoverPublicUrl } from "./local";
 import { generateRandomSuffix } from "./random-name";
 import { exec } from "./step-runner";
 
+const _require = createRequire(import.meta.url);
+
 /**
- * Walk up from a starting directory looking for the repository root,
- * identified by the presence of `meta/Dockerfile`.
+ * Locate the directory containing `meta/Dockerfile`. Checks the source tree
+ * layout first, then the bunx/node_modules layout where the `vellum` package
+ * is a sibling of `@vellumai/cli`, then walks up from cwd, and finally falls
+ * back to `require.resolve`.
  */
 function findRepoRoot(): string {
   // Source tree: cli/src/lib/ -> repo root
   const sourceTreeRoot = join(import.meta.dir, "..", "..", "..");
   if (existsSync(join(sourceTreeRoot, "meta", "Dockerfile"))) {
     return sourceTreeRoot;
+  }
+
+  // bunx layout: @vellumai/cli/src/lib/ -> ../../../.. -> node_modules root -> vellum/
+  const bunxRoot = join(import.meta.dir, "..", "..", "..", "..", "vellum");
+  if (existsSync(join(bunxRoot, "meta", "Dockerfile"))) {
+    return bunxRoot;
   }
 
   let dir = process.cwd();
@@ -30,9 +42,21 @@ function findRepoRoot(): string {
     dir = parent;
   }
 
+  // Fall back to Node module resolution for the `vellum` package
+  try {
+    const vellumPkgPath = _require.resolve("vellum/package.json");
+    const vellumDir = dirname(vellumPkgPath);
+    if (existsSync(join(vellumDir, "meta", "Dockerfile"))) {
+      return vellumDir;
+    }
+  } catch {
+    // resolution failed
+  }
+
   throw new Error(
     "Could not find repository root (expected meta/Dockerfile to exist). " +
-      "Run this command from within the vellum-assistant repository.",
+      "Run this command from within the vellum-assistant repository, or " +
+      "ensure the vellum package is installed.",
   );
 }
 
@@ -100,7 +124,8 @@ export async function hatchDocker(
     );
   }
 
-  const runtimeUrl = `http://localhost:${gatewayPort}`;
+  const publicUrl = await discoverPublicUrl(gatewayPort);
+  const runtimeUrl = publicUrl || `http://localhost:${gatewayPort}`;
   const dockerEntry: AssistantEntry = {
     assistantId: instanceName,
     runtimeUrl,
