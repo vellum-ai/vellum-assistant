@@ -1,17 +1,13 @@
 /**
  * OAuth-backed Twitter API client.
  *
- * Uses stored OAuth2 Bearer tokens (via the token manager) to execute
+ * Accepts an OAuth2 Bearer token as a parameter and uses it to execute
  * Twitter API v2 operations directly, without requiring a browser session.
  * Currently supports post and reply; all other operations fall back to the
  * browser-based CDP client.
  */
 
-import { getSecureKey } from "../security/secure-keys.js";
-import { withValidToken } from "../security/token-manager.js";
-
 const TWITTER_API_BASE = "https://api.x.com/2";
-const SERVICE = "integration:twitter";
 
 /** Operations that the OAuth client can handle natively. */
 const SUPPORTED_OPERATIONS = new Set(["post", "reply"]);
@@ -45,55 +41,47 @@ export class UnsupportedOAuthOperationError extends Error {
 /**
  * Post a tweet (or reply) using OAuth2 Bearer token authentication.
  *
- * The token manager handles refresh transparently — if the stored token
- * is expired it will be refreshed before (or after a 401) calling the API.
+ * The caller is responsible for providing a valid token (e.g. via
+ * `assistant oauth token twitter`).
  */
 export async function oauthPostTweet(
   text: string,
-  opts?: { inReplyToTweetId?: string },
+  opts: { inReplyToTweetId?: string; oauthToken: string },
 ): Promise<OAuthPostResult> {
-  return withValidToken(SERVICE, async (token) => {
-    const body: Record<string, unknown> = { text };
-    if (opts?.inReplyToTweetId) {
-      body.reply = { in_reply_to_tweet_id: opts.inReplyToTweetId };
-    }
+  const body: Record<string, unknown> = { text };
+  if (opts.inReplyToTweetId) {
+    body.reply = { in_reply_to_tweet_id: opts.inReplyToTweetId };
+  }
 
-    const res = await fetch(`${TWITTER_API_BASE}/tweets`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const errorBody = await res.text().catch(() => "");
-      const err = new Error(
-        `Twitter API error (${res.status}): ${errorBody.slice(0, 500)}`,
-      );
-      // Attach status so the token manager's 401-retry logic can detect it.
-      (err as Error & { status: number }).status = res.status;
-      throw err;
-    }
-
-    const json = (await res.json()) as { data: { id: string; text: string } };
-    return {
-      tweetId: json.data.id,
-      text: json.data.text,
-    };
+  const res = await fetch(`${TWITTER_API_BASE}/tweets`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${opts.oauthToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
   });
+
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => "");
+    throw new Error(
+      `Twitter API error (${res.status}): ${errorBody.slice(0, 500)}`,
+    );
+  }
+
+  const json = (await res.json()) as { data: { id: string; text: string } };
+  return {
+    tweetId: json.data.id,
+    text: json.data.text,
+  };
 }
 
 /**
- * Check whether OAuth credentials are available for the Twitter integration.
- * Returns true if an access token has been stored (the token manager will
- * handle refresh if it's expired).
+ * Check whether an OAuth token is available.
+ * When the caller provides a token string, OAuth is available.
  */
-export function oauthIsAvailable(): boolean {
-  return (
-    getSecureKey("credential:integration:twitter:access_token") !== undefined
-  );
+export function oauthIsAvailable(oauthToken: string | undefined): boolean {
+  return oauthToken != null && oauthToken.length > 0;
 }
 
 /**

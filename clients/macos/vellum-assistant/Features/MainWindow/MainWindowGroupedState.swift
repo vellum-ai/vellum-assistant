@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import VellumAssistantShared
@@ -12,6 +13,9 @@ final class SharingState {
     var showSharePicker = false
     var isBundling = false
     var shareFileURL: URL?
+    var shareAppName: String = ""
+    var shareAppIcon: NSImage?
+    var shareAppId: String?
     var isPublishing = false
     var publishedUrl: String?
     var publishError: String?
@@ -70,18 +74,4 @@ final class SidebarInteractionState {
     /// Whether the drop indicator should appear at the bottom of the target (true)
     /// or the top (false). Set based on drag direction.
     var dropIndicatorAtBottom: Bool = false
-}
-
-/// Copy-thread confirmation state.
-@Observable
-@MainActor
-final class CopyThreadState {
-    var showConfirmation = false
-    var confirmationTimer: DispatchWorkItem?
-
-    func cancel() {
-        confirmationTimer?.cancel()
-        confirmationTimer = nil
-        showConfirmation = false
-    }
 }

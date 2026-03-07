@@ -62,7 +62,7 @@ struct AgentPanelContent: View {
                             showNewSkillSheet = true
                         } label: {
                             HStack(spacing: VSpacing.xs) {
-                                Image(systemName: "plus")
+                                VIconView(.plus, size: 14)
                                 Text("New Skill")
                             }
                             .font(VFont.body)
@@ -221,7 +221,7 @@ struct AgentPanelContent: View {
                         VEmptyState(
                             title: "No matches in Available",
                             subtitle: "No available skills matched \"\(globalSkillSearchQuery)\"",
-                            icon: "magnifyingglass"
+                            icon: VIcon.search.rawValue
                         )
 
                         if visibleTab == nil, !filteredUserSkills.isEmpty {
@@ -279,8 +279,7 @@ struct AgentPanelContent: View {
 
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(alignment: .top, spacing: VSpacing.md) {
-                Image(systemName: skill.isVellum ? "v.square.fill" : "shippingbox.fill")
-                    .font(.system(size: 16))
+                VIconView(skill.isVellum ? .package : .package, size: 16)
                     .foregroundColor(skill.isVellum ? VColor.accent : VColor.textMuted)
                     .frame(width: 24)
 
@@ -349,35 +348,30 @@ struct AgentPanelContent: View {
             HStack(spacing: VSpacing.lg) {
                 if skill.isVellum {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 9))
+                        VIconView(.badgeCheck, size: 9)
                         Text("First-party")
                     }
                 } else {
                     if !skill.author.isEmpty {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 9))
+                            VIconView(.user, size: 9)
                             Text(skill.author)
                         }
                     }
 
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 9))
+                        VIconView(.star, size: 9)
                         Text("\(skill.stars)")
                     }
 
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "arrow.down.circle")
-                            .font(.system(size: 9))
+                        VIconView(.circleArrowDown, size: 9)
                         Text("\(skill.installs)")
                     }
 
                     if !skillAge(skill.createdAt).isEmpty {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "clock")
-                                .font(.system(size: 9))
+                            VIconView(.clock, size: 9)
                             Text(skillAge(skill.createdAt))
                         }
                     }
@@ -417,8 +411,7 @@ struct AgentPanelContent: View {
                 }
             }) {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .semibold))
+                    VIconView(.chevronLeft, size: 11)
                     Text("Available Skills")
                         .font(VFont.caption)
                 }
@@ -450,8 +443,7 @@ struct AgentPanelContent: View {
             // Author/source row
             if searchItem.isVellum {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 12))
+                    VIconView(.badgeCheck, size: 12)
                         .foregroundColor(VColor.accent)
                     Text("First-party skill by Vellum")
                         .font(VFont.caption)
@@ -463,14 +455,13 @@ struct AgentPanelContent: View {
                         AsyncImage(url: url) { image in
                             image.resizable().aspectRatio(contentMode: .fill)
                         } placeholder: {
-                            Image(systemName: "person.circle.fill")
+                            VIconView(.circleUser, size: 20)
                                 .foregroundColor(VColor.textMuted)
                         }
                         .frame(width: 20, height: 20)
                         .clipShape(Circle())
                     } else {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 16))
+                        VIconView(.circleUser, size: 16)
                             .foregroundColor(VColor.textMuted)
                     }
                     Text(owner.displayName.isEmpty ? owner.handle : owner.displayName)
@@ -479,8 +470,7 @@ struct AgentPanelContent: View {
                 }
             } else if !searchItem.author.isEmpty {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 12))
+                    VIconView(.user, size: 12)
                         .foregroundColor(VColor.textMuted)
                     Text(searchItem.author)
                         .font(VFont.caption)
@@ -501,27 +491,27 @@ struct AgentPanelContent: View {
             // Stats row — vellum skills show first-party badge; community shows stats
             if searchItem.isVellum {
                 HStack(spacing: VSpacing.lg) {
-                    statItem(icon: "checkmark.seal.fill", value: "First-party")
+                    statItem(icon: .badgeCheck, value: "First-party")
                 }
             } else if let stats = skillsManager.inspectedSkill?.stats {
                 HStack(spacing: VSpacing.lg) {
-                    statItem(icon: "star.fill", value: "\(stats.stars)")
-                    statItem(icon: "arrow.down.circle", value: "\(stats.installs)")
-                    statItem(icon: "arrow.down.to.line", value: "\(stats.downloads)")
+                    statItem(icon: .star, value: "\(stats.stars)")
+                    statItem(icon: .circleArrowDown, value: "\(stats.installs)")
+                    statItem(icon: .arrowDownToLine, value: "\(stats.downloads)")
                     if stats.versions > 0 {
-                        statItem(icon: "tag", value: "\(stats.versions) versions")
+                        statItem(icon: .tag, value: "\(stats.versions) versions")
                     }
                     if !skillAge(searchItem.createdAt).isEmpty {
-                        statItem(icon: "clock", value: skillAge(searchItem.createdAt))
+                        statItem(icon: .clock, value: skillAge(searchItem.createdAt))
                     }
                 }
             } else {
                 // Baseline stats from search results
                 HStack(spacing: VSpacing.lg) {
-                    statItem(icon: "star.fill", value: "\(searchItem.stars)")
-                    statItem(icon: "arrow.down.circle", value: "\(searchItem.installs)")
+                    statItem(icon: .star, value: "\(searchItem.stars)")
+                    statItem(icon: .circleArrowDown, value: "\(searchItem.installs)")
                     if !skillAge(searchItem.createdAt).isEmpty {
-                        statItem(icon: "clock", value: skillAge(searchItem.createdAt))
+                        statItem(icon: .clock, value: skillAge(searchItem.createdAt))
                     }
                 }
             }
@@ -543,8 +533,7 @@ struct AgentPanelContent: View {
                     .frame(height: 80)
                 } else if let error = skillsManager.inspectError {
                     HStack(spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11))
+                        VIconView(.triangleAlert, size: 11)
                             .foregroundColor(Amber._500)
                         Text(error)
                             .font(VFont.caption)
@@ -616,8 +605,7 @@ struct AgentPanelContent: View {
 
                 ForEach(files, id: \.path) { file in
                     HStack {
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 10))
+                        VIconView(.fileText, size: 10)
                             .foregroundColor(VColor.textMuted)
                         Text(file.path)
                             .font(VFont.monoSmall)
@@ -632,10 +620,9 @@ struct AgentPanelContent: View {
         }
     }
 
-    private func statItem(icon: String, value: String) -> some View {
+    private func statItem(icon: VIcon, value: String) -> some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: icon)
-                .font(.system(size: 9))
+            VIconView(icon, size: 9)
             Text(value)
         }
         .font(VFont.small)
@@ -736,7 +723,7 @@ struct AgentPanelContent: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             // "All" row
             categoryRow(
-                icon: "square.grid.2x2",
+                icon: .layoutGrid,
                 iconColor: VColor.textMuted,
                 label: "All",
                 count: filteredUserSkills.count,
@@ -763,11 +750,10 @@ struct AgentPanelContent: View {
     }
 
     @ViewBuilder
-    private func categoryRow(icon: String, iconColor: Color, label: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func categoryRow(icon: VIcon, iconColor: Color, label: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: VSpacing.xs) {
-                Image(systemName: icon)
-                    .font(.system(size: 12))
+                VIconView(icon, size: 12)
                     .foregroundColor(iconColor)
                     .frame(width: 20)
 
@@ -818,7 +804,7 @@ struct AgentPanelContent: View {
                     VEmptyState(
                         title: "No matches in Installed",
                         subtitle: "No installed skills matched \"\(globalSkillSearchQuery)\"",
-                        icon: "magnifyingglass"
+                        icon: VIcon.search.rawValue
                     )
 
                     if visibleTab == nil, !availableClawhubSkills.isEmpty {
@@ -842,8 +828,7 @@ struct AgentPanelContent: View {
 
                     Button(action: { skillsManager.fetchSkills() }) {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11))
+                            VIconView(.refreshCw, size: 11)
                             Text("Refresh")
                                 .font(VFont.caption)
                         }
@@ -972,8 +957,7 @@ struct AgentPanelContent: View {
                 }
             }) {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .semibold))
+                    VIconView(.chevronLeft, size: 11)
                     Text("Installed Skills")
                         .font(VFont.caption)
                 }
@@ -1022,7 +1006,7 @@ struct AgentPanelContent: View {
                 Spacer()
 
                 if skill.source == "managed" {
-                    VButton(label: "Remove", icon: "trash", style: .danger, size: .small) {
+                    VButton(label: "Remove", icon: VIcon.trash.rawValue, style: .danger, size: .small) {
                         skillToDelete = skill
                     }
                 }
@@ -1039,14 +1023,14 @@ struct AgentPanelContent: View {
             // Meta info
             HStack(spacing: VSpacing.lg) {
                 if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
-                    skillMetaItem(icon: "tag", value: "v\(installedVersion)")
+                    skillMetaItem(icon: .tag, value: "v\(installedVersion)")
                 }
 
                 if skill.updateAvailable {
                     if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
-                        skillMetaItem(icon: "arrow.up.circle", value: "v\(latestVersion) available", color: Amber._500)
+                        skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: Amber._500)
                     } else {
-                        skillMetaItem(icon: "arrow.up.circle", value: "Update available", color: Amber._500)
+                        skillMetaItem(icon: .circleArrowUp, value: "Update available", color: Amber._500)
                     }
                 }
 
@@ -1057,8 +1041,7 @@ struct AgentPanelContent: View {
                    let url = URL(string: urlString) {
                     Link(destination: url) {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 9))
+                            VIconView(.externalLink, size: 9)
                             Text("View on \(provenance.provider ?? "source")")
                                 .font(VFont.small)
                         }
@@ -1139,10 +1122,9 @@ struct AgentPanelContent: View {
         }
     }
 
-    private func skillMetaItem(icon: String, value: String, color: Color = VColor.textMuted) -> some View {
+    private func skillMetaItem(icon: VIcon, value: String, color: Color = VColor.textMuted) -> some View {
         HStack(spacing: VSpacing.xs) {
-            Image(systemName: icon)
-                .font(.system(size: 9))
+            VIconView(icon, size: 9)
             Text(value)
         }
         .font(VFont.small)
@@ -1170,8 +1152,7 @@ struct AgentPanelContent: View {
                 .font(.system(size: 20))
                 .frame(width: 24, height: 24)
         } else {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 13))
+            VIconView(.zap, size: 13)
                 .foregroundColor(VColor.textMuted)
                 .frame(width: 24, height: 24)
         }

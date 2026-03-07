@@ -39,16 +39,12 @@ function isRateLimitedRoute(url: URL): boolean {
   return (
     url.pathname === "/integrations/status" ||
     url.pathname === "/deliver/telegram" ||
-    url.pathname === "/deliver/sms" ||
     url.pathname === "/deliver/whatsapp" ||
     url.pathname === "/deliver/slack" ||
     url.pathname.startsWith("/pairing/") ||
     url.pathname === "/webhooks/oauth/callback" ||
     (url.pathname.startsWith("/v1/") &&
-      url.pathname !== "/v1/calls/twilio/voice-webhook" &&
-      url.pathname !== "/v1/calls/twilio/status" &&
-      url.pathname !== "/v1/calls/twilio/connect-action" &&
       url.pathname !== "/v1/browser-relay" &&
-      url.pathname !== "/v1/calls/relay")
+      url.pathname !== "/v1/browser-relay/token")
   );
 }

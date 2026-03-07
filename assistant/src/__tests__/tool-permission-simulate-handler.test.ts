@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "permsim-handler-test-"));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => testDir,
   getDataDir: () => join(testDir, "data"),
   getWorkspaceSkillsDir: () => join(testDir, "skills"),
@@ -21,7 +24,10 @@ mock.module("../util/platform.js", () => ({
   getIpcBlobDir: () => join(testDir, "ipc-blobs"),
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
+  ...realLogger,
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -39,7 +45,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const testConfig: Record<string, any> = {
-  permissions: { mode: "legacy" as "legacy" | "strict" | "workspace" },
+  permissions: { mode: "workspace" as "strict" | "workspace" },
   skills: { load: { extraDirs: [] as string[] } },
   sandbox: { enabled: true },
 };
@@ -55,13 +61,13 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
-import type { HandlerContext } from "../daemon/handlers.js";
 import { handleToolPermissionSimulate } from "../daemon/handlers/config.js";
+import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   ServerMessage,
   ToolPermissionSimulateRequest,
   ToolPermissionSimulateResponse,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import {
   addRule,
   clearAllRules,
@@ -111,7 +117,7 @@ describe("tool_permission_simulate handler", () => {
   beforeEach(() => {
     clearAllRules();
     clearCache();
-    testConfig.permissions.mode = "legacy";
+    testConfig.permissions.mode = "workspace";
   });
 
   test("validation: returns error when toolName is missing", async () => {

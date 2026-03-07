@@ -22,10 +22,7 @@ export function requireBoundGuardian(
       403,
     );
   }
-  const guardianResult = findGuardianForChannel(
-    "vellum",
-    authContext.assistantId,
-  );
+  const guardianResult = findGuardianForChannel("vellum");
   if (!guardianResult) {
     // No guardian yet — in pre-bootstrap state, allow through
     return null;

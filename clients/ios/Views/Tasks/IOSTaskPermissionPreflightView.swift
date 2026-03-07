@@ -55,8 +55,7 @@ struct IOSTaskPermissionPreflightView: View {
         case .error(let message):
             VStack(spacing: VSpacing.lg) {
                 Spacer()
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 40))
+                VIconView(.triangleAlert, size: 40)
                     .foregroundColor(VColor.warning)
                 Text(message)
                     .font(VFont.body)
@@ -71,8 +70,7 @@ struct IOSTaskPermissionPreflightView: View {
             if permissions.isEmpty {
                 VStack(spacing: VSpacing.lg) {
                     Spacer()
-                    Image(systemName: "checkmark.shield")
-                        .font(.system(size: 48))
+                    VIconView(.shieldCheck, size: 48)
                         .foregroundColor(VColor.success)
                     Text("No Permissions Required")
                         .font(VFont.title)
@@ -131,8 +129,7 @@ struct IOSTaskPermissionPreflightView: View {
                     approvedTools.insert(permission.tool)
                 }
             } label: {
-                Image(systemName: isApproved ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 20))
+                VIconView(isApproved ? .listChecks : .square, size: 20)
                     .foregroundColor(isApproved ? VColor.accent : VColor.textMuted)
             }
             .buttonStyle(.plain)

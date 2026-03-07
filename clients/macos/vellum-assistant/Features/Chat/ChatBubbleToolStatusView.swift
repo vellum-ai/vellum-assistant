@@ -12,33 +12,48 @@ extension ChatBubble {
     /// Whether the permission was denied, meaning incomplete tools were blocked (not running).
     var permissionWasDenied: Bool {
         decidedConfirmation?.state == .denied || decidedConfirmation?.state == .timedOut
+            || message.toolCalls.contains { $0.confirmationDecision == .denied || $0.confirmationDecision == .timedOut }
     }
 
     @ViewBuilder
     var trailingStatus: some View {
-        let hasToolCalls = !message.toolCalls.isEmpty && !hideToolCalls
+        let inlineToolProgressRenderedInContent = shouldRenderToolProgressInline
+        let hasToolCalls = !message.toolCalls.isEmpty
+            && !inlineToolProgressRenderedInContent
         let hasStreamingCode = message.isStreaming && message.streamingCodePreview != nil
             && !(message.streamingCodePreview?.isEmpty ?? true)
+            && !inlineToolProgressRenderedInContent
+        let shouldShowProcessing = isProcessingAfterTools && !inlineToolProgressRenderedInContent
 
-        if hasToolCalls || hasStreamingCode || isProcessingAfterTools {
+        // Use live confirmations if available, otherwise derive from persisted tool call data
+        let effectiveConfirmations: [ToolConfirmationData] = {
+            if let live = decidedConfirmation {
+                return [live]
+            }
+            return message.derivedConfirmationsFromToolCalls()
+        }()
+
+        if hasToolCalls || hasStreamingCode || shouldShowProcessing {
             // Unified progress view handles all tool/streaming/processing states
             AssistantProgressView(
-                toolCalls: hideToolCalls ? [] : message.toolCalls,
+                toolCalls: message.toolCalls,
                 isStreaming: message.isStreaming,
                 hasText: hasText,
-                isProcessing: isProcessingAfterTools,
-                processingStatusText: isProcessingAfterTools ? processingStatusText : nil,
+                isProcessing: shouldShowProcessing,
+                processingStatusText: shouldShowProcessing ? processingStatusText : nil,
                 streamingCodePreview: message.streamingCodePreview,
                 streamingCodeToolName: message.streamingCodeToolName,
-                decidedConfirmation: decidedConfirmation,
+                decidedConfirmations: effectiveConfirmations,
                 onRehydrate: onRehydrate
             )
             .frame(maxWidth: 520, alignment: .leading)
-        } else if let confirmation = decidedConfirmation {
-            // No tool display needed — only show permission chip.
+        } else if !effectiveConfirmations.isEmpty, !inlineToolProgressRenderedInContent {
+            // No tool display needed — only show permission chips.
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
-                    compactPermissionChip(confirmation)
+                    ForEach(Array(effectiveConfirmations.enumerated()), id: \.offset) { _, confirmation in
+                        compactPermissionChip(confirmation)
+                    }
                     Spacer()
                 }
             }
@@ -57,36 +72,38 @@ extension ChatBubble {
 
     func compactPermissionChip(_ confirmation: ToolConfirmationData) -> some View {
         let isApproved = confirmation.state == .approved
+        let isDenied = confirmation.state == .denied
+        let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
+
         return HStack(spacing: VSpacing.xs) {
             Group {
                 switch confirmation.state {
                 case .approved:
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(VColor.success)
+                    VIconView(.circleCheck, size: 12)
+                        .foregroundColor(chipColor)
                 case .denied:
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(VColor.error)
+                    VIconView(.circleAlert, size: 12)
+                        .foregroundColor(chipColor)
                 case .timedOut:
-                    Image(systemName: "clock.fill")
-                        .foregroundColor(VColor.textMuted)
+                    VIconView(.clock, size: 12)
+                        .foregroundColor(chipColor)
                 default:
                     EmptyView()
                 }
             }
-            .font(.system(size: 12))
 
-            Text(isApproved ? "\(confirmation.toolCategory) allowed" :
-                 confirmation.state == .denied ? "\(confirmation.toolCategory) denied" : "Timed out")
-                .font(VFont.caption)
-                .foregroundColor(isApproved ? VColor.success : VColor.textSecondary)
+            Text(isApproved ? "\(confirmation.toolCategory) Allowed" :
+                 isDenied ? "\(confirmation.toolCategory) Denied" : "Timed Out")
+                .font(VFont.captionMedium)
+                .foregroundColor(chipColor)
         }
-        .padding(.horizontal, VSpacing.md)
+        .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .background(
-            Capsule().fill(isApproved ? VColor.success.opacity(0.1) : VColor.surface)
+            Capsule().fill(Color.clear)
         )
         .overlay(
-            Capsule().stroke(isApproved ? VColor.success.opacity(0.3) : VColor.surfaceBorder, lineWidth: 0.5)
+            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
         )
     }
 }

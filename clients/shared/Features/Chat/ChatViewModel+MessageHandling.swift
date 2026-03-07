@@ -27,6 +27,43 @@ extension ChatViewModel {
         return messageSessionId == sessionId
     }
 
+    /// Map daemon confirmation state string to ToolConfirmationState.
+    private func mapConfirmationState(_ state: String) -> ToolConfirmationState? {
+        switch state {
+        case "approved": return .approved
+        case "denied": return .denied
+        case "timed_out": return .timedOut
+        default: return nil
+        }
+    }
+
+    /// Stamp confirmation decision on the tool call matching the toolUseId (preferred) or tool name (fallback).
+    /// When `targetMessageId` is provided, stamps on that specific message instead of `currentAssistantMessageId`.
+    private func stampConfirmationOnToolCall(toolName: String, decision: ToolConfirmationState, toolUseId: String? = nil, targetMessageId: UUID? = nil) {
+        let assistantId = targetMessageId ?? currentAssistantMessageId
+        guard let assistantId, let msgIdx = messages.firstIndex(where: { $0.id == assistantId }) else { return }
+        // Prefer matching by toolUseId for correctness when multiple calls share the same name.
+        // Fall back to tool name if ID match fails (e.g. after history restore where
+        // ToolCallData entries may not carry toolUseId yet).
+        var tcIdx: Int?
+        if let toolUseId = toolUseId {
+            tcIdx = messages[msgIdx].toolCalls.firstIndex(where: {
+                $0.toolUseId == toolUseId
+            })
+        }
+        if tcIdx == nil {
+            tcIdx = messages[msgIdx].toolCalls.lastIndex(where: {
+                $0.toolName == toolName && $0.confirmationDecision == nil
+            })
+        }
+        if let tcIdx = tcIdx {
+            messages[msgIdx].toolCalls[tcIdx].confirmationDecision = decision
+            // Use the tool category from the confirmation data as the label
+            let label = ToolConfirmationData(requestId: "", toolName: toolName, riskLevel: "").toolCategory
+            messages[msgIdx].toolCalls[tcIdx].confirmationLabel = label
+        }
+    }
+
     /// Priority list of input keys whose values are most useful as a tool call summary.
     static let toolInputPriorityKeys = [
         "command", "file_path", "path", "query", "url", "pattern", "glob"
@@ -447,15 +484,12 @@ extension ChatViewModel {
         case .sessionInfo(let info):
             // Only claim this session_info if:
             // 1. We don't have a session yet, AND
-            // 2. The correlation ID matches our bootstrap request (if we sent one).
-            //    Session info without a correlation ID is accepted when we have no
-            //    bootstrap correlation (backwards compatibility with older daemons).
+            // 2. The correlation ID matches our bootstrap request.
             if sessionId == nil {
-                if let expected = bootstrapCorrelationId {
-                    guard info.correlationId == expected else {
-                        // This session_info belongs to a different ChatViewModel's request.
-                        break
-                    }
+                guard let expected = bootstrapCorrelationId,
+                      info.correlationId == expected else {
+                    // No pending bootstrap or correlation mismatch — not ours.
+                    break
                 }
 
                 sessionId = info.sessionId
@@ -1135,6 +1169,7 @@ extension ChatViewModel {
                 startedAt: Date()
             )
             toolCall.buildingStatus = buildingStatus
+            toolCall.toolUseId = msg.toolUseId
             toolCall.reasonDescription = (msg.input["reason"]?.value as? String)
                 ?? (msg.input["reasoning"]?.value as? String)
             // Add to existing assistant message or create one.
@@ -1356,16 +1391,7 @@ extension ChatViewModel {
                 surfaceRef: SurfaceRef(from: msg, surface: surface)
             )
 
-            // If messageId is provided, attach to that specific message (rarely used now that
-            // surfaces come directly in history_response, but kept for backwards compatibility)
-            if let messageId = msg.messageId,
-               let messageUUID = UUID(uuidString: messageId),
-               let index = messages.firstIndex(where: { $0.id == messageUUID }) {
-                log.info("Attaching surface to message by messageId: \(messageId)")
-                let surfIdx = messages[index].inlineSurfaces.count
-                messages[index].inlineSurfaces.append(inlineSurface)
-                messages[index].contentOrder.append(.surface(surfIdx))
-            } else if let existingId = currentAssistantMessageId,
+            if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 log.info("Attaching surface to currentAssistantMessage: \(existingId)")
                 let surfIdx = messages[index].inlineSurfaces.count
@@ -1571,8 +1597,27 @@ extension ChatViewModel {
         case .confirmationStateChanged(let msg):
             guard belongsToSession(msg.sessionId) else { return }
             // Find the confirmation with this requestId and update its state.
+            var confirmationToolName: String?
+            var precedingAssistantId: UUID?
             for i in messages.indices {
                 guard messages[i].confirmation?.requestId == msg.requestId else { continue }
+                confirmationToolName = messages[i].confirmation?.toolName
+                // Walk backwards past other confirmation messages to find the
+                // tool-bearing assistant message. With parallel confirmations the
+                // order is [assistant(A), confirm2, confirm1], so looking only one
+                // message back would hit confirm2 instead of assistant(A).
+                var searchIdx = i
+                while searchIdx > messages.startIndex {
+                    searchIdx = messages.index(before: searchIdx)
+                    let candidate = messages[searchIdx]
+                    if candidate.role == .assistant && !candidate.toolCalls.isEmpty {
+                        precedingAssistantId = candidate.id
+                        break
+                    }
+                    // Skip past confirmation messages (assistant messages with .confirmation set)
+                    if candidate.role == .assistant && candidate.confirmation != nil { continue }
+                    break
+                }
                 switch msg.state {
                 case "approved":
                     messages[i].confirmation?.state = .approved
@@ -1588,6 +1633,12 @@ extension ChatViewModel {
                     break
                 }
                 break
+            }
+            // Stamp confirmation data on the corresponding ToolCallData in the
+            // preceding assistant message so it survives thread switches.
+            if let toolName = confirmationToolName,
+               let state = mapConfirmationState(msg.state) {
+                stampConfirmationOnToolCall(toolName: toolName, decision: state, toolUseId: msg.toolUseId, targetMessageId: precedingAssistantId)
             }
 
         case .assistantActivityState(let msg):

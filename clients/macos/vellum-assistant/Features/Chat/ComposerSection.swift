@@ -41,8 +41,7 @@ struct ComposerSection: View {
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
-    @Binding var editorContentHeight: CGFloat
-    @Binding var isComposerExpanded: Bool
+    var threadId: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -97,9 +96,8 @@ struct ComposerSection: View {
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceService,
                 onEndVoiceMode: onEndVoiceMode,
-                placeholderText: "What would you like to do?",
-                editorContentHeight: $editorContentHeight,
-                isComposerExpanded: $isComposerExpanded
+                placeholderText: isSending ? "Working on it..." : "What would you like to do?",
+                threadId: threadId
             )
         }
         .background(

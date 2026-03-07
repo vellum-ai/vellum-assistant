@@ -129,8 +129,7 @@ struct VoiceOrbView: View {
             }
 
             // Center icon
-            Image(systemName: orbIcon)
-                .font(.system(size: 18, weight: .medium))
+            VIconView(orbIcon, size: 18)
                 .foregroundColor(.white.opacity(0.9))
         }
         .frame(width: orbSize + 60, height: orbSize + 60)
@@ -190,12 +189,12 @@ struct VoiceOrbView: View {
         }
     }
 
-    private var orbIcon: String {
+    private var orbIcon: VIcon {
         switch state {
-        case .listening: return "waveform"
-        case .speaking:  return "speaker.wave.2.fill"
-        case .thinking:  return "ellipsis"
-        case .idle:      return "waveform"
+        case .listening: return .audioWaveform
+        case .speaking:  return .volume2
+        case .thinking:  return .ellipsis
+        case .idle:      return .audioWaveform
         }
     }
 

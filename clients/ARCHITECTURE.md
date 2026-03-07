@@ -695,7 +695,7 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 | Refresh token expiry | Keychain | Absolute expiry timestamp of the current refresh token |
 | `refreshAfter` | Keychain | Timestamp at which the client should proactively refresh (80% of access token TTL) |
 
-**Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/integrations/guardian/vellum/refresh` (through the gateway) with the current refresh token and `Authorization: Bearer <jwt>`. On success, the response provides a new `accessToken`, `refreshToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
+**Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/guardian/refresh` (through the gateway) with the current refresh token and `Authorization: Bearer <jwt>`. On success, the response provides a new `accessToken`, `refreshToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
 
 **401 recovery:** When an HTTP request receives a 401 response with `{ "code": "refresh_required" }`, the `HTTPTransport` attempts a single refresh before surfacing a "Session expired" error. If the refresh succeeds, the original request is retried with the new JWT. If the 401 contains a different code or the refresh fails (e.g., refresh token expired or revoked), the client surfaces the session-expired error and the user must re-pair (iOS) or re-bootstrap (macOS).
 
@@ -706,7 +706,6 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 ### Prerequisites
 
 - A gateway URL must be configured (cloud tunnel or LAN). LAN pairing works automatically via `localLanUrl` in the QR payload.
-- The legacy bearer token from `~/.vellum/http-token` is used only as a fallback for initial bootstrap before the first JWT is issued.
 - A conversation key is auto-generated on first connect and stored in UserDefaults.
 - iOS maintains a stable `deviceId` (UUID) in the Keychain across reinstalls.
 

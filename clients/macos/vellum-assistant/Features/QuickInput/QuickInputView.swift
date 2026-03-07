@@ -76,15 +76,13 @@ struct QuickInputView: View {
                 // Screenshot attachment pill
                 if attachedImage != nil {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "camera.viewfinder")
-                            .font(.system(size: 11, weight: .medium))
+                        VIconView(.scan, size: 11)
                             .foregroundColor(VColor.iconAccent)
                         Text("Screenshot")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(VColor.textPrimary)
                         Button(action: { onRemoveAttachment?() }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 9, weight: .bold))
+                            VIconView(.x, size: 9)
                                 .foregroundColor(VColor.textMuted)
                         }
                         .buttonStyle(.plain)
@@ -139,8 +137,7 @@ struct QuickInputView: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(VColor.textSecondary)
                             .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .medium))
+                        VIconView(.chevronDown, size: 10)
                             .foregroundColor(VColor.textSecondary)
                     }
                 }
@@ -150,8 +147,7 @@ struct QuickInputView: View {
 
                 // Notification toggle
                 Button(action: { onNotificationToggle?() }) {
-                    Image(systemName: textModel.notifyOnComplete ? "bell.fill" : "bell.slash")
-                        .font(.system(size: 14, weight: .regular))
+                    VIconView(.bell, size: 14)
                         .foregroundColor(textModel.notifyOnComplete ? VColor.textSecondary : VColor.textMuted)
                         .frame(width: 32, height: 32)
                 }
@@ -161,8 +157,7 @@ struct QuickInputView: View {
                 // Screenshot button
                 if attachedImage == nil {
                     Button(action: { onScreenCapture?() }) {
-                        Image(systemName: "camera.viewfinder")
-                            .font(.system(size: 14, weight: .regular))
+                        VIconView(.scan, size: 14)
                             .foregroundColor(VColor.textSecondary)
                             .frame(width: 32, height: 32)
                     }
@@ -174,8 +169,7 @@ struct QuickInputView: View {
                 if isTextEmpty && !textModel.isRecording {
                     Button(action: { onMicrophoneToggle?() }) {
                         ZStack {
-                            Image(systemName: "mic")
-                                .font(.system(size: 14, weight: .regular))
+                            VIconView(.mic, size: 14)
                                 .foregroundColor(adaptiveColor(light: Forest._500, dark: Moss._400))
                         }
                         .frame(width: 32, height: 32)
@@ -192,8 +186,7 @@ struct QuickInputView: View {
                                 .opacity(isMicPulsing ? 0.0 : 1.0)
                                 .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false), value: isMicPulsing)
 
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 14, weight: .regular))
+                            VIconView(.mic, size: 14)
                                 .foregroundColor(VColor.error)
                         }
                         .frame(width: 32, height: 32)
@@ -208,8 +201,7 @@ struct QuickInputView: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(isEmpty ? VColor.buttonPrimary.opacity(0.4) : VColor.buttonPrimary)
                                 .frame(width: 32, height: 32)
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 14, weight: .bold))
+                            VIconView(.arrowUp, size: 14)
                                 .foregroundColor(.white)
                         }
                     }
@@ -224,8 +216,7 @@ struct QuickInputView: View {
             // Screen recording permission prompt
             if showScreenPermissionPrompt {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "camera.metering.spot")
-                        .font(.system(size: 14))
+                    VIconView(.scan, size: 14)
                         .foregroundColor(VColor.iconAccent)
 
                     Text("Allow screen recording to capture screenshots")
@@ -283,7 +274,7 @@ struct QuickInputView: View {
             return Image(nsImage: nsImage)
         }
         // Fallback to system icon
-        return Image(systemName: "camera.viewfinder")
+        return VIcon.scan.image
     }
 
     private func submit() {

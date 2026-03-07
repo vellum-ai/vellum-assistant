@@ -971,20 +971,23 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("skill_load deny rule blocks aliases that resolve to the same skill id", async () => {
+    test("skill_load deny rule matches raw selector only (no bare-id alias resolution)", async () => {
       writeSkill("dangerous-skill", "Dangerous Skill");
       addRule("skill_load", "skill_load:dangerous-skill", "everywhere", "deny");
 
+      // Display name alias no longer resolves to bare ID candidate
       const byName = await check(
         "skill_load",
         { skill: "Dangerous Skill" },
         "/tmp",
       );
-      expect(byName.decision).toBe("deny");
+      expect(byName.decision).toBe("allow");
 
+      // Prefix alias no longer resolves to bare ID candidate
       const byPrefix = await check("skill_load", { skill: "danger" }, "/tmp");
-      expect(byPrefix.decision).toBe("deny");
+      expect(byPrefix.decision).toBe("allow");
 
+      // Whitespace-trimmed raw selector still matches
       const byWhitespace = await check(
         "skill_load",
         { skill: "  dangerous-skill  " },
@@ -2570,7 +2573,7 @@ describe("Permission Checker", () => {
         expect(result.reason).toContain("Strict mode");
       });
 
-      test("legacy mode: file_write to skill source still prompts as High risk", async () => {
+      test("workspace mode: file_write to skill source still prompts as High risk", async () => {
         testConfig.permissions.mode = "workspace";
         ensureSkillsDir();
         const skillPath = join(
@@ -2996,7 +2999,7 @@ describe("Permission Checker", () => {
       ensureSkillsDir();
       writeSkill("test-hash-skill", "Test Hash Skill");
 
-      // skill_load is Low risk, so with no trust rule in legacy mode it
+      // skill_load is Low risk, so with no trust rule in workspace mode it
       // auto-allows. We set strict mode and add specific rules to verify
       // the correct candidates are generated.
       testConfig.permissions.mode = "strict";
@@ -3028,13 +3031,13 @@ describe("Permission Checker", () => {
       );
     });
 
-    test("bare skillId candidate still matches any-version rules", async () => {
+    test("raw selector candidate matches rules when selector equals skill id", async () => {
       ensureSkillsDir();
       writeSkill("test-anyver-skill", "Test Any Version Skill");
 
       testConfig.permissions.mode = "strict";
 
-      // Add a rule matching the bare skill id (no hash)
+      // Rule matches the raw selector (which happens to equal the skill id)
       addRule(
         "skill_load",
         "skill_load:test-anyver-skill",
@@ -3053,7 +3056,7 @@ describe("Permission Checker", () => {
       expect(result.matchedRule!.pattern).toBe("skill_load:test-anyver-skill");
     });
 
-    test("when version hash is absent (no skill on disk), only bare skillId candidate is generated", async () => {
+    test("when version hash is absent (no skill on disk), only raw selector candidate is generated", async () => {
       ensureSkillsDir();
       // Do NOT write a skill — selector resolution will fail, so no hash
       // candidate is generated. Only the raw selector candidate remains.
@@ -3309,7 +3312,7 @@ describe("Permission Checker", () => {
       expect(result.matchedRule!.pattern).toBe("skill_load:*");
     });
 
-    test("skill_load with any-version (bare id) rule auto-allows in strict mode", async () => {
+    test("skill_load with raw selector rule auto-allows in strict mode", async () => {
       ensureSkillsDir();
       writeSkill("pr34-bare-id", "PR34 Bare ID");
       testConfig.permissions.mode = "strict";
@@ -3332,7 +3335,7 @@ describe("Permission Checker", () => {
       expect(result.matchedRule!.pattern).toBe("skill_load:pr34-bare-id");
     });
 
-    test("skill_load auto-allows in legacy mode (backward compat)", async () => {
+    test("skill_load auto-allows in workspace mode", async () => {
       testConfig.permissions.mode = "workspace";
       const result = await check("skill_load", { skill: "any-skill" }, "/tmp");
       expect(result.decision).toBe("allow");
@@ -3855,7 +3858,7 @@ describe("Permission Checker", () => {
     //    high-risk allow) if they choose. ────────────────────────────
 
     describe("Invariant 6: user can set broad rules if they choose", () => {
-      test("wildcard allow rule matches any command in legacy mode", async () => {
+      test("wildcard allow rule matches any command in workspace mode", async () => {
         testConfig.permissions.mode = "workspace";
         addRule("bash", "*", "everywhere");
         const result = await check(
@@ -4208,7 +4211,7 @@ describe("Permission Checker", () => {
       });
     }
 
-    test("browser tools are auto-allowed in legacy mode", async () => {
+    test("browser tools are auto-allowed in workspace mode", async () => {
       testConfig.permissions = { mode: "workspace" };
       for (const toolName of browserToolNames) {
         const result = await check(toolName, {}, "/tmp");
@@ -4404,7 +4407,7 @@ describe("computer-use tool permission defaults", () => {
     for (const name of cuToolNames) {
       const risk = await classifyRisk(name, {});
       // CU tools are proxy tools with RiskLevel.Low, but classifyRisk looks them up
-      // in the registry. In legacy mode, Low risk tools are auto-allowed.
+      // in the registry. In workspace mode, Low risk tools are auto-allowed.
       expect(risk).toBe(RiskLevel.Low);
     }
   });

@@ -3,7 +3,8 @@ import * as net from "node:net";
 import { dirname } from "node:path";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import { getMessages } from "../../memory/conversation-crud.js";
+import { listConversations } from "../../memory/conversation-queries.js";
 import { readTextFileSync } from "../../util/fs.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import type {
@@ -127,7 +128,7 @@ export function handleHeartbeatRunsList(
   try {
     const limit = msg.limit ?? 20;
     // Get background conversations and filter to heartbeat-origin only
-    const all = conversationStore.listConversations(limit * 20, true);
+    const all = listConversations(limit * 20, true);
     const bgConversations = all
       .filter((c) => c.source === "heartbeat")
       .slice(0, limit);
@@ -137,7 +138,7 @@ export function handleHeartbeatRunsList(
       let result = "unknown";
       let summary = "";
       try {
-        const messages = conversationStore.getMessages(conv.id);
+        const messages = getMessages(conv.id);
         const lastAssistant = [...messages]
           .reverse()
           .find((m) => m.role === "assistant");

@@ -72,8 +72,7 @@ struct TraceTimelineView: View {
                         }
                     }) {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .font(.system(size: 9))
+                            VIconView(.circleArrowDown, size: 9)
                             Text("Jump to bottom")
                                 .font(VFont.small)
                         }
@@ -102,8 +101,7 @@ struct TraceTimelineView: View {
 
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: groupStatusIcon(groupStatus))
-                    .font(.system(size: 10))
+                VIconView(groupStatusIcon(groupStatus), size: 10)
                     .foregroundColor(groupStatusColor(groupStatus))
 
                 Text(requestId.isEmpty ? "System" : "Request \(requestId.prefix(8))")
@@ -139,13 +137,13 @@ struct TraceTimelineView: View {
         }
     }
 
-    private func groupStatusIcon(_ status: TraceStore.RequestGroupStatus) -> String {
+    private func groupStatusIcon(_ status: TraceStore.RequestGroupStatus) -> VIcon {
         switch status {
-        case .active: return "arrow.right.circle"
-        case .completed: return "checkmark.circle.fill"
-        case .cancelled: return "xmark.circle.fill"
-        case .handedOff: return "arrow.right.arrow.left.circle.fill"
-        case .error: return "exclamationmark.triangle.fill"
+        case .active: return .arrowRight
+        case .completed: return .circleCheck
+        case .cancelled: return .circleX
+        case .handedOff: return .refreshCw
+        case .error: return .triangleAlert
         }
     }
 
@@ -181,8 +179,7 @@ struct TraceTimelineView: View {
                     TraceRowView(event: event)
 
                     if hasAttributes {
-                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 9))
+                        VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
                             .foregroundColor(VColor.textMuted)
                             .frame(width: 16)
                     }

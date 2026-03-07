@@ -88,7 +88,7 @@ const addMessageCalls: Array<{
   content: string;
 }> = [];
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -109,13 +109,16 @@ mock.module("../memory/conversation-store.js", () => ({
     totalEstimatedCost: 0,
   }),
   createConversation: () => ({ id: "conv-1" }),
-  listConversations: () => [],
   addMessage: (convId: string, role: string, content: string) => {
     addMessageCalls.push({ convId, role, content });
     return { id: `msg-${Date.now()}` };
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  listConversations: () => [],
 }));
 
 mock.module("../memory/retriever.js", () => ({

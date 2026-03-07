@@ -18,7 +18,7 @@ import * as path from "path";
 import { extractInventory } from "../../src/daemon/ipc-contract-inventory.js";
 
 const ROOT = path.resolve(import.meta.dirname ?? __dirname, "../..");
-const CONTRACT_PATH = path.join(ROOT, "src/daemon/ipc-contract.ts");
+const CONTRACT_PATH = path.join(ROOT, "src/daemon/ipc-protocol.ts");
 const SWIFT_PATH = path.resolve(
   ROOT,
   "../clients/shared/IPC/IPCMessages.swift",
@@ -47,8 +47,8 @@ const SWIFT_OMIT_ALLOWLIST = new Set<string>([
   "unpublish_page_response",
   // Heartbeat alerts — not yet consumed by the macOS client
   "heartbeat_alert",
-  // Guardian verification — daemon-internal for Telegram channel setup
-  "guardian_verification_response",
+  // Channel verification session — consumed by macOS client for verification flows
+  "channel_verification_session_response",
   // Contacts invite management — not yet consumed by the macOS client
   "contacts_invite_response",
   // Inbox escalation — not yet consumed by the macOS client

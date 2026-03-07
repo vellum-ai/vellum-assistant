@@ -1,6 +1,27 @@
 import type { UsageActor } from "./actors.js";
 
 /**
+ * Anthropic prompt caching exposes write-tier detail so callers can price
+ * 5-minute and 1-hour cache writes differently.
+ */
+export interface AnthropicCacheCreationTokenDetails {
+  ephemeral_5m_input_tokens: number | null;
+  ephemeral_1h_input_tokens: number | null;
+}
+
+/**
+ * Structured token categories used for provider-aware pricing.
+ * `directInputTokens` excludes cache reads and cache writes.
+ */
+export interface PricingUsage {
+  directInputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  anthropicCacheCreation: AnthropicCacheCreationTokenDetails | null;
+}
+
+/**
  * Input data required to record a single LLM usage event.
  * Matches the token fields from `ProviderResponse.usage`.
  */

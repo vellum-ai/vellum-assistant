@@ -222,6 +222,13 @@ export class Session {
    * no-op for socketless sessions.
    */
   private onStateSignal?: (msg: ServerMessage) => void;
+  /** Set by the agent loop to track confirmation outcomes for persistence. */
+  onConfirmationOutcome?: (
+    requestId: string,
+    state: string,
+    toolName?: string,
+    toolUseId?: string,
+  ) => void;
 
   constructor(
     conversationId: string,
@@ -243,7 +250,7 @@ export class Session {
       : { ...DEFAULT_MEMORY_POLICY };
     this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
-    this.prompter.setOnStateChanged((requestId, state, source) => {
+    this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
       // Route through emitConfirmationStateChanged so the onStateSignal
       // listener publishes to the SSE hub for HTTP/SSE consumers.
       this.emitConfirmationStateChanged({
@@ -251,7 +258,11 @@ export class Session {
         requestId,
         state,
         source,
+        toolUseId,
       });
+      // Notify the agent loop so it can track requestId → toolUseId mappings
+      // and record confirmation outcomes for persistence.
+      this.onConfirmationOutcome?.(requestId, state, undefined, toolUseId);
       // Emit activity state transitions for confirmation lifecycle
       if (state === "pending") {
         this.emitActivityState(
@@ -341,11 +352,11 @@ export class Session {
       resolveTools,
       resolveSystemPromptCallback,
     );
-    this.contextWindowManager = new ContextWindowManager(
+    this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt,
-      config.contextWindow,
-    );
+      config: config.contextWindow,
+    });
 
     void getHookManager().trigger("session-start", {
       sessionId: this.conversationId,
@@ -523,6 +534,9 @@ export class Session {
       return;
     }
 
+    // Capture toolUseId before resolving (resolution deletes the pending entry)
+    const toolUseId = this.prompter.getToolUseId(requestId);
+
     this.prompter.resolveConfirmation(
       requestId,
       decision,
@@ -547,6 +561,7 @@ export class Session {
       requestId,
       state: resolvedState,
       source: emissionContext?.source ?? "button",
+      toolUseId,
       ...(emissionContext?.causedByRequestId
         ? { causedByRequestId: emissionContext.causedByRequestId }
         : {}),
@@ -554,6 +569,13 @@ export class Session {
         ? { decisionText: emissionContext.decisionText }
         : {}),
     });
+    // Notify the agent loop of the confirmation outcome for persistence
+    this.onConfirmationOutcome?.(
+      requestId,
+      resolvedState,
+      undefined,
+      toolUseId,
+    );
     this.emitActivityState(
       "thinking",
       "confirmation_resolved",

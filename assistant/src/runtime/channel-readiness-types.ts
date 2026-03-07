@@ -26,10 +26,14 @@ export interface ChannelReadinessSnapshot {
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ChannelProbeContext {}
 
+export type Awaitable<T> = T | Promise<T>;
+
 /** Probe interface that channels implement to provide readiness checks. */
 export interface ChannelProbe {
   channel: ChannelId;
-  runLocalChecks(context?: ChannelProbeContext): ReadinessCheckResult[];
+  runLocalChecks(
+    context?: ChannelProbeContext,
+  ): Awaitable<ReadinessCheckResult[]>;
   runRemoteChecks?(
     context?: ChannelProbeContext,
   ): Promise<ReadinessCheckResult[]>;

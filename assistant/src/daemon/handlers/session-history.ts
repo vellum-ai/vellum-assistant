@@ -5,14 +5,18 @@ import {
   getFilePathForAttachment,
   setAttachmentThumbnail,
 } from "../../memory/attachments-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import { getMessageById } from "../../memory/conversation-crud.js";
+import {
+  getMessagesPaginated,
+  searchConversations,
+} from "../../memory/conversation-queries.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { truncate } from "../../util/truncate.js";
-import type { UserMessageAttachment } from "../ipc-contract.js";
 import type {
   ConversationSearchRequest,
   HistoryRequest,
   MessageContentRequest,
+  UserMessageAttachment,
 } from "../ipc-protocol.js";
 import { generateVideoThumbnail } from "../video-thumbnail.js";
 import {
@@ -20,7 +24,6 @@ import {
   type HistorySurface,
   type HistoryToolCall,
   log,
-  mergeToolResults,
   type ParsedHistoryMessage,
   renderHistoryContent,
 } from "./shared.js";
@@ -30,8 +33,7 @@ export function handleHistoryRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  // Default to unlimited when callers don't specify a limit, preserving
-  // backward-compatible behavior of returning full conversation history.
+  // No limit means return all messages.
   const limit = msg.limit;
 
   // Resolve include flags: explicit flags override mode, mode provides defaults.
@@ -41,13 +43,12 @@ export function handleHistoryRequest(
   const includeToolImages = msg.includeToolImages ?? isFullMode;
   const includeSurfaceData = msg.includeSurfaceData ?? isFullMode;
 
-  const { messages: dbMessages, hasMore } =
-    conversationStore.getMessagesPaginated(
-      msg.sessionId,
-      limit,
-      msg.beforeTimestamp,
-      msg.beforeMessageId,
-    );
+  const { messages: dbMessages, hasMore } = getMessagesPaginated(
+    msg.sessionId,
+    limit,
+    msg.beforeTimestamp,
+    msg.beforeMessageId,
+  );
 
   const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
     let text = "";
@@ -114,12 +115,7 @@ export function handleHistoryRequest(
     };
   });
 
-  // Merge tool_result data from user messages into the preceding assistant
-  // message's toolCalls, and suppress user messages that only contain
-  // tool_result blocks (internal agent-loop turns).
-  const merged = mergeToolResults(parsed);
-
-  const historyMessages = merged.map((m) => {
+  const historyMessages = parsed.map((m) => {
     let attachments: UserMessageAttachment[] | undefined;
     if (m.role === "assistant" && m.id) {
       const linked = getAttachmentsForMessage(m.id);
@@ -299,7 +295,7 @@ export function handleConversationSearch(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const results = conversationStore.searchConversations(msg.query, {
+  const results = searchConversations(msg.query, {
     limit: msg.limit,
     maxMessagesPerConversation: msg.maxMessagesPerConversation,
   });
@@ -315,10 +311,7 @@ export function handleMessageContentRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const dbMessage = conversationStore.getMessageById(
-    msg.messageId,
-    msg.sessionId,
-  );
+  const dbMessage = getMessageById(msg.messageId, msg.sessionId);
   if (!dbMessage) {
     ctx.send(socket, {
       type: "error",
@@ -336,48 +329,10 @@ export function handleMessageContentRequest(
     const content = JSON.parse(dbMessage.content);
     const rendered = renderHistoryContent(content);
     text = rendered.text || undefined;
-    const mergedToolCalls = rendered.toolCalls;
+    const parsedToolCalls = rendered.toolCalls;
 
-    // Handle legacy conversations where tool_result blocks are stored in the
-    // following user message rather than inline with the assistant message.
-    // This mirrors the mergeToolResults logic used by handleHistoryRequest.
-    if (
-      dbMessage.role === "assistant" &&
-      mergedToolCalls.some((tc) => tc.result === undefined)
-    ) {
-      const nextMsg = conversationStore.getNextMessage(
-        msg.sessionId,
-        dbMessage.createdAt,
-        dbMessage.id,
-      );
-      if (nextMsg && nextMsg.role === "user") {
-        try {
-          const nextContent = JSON.parse(nextMsg.content);
-          const nextRendered = renderHistoryContent(nextContent);
-          if (
-            nextRendered.text.trim() === "" &&
-            nextRendered.toolCalls.length > 0
-          ) {
-            for (const resultEntry of nextRendered.toolCalls) {
-              const unresolved = mergedToolCalls.find(
-                (tc) => tc.result === undefined,
-              );
-              if (unresolved) {
-                unresolved.result = resultEntry.result;
-                unresolved.isError = resultEntry.isError;
-                if (resultEntry.imageData)
-                  unresolved.imageData = resultEntry.imageData;
-              }
-            }
-          }
-        } catch {
-          // Next message isn't valid JSON — skip merging
-        }
-      }
-    }
-
-    if (mergedToolCalls.length > 0) {
-      toolCalls = mergedToolCalls.map((tc) => ({
+    if (parsedToolCalls.length > 0) {
+      toolCalls = parsedToolCalls.map((tc) => ({
         name: tc.name,
         input: tc.input,
         ...(tc.result !== undefined ? { result: tc.result } : {}),

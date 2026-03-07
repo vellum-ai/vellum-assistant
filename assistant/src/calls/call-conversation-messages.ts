@@ -3,7 +3,7 @@
  * dedicated voice conversation thread.
  */
 
-import * as conversationStore from "../memory/conversation-store.js";
+import { addMessage } from "../memory/conversation-crud.js";
 import { getCallEvents, getCallSession } from "./call-store.js";
 
 export function buildCallCompletionMessage(callSessionId: string): string {
@@ -28,7 +28,7 @@ export async function persistCallCompletionMessage(
   callSessionId: string,
 ): Promise<string> {
   const summaryText = buildCallCompletionMessage(callSessionId);
-  await conversationStore.addMessage(
+  await addMessage(
     conversationId,
     "assistant",
     JSON.stringify([{ type: "text", text: summaryText }]),

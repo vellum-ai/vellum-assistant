@@ -173,7 +173,6 @@ export const llmUsageEvents = sqliteTable(
 export const actorTokenRecords = sqliteTable("actor_token_records", {
   id: text("id").primaryKey(),
   tokenHash: text("token_hash").notNull(),
-  assistantId: text("assistant_id").notNull(),
   guardianPrincipalId: text("guardian_principal_id").notNull(),
   hashedDeviceId: text("hashed_device_id").notNull(),
   platform: text("platform").notNull(),
@@ -190,7 +189,6 @@ export const actorRefreshTokenRecords = sqliteTable(
     id: text("id").primaryKey(),
     tokenHash: text("token_hash").notNull(),
     familyId: text("family_id").notNull(),
-    assistantId: text("assistant_id").notNull(),
     guardianPrincipalId: text("guardian_principal_id").notNull(),
     hashedDeviceId: text("hashed_device_id").notNull(),
     platform: text("platform").notNull(),

@@ -77,13 +77,6 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         return false
     }
 
-    /// Return all overrides (for backward compatibility with tests).
-    public func allFlags() -> [String: Bool] {
-        lock.lock()
-        defer { lock.unlock() }
-        return overrides
-    }
-
     /// Return the resolved state of all macOS-scope flag definitions for UI display.
     public func allFlagStates() -> [MacOSFeatureFlagState] {
         lock.lock()

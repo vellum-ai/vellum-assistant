@@ -1,4 +1,5 @@
 import type { DrizzleDb } from "../db-connection.js";
+import { tableHasColumn } from "./schema-introspection.js";
 
 /**
  * Channel guardian tables: bindings, verification challenges, approval requests,
@@ -43,9 +44,21 @@ export function createChannelGuardianTables(database: DrizzleDb): void {
     )
   `);
 
-  database.run(
-    /*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_challenges_lookup ON channel_guardian_verification_challenges(assistant_id, channel, challenge_hash, status)`,
-  );
+  if (
+    tableHasColumn(
+      database,
+      "channel_guardian_verification_challenges",
+      "assistant_id",
+    )
+  ) {
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_challenges_lookup ON channel_guardian_verification_challenges(assistant_id, channel, challenge_hash, status)`,
+    );
+  } else {
+    database.run(
+      /*sql*/ `CREATE INDEX IF NOT EXISTS idx_channel_guardian_challenges_lookup ON channel_guardian_verification_challenges(channel, challenge_hash, status)`,
+    );
+  }
 
   database.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS channel_guardian_approval_requests (
@@ -139,7 +152,15 @@ export function createChannelGuardianTables(database: DrizzleDb): void {
     /* already exists */
   }
 
-  database.run(
-    /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_guardian_rate_limits_actor ON channel_guardian_rate_limits(assistant_id, channel, actor_external_user_id, actor_chat_id)`,
-  );
+  if (
+    tableHasColumn(database, "channel_guardian_rate_limits", "assistant_id")
+  ) {
+    database.run(
+      /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_guardian_rate_limits_actor ON channel_guardian_rate_limits(assistant_id, channel, actor_external_user_id, actor_chat_id)`,
+    );
+  } else {
+    database.run(
+      /*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_guardian_rate_limits_actor ON channel_guardian_rate_limits(channel, actor_external_user_id, actor_chat_id)`,
+    );
+  }
 }

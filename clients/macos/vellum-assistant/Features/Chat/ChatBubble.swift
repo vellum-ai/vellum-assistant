@@ -5,14 +5,14 @@ import VellumAssistantShared
 
 struct ChatBubble: View {
     let message: ChatMessage
-    /// When true, tool call chips are suppressed because a nearby message has inline surfaces.
-    let hideToolCalls: Bool
     /// Decided confirmation from the next message, rendered as a compact chip at the bottom.
     let decidedConfirmation: ToolConfirmationData?
     let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
     let onDismissDocumentWidget: (String) -> Void
     let dismissedDocumentSurfaceIds: Set<String>
     var onReportMessage: ((String?) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    var onSurfaceRefetch: ((String, String) -> Void)?
     /// Called when expanding a tool call with truncated content to fetch the full text.
     var onRehydrate: (() -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
@@ -167,7 +167,7 @@ struct ChatBubble: View {
                         // Skip surfaces that are currently shown in the floating overlay
                         if !message.inlineSurfaces.isEmpty {
                             ForEach(message.inlineSurfaces.filter { $0.id != activeSurfaceId }) { surface in
-                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction)
+                                InlineSurfaceRouter(surface: surface, onAction: onSurfaceAction, onRefetch: onSurfaceRefetch)
                             }
                         }
 
@@ -261,8 +261,7 @@ struct ChatBubble: View {
                 Button {
                     copyMessageText()
                 } label: {
-                    Image(systemName: showCopyConfirmation ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 11, weight: .medium))
+                    VIconView(showCopyConfirmation ? .check : .copy, size: 11)
                         .foregroundColor(showCopyConfirmation ? VColor.success : VColor.textMuted)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
@@ -275,8 +274,7 @@ struct ChatBubble: View {
                 Button {
                     onReportMessage(message.daemonMessageId)
                 } label: {
-                    Image(systemName: "ladybug")
-                        .font(.system(size: 11, weight: .medium))
+                    VIconView(.bug, size: 11)
                         .foregroundColor(VColor.textMuted)
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
@@ -303,8 +301,7 @@ struct ChatBubble: View {
 
                 if message.isError && hasText {
                     HStack(alignment: .top, spacing: VSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 14 * conversationZoomScale, weight: .medium))
+                        VIconView(.triangleAlert, size: 14 * conversationZoomScale)
                             .foregroundColor(VColor.error)
                             .padding(.top, 1)
                         Text(message.text)
@@ -327,7 +324,6 @@ struct ChatBubble: View {
                     if hasRichContent {
                         MarkdownSegmentView(
                             segments: segments,
-                            isStreaming: message.isStreaming,
                             maxContentWidth: nil,
                             textColor: isUser ? VColor.userBubbleText : VColor.textPrimary,
                             secondaryTextColor: isUser ? VColor.userBubbleTextSecondary : VColor.textSecondary,
@@ -343,7 +339,7 @@ struct ChatBubble: View {
                             .lineSpacing(6)
                             .foregroundColor(isUser ? VColor.userBubbleText : VColor.textPrimary)
                             .tint(isUser ? VColor.userBubbleText : VColor.accent)
-                            .selectableText(!message.isStreaming)
+                            .textSelection(.enabled)
                             // For assistant messages, fill available width for readability.
                             // For user messages, let the bubble shrink-wrap to text width.
                             .frame(maxWidth: isUser ? nil : .infinity, alignment: .leading)

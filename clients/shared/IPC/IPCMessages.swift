@@ -529,7 +529,7 @@ extension IPCBundleAppRequest {
     }
 }
 
-/// Sent to open and scan a .vellumapp bundle.
+/// Sent to open and scan a .vellum bundle.
 /// Backed by generated `IPCOpenBundleRequest`.
 public typealias OpenBundleMessage = IPCOpenBundleRequest
 
@@ -894,6 +894,9 @@ extension IPCDictationRequest {
     }
 }
 
+/// Bootstrap failure during learn-mode recording setup.
+public typealias RideShotgunErrorMessage = IPCRideShotgunError
+
 /// Progress update from a ride shotgun auto-navigation session.
 public typealias RideShotgunProgressMessage = IPCRideShotgunProgress
 
@@ -1076,19 +1079,11 @@ public typealias SkillInfo = IPCSkillsListResponseSkill
 extension IPCSkillsListResponseSkill: Identifiable {}
 
 extension IPCSkillsListResponseSkill {
-    /// Backward-compatible init that defaults `id` to `name`.
-    public init(name: String, description: String, emoji: String?, homepage: String?, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements?, installedVersion: String?, latestVersion: String?, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub?) {
-        self.init(id: name, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: state, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: nil)
-    }
-
     /// Returns a copy with a different `state`, preserving all other fields including `id`.
     public func withState(_ newState: String) -> Self {
         Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: provenance)
     }
 }
-
-/// Backward-compatible alias for code referencing the old name.
-public typealias SkillSummaryItem = SkillInfo
 
 /// Response containing the list of available skills.
 /// Backed by generated `IPCSkillsListResponse`.
@@ -1284,19 +1279,6 @@ public typealias SessionListResponseMessage = IPCSessionListResponse
 /// Backed by generated `IPCHistoryResponse`.
 public typealias HistoryResponseMessage = IPCHistoryResponse
 
-extension IPCHistoryResponse {
-    /// Backward-compatible alias for the nested message item type.
-    public typealias HistoryMessageItem = IPCHistoryResponseMessage
-    /// Backward-compatible alias for the nested tool call type.
-    public typealias HistoryToolCallItem = IPCHistoryResponseToolCall
-}
-
-extension IPCHistoryResponseMessage {
-    /// Backward-compatible init without textSegments/contentOrder/surfaces/subagentNotification (added in later IPC versions).
-    public init(role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]?, toolCallsBeforeText: Bool?, attachments: [IPCUserMessageAttachment]?) {
-        self.init(id: nil, role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil)
-    }
-}
 
 /// A single scheduled task item returned from the daemon.
 /// Backed by generated `IPCSchedulesListResponseSchedule`.
@@ -1539,13 +1521,6 @@ public typealias SecretRequestMessage = IPCSecretRequest
 /// Backed by generated `IPCConfirmationRequest`.
 public typealias ConfirmationRequestMessage = IPCConfirmationRequest
 
-// Backward-compatible nested type aliases so call sites like
-// `ConfirmationRequestMessage.ConfirmationAllowlistOption` keep compiling.
-extension IPCConfirmationRequest {
-    public typealias ConfirmationAllowlistOption = IPCConfirmationRequestAllowlistOption
-    public typealias ConfirmationScopeOption = IPCConfirmationRequestScopeOption
-    public typealias ConfirmationDiffInfo = IPCConfirmationRequestDiff
-}
 
 // Equatable conformance for generated types used in SwiftUI previews and tests.
 // Explicit `==` implementations because auto-synthesis requires conformance in the declaring file.
@@ -1687,26 +1662,10 @@ extension IPCToolNamesListRequest {
 /// Backed by generated `IPCToolNamesListResponse`.
 public typealias ToolNamesListResponseMessage = IPCToolNamesListResponse
 
-/// Response from opening and scanning a .vellumapp bundle.
+/// Response from opening and scanning a .vellum bundle.
 /// Backed by generated `IPCOpenBundleResponse`.
 public typealias OpenBundleResponseMessage = IPCOpenBundleResponse
 
-// Backward-compatible nested type aliases so call sites like
-// `OpenBundleResponseMessage.Manifest` keep compiling.
-extension IPCOpenBundleResponse {
-    public typealias Manifest = IPCOpenBundleResponseManifest
-    public typealias ScanResult = IPCOpenBundleResponseScanResult
-    public typealias SignatureResult = IPCOpenBundleResponseSignatureResult
-}
-
-// camelCase computed properties on the generated Manifest type so existing
-// call sites (e.g. `manifest.formatVersion`, `manifest.createdAt`) keep working.
-// The generated struct uses snake_case property names that match the wire format.
-extension IPCOpenBundleResponseManifest {
-    public var formatVersion: Int { format_version }
-    public var createdAt: String { created_at }
-    public var createdBy: String { created_by }
-}
 
 
 // MARK: - Publish / Unpublish Page Messages
@@ -1756,16 +1715,21 @@ public struct RegisterDeviceTokenMessage: Encodable, Sendable {
 
 
 
-// MARK: - Slack Webhook Messages (Manual)
+// MARK: - Cloud Sharing Messages (Manual)
 
-public struct ShareToSlackRequestMessage: Encodable, Sendable {
-    public let type = "share_to_slack"
-    public let appId: String
+/// Sent to request sharing an app via a cloud link.
+/// Backed by generated `IPCShareAppCloudRequest`.
+public typealias ShareAppCloudRequestMessage = IPCShareAppCloudRequest
 
+extension IPCShareAppCloudRequest {
     public init(appId: String) {
-        self.appId = appId
+        self.init(type: "share_app_cloud", appId: appId)
     }
 }
+
+public typealias ShareAppCloudResponseMessage = IPCShareAppCloudResponse
+
+// MARK: - Slack Webhook Messages (Manual)
 
 public struct SlackWebhookConfigRequestMessage: Encodable, Sendable {
     public let type = "slack_webhook_config"
@@ -1776,12 +1740,6 @@ public struct SlackWebhookConfigRequestMessage: Encodable, Sendable {
         self.action = action
         self.webhookUrl = webhookUrl
     }
-}
-
-public struct ShareToSlackResponseMessage: Decodable, Sendable {
-    public let type: String
-    public let success: Bool
-    public let error: String?
 }
 
 public struct SlackWebhookConfigResponseMessage: Decodable, Sendable {
@@ -1959,36 +1917,40 @@ public struct TwilioNumberInfo: Codable, Sendable {
     }
 }
 
-// MARK: - Guardian Verification Messages
+// MARK: - Channel Verification Session Messages
 
-/// Guardian verification request (create challenge, check status, revoke).
-/// Backed by generated `IPCGuardianVerificationRequest`.
-public typealias GuardianVerificationRequestMessage = IPCGuardianVerificationRequest
+/// Channel verification session request (create_session, status, cancel_session, revoke, resend_session).
+/// Backed by generated `IPCChannelVerificationSessionRequest`.
+public typealias ChannelVerificationSessionRequestMessage = IPCChannelVerificationSessionRequest
 
-extension IPCGuardianVerificationRequest {
+extension IPCChannelVerificationSessionRequest {
     public init(
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
         rebind: Bool? = nil,
         destination: String? = nil,
-        originConversationId: String? = nil
+        originConversationId: String? = nil,
+        purpose: String? = nil,
+        contactChannelId: String? = nil
     ) {
         self.init(
-            type: "guardian_verification",
+            type: "channel_verification_session",
             action: action,
             channel: channel,
             sessionId: sessionId,
             rebind: rebind,
             destination: destination,
-            originConversationId: originConversationId
+            originConversationId: originConversationId,
+            purpose: purpose,
+            contactChannelId: contactChannelId
         )
     }
 }
 
-/// Guardian verification response.
-/// Backed by generated `IPCGuardianVerificationResponse`.
-public typealias GuardianVerificationResponseMessage = IPCGuardianVerificationResponse
+/// Channel verification session response.
+/// Backed by generated `IPCChannelVerificationSessionResponse`.
+public typealias ChannelVerificationSessionResponseMessage = IPCChannelVerificationSessionResponse
 
 // MARK: - Twitter Integration Config Messages
 
@@ -2106,6 +2068,31 @@ extension IPCConversationSeenSignal {
     }
 }
 
+extension IPCConversationUnreadSignal {
+    public init(
+        conversationId: String,
+        sourceChannel: String,
+        signalType: String,
+        confidence: String,
+        source: String,
+        evidenceText: String? = nil,
+        observedAt: Int? = nil,
+        metadata: [String: AnyCodable]? = nil
+    ) {
+        self.init(
+            type: "conversation_unread_signal",
+            conversationId: conversationId,
+            sourceChannel: sourceChannel,
+            signalType: signalType,
+            confidence: confidence,
+            source: source,
+            evidenceText: evidenceText,
+            observedAt: observedAt,
+            metadata: metadata
+        )
+    }
+}
+
 /// Sent by the client to request subagent detail (events) for a completed subagent.
 public struct SubagentDetailRequestMessage: Encodable, Sendable {
     public let type: String = "subagent_detail_request"
@@ -2157,6 +2144,7 @@ public enum ServerMessage: Decodable, Sendable {
     case taskRouted(TaskRoutedMessage)
     case dictationResponse(DictationResponseMessage)
     case error(ErrorMessage)
+    case rideShotgunError(RideShotgunErrorMessage)
     case rideShotgunProgress(RideShotgunProgressMessage)
     case rideShotgunResult(RideShotgunResultMessage)
     case uiSurfaceShow(UiSurfaceShowMessage)
@@ -2212,12 +2200,12 @@ public enum ServerMessage: Decodable, Sendable {
     case bundleAppResponse(BundleAppResponseMessage)
     case openBundleResponse(OpenBundleResponseMessage)
     case signBundlePayload(SignBundlePayloadMessage)
-    case shareToSlackResponse(ShareToSlackResponseMessage)
+    case shareAppCloudResponse(ShareAppCloudResponseMessage)
     case slackWebhookConfigResponse(SlackWebhookConfigResponseMessage)
     case ingressConfigResponse(IngressConfigResponseMessage)
     case platformConfigResponse(PlatformConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
-    case guardianVerificationResponse(GuardianVerificationResponseMessage)
+    case channelVerificationSessionResponse(ChannelVerificationSessionResponseMessage)
     case telegramConfigResponse(TelegramConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
     case twitterAuthResult(TwitterAuthResultMessage)
@@ -2350,6 +2338,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "error":
             let message = try ErrorMessage(from: decoder)
             self = .error(message)
+        case "ride_shotgun_error":
+            let message = try RideShotgunErrorMessage(from: decoder)
+            self = .rideShotgunError(message)
         case "ride_shotgun_progress":
             let message = try RideShotgunProgressMessage(from: decoder)
             self = .rideShotgunProgress(message)
@@ -2527,9 +2518,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "trace_event":
             let message = try TraceEventMessage(from: decoder)
             self = .traceEvent(message)
-        case "share_to_slack_response":
-            let message = try ShareToSlackResponseMessage(from: decoder)
-            self = .shareToSlackResponse(message)
+        case "share_app_cloud_response":
+            let message = try ShareAppCloudResponseMessage(from: decoder)
+            self = .shareAppCloudResponse(message)
         case "slack_webhook_config_response":
             let message = try SlackWebhookConfigResponseMessage(from: decoder)
             self = .slackWebhookConfigResponse(message)
@@ -2542,9 +2533,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)
-        case "guardian_verification_response":
-            let message = try GuardianVerificationResponseMessage(from: decoder)
-            self = .guardianVerificationResponse(message)
+        case "channel_verification_session_response":
+            let message = try ChannelVerificationSessionResponseMessage(from: decoder)
+            self = .channelVerificationSessionResponse(message)
         case "telegram_config_response":
             let message = try TelegramConfigResponseMessage(from: decoder)
             self = .telegramConfigResponse(message)

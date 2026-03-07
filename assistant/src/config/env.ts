@@ -94,10 +94,6 @@ export function getRuntimeHttpHost(): string {
   return str("RUNTIME_HTTP_HOST") || "127.0.0.1";
 }
 
-export function getRuntimeProxyBearerToken(): string | undefined {
-  return str("RUNTIME_PROXY_BEARER_TOKEN");
-}
-
 export function getRuntimeGatewayOriginSecret(): string | undefined {
   return str("RUNTIME_GATEWAY_ORIGIN_SECRET");
 }
@@ -160,6 +156,10 @@ export function getSentryDsn(): string | undefined {
 
 export function getQdrantUrlEnv(): string | undefined {
   return str("QDRANT_URL");
+}
+
+export function getQdrantHttpPortEnv(): number | undefined {
+  return int("QDRANT_HTTP_PORT");
 }
 
 // ── Ollama ───────────────────────────────────────────────────────────────────

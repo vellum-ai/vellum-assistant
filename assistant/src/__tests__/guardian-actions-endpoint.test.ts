@@ -16,8 +16,13 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "guardian-actions-endpoint-test-"));
+const previousBaseDataDir = process.env.BASE_DATA_DIR;
+process.env.BASE_DATA_DIR = testDir;
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getDataDir: () => testDir,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -29,11 +34,26 @@ mock.module("../util/platform.js", () => ({
   ensureDataDir: () => {},
 }));
 
+const noopLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+  trace: () => {},
+  fatal: () => {},
+  child: () => noopLogger,
+};
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  ...realLogger,
+  getLogger: () => noopLogger,
+  getCliLogger: () => noopLogger,
+  isDebug: () => false,
+  truncateForLog: (value: string) => value,
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
 }));
 
 // Bypass HTTP auth so requireBoundGuardian does not reject the test principal.
@@ -106,6 +126,7 @@ const mockAuthContext: AuthContext = {
   policyEpoch: 1,
 };
 
+resetDb();
 initializeDb();
 
 function ensureConversation(id: string): void {
@@ -172,6 +193,11 @@ function createIpcStub() {
 
 afterAll(() => {
   resetDb();
+  if (previousBaseDataDir === undefined) {
+    delete process.env.BASE_DATA_DIR;
+  } else {
+    process.env.BASE_DATA_DIR = previousBaseDataDir;
+  }
   try {
     rmSync(testDir, { recursive: true });
   } catch {
@@ -184,7 +210,11 @@ afterAll(() => {
 // =========================================================================
 
 describe("HTTP handleGuardianActionDecision", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetDb();
+    initializeDb();
+    resetTables();
+  });
 
   test("rejects missing requestId", async () => {
     const req = new Request("http://localhost/v1/guardian-actions/decision", {
@@ -474,7 +504,11 @@ describe("HTTP handleGuardianActionDecision", () => {
 // =========================================================================
 
 describe("HTTP handleGuardianActionsPending", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetDb();
+    initializeDb();
+    resetTables();
+  });
 
   test("returns 400 when conversationId is missing", () => {
     const url = new URL("http://localhost/v1/guardian-actions/pending");
@@ -517,7 +551,11 @@ describe("HTTP handleGuardianActionsPending", () => {
 // =========================================================================
 
 describe("listGuardianDecisionPrompts", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetDb();
+    initializeDb();
+    resetTables();
+  });
 
   test("excludes expired canonical requests", () => {
     ensureConversation("conv-expired");
@@ -712,7 +750,11 @@ describe("listGuardianDecisionPrompts", () => {
 // =========================================================================
 
 describe("IPC guardian_action_decision", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetDb();
+    initializeDb();
+    resetTables();
+  });
 
   const handler = guardianActionsHandlers.guardian_action_decision;
 
@@ -952,7 +994,11 @@ describe("IPC guardian_action_decision", () => {
 // =========================================================================
 
 describe("IPC guardian_actions_pending_request", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetDb();
+    initializeDb();
+    resetTables();
+  });
 
   const handler = guardianActionsHandlers.guardian_actions_pending_request;
 
@@ -1039,7 +1085,11 @@ describe("IPC guardian_actions_pending_request", () => {
 // =========================================================================
 
 describe("integration: pending_question visible and actionable in guardian thread", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetDb();
+    initializeDb();
+    resetTables();
+  });
 
   test("pending_question delivered to guardian thread is visible via pending endpoint", () => {
     createTestCanonicalRequest({
@@ -1128,7 +1178,11 @@ describe("integration: pending_question visible and actionable in guardian threa
 // =========================================================================
 
 describe("integration: access_request visible and actionable in guardian thread", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetDb();
+    initializeDb();
+    resetTables();
+  });
 
   test("access_request delivered to guardian thread is visible via pending endpoint", () => {
     createTestCanonicalRequest({
@@ -1265,7 +1319,11 @@ describe("integration: access_request visible and actionable in guardian thread"
 // =========================================================================
 
 describe("integration: text/code fallback routing remains functional", () => {
-  beforeEach(resetTables);
+  beforeEach(() => {
+    resetDb();
+    initializeDb();
+    resetTables();
+  });
 
   test("requestCode is always present in prompt for text-based fallback", () => {
     createTestCanonicalRequest({

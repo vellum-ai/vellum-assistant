@@ -47,9 +47,8 @@ public struct VTextField: View {
     public var body: some View {
         HStack(spacing: VSpacing.md) {
             if let leadingIcon = leadingIcon {
-                Image(systemName: leadingIcon)
+                VIconView(.resolve(leadingIcon), size: 13)
                     .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 13))
                     .accessibilityHidden(true)
             }
 
@@ -63,9 +62,8 @@ public struct VTextField: View {
                 }
 
             if let trailingIcon = trailingIcon {
-                Image(systemName: trailingIcon)
+                VIconView(.resolve(trailingIcon), size: 13)
                     .foregroundColor(VColor.textMuted)
-                    .font(.system(size: 13))
                     .accessibilityHidden(true)
             }
         }
@@ -98,9 +96,9 @@ private struct VTextFieldPreviewWrapper: View {
             VColor.background.ignoresSafeArea()
             VStack(spacing: 16) {
                 VTextField(placeholder: "Plain text field", text: $text)
-                VTextField(placeholder: "With leading icon", text: $text, leadingIcon: "magnifyingglass")
-                VTextField(placeholder: "With trailing icon", text: $text, trailingIcon: "envelope")
-                VTextField(placeholder: "Both icons", text: $text, leadingIcon: "magnifyingglass", trailingIcon: "xmark.circle")
+                VTextField(placeholder: "With leading icon", text: $text, leadingIcon: VIcon.search.rawValue)
+                VTextField(placeholder: "With trailing icon", text: $text, trailingIcon: VIcon.mail.rawValue)
+                VTextField(placeholder: "Both icons", text: $text, leadingIcon: VIcon.search.rawValue, trailingIcon: VIcon.circleX.rawValue)
             }
             .padding()
         }

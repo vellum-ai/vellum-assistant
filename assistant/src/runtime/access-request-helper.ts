@@ -18,7 +18,7 @@ import {
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
-import type { MemberStatus } from "../contacts/types.js";
+import type { ChannelStatus } from "../contacts/types.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
@@ -26,6 +26,7 @@ import {
   updateCanonicalGuardianDelivery,
 } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../notifications/signal.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
 import { getLogger } from "../util/logger.js";
 import { ensureVellumGuardianBinding } from "./guardian-vellum-migration.js";
@@ -55,7 +56,7 @@ export interface AccessRequestParams {
   actorExternalId?: string;
   actorDisplayName?: string;
   actorUsername?: string;
-  previousMemberStatus?: MemberStatus;
+  previousMemberStatus?: Exclude<ChannelStatus, "unverified">;
 }
 
 export type AccessRequestResult =
@@ -108,10 +109,7 @@ export function notifyGuardianOfAccessRequest(
     "none";
 
   // Try contacts-first: source channel
-  const sourceGuardian = findGuardianForChannel(
-    sourceChannel,
-    canonicalAssistantId,
-  );
+  const sourceGuardian = findGuardianForChannel(sourceChannel);
   if (sourceGuardian) {
     guardianExternalUserId = sourceGuardian.channel.externalUserId;
     guardianPrincipalId = sourceGuardian.contact.principalId;
@@ -119,7 +117,7 @@ export function notifyGuardianOfAccessRequest(
     guardianResolutionSource = "contacts";
   } else {
     // Try contacts-first: any active guardian channel
-    const allGuardianChannels = listGuardianChannels(canonicalAssistantId);
+    const allGuardianChannels = listGuardianChannels();
     if (allGuardianChannels && allGuardianChannels.channels.length > 0) {
       const fallbackChannel = allGuardianChannels.channels[0];
       guardianExternalUserId = fallbackChannel.externalUserId;
@@ -146,10 +144,7 @@ export function notifyGuardianOfAccessRequest(
       "No guardian principal for access request — self-healing vellum binding",
     );
     const healedPrincipalId = ensureVellumGuardianBinding(canonicalAssistantId);
-    const vellumGuardian = findGuardianForChannel(
-      "vellum",
-      canonicalAssistantId,
-    );
+    const vellumGuardian = findGuardianForChannel("vellum");
     if (vellumGuardian) {
       guardianExternalUserId =
         vellumGuardian.channel.externalUserId ?? guardianExternalUserId;
@@ -222,9 +217,8 @@ export function notifyGuardianOfAccessRequest(
   let vellumDeliveryId: string | null = null;
   void emitNotificationSignal({
     sourceEventName: "ingress.access_request",
-    sourceChannel,
+    sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceSessionId: `access-req-${sourceChannel}-${actorExternalId}`,
-    assistantId: canonicalAssistantId,
     attentionHints: {
       requiresAction: true,
       urgency: "high",
@@ -270,7 +264,7 @@ export function notifyGuardianOfAccessRequest(
           continue;
         }
 
-        if (result.channel !== "telegram" && result.channel !== "sms") {
+        if (result.channel !== "telegram") {
           continue;
         }
 

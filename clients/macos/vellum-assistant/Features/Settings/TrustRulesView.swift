@@ -23,7 +23,7 @@ struct TrustRulesView: View {
                 Button {
                     showingAddSheet = true
                 } label: {
-                    Label("Add Rule", systemImage: "plus")
+                    Label { Text("Add Rule") } icon: { VIconView(.plus, size: 14) }
                 }
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -39,8 +39,7 @@ struct TrustRulesView: View {
             } else if rules.isEmpty {
                 Spacer()
                 VStack(spacing: 8) {
-                    Image(systemName: "shield.slash")
-                        .font(.largeTitle)
+                    VIconView(.shieldOff, size: 32)
                         .foregroundStyle(.secondary)
                     Text("No trust rules configured")
                         .foregroundStyle(.secondary)
@@ -171,14 +170,14 @@ private struct TrustRuleRow: View {
                 Button {
                     onEdit()
                 } label: {
-                    Image(systemName: "pencil")
+                    VIconView(.pencil, size: 14)
                 }
                 .buttonStyle(.borderless)
 
                 Button {
                     onDelete()
                 } label: {
-                    Image(systemName: "trash")
+                    VIconView(.trash, size: 14)
                         .foregroundStyle(.red)
                 }
                 .buttonStyle(.borderless)

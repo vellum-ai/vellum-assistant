@@ -31,4 +31,23 @@ public enum LockfilePaths {
         }
         return nil
     }
+
+    /// Resolve the local gateway port: env var > lockfile > default 7830.
+    public static func resolveGatewayPort() -> Int {
+        if let envPort = ProcessInfo.processInfo.environment["GATEWAY_PORT"]
+            ?? getenv("GATEWAY_PORT").flatMap({ String(cString: $0) }),
+           let port = Int(envPort) {
+            return port
+        }
+        if let json = read(),
+           let assistants = json["assistants"] as? [[String: Any]],
+           let latest = assistants.max(by: {
+               ($0["hatchedAt"] as? String ?? "") < ($1["hatchedAt"] as? String ?? "")
+           }),
+           let resources = latest["resources"] as? [String: Any],
+           let port = resources["gatewayPort"] as? Int {
+            return port
+        }
+        return 7830
+    }
 }

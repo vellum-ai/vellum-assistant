@@ -27,44 +27,27 @@ struct VellumAssistantApp: App {
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
-
-            // Define zoom commands through SwiftUI's command system so they are
-            // consistently attached to the native View menu lifecycle.
-            CommandGroup(before: .windowSize) {
-                Button("Conversation Zoom In") {
-                    appDelegate.handleConversationZoomIn()
+            // View menu: zoom shortcuts for discoverability.
+            // The actual handling is done by event monitors (registerZoomMonitor)
+            // which fire before the menu system. Zoom always applies so menu
+            // consumption is fine.
+            // Navigation shortcuts (Cmd+[/]) are NOT included here because
+            // the menu system would consume the event even when the nav stack
+            // is empty, breaking the event monitor's intentional pass-through
+            // to the responder chain (e.g. text editors).
+            CommandGroup(replacing: .toolbar) {
+                Button("Zoom In") {
+                    appDelegate.performZoomIn()
                 }
-                .keyboardShortcut("+", modifiers: .command)
-                .disabled(!appDelegate.isConversationZoomEnabled)
-
-                Button("Conversation Zoom Out") {
-                    appDelegate.handleConversationZoomOut()
+                .keyboardShortcut("=", modifiers: .command)
+                Button("Zoom Out") {
+                    appDelegate.performZoomOut()
                 }
                 .keyboardShortcut("-", modifiers: .command)
-                .disabled(!appDelegate.isConversationZoomEnabled)
-
-                Button("Conversation Actual Size") {
-                    appDelegate.handleConversationZoomReset()
+                Button("Actual Size") {
+                    appDelegate.performZoomReset()
                 }
                 .keyboardShortcut("0", modifiers: .command)
-                .disabled(!appDelegate.isConversationZoomEnabled)
-
-                Divider()
-
-                Button("Window Zoom In") {
-                    appDelegate.handleWindowZoomIn()
-                }
-                .keyboardShortcut("+", modifiers: [.command, .option])
-
-                Button("Window Zoom Out") {
-                    appDelegate.handleWindowZoomOut()
-                }
-                .keyboardShortcut("-", modifiers: [.command, .option])
-
-                Button("Window Actual Size") {
-                    appDelegate.handleWindowZoomReset()
-                }
-                .keyboardShortcut("0", modifiers: [.command, .option])
             }
         }
     }

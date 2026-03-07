@@ -24,10 +24,10 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-// readHttpToken return value — controlled per test
-let httpTokenValue: string | null = null;
-
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => testDir,
   getDataDir: () => testDir,
   getIpcBlobDir: () => join(testDir, "ipc-blobs"),
@@ -39,7 +39,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  readHttpToken: () => httpTokenValue,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -66,8 +65,8 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
 }));
 
-// Mock token service — triggerGatewayReconcile now uses mintDaemonDeliveryToken
-// instead of readHttpToken for the Bearer token.
+// Mock token service — triggerGatewayReconcile uses mintDaemonDeliveryToken
+// for the Bearer token.
 let mintedToken: string | null = null;
 mock.module("../runtime/auth/token-service.js", () => ({
   mintDaemonDeliveryToken: () => mintedToken ?? "test-delivery-token",
@@ -78,11 +77,12 @@ import type { HandlerContext } from "../daemon/handlers/shared.js";
 import type {
   IngressConfigRequest,
   ServerMessage,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 // Capture fetch calls for reconcile trigger verification
 interface ReconcileCall {
+  kind: "telegram" | "twilio";
   url: string;
   method: string;
   headers: Record<string, string>;
@@ -92,6 +92,18 @@ interface ReconcileCall {
 let reconcileCalls: ReconcileCall[] = [];
 let fetchShouldFail = false;
 const originalFetch = globalThis.fetch;
+
+function getReconcileCalls(kind?: "telegram" | "twilio"): ReconcileCall[] {
+  return kind
+    ? reconcileCalls.filter((call) => call.kind === kind)
+    : reconcileCalls;
+}
+
+function expectSingleReconcileCall(kind: "telegram" | "twilio"): ReconcileCall {
+  const calls = getReconcileCalls(kind);
+  expect(calls).toHaveLength(1);
+  return calls[0]!;
+}
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
   const sent: ServerMessage[] = [];
@@ -127,7 +139,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
   beforeEach(() => {
     rawConfigStore = {};
-    httpTokenValue = null;
     mintedToken = null;
     reconcileCalls = [];
     fetchShouldFail = false;
@@ -150,7 +161,12 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
           : url instanceof URL
             ? url.toString()
             : url.url;
-      if (urlStr.includes("/internal/telegram/reconcile")) {
+      const kind = urlStr.includes("/internal/telegram/reconcile")
+        ? "telegram"
+        : urlStr.includes("/internal/twilio/reconcile")
+          ? "twilio"
+          : undefined;
+      if (kind) {
         const headers: Record<string, string> = {};
         if (init?.headers) {
           const h = init.headers as Record<string, string>;
@@ -159,6 +175,7 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
           }
         }
         reconcileCalls.push({
+          kind,
           url: urlStr,
           method: init?.method ?? "GET",
           headers,
@@ -194,9 +211,7 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
   // ── Token present/missing behavior ──────────────────────────────────────
 
-  test("always triggers reconcile even when readHttpToken returns null (uses mintDaemonDeliveryToken)", async () => {
-    httpTokenValue = null;
-
+  test("always triggers reconcile using mintDaemonDeliveryToken", async () => {
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -215,7 +230,7 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
     expect(res.success).toBe(true);
 
     // Reconcile is always triggered using mintDaemonDeliveryToken
-    expect(reconcileCalls).toHaveLength(1);
+    expect(getReconcileCalls()).toHaveLength(2);
   });
 
   test("triggers reconcile with mintDaemonDeliveryToken bearer token", async () => {
@@ -234,8 +249,11 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     expect(sent).toHaveLength(1);
-    expect(reconcileCalls).toHaveLength(1);
-    expect(reconcileCalls[0]!.headers["Authorization"]).toBe(
+    expect(getReconcileCalls()).toHaveLength(2);
+    expect(expectSingleReconcileCall("telegram").headers["Authorization"]).toBe(
+      "Bearer test-bearer-token",
+    );
+    expect(expectSingleReconcileCall("twilio").headers["Authorization"]).toBe(
       "Bearer test-bearer-token",
     );
   });
@@ -243,8 +261,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   // ── Request payload normalization ───────────────────────────────────────
 
   test("sends ingressPublicBaseUrl in reconcile body when URL is set", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -257,14 +273,18 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(reconcileCalls).toHaveLength(1);
-    const body = JSON.parse(reconcileCalls[0]!.body);
-    expect(body.ingressPublicBaseUrl).toBe("https://my-tunnel.example.com");
+    expect(getReconcileCalls()).toHaveLength(2);
+    const telegramBody = JSON.parse(expectSingleReconcileCall("telegram").body);
+    const twilioBody = JSON.parse(expectSingleReconcileCall("twilio").body);
+    expect(telegramBody.ingressPublicBaseUrl).toBe(
+      "https://my-tunnel.example.com",
+    );
+    expect(twilioBody.ingressPublicBaseUrl).toBe(
+      "https://my-tunnel.example.com",
+    );
   });
 
   test("sends POST to /internal/telegram/reconcile with correct content type", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -277,14 +297,18 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(reconcileCalls).toHaveLength(1);
-    expect(reconcileCalls[0]!.method).toBe("POST");
-    expect(reconcileCalls[0]!.headers["Content-Type"]).toBe("application/json");
+    expect(getReconcileCalls()).toHaveLength(2);
+    expect(expectSingleReconcileCall("telegram").method).toBe("POST");
+    expect(expectSingleReconcileCall("twilio").method).toBe("POST");
+    expect(expectSingleReconcileCall("telegram").headers["Content-Type"]).toBe(
+      "application/json",
+    );
+    expect(expectSingleReconcileCall("twilio").headers["Content-Type"]).toBe(
+      "application/json",
+    );
   });
 
   test("normalizes trailing slashes in publicBaseUrl before sending reconcile", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -297,14 +321,19 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(reconcileCalls).toHaveLength(1);
-    const body = JSON.parse(reconcileCalls[0]!.body);
+    expect(getReconcileCalls()).toHaveLength(2);
+    const telegramBody = JSON.parse(expectSingleReconcileCall("telegram").body);
+    const twilioBody = JSON.parse(expectSingleReconcileCall("twilio").body);
     // The handler trims trailing slashes before storing and propagating
-    expect(body.ingressPublicBaseUrl).toBe("https://my-tunnel.example.com");
+    expect(telegramBody.ingressPublicBaseUrl).toBe(
+      "https://my-tunnel.example.com",
+    );
+    expect(twilioBody.ingressPublicBaseUrl).toBe(
+      "https://my-tunnel.example.com",
+    );
   });
 
   test("uses GATEWAY_INTERNAL_BASE_URL when set", async () => {
-    httpTokenValue = "test-token";
     process.env.GATEWAY_INTERNAL_BASE_URL = "http://custom-gateway:9999";
 
     const msg: IngressConfigRequest = {
@@ -319,15 +348,16 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(reconcileCalls).toHaveLength(1);
-    expect(reconcileCalls[0]!.url).toBe(
+    expect(getReconcileCalls()).toHaveLength(2);
+    expect(expectSingleReconcileCall("telegram").url).toBe(
       "http://custom-gateway:9999/internal/telegram/reconcile",
+    );
+    expect(expectSingleReconcileCall("twilio").url).toBe(
+      "http://custom-gateway:9999/internal/twilio/reconcile",
     );
   });
 
   test("defaults to localhost:7830 when no GATEWAY env vars set", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -340,14 +370,16 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(reconcileCalls).toHaveLength(1);
-    expect(reconcileCalls[0]!.url).toBe(
+    expect(getReconcileCalls()).toHaveLength(2);
+    expect(expectSingleReconcileCall("telegram").url).toBe(
       "http://127.0.0.1:7830/internal/telegram/reconcile",
+    );
+    expect(expectSingleReconcileCall("twilio").url).toBe(
+      "http://127.0.0.1:7830/internal/twilio/reconcile",
     );
   });
 
   test("uses GATEWAY_PORT when GATEWAY_INTERNAL_BASE_URL is not set", async () => {
-    httpTokenValue = "test-token";
     process.env.GATEWAY_PORT = "8888";
 
     const msg: IngressConfigRequest = {
@@ -362,16 +394,18 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(reconcileCalls).toHaveLength(1);
-    expect(reconcileCalls[0]!.url).toBe(
+    expect(getReconcileCalls()).toHaveLength(2);
+    expect(expectSingleReconcileCall("telegram").url).toBe(
       "http://127.0.0.1:8888/internal/telegram/reconcile",
+    );
+    expect(expectSingleReconcileCall("twilio").url).toBe(
+      "http://127.0.0.1:8888/internal/twilio/reconcile",
     );
   });
 
   // ── Non-fatal failure behavior ──────────────────────────────────────────
 
   test("reconcile failure does not cause handleIngressConfig to fail", async () => {
-    httpTokenValue = "test-token";
     fetchShouldFail = true;
 
     const msg: IngressConfigRequest = {
@@ -399,13 +433,11 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
     expect(res.enabled).toBe(true);
     expect(res.publicBaseUrl).toBe("https://my-tunnel.example.com");
 
-    // The reconcile attempt was still made (it just failed gracefully)
-    expect(reconcileCalls).toHaveLength(1);
+    // Both reconcile attempts were still made (they just failed gracefully)
+    expect(getReconcileCalls()).toHaveLength(2);
   });
 
   test("response is sent before reconcile fetch completes", async () => {
-    httpTokenValue = "test-token";
-
     // Track timing: response should be sent before fetch resolves
     let fetchResolved = false;
     const originalMockFetch = globalThis.fetch;
@@ -419,11 +451,17 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
           : url instanceof URL
             ? url.toString()
             : url.url;
-      if (urlStr.includes("/internal/telegram/reconcile")) {
+      const kind = urlStr.includes("/internal/telegram/reconcile")
+        ? "telegram"
+        : urlStr.includes("/internal/twilio/reconcile")
+          ? "twilio"
+          : undefined;
+      if (kind) {
         // Delay the response to simulate network latency
         await new Promise((r) => setTimeout(r, 100));
         fetchResolved = true;
         reconcileCalls.push({
+          kind,
           url: urlStr,
           method: init?.method ?? "GET",
           headers: {},
@@ -456,8 +494,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   // ── Set flow ────────────────────────────────────────────────────────────
 
   test("set action with enabled=true and URL triggers reconcile with the URL", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -475,16 +511,20 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
     expect(res.success).toBe(true);
     expect(res.enabled).toBe(true);
 
-    expect(reconcileCalls).toHaveLength(1);
-    const body = JSON.parse(reconcileCalls[0]!.body);
-    expect(body.ingressPublicBaseUrl).toBe("https://set-test.example.com");
+    expect(getReconcileCalls()).toHaveLength(2);
+    const telegramBody = JSON.parse(expectSingleReconcileCall("telegram").body);
+    const twilioBody = JSON.parse(expectSingleReconcileCall("twilio").body);
+    expect(telegramBody.ingressPublicBaseUrl).toBe(
+      "https://set-test.example.com",
+    );
+    expect(twilioBody.ingressPublicBaseUrl).toBe(
+      "https://set-test.example.com",
+    );
   });
 
   // ── Clear flow ──────────────────────────────────────────────────────────
 
   test("set action with empty URL and enabled=true (clear URL) still triggers reconcile", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -504,16 +544,16 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
     // Reconcile is called unconditionally on set action
     // When no URL and no env fallback, effectiveUrl is undefined so
     // the reconcile body should send empty string (clears the gateway's URL)
-    expect(reconcileCalls).toHaveLength(1);
-    const body = JSON.parse(reconcileCalls[0]!.body);
-    expect(body.ingressPublicBaseUrl).toBe("");
+    expect(getReconcileCalls()).toHaveLength(2);
+    const telegramBody = JSON.parse(expectSingleReconcileCall("telegram").body);
+    const twilioBody = JSON.parse(expectSingleReconcileCall("twilio").body);
+    expect(telegramBody.ingressPublicBaseUrl).toBe("");
+    expect(twilioBody.ingressPublicBaseUrl).toBe("");
   });
 
   // ── Disable flow ────────────────────────────────────────────────────────
 
   test("set action with enabled=false triggers reconcile with empty URL", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -532,15 +572,15 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
     expect(res.enabled).toBe(false);
 
     // Reconcile should still fire (to clear gateway's in-memory URL)
-    expect(reconcileCalls).toHaveLength(1);
-    const body = JSON.parse(reconcileCalls[0]!.body);
+    expect(getReconcileCalls()).toHaveLength(2);
+    const telegramBody = JSON.parse(expectSingleReconcileCall("telegram").body);
+    const twilioBody = JSON.parse(expectSingleReconcileCall("twilio").body);
     // When disabled, effectiveUrl is undefined, so the body sends empty string
-    expect(body.ingressPublicBaseUrl).toBe("");
+    expect(telegramBody.ingressPublicBaseUrl).toBe("");
+    expect(twilioBody.ingressPublicBaseUrl).toBe("");
   });
 
   test("disabling ingress removes INGRESS_PUBLIC_BASE_URL env var", () => {
-    httpTokenValue = "test-token";
-
     // First set ingress to populate env var
     process.env.INGRESS_PUBLIC_BASE_URL =
       "https://should-be-removed.example.com";
@@ -562,7 +602,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   // ── Get action does not trigger reconcile ───────────────────────────────
 
   test("get action does not trigger reconcile", async () => {
-    httpTokenValue = "test-token";
     rawConfigStore = {
       ingress: { publicBaseUrl: "https://existing.example.com", enabled: true },
     };
@@ -587,14 +626,12 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
     expect(res.publicBaseUrl).toBe("https://existing.example.com");
 
     // No reconcile should have been triggered for a get action
-    expect(reconcileCalls).toHaveLength(0);
+    expect(getReconcileCalls()).toHaveLength(0);
   });
 
   // ── Env var propagation ─────────────────────────────────────────────────
 
   test("set action propagates URL to process.env when enabled", () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -611,8 +648,6 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
   });
 
   test("reconcile uses effective URL from process.env (not raw value)", async () => {
-    httpTokenValue = "test-token";
-
     const msg: IngressConfigRequest = {
       type: "ingress_config",
       action: "set",
@@ -625,9 +660,11 @@ describe("Ingress reconcile trigger in handleIngressConfig", () => {
 
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(reconcileCalls).toHaveLength(1);
-    const body = JSON.parse(reconcileCalls[0]!.body);
+    expect(getReconcileCalls()).toHaveLength(2);
+    const twilioBody = JSON.parse(expectSingleReconcileCall("twilio").body);
     // The URL in the reconcile body should match the effective env var
-    expect(body.ingressPublicBaseUrl).toBe("https://effective-url.example.com");
+    expect(twilioBody.ingressPublicBaseUrl).toBe(
+      "https://effective-url.example.com",
+    );
   });
 });

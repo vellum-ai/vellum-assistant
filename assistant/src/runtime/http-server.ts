@@ -33,20 +33,25 @@ import {
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
-import type { ServerMessage } from "../daemon/ipc-contract.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
+  markConversationUnread,
   recordConversationSeenSignal,
   type SignalType,
 } from "../memory/conversation-attention-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import {
+  countConversations,
+  listConversations,
+} from "../memory/conversation-queries.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
 import {
   consumeCallback,
   consumeCallbackError,
 } from "../security/oauth-callback-registry.js";
+import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
@@ -126,9 +131,12 @@ import {
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
+import { slackShareRouteDefinitions } from "./routes/slack-share-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
+import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { twilioRouteDefinitions } from "./routes/twilio-routes.js";
+import { usageRouteDefinitions } from "./routes/usage-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -183,15 +191,7 @@ export class RuntimeHttpServer {
   private pairingStore = new PairingStore();
   private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
-  private findSession?: (sessionId: string) =>
-    | {
-        handleSurfaceAction(
-          surfaceId: string,
-          actionId: string,
-          data?: Record<string, unknown>,
-        ): void;
-      }
-    | undefined;
+  private findSession?: RuntimeHttpServerOptions["findSession"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -463,16 +463,10 @@ export class RuntimeHttpServer {
     // needs to work when the access token is expired. Bootstrap has its
     // own loopback IP validation; refresh is secured by the refresh token
     // in the request body (32 random bytes, hash-only storage).
-    if (
-      path === "/v1/integrations/guardian/vellum/bootstrap" &&
-      req.method === "POST"
-    ) {
+    if (path === "/v1/guardian/init" && req.method === "POST") {
       return await handleGuardianBootstrap(req, server);
     }
-    if (
-      path === "/v1/integrations/guardian/vellum/refresh" &&
-      req.method === "POST"
-    ) {
+    if (path === "/v1/guardian/refresh" && req.method === "POST") {
       return await handleGuardianRefresh(req);
     }
 
@@ -691,6 +685,7 @@ export class RuntimeHttpServer {
       ...secretRouteDefinitions(),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
+      ...usageRouteDefinitions(),
 
       // Browser relay — not extracted into a domain module because
       // these two routes depend on the in-process extensionRelayServer
@@ -724,12 +719,8 @@ export class RuntimeHttpServer {
         handler: ({ url }) => {
           const limit = Number(url.searchParams.get("limit") ?? 50);
           const offset = Number(url.searchParams.get("offset") ?? 0);
-          const conversations = conversationStore.listConversations(
-            limit,
-            false,
-            offset,
-          );
-          const totalCount = conversationStore.countConversations();
+          const conversations = listConversations(limit, false, offset);
+          const totalCount = countConversations();
           const conversationIds = conversations.map((c) => c.id);
           const bindings =
             externalConversationStore.getBindingsForConversations(
@@ -776,6 +767,7 @@ export class RuntimeHttpServer {
                 updatedAt: c.updatedAt,
                 threadType: c.threadType === "private" ? "private" : "standard",
                 source: c.source ?? "user",
+                ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
                 ...(binding
                   ? {
                       channelBinding: {
@@ -811,7 +803,6 @@ export class RuntimeHttpServer {
           try {
             recordConversationSeenSignal({
               conversationId,
-              assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
               sourceChannel: (body.sourceChannel as string) ?? "vellum",
               signalType: ((body.signalType as string) ??
                 "macos_conversation_opened") as SignalType,
@@ -837,6 +828,34 @@ export class RuntimeHttpServer {
         },
       },
 
+      {
+        endpoint: "conversations/unread",
+        method: "POST",
+        handler: async ({ req }) => {
+          const body = (await req.json()) as Record<string, unknown>;
+          const conversationId = body.conversationId as string | undefined;
+          if (!conversationId)
+            return httpError("BAD_REQUEST", "Missing conversationId", 400);
+          try {
+            markConversationUnread(conversationId);
+            return Response.json({ ok: true });
+          } catch (err) {
+            if (err instanceof UserError) {
+              return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
+            }
+            log.error(
+              { err, conversationId },
+              "POST /v1/conversations/unread: failed",
+            );
+            return httpError(
+              "INTERNAL_ERROR",
+              "Failed to mark conversation unread",
+              500,
+            );
+          }
+        },
+      },
+
       ...conversationRouteDefinitions({
         interfacesDir: this.interfacesDir,
         sendMessageDeps: this.sendMessageDeps,
@@ -848,6 +867,7 @@ export class RuntimeHttpServer {
       ...approvalRouteDefinitions(),
       ...trustRulesRouteDefinitions(),
       ...surfaceActionRouteDefinitions({ findSession: this.findSession }),
+      ...surfaceContentRouteDefinitions({ findSession: this.findSession }),
       ...guardianActionRouteDefinitions(),
 
       ...contactRouteDefinitions(),
@@ -856,6 +876,7 @@ export class RuntimeHttpServer {
       ...contactCatchAllRouteDefinitions(),
 
       ...integrationRouteDefinitions(),
+      ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
       ...attachmentRouteDefinitions(),

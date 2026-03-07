@@ -1,7 +1,6 @@
 /**
- * Watches ~/.vellum/workspace/config.json for changes to ingress URL
- * and SMS phone number. Uses the same fs.watch() + debounce pattern
- * as CredentialWatcher.
+ * Watches config.json for changes to any top-level key.
+ * Uses the same fs.watch() + debounce pattern as CredentialWatcher.
  */
 
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs";
@@ -15,14 +14,10 @@ const DEBOUNCE_MS = 500;
 const CONFIG_FILENAME = "config.json";
 
 export type ConfigChangeEvent = {
-  ingressPublicBaseUrl: string | undefined;
-  ingressChanged: boolean;
-  smsPhoneNumber: string | undefined;
-  smsPhoneNumberChanged: boolean;
-  assistantPhoneNumbers: Record<string, string> | undefined;
-  assistantPhoneNumbersChanged: boolean;
-  assistantEmail: string | undefined;
-  assistantEmailChanged: boolean;
+  /** Full parsed config.json data. */
+  data: Record<string, unknown>;
+  /** Top-level keys whose serialized value changed since the last poll. */
+  changedKeys: Set<string>;
 };
 
 export type ConfigChangeCallback = (event: ConfigChangeEvent) => void;
@@ -31,53 +26,15 @@ function getConfigPath(): string {
   return join(getRootDir(), "workspace", CONFIG_FILENAME);
 }
 
-function readConfigFile(path: string): {
-  ingressPublicBaseUrl?: string;
-  smsPhoneNumber?: string;
-  assistantPhoneNumbers?: Record<string, string>;
-  assistantEmail?: string;
-} {
+function readConfigFile(path: string): Record<string, unknown> {
   try {
     if (!existsSync(path)) return {};
 
     const raw = readFileSync(path, "utf-8");
     const data = JSON.parse(raw);
-    if (!data || typeof data !== "object") return {};
+    if (!data || typeof data !== "object" || Array.isArray(data)) return {};
 
-    const ingressPublicBaseUrl =
-      data.ingress && typeof data.ingress.publicBaseUrl === "string"
-        ? data.ingress.publicBaseUrl || undefined
-        : undefined;
-
-    const smsPhoneNumber =
-      data.sms && typeof data.sms.phoneNumber === "string"
-        ? data.sms.phoneNumber || undefined
-        : undefined;
-
-    let assistantPhoneNumbers: Record<string, string> | undefined;
-    if (
-      data.sms &&
-      typeof data.sms.assistantPhoneNumbers === "object" &&
-      data.sms.assistantPhoneNumbers !== null &&
-      !Array.isArray(data.sms.assistantPhoneNumbers)
-    ) {
-      assistantPhoneNumbers = data.sms.assistantPhoneNumbers as Record<
-        string,
-        string
-      >;
-    }
-
-    const assistantEmail =
-      data.email && typeof data.email.address === "string"
-        ? data.email.address || undefined
-        : undefined;
-
-    return {
-      ingressPublicBaseUrl,
-      smsPhoneNumber,
-      assistantPhoneNumbers,
-      assistantEmail,
-    };
+    return data as Record<string, unknown>;
   } catch (err) {
     log.debug({ err }, "Failed to read config file");
     return {};
@@ -88,10 +45,7 @@ export class ConfigFileWatcher {
   private watcher: FSWatcher | null = null;
   private watchingDirectory = false;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastIngressPublicBaseUrl: string | undefined;
-  private lastSmsPhoneNumber: string | undefined;
-  private lastAssistantPhoneNumbers: Record<string, string> | undefined;
-  private lastAssistantEmail: string | undefined;
+  private lastSerialized: Map<string, string> = new Map();
   private callback: ConfigChangeCallback;
   private configPath: string;
 
@@ -174,61 +128,34 @@ export class ConfigFileWatcher {
   }
 
   private pollOnce(): void {
-    const {
-      ingressPublicBaseUrl,
-      smsPhoneNumber,
-      assistantPhoneNumbers,
-      assistantEmail,
-    } = readConfigFile(this.configPath);
+    const data = readConfigFile(this.configPath);
 
-    const ingressChanged =
-      ingressPublicBaseUrl !== this.lastIngressPublicBaseUrl;
-    const smsPhoneNumberChanged = smsPhoneNumber !== this.lastSmsPhoneNumber;
-    // Shallow JSON comparison is sufficient for the Record<string, string> mapping
-    const assistantPhoneNumbersChanged =
-      JSON.stringify(assistantPhoneNumbers) !==
-      JSON.stringify(this.lastAssistantPhoneNumbers);
-    const assistantEmailChanged = assistantEmail !== this.lastAssistantEmail;
+    const changedKeys = new Set<string>();
 
-    if (
-      !ingressChanged &&
-      !smsPhoneNumberChanged &&
-      !assistantPhoneNumbersChanged &&
-      !assistantEmailChanged
-    ) {
-      return;
+    // Detect changed or added keys
+    const allKeys = new Set([
+      ...Object.keys(data),
+      ...this.lastSerialized.keys(),
+    ]);
+
+    for (const key of allKeys) {
+      const newVal = key in data ? JSON.stringify(data[key]) : undefined;
+      const oldVal = this.lastSerialized.get(key);
+
+      if (newVal !== oldVal) {
+        changedKeys.add(key);
+        if (newVal !== undefined) {
+          this.lastSerialized.set(key, newVal);
+        } else {
+          this.lastSerialized.delete(key);
+        }
+      }
     }
 
-    this.lastIngressPublicBaseUrl = ingressPublicBaseUrl;
-    this.lastSmsPhoneNumber = smsPhoneNumber;
-    this.lastAssistantPhoneNumbers = assistantPhoneNumbers;
-    this.lastAssistantEmail = assistantEmail;
+    if (changedKeys.size === 0) return;
 
-    if (ingressChanged) {
-      log.info(
-        { ingressPublicBaseUrl },
-        "Ingress URL updated from config file",
-      );
-    }
-    if (smsPhoneNumberChanged) {
-      log.info({ smsPhoneNumber }, "SMS phone number updated");
-    }
-    if (assistantPhoneNumbersChanged) {
-      log.info({ assistantPhoneNumbers }, "Assistant phone numbers updated");
-    }
-    if (assistantEmailChanged) {
-      log.info({ assistantEmail }, "Assistant email updated from config file");
-    }
+    log.info({ changedKeys: [...changedKeys] }, "Config file changed");
 
-    this.callback({
-      ingressPublicBaseUrl,
-      ingressChanged,
-      smsPhoneNumber,
-      smsPhoneNumberChanged,
-      assistantPhoneNumbers,
-      assistantPhoneNumbersChanged,
-      assistantEmail,
-      assistantEmailChanged,
-    });
+    this.callback({ data, changedKeys });
   }
 }

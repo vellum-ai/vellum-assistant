@@ -81,7 +81,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => secureKeyValues.get(account),
   setSecureKey: () => true,
-  deleteSecureKey: () => true,
+  deleteSecureKey: () => "deleted",
   listSecureKeys: () => [],
   getBackendType: () => "encrypted",
   _resetBackend: () => {},
@@ -110,10 +110,7 @@ import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
-import {
-  addMessage,
-  createConversation,
-} from "../memory/conversation-store.js";
+import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { assetMaterializeTool } from "../tools/assets/materialize.js";
 import { assetSearchTool, searchAttachments } from "../tools/assets/search.js";

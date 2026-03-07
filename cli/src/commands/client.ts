@@ -1,8 +1,6 @@
-import { readFileSync } from "fs";
-import { join } from "path";
-
 import {
   findAssistantByName,
+  getActiveAssistant,
   loadLatestAssistant,
 } from "../lib/assistant-config";
 import { GATEWAY_PORT, type Species } from "../lib/constants";
@@ -48,33 +46,49 @@ function parseArgs(): ParsedArgs {
     }
   }
 
-  const entry = positionalName
-    ? findAssistantByName(positionalName)
-    : loadLatestAssistant();
-  if (positionalName && !entry) {
-    console.error(`No assistant instance found with name '${positionalName}'.`);
-    process.exit(1);
+  let entry: ReturnType<typeof findAssistantByName>;
+  if (positionalName) {
+    entry = findAssistantByName(positionalName);
+    if (!entry) {
+      console.error(
+        `No assistant instance found with name '${positionalName}'.`,
+      );
+      process.exit(1);
+    }
+  } else if (
+    process.env.RUNTIME_URL ||
+    flagArgs.includes("--url") ||
+    flagArgs.includes("-u")
+  ) {
+    // Explicit URL provided via env var or flag — skip assistant resolution
+    entry = loadLatestAssistant();
+  } else {
+    const active = getActiveAssistant();
+    if (active) {
+      entry = findAssistantByName(active);
+      if (!entry) {
+        console.error(
+          `Active assistant '${active}' not found in lockfile. Set an active assistant with 'vellum use <name>'.`,
+        );
+        process.exit(1);
+      }
+    } else {
+      console.error(
+        "No active assistant set. Set one with 'vellum use <name>' or specify a name: 'vellum client <name>'.",
+      );
+      process.exit(1);
+    }
   }
 
   let runtimeUrl =
-    process.env.RUNTIME_URL || entry?.runtimeUrl || FALLBACK_RUNTIME_URL;
+    process.env.RUNTIME_URL ||
+    entry?.localUrl ||
+    entry?.runtimeUrl ||
+    FALLBACK_RUNTIME_URL;
   let assistantId =
     process.env.ASSISTANT_ID || entry?.assistantId || FALLBACK_ASSISTANT_ID;
-  let bearerToken =
+  const bearerToken =
     process.env.RUNTIME_PROXY_BEARER_TOKEN || entry?.bearerToken || undefined;
-
-  // For local assistants, read the daemon's http-token file as a fallback
-  // when the lockfile doesn't include a bearer token.
-  if (!bearerToken && entry?.cloud === "local") {
-    const tokenDir =
-      entry.baseDataDir ?? join(process.env.HOME ?? "", ".vellum");
-    try {
-      const token = readFileSync(join(tokenDir, "http-token"), "utf-8").trim();
-      if (token) bearerToken = token;
-    } catch {
-      // Token file may not exist
-    }
-  }
   const species: Species = (entry?.species as Species) ?? "vellum";
 
   for (let i = 0; i < flagArgs.length; i++) {
@@ -106,7 +120,7 @@ ${ANSI.bold}USAGE:${ANSI.reset}
     vellum client [name] [options]
 
 ${ANSI.bold}ARGUMENTS:${ANSI.reset}
-    [name]                     Instance name (default: latest)
+    [name]                     Instance name (default: active)
 
 ${ANSI.bold}OPTIONS:${ANSI.reset}
     -u, --url <url>            Runtime URL

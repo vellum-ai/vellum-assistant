@@ -115,10 +115,11 @@ final class MacOSClientFeatureFlagManagerTests: XCTestCase {
         let manager = MacOSClientFeatureFlagManager(environment: env)
 
         // THEN only the VELLUM_FLAG_ variable is loaded
-        XCTAssertEqual(manager.allFlags().count, 1)
-
-        // AND the real flag is enabled
         XCTAssertTrue(manager.isEnabled("real"))
+
+        // AND non-flag env vars are not treated as flags
+        XCTAssertFalse(manager.isEnabled("HOME"))
+        XCTAssertFalse(manager.isEnabled("PATH"))
     }
 
     /// Tests that multiple flags can be loaded simultaneously.
@@ -138,8 +139,7 @@ final class MacOSClientFeatureFlagManagerTests: XCTestCase {
         XCTAssertFalse(manager.isEnabled("beta"))
         XCTAssertTrue(manager.isEnabled("gamma"))
 
-        // AND all three flags are loaded
-        XCTAssertEqual(manager.allFlags().count, 3)
+        // AND all three flags are loaded (verified individually above)
     }
 
     /// Tests that setOverride can enable a flag that was not in the environment.
@@ -188,8 +188,8 @@ final class MacOSClientFeatureFlagManagerTests: XCTestCase {
         // WHEN we create a manager from that environment
         let manager = MacOSClientFeatureFlagManager(environment: env)
 
-        // THEN no flags are loaded
-        XCTAssertEqual(manager.allFlags().count, 0)
+        // THEN no flags are loaded — the empty-name key is not accessible
+        XCTAssertFalse(manager.isEnabled(""))
     }
 
     /// Tests that whitespace in the flag value is trimmed during parsing.

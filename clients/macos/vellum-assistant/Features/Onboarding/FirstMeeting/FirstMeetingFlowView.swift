@@ -178,8 +178,7 @@ struct FirstMeetingFlowView: View {
             HStack(spacing: VSpacing.sm) {
                 ForEach(["Automated", "Agent", "Control", "System"], id: \.self) { tab in
                     HStack(spacing: 4) {
-                        Image(systemName: "circle")
-                            .font(.system(size: 7))
+                        VIconView(.circle, size: 7)
                         Text(tab)
                     }
                     .font(VFont.caption)
@@ -197,7 +196,7 @@ struct FirstMeetingFlowView: View {
 
     private var mockInputBar: some View {
         HStack(spacing: VSpacing.md) {
-            VIconButton(label: "Phone", icon: "phone.fill", iconOnly: true) { }
+            VIconButton(label: "Phone", icon: VIcon.phoneCall.rawValue, iconOnly: true) { }
 
             Text("What you need chef?")
                 .font(VFont.body)

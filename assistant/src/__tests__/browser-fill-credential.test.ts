@@ -60,7 +60,7 @@ let mockGetCredentialMetadata: ReturnType<typeof mock>;
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (...args: unknown[]) => mockGetSecureKey(...args),
   setSecureKey: () => true,
-  deleteSecureKey: () => true,
+  deleteSecureKey: () => "deleted",
   listSecureKeys: () => [],
   getBackendType: () => "encrypted",
   _resetBackend: () => {},
@@ -76,7 +76,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   _setMetadataPath: () => {},
 }));
 
-import { executeBrowserFillCredential } from "../tools/browser/headless-browser.js";
+import { executeBrowserFillCredential } from "../tools/browser/browser-execution.js";
 import type { ToolContext } from "../tools/types.js";
 
 const ctx: ToolContext = {

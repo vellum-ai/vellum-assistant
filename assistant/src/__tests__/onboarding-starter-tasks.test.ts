@@ -10,7 +10,10 @@ const TEST_DIR = join(
 
 import { mock } from "bun:test";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
+  ...realPlatform,
   getRootDir: () => TEST_DIR,
   getDataDir: () => TEST_DIR,
   getWorkspaceDir: () => TEST_DIR,
@@ -34,19 +37,26 @@ mock.module("../util/platform.js", () => ({
   isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
+  readSessionToken: () => null,
   removeSocketFile: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
+  readLockfile: () => null,
+  writeLockfile: () => {},
 }));
 
+const noopLogger = new Proxy({} as Record<string, unknown>, {
+  get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
+});
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const realLogger = require("../util/logger.js");
 mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
+  ...realLogger,
+  getLogger: () => noopLogger,
+  getCliLogger: () => noopLogger,
   isDebug: () => false,
   truncateForLog: (v: string) => v,
+  initLogger: () => {},
+  pruneOldLogFiles: () => 0,
 }));
 
 const { buildStarterTaskPlaybookSection, buildSystemPrompt } =

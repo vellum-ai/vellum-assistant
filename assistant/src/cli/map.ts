@@ -1,14 +1,11 @@
 /**
- * CLI command: `vellum map <domain>`
+ * CLI command: `assistant map <domain>`
  *
  * Launches Chrome with CDP, starts a Ride Shotgun learn session to auto-navigate
  * the given domain, then analyzes captured network traffic into a deduplicated API map.
  */
 
-import { spawn as spawnChild } from "node:child_process";
 import * as net from "node:net";
-import { homedir } from "node:os";
-import { join as pathJoin } from "node:path";
 
 import { Command } from "commander";
 import { parse as parseTld } from "tldts";
@@ -19,6 +16,7 @@ import {
   printApiMapTable,
   saveApiMap,
 } from "../tools/browser/api-map.js";
+import { ensureChromeWithCdp } from "../tools/browser/chrome-cdp.js";
 import { loadRecording } from "../tools/browser/recording-store.js";
 import { getCliLogger } from "../util/logger.js";
 import { getSocketPath, readSessionToken } from "../util/platform.js";
@@ -59,34 +57,16 @@ function getJson(cmd: Command): boolean {
   return false;
 }
 
-// ---------------------------------------------------------------------------
-// Chrome CDP helpers
-// ---------------------------------------------------------------------------
-
-const CDP_BASE = "http://localhost:9222";
-const CHROME_DATA_DIR = pathJoin(
-  homedir(),
-  "Library/Application Support/Google/Chrome-CDP",
-);
-
-async function isCdpReady(): Promise<boolean> {
-  try {
-    const res = await fetch(`${CDP_BASE}/json/version`);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Bring the Chrome CDP tab to the foreground so the user sees the right window.
  * Optionally navigates to a URL first (used when Chrome was already running).
  */
 async function bringChromeToFront(
+  cdpBase: string,
   navigateUrl?: string,
 ): Promise<string | null> {
   try {
-    const res = await fetch(`${CDP_BASE}/json/list`);
+    const res = await fetch(`${cdpBase}/json/list`);
     if (!res.ok) return null;
     const targets = (await res.json()) as Array<{
       type: string;
@@ -156,35 +136,6 @@ async function bringChromeToFront(
   }
 }
 
-async function ensureChromeWithCDP(domain: string): Promise<void> {
-  // Already running with CDP?
-  if (await isCdpReady()) return;
-
-  // Launch a separate Chrome instance with CDP flags alongside any existing Chrome.
-  const chromeApp =
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  spawnChild(
-    chromeApp,
-    [
-      `--remote-debugging-port=9222`,
-      `--force-renderer-accessibility`,
-      `--user-data-dir=${CHROME_DATA_DIR}`,
-      `https://${domain}/`,
-    ],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  ).unref();
-
-  // Wait for CDP to be ready
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    if (await isCdpReady()) return;
-  }
-  throw new Error("Chrome started but CDP endpoint not responding after 15s");
-}
-
 // ---------------------------------------------------------------------------
 // Ride Shotgun learn session helper
 // ---------------------------------------------------------------------------
@@ -200,10 +151,15 @@ async function startLearnSession(
   durationSeconds: number,
   autoNavigate: boolean = true,
 ): Promise<LearnResult> {
-  await ensureChromeWithCDP(navigateDomain);
+  const cdpSession = await ensureChromeWithCdp({
+    startUrl: `https://${navigateDomain}/`,
+  });
 
   // Activate the Chrome window so the user knows which tab to watch
-  const tabUrl = await bringChromeToFront(`https://${navigateDomain}/`);
+  const tabUrl = await bringChromeToFront(
+    cdpSession.baseUrl,
+    `https://${navigateDomain}/`,
+  );
   if (tabUrl) {
     process.stderr.write(`Chrome is ready — using tab at ${tabUrl}\n`);
   }
@@ -276,6 +232,13 @@ async function startLearnSession(
           continue;
         }
 
+        if (m.type === "ride_shotgun_error") {
+          clearTimeout(timeoutHandle);
+          socket.destroy();
+          reject(new Error((m as { message: string }).message));
+          continue;
+        }
+
         if (m.type === "ride_shotgun_result") {
           clearTimeout(timeoutHandle);
           socket.destroy();
@@ -321,6 +284,35 @@ export function registerMapCommand(program: Command): void {
       "Manual mode: browse the site yourself while network traffic is recorded",
     )
     .option("--json", "Machine-readable JSON output")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  domain   The domain to map (e.g. example.com, open.spotify.com). Subdomains
+           are navigated directly but network traffic is recorded for the
+           entire base domain (e.g. open.spotify.com navigates that subdomain
+           but records all *.spotify.com traffic).
+
+Two modes of operation:
+  auto (default)   The assistant auto-navigates the site using Ride Shotgun,
+                   clicking links and exploring pages autonomously. Default
+                   duration: 120 seconds.
+  --manual         You browse the site yourself while network traffic is
+                   recorded in the background. Default duration: 60 seconds.
+
+How it works:
+  1. Launches Chrome with Chrome DevTools Protocol (CDP) enabled
+  2. Starts a Ride Shotgun learn session to capture network traffic
+  3. Deduplicates captured requests into unique API endpoints
+  4. Saves the API map to disk and prints a summary table
+
+The assistant must be running (the learn session is coordinated through it).
+
+Examples:
+  $ assistant map example.com
+  $ assistant map open.spotify.com --duration 180
+  $ assistant map garmin.com --manual`,
+    )
     .action(
       async (
         domain: string,

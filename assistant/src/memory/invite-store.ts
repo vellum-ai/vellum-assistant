@@ -8,9 +8,8 @@
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getDb } from "./db.js";
 import { assistantIngressInvites } from "./schema.js";
 
@@ -22,7 +21,6 @@ export type InviteStatus = "active" | "redeemed" | "revoked" | "expired";
 
 export interface IngressInvite {
   id: string;
-  assistantId: string;
   sourceChannel: string;
   tokenHash: string;
   createdBySessionId: string | null;
@@ -38,6 +36,8 @@ export interface IngressInvite {
   expectedExternalUserId: string | null;
   voiceCodeHash: string | null;
   voiceCodeDigits: number | null;
+  // 6-digit invite code hash (null for voice invites which use voiceCodeHash)
+  inviteCodeHash: string | null;
   // Display metadata for personalized voice prompts (null for non-voice invites)
   friendName: string | null;
   guardianName: string | null;
@@ -69,7 +69,6 @@ function rowToInvite(
 ): IngressInvite {
   return {
     id: row.id,
-    assistantId: row.assistantId,
     sourceChannel: row.sourceChannel,
     tokenHash: row.tokenHash,
     createdBySessionId: row.createdBySessionId,
@@ -84,6 +83,7 @@ function rowToInvite(
     expectedExternalUserId: row.expectedExternalUserId,
     voiceCodeHash: row.voiceCodeHash,
     voiceCodeDigits: row.voiceCodeDigits,
+    inviteCodeHash: row.inviteCodeHash,
     friendName: row.friendName,
     guardianName: row.guardianName,
     createdAt: row.createdAt,
@@ -96,7 +96,6 @@ function rowToInvite(
 // ---------------------------------------------------------------------------
 
 export function createInvite(params: {
-  assistantId?: string;
   sourceChannel: string;
   createdBySessionId?: string;
   note?: string;
@@ -106,6 +105,8 @@ export function createInvite(params: {
   expectedExternalUserId?: string;
   voiceCodeHash?: string;
   voiceCodeDigits?: number;
+  // 6-digit invite code hash (for non-voice invites)
+  inviteCodeHash?: string;
   friendName?: string;
   guardianName?: string;
 }): { invite: IngressInvite; rawToken: string } {
@@ -117,7 +118,6 @@ export function createInvite(params: {
 
   const row = {
     id,
-    assistantId: params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     sourceChannel: params.sourceChannel,
     tokenHash: tokenH,
     createdBySessionId: params.createdBySessionId ?? null,
@@ -132,6 +132,7 @@ export function createInvite(params: {
     expectedExternalUserId: params.expectedExternalUserId ?? null,
     voiceCodeHash: params.voiceCodeHash ?? null,
     voiceCodeDigits: params.voiceCodeDigits ?? null,
+    inviteCodeHash: params.inviteCodeHash ?? null,
     friendName: params.friendName ?? null,
     guardianName: params.guardianName ?? null,
     createdAt: now,
@@ -148,16 +149,15 @@ export function createInvite(params: {
 // ---------------------------------------------------------------------------
 
 export function listInvites(params: {
-  assistantId?: string;
   sourceChannel?: string;
   status?: InviteStatus;
   limit?: number;
   offset?: number;
 }): IngressInvite[] {
   const db = getDb();
-  const assistantId = params.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
 
-  const conditions = [eq(assistantIngressInvites.assistantId, assistantId)];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const conditions: any[] = [];
 
   if (params.sourceChannel) {
     conditions.push(
@@ -168,10 +168,9 @@ export function listInvites(params: {
     conditions.push(eq(assistantIngressInvites.status, params.status));
   }
 
-  const rows = db
-    .select()
-    .from(assistantIngressInvites)
-    .where(and(...conditions))
+  const query = db.select().from(assistantIngressInvites);
+
+  const rows = (conditions.length > 0 ? query.where(and(...conditions)) : query)
     .orderBy(desc(assistantIngressInvites.createdAt))
     .limit(params.limit ?? 100)
     .offset(params.offset ?? 0)
@@ -323,7 +322,6 @@ export function findByTokenHash(tokenHash: string): IngressInvite | null {
  * before code hash matching.
  */
 export function findActiveVoiceInvites(params: {
-  assistantId: string;
   expectedExternalUserId: string;
 }): IngressInvite[] {
   const db = getDb();
@@ -333,7 +331,6 @@ export function findActiveVoiceInvites(params: {
     .from(assistantIngressInvites)
     .where(
       and(
-        eq(assistantIngressInvites.assistantId, params.assistantId),
         eq(assistantIngressInvites.sourceChannel, "voice"),
         eq(assistantIngressInvites.status, "active"),
         eq(
@@ -345,4 +342,68 @@ export function findActiveVoiceInvites(params: {
     .all();
 
   return rows.map(rowToInvite);
+}
+
+// ---------------------------------------------------------------------------
+// findByInviteCodeHash
+// ---------------------------------------------------------------------------
+
+/**
+ * Find an active invite by its 6-digit invite code hash, scoped to a specific
+ * source channel. Channel scoping is required because 6-digit codes are drawn
+ * from a small keyspace and can collide across channels — without it, `.get()`
+ * could return an arbitrary match, leading to nondeterministic redemption or
+ * false channel-mismatch failures downstream.
+ */
+export function findByInviteCodeHash(
+  hash: string,
+  sourceChannel: string,
+): IngressInvite | null {
+  const db = getDb();
+
+  const row = db
+    .select()
+    .from(assistantIngressInvites)
+    .where(
+      and(
+        eq(assistantIngressInvites.inviteCodeHash, hash),
+        eq(assistantIngressInvites.sourceChannel, sourceChannel),
+        eq(assistantIngressInvites.status, "active"),
+      ),
+    )
+    .get();
+
+  return row ? rowToInvite(row) : null;
+}
+
+// ---------------------------------------------------------------------------
+// findByInviteCodeHashAnyChannel
+// ---------------------------------------------------------------------------
+
+/**
+ * Find an active invite by its 6-digit invite code hash without channel
+ * scoping. Used as a fallback after a channel-scoped lookup fails, to
+ * distinguish "code doesn't exist" from "code exists but for a different
+ * channel" — the latter should produce a channel_mismatch response instead
+ * of silently falling through.
+ */
+export function findByInviteCodeHashAnyChannel(
+  hash: string,
+): IngressInvite | null {
+  const db = getDb();
+  const now = Date.now();
+
+  const row = db
+    .select()
+    .from(assistantIngressInvites)
+    .where(
+      and(
+        eq(assistantIngressInvites.inviteCodeHash, hash),
+        eq(assistantIngressInvites.status, "active"),
+        gt(assistantIngressInvites.expiresAt, now),
+      ),
+    )
+    .get();
+
+  return row ? rowToInvite(row) : null;
 }

@@ -127,11 +127,6 @@ export interface ShareAppCloudRequest {
   appId: string;
 }
 
-export interface ShareToSlackRequest {
-  type: "share_to_slack";
-  appId: string;
-}
-
 export interface PublishPageRequest {
   type: "publish_page";
   html: string;
@@ -238,6 +233,8 @@ export interface ForkSharedAppResponse {
 export interface BundleAppResponse {
   type: "bundle_app_response";
   bundlePath: string;
+  /** Base64-encoded PNG of the generated app icon, if available. */
+  iconImageBase64?: string;
   manifest: {
     format_version: number;
     name: string;
@@ -339,12 +336,6 @@ export interface AppRestoreResponse {
   error?: string;
 }
 
-export interface ShareToSlackResponse {
-  type: "share_to_slack_response";
-  success: boolean;
-  error?: string;
-}
-
 export interface PublishPageResponse {
   type: "publish_page_response";
   success: boolean;
@@ -387,7 +378,6 @@ export type _AppsClientMessages =
   | AppFileAtVersionRequest
   | AppRestoreRequest
   | ShareAppCloudRequest
-  | ShareToSlackRequest
   | AppUpdatePreviewRequest
   | AppPreviewRequest
   | PublishPageRequest
@@ -412,7 +402,6 @@ export type _AppsServerMessages =
   | AppDiffResponse
   | AppFileAtVersionResponse
   | AppRestoreResponse
-  | ShareToSlackResponse
   | AppUpdatePreviewResponse
   | AppPreviewResponse
   | PublishPageResponse

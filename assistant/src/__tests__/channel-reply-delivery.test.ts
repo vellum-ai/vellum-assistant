@@ -60,7 +60,7 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -91,7 +91,7 @@ mock.module("../memory/attachments-store.js", () => ({
     attachmentsByMessageId.get(messageId) ?? [],
 }));
 
-mock.module("../daemon/handlers.js", () => ({
+mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: () => renderedHistoryContent,
 }));
 
@@ -161,7 +161,7 @@ describe("channel-reply-delivery", () => {
 
   it("falls back to rendered.text when no non-empty textSegments exist", async () => {
     await deliverRenderedReplyViaCallback({
-      callbackUrl: "http://gateway/deliver/sms",
+      callbackUrl: "http://gateway/deliver/telegram",
       chatId: "chat-2",
       textSegments: [" ", ""],
       fallbackText: "Fallback text",

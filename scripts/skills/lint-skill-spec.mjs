@@ -11,7 +11,11 @@
  *      no consecutive hyphens, no leading/trailing hyphens.
  *   6. `description` constraints: 1-1024 chars, non-empty.
  *   7. Optional `compatibility`: 1-500 chars if present.
- *   8. Frontmatter is followed by Markdown body content.
+ *   8. Required `metadata.emoji` (Vellum extension).
+ *   9. Frontmatter is followed by Markdown body content.
+ *  10. Non-standard top-level fields emit migration guidance:
+ *      - Vellum-specific fields → move to `metadata.vellum`
+ *      - Environment requirements → move to `compatibility`
  *
  * Usage:
  *   node scripts/skills/lint-skill-spec.mjs [skill-name ...]
@@ -54,13 +58,14 @@ function parseFrontmatter(content) {
 }
 
 /**
- * Minimal YAML parser for flat key-value pairs and simple nested maps.
- * Handles string values (quoted or unquoted) and one level of nesting.
+ * Minimal YAML parser for flat key-value pairs and nested maps.
+ * Handles string values (quoted or unquoted) and multiple levels of nesting.
  */
 function parseSimpleYaml(yaml) {
   const result = {};
   const lines = yaml.split("\n");
-  let currentKey = null;
+  // Stack of { indent, obj } to track nesting context
+  const stack = [{ indent: -1, obj: result, key: null }];
 
   for (const line of lines) {
     // Skip blank lines and comments
@@ -68,30 +73,26 @@ function parseSimpleYaml(yaml) {
       continue;
     }
 
-    // Check for nested key (indented with spaces)
-    if (/^\s+\S/.test(line) && currentKey !== null) {
-      const nestedMatch = line.match(/^\s+(\S+):\s*(.*)/);
-      if (nestedMatch) {
-        if (typeof result[currentKey] !== "object" || result[currentKey] === null) {
-          result[currentKey] = {};
-        }
-        result[currentKey][nestedMatch[1]] = stripQuotes(nestedMatch[2].trim());
-      }
-      continue;
-    }
+    // Calculate indentation (number of leading spaces)
+    const indent = line.match(/^(\s*)/)[1].length;
+    const match = line.match(/^(\s*)(\S+):\s*(.*)/);
+    if (!match) continue;
 
-    // Top-level key
-    const match = line.match(/^(\S+):\s*(.*)/);
-    if (match) {
-      currentKey = match[1];
-      const value = match[2].trim();
-      if (value === "" || value === "|" || value === ">") {
-        // Will be filled by nested lines or is empty
-        result[currentKey] = value === "" ? "" : "";
-      } else {
-        result[currentKey] = stripQuotes(value);
-        currentKey = null; // Reset so next indented line doesn't attach
-      }
+    const key = match[2];
+    const value = match[3].trim();
+
+    // Pop stack to find the parent at the right indentation level
+    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
+      stack.pop();
+    }
+    const parent = stack[stack.length - 1].obj;
+
+    if (value === "" || value === "|" || value === ">") {
+      // Start of a nested object
+      parent[key] = {};
+      stack.push({ indent, obj: parent[key], key });
+    } else {
+      parent[key] = stripQuotes(value);
     }
   }
 
@@ -117,6 +118,35 @@ function processEscapes(s) {
 // --- Validation Rules ---
 
 const NAME_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+
+/**
+ * Standard fields per Agent Skills spec (https://agentskills.io/specification).
+ */
+const STANDARD_FIELDS = new Set([
+  "name",
+  "description",
+  "license",
+  "compatibility",
+  "metadata",
+  "allowed-tools",
+]);
+
+/**
+ * Known vellum-specific extension fields that should be migrated to metadata.vellum.
+ */
+const VELLUM_EXTENSION_FIELDS = new Set([
+  "user-invocable",
+  "user_invocable",
+  "credential-setup-for",
+  "disable-model-invocation",
+]);
+
+/**
+ * Fields that should be migrated to the compatibility field.
+ */
+const COMPATIBILITY_MIGRATION_FIELDS = new Set([
+  "includes",
+]);
 
 function validateName(name, dirName) {
   const errors = [];
@@ -182,13 +212,82 @@ function validateCompatibility(compatibility) {
   return errors;
 }
 
+function validateMetadataEmoji(metadata) {
+  const errors = [];
+
+  if (!metadata || typeof metadata !== "object") {
+    errors.push(
+      'Required field "metadata.emoji" is missing. Skills must have an emoji in metadata.',
+    );
+    return errors;
+  }
+
+  const emoji = metadata.emoji;
+  if (typeof emoji !== "string" || emoji.length === 0) {
+    errors.push(
+      'Required field "metadata.emoji" is missing or empty. Skills must have an emoji in metadata.',
+    );
+  }
+
+  return errors;
+}
+
+/**
+ * Detect non-standard top-level fields and recommend migration.
+ *
+ * Returns errors for:
+ * - Known vellum extension fields → recommend moving to metadata.vellum
+ * - Compatibility-related fields → recommend moving to compatibility
+ * - Unknown fields → recommend using metadata for custom data or compatibility for requirements
+ */
+function validateNonStandardFields(frontmatter) {
+  const errors = [];
+
+  for (const key of Object.keys(frontmatter)) {
+    if (STANDARD_FIELDS.has(key)) {
+      continue;
+    }
+
+    if (VELLUM_EXTENSION_FIELDS.has(key)) {
+      errors.push(
+        `Non-standard field "${key}" should be moved to metadata.vellum.${key}. ` +
+          `The Agent Skills spec reserves top-level fields for standard properties. ` +
+          `Use the "metadata" field for vendor-specific extensions: metadata: { "vellum": { "${key}": ... } }`,
+      );
+    } else if (COMPATIBILITY_MIGRATION_FIELDS.has(key)) {
+      errors.push(
+        `Non-standard field "${key}" should be moved to the "compatibility" field. ` +
+          `The "compatibility" field is for environment requirements (required skills, CLIs, packages, network access).`,
+      );
+    } else {
+      errors.push(
+        `Unknown top-level field "${key}". ` +
+          `Only standard fields (name, description, license, compatibility, metadata, allowed-tools) are allowed at the top level. ` +
+          `Use "metadata" for custom properties: metadata: { "${key}": ... }. ` +
+          `Use "compatibility" for environment requirements (e.g., required CLIs, packages, network access).`,
+      );
+    }
+  }
+
+  return errors;
+}
+
 function validateSkill(skillName) {
   const skillDir = join(SKILLS_DIR, skillName);
   const skillMdPath = join(skillDir, "SKILL.md");
+  const toolsJsonPath = join(skillDir, "TOOLS.json");
   const errors = [];
 
   if (!statSync(skillDir, { throwIfNoEntry: false })?.isDirectory()) {
     return errors;
+  }
+
+  // 0. TOOLS.json must not exist — skills should rely on CLI tools in scripts/, not custom tool definitions
+  const toolsJsonStat = statSync(toolsJsonPath, { throwIfNoEntry: false });
+  if (toolsJsonStat?.isFile()) {
+    errors.push(
+      `skills/${skillName}/TOOLS.json must not exist. Skills should rely on CLI tools in scripts/, not custom tool definitions.`,
+    );
   }
 
   // 1. SKILL.md must exist
@@ -225,6 +324,20 @@ function validateSkill(skillName) {
   // 4. Validate optional fields
   errors.push(
     ...validateCompatibility(frontmatter.compatibility).map(
+      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+    ),
+  );
+
+  // 5. Validate required metadata.emoji (Vellum requirement)
+  errors.push(
+    ...validateMetadataEmoji(frontmatter.metadata).map(
+      (e) => `skills/${skillName}/SKILL.md: ${e}`,
+    ),
+  );
+
+  // 6. Check for non-standard fields and recommend migration
+  errors.push(
+    ...validateNonStandardFields(frontmatter).map(
       (e) => `skills/${skillName}/SKILL.md: ${e}`,
     ),
   );

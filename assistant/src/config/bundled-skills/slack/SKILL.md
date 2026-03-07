@@ -69,9 +69,7 @@ When you need to **send** content to Slack proactively (e.g. a scheduled digest,
 - `send_notification` is appropriate for short alerts and status updates where you want the router to pick the best channel. `messaging_send` is appropriate when you have specific content to deliver to a specific Slack destination.
 - For scheduled tasks (cron/RRULE), always end with a `messaging_send` call so the results actually reach the user. Without it, the output only lives in the conversation log.
 
-## Watcher Integration
-
-For real-time monitoring (not just on-demand scanning), the user can set up a Slack watcher using the watcher skill with the same channel IDs. Mention this if the user wants ongoing monitoring.
+For setting up recurring digests, load the `slack-digest-setup` skill which covers the full configuration, scheduling, and delivery protocol.
 
 ## Connection
 

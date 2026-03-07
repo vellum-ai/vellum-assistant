@@ -30,10 +30,18 @@ async function parseErrorResponse(
   let message = `Gateway request failed (${resp.status})`;
 
   try {
-    const parsed = JSON.parse(body) as { error?: string };
+    const parsed = JSON.parse(body) as {
+      error?: string | { code?: string; message?: string };
+    };
     if (parsed.error) {
-      gatewayError = parsed.error;
-      message = parsed.error;
+      // Runtime httpError() returns { error: { code, message } } while
+      // gateway returns { error: "string" }. Handle both formats.
+      const errStr =
+        typeof parsed.error === "string"
+          ? parsed.error
+          : (parsed.error.message ?? JSON.stringify(parsed.error));
+      gatewayError = errStr;
+      message = errStr;
     }
   } catch {
     if (body) message = body;

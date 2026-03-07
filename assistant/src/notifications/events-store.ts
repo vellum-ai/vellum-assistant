@@ -14,7 +14,6 @@ import type { AttentionHints } from "./signal.js";
 
 export interface NotificationEventRow {
   id: string;
-  assistantId: string;
   sourceEventName: string;
   sourceChannel: string;
   sourceSessionId: string;
@@ -30,7 +29,6 @@ function rowToEvent(
 ): NotificationEventRow {
   return {
     id: row.id,
-    assistantId: row.assistantId,
     sourceEventName: row.sourceEventName,
     sourceChannel: row.sourceChannel,
     sourceSessionId: row.sourceSessionId,
@@ -44,7 +42,6 @@ function rowToEvent(
 
 export interface CreateEventParams {
   id: string;
-  assistantId: string;
   sourceEventName: string;
   sourceChannel: string;
   sourceSessionId: string;
@@ -70,19 +67,13 @@ export function createEvent(
     const existing = db
       .select()
       .from(notificationEvents)
-      .where(
-        and(
-          eq(notificationEvents.assistantId, params.assistantId),
-          eq(notificationEvents.dedupeKey, normalizedDedupeKey),
-        ),
-      )
+      .where(and(eq(notificationEvents.dedupeKey, normalizedDedupeKey)))
       .get();
     if (existing) return null;
   }
 
   const row = {
     id: params.id,
-    assistantId: params.assistantId,
     sourceEventName: params.sourceEventName,
     sourceChannel: params.sourceChannel,
     sourceSessionId: params.sourceSessionId,
@@ -124,13 +115,13 @@ export interface ListEventsFilters {
   limit?: number;
 }
 
-/** List notification events for an assistant with optional filters. */
+/** List notification events with optional filters. */
 export function listEvents(
-  assistantId: string,
   filters?: ListEventsFilters,
 ): NotificationEventRow[] {
   const db = getDb();
-  const conditions = [eq(notificationEvents.assistantId, assistantId)];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const conditions: any[] = [];
 
   if (filters?.sourceEventName) {
     conditions.push(
@@ -140,10 +131,9 @@ export function listEvents(
 
   const limit = filters?.limit ?? 50;
 
-  const rows = db
-    .select()
-    .from(notificationEvents)
-    .where(and(...conditions))
+  const query = db.select().from(notificationEvents);
+
+  const rows = (conditions.length > 0 ? query.where(and(...conditions)) : query)
     .orderBy(desc(notificationEvents.createdAt))
     .limit(limit)
     .all();

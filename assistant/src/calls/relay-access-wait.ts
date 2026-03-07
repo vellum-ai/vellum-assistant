@@ -9,7 +9,6 @@
 import { findContactChannel } from "../contacts/contact-store.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
 import {
   getGuardianWaitUpdateInitialIntervalMs,
@@ -240,8 +239,6 @@ export function emitAccessRequestCallbackHandoff(
     return { emitted: false, callbackHandoffNotified: true };
   }
 
-  const assistantId =
-    params.accessRequestAssistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
   const fromNumber = params.accessRequestFromNumber ?? null;
 
   // Resolve canonical request for requestCode and conversationId
@@ -282,7 +279,6 @@ export function emitAccessRequestCallbackHandoff(
     sourceEventName: "ingress.access_request.callback_handoff",
     sourceChannel: "voice",
     sourceSessionId,
-    assistantId,
     attentionHints: {
       requiresAction: false,
       urgency: "medium",

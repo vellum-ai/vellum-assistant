@@ -25,8 +25,7 @@ private struct CodeBlockView: View {
                 Spacer()
                 Button(action: copyCode) {
                     HStack(spacing: VSpacing.xxs) {
-                        Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
-                            .font(.system(size: 11))
+                        VIconView(showCopied ? .check : .copy, size: 11)
                         if showCopied {
                             Text("Copied")
                                 .font(VFont.monoSmall)

@@ -1,5 +1,10 @@
 import type { Command } from "commander";
 
+import {
+  getTwilioCredentials,
+  hasTwilioCredentials,
+  listIncomingPhoneNumbers,
+} from "../calls/twilio-rest.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/elevenlabs-schema.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { loadRawConfig } from "../config/loader.js";
@@ -10,8 +15,7 @@ import {
   mintEdgeRelayToken,
 } from "../runtime/auth/token-service.js";
 
-type IngressChannel = "telegram" | "voice" | "sms";
-type GuardianChannel = "telegram" | "voice" | "sms";
+type GuardianChannel = "telegram" | "voice";
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -20,7 +24,7 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function shouldOutputJson(cmd: Command): boolean {
+export function shouldOutputJson(cmd: Command): boolean {
   let current: Command | null = cmd;
   while (current) {
     if ((current.opts() as { json?: boolean }).json) return true;
@@ -29,7 +33,7 @@ function shouldOutputJson(cmd: Command): boolean {
   return false;
 }
 
-function writeOutput(cmd: Command, payload: unknown): void {
+export function writeOutput(cmd: Command, payload: unknown): void {
   const compact = shouldOutputJson(cmd);
   process.stdout.write(
     compact
@@ -49,7 +53,9 @@ function getGatewayToken(): string {
   return mintEdgeRelayToken();
 }
 
-function toQueryString(params: Record<string, string | undefined>): string {
+export function toQueryString(
+  params: Record<string, string | undefined>,
+): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value) query.set(key, value);
@@ -104,10 +110,52 @@ function readVoiceConfig(): {
   };
 }
 
+function readTwilioConfig(): {
+  success: true;
+  hasCredentials: boolean;
+  accountSid?: string;
+  phoneNumber?: string;
+} {
+  const hasCredentials = hasTwilioCredentials();
+  const accountSid = hasCredentials
+    ? getTwilioCredentials().accountSid
+    : undefined;
+  const raw = loadRawConfig();
+  const twilio = asRecord(raw.twilio);
+  const phoneNumber =
+    typeof twilio.phoneNumber === "string" ? twilio.phoneNumber.trim() : "";
+
+  return {
+    success: true,
+    hasCredentials,
+    accountSid: accountSid || undefined,
+    phoneNumber: phoneNumber || undefined,
+  };
+}
+
+async function readTwilioNumbers(): Promise<unknown> {
+  if (!hasTwilioCredentials()) {
+    return {
+      success: false,
+      hasCredentials: false,
+      error: "Twilio credentials not configured. Set credentials first.",
+    };
+  }
+
+  const { accountSid, authToken } = getTwilioCredentials();
+  const numbers = await listIncomingPhoneNumbers(accountSid, authToken);
+
+  return {
+    success: true,
+    hasCredentials: true,
+    numbers,
+  };
+}
+
 // CLI-specific gateway helper — uses GATEWAY_AUTH_TOKEN env var for out-of-process
 // access. See runtime/gateway-internal-client.ts for daemon-internal usage which
 // mints fresh tokens.
-async function gatewayGet(path: string): Promise<unknown> {
+export async function gatewayGet(path: string): Promise<unknown> {
   const gatewayBase = getGatewayInternalBaseUrl();
   const token = getGatewayToken();
 
@@ -141,7 +189,46 @@ async function gatewayGet(path: string): Promise<unknown> {
   return parsed;
 }
 
-async function runRead(
+export async function gatewayPost(
+  path: string,
+  body: unknown,
+): Promise<unknown> {
+  const gatewayBase = getGatewayInternalBaseUrl();
+  const token = getGatewayToken();
+
+  const response = await fetch(`${gatewayBase}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const rawBody = await response.text();
+  let parsed: unknown = { ok: false, error: rawBody };
+
+  if (rawBody.length > 0) {
+    try {
+      parsed = JSON.parse(rawBody) as unknown;
+    } catch {
+      parsed = { ok: false, error: rawBody };
+    }
+  }
+
+  if (!response.ok) {
+    const message =
+      typeof parsed === "object" && parsed && "error" in parsed
+        ? String((parsed as { error?: unknown }).error)
+        : `Gateway request failed (${response.status})`;
+    throw new Error(`${message} [${response.status}]`);
+  }
+
+  return parsed;
+}
+
+export async function runRead(
   cmd: Command,
   reader: () => Promise<unknown>,
 ): Promise<void> {
@@ -155,70 +242,123 @@ async function runRead(
   }
 }
 
-export function registerContactsCommand(program: Command): void {
-  const contacts = program
-    .command("contacts")
-    .description("Manage and query the contact graph")
-    .option("--json", "Machine-readable compact JSON output");
-
-  contacts
-    .command("list")
-    .description("List contacts (calls /v1/contacts)")
-    .option("--role <role>", "Filter by role (default: contact)", "contact")
-    .option("--limit <limit>", "Maximum number of contacts to return")
-    .option("--query <query>", "Search query to filter contacts")
-    .action(
-      async (
-        opts: {
-          role?: string;
-          limit?: string;
-          query?: string;
-        },
-        cmd: Command,
-      ) => {
-        const query = toQueryString({
-          role: opts.role,
-          limit: opts.limit,
-          query: opts.query,
-        });
-        await runRead(cmd, async () => gatewayGet(`/v1/contacts${query}`));
-      },
-    );
-
-  contacts
-    .command("invites")
-    .description("List contact invites")
-    .option("--source-channel <sourceChannel>", "Filter by source channel")
-    .option("--status <status>", "Filter by invite status")
-    .action(
-      async (
-        opts: { sourceChannel?: IngressChannel; status?: string },
-        cmd: Command,
-      ) => {
-        const query = toQueryString({
-          sourceChannel: opts.sourceChannel,
-          status: opts.status,
-        });
-        await runRead(cmd, async () =>
-          gatewayGet(`/v1/contacts/invites${query}`),
-        );
-      },
-    );
-}
-
 export function registerIntegrationsCommand(program: Command): void {
   const integrations = program
     .command("integrations")
-    .description("Read integration and ingress status through the gateway API")
+    .description("Read integration configuration and readiness status")
     .option("--json", "Machine-readable compact JSON output");
+
+  integrations.addHelpText(
+    "after",
+    `
+Reads integration configuration and readiness from shared assistant services.
+Some subcommands query the running assistant gateway (\`telegram\`, \`guardian\`);
+others read local config or call the underlying provider directly (\`twilio\`, \`ingress\`, \`voice\`).
+
+Integration categories:
+  twilio       Twilio voice credential and phone number status
+  telegram     Telegram bot configuration and webhook status
+  guardian     Guardian trust verification system for contacts
+  ingress      Public ingress URL and local gateway target (config-only)
+  voice        Voice/call readiness and ElevenLabs voice ID (config-only)
+
+Examples:
+  $ assistant integrations twilio config
+  $ assistant integrations twilio numbers --json
+  $ assistant integrations telegram config
+  $ assistant integrations guardian status --channel telegram`,
+  );
+
+  const twilio = integrations
+    .command("twilio")
+    .description("Twilio voice integration status");
+
+  twilio.addHelpText(
+    "after",
+    `
+Reads Twilio integration state from the same assistant-side services used by
+the runtime routes. These commands do not require the gateway to be running.
+\`config\` only reads local assistant state; \`numbers\` also calls the Twilio REST API.
+
+Examples:
+  $ assistant integrations twilio config
+  $ assistant integrations twilio numbers
+  $ assistant integrations twilio numbers --json`,
+  );
+
+  twilio
+    .command("config")
+    .description("Get Twilio integration configuration status")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  (none)
+
+Returns whether Twilio credentials are configured and whether a phone number is
+assigned in the assistant config. Reads local assistant state only; it
+does not call the gateway or Twilio.
+
+Examples:
+  $ assistant integrations twilio config
+  $ assistant integrations twilio config --json`,
+    )
+    .action(async (_opts: unknown, cmd: Command) => {
+      await runRead(cmd, async () => readTwilioConfig());
+    });
+
+  twilio
+    .command("numbers")
+    .description("Get Twilio phone numbers")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  (none)
+
+Lists incoming Twilio phone numbers for the configured account. Returns
+\`success: false\` with \`hasCredentials: false\` when credentials are missing.
+Calls the Twilio REST API directly; it does not proxy through the gateway.
+
+Examples:
+  $ assistant integrations twilio numbers
+  $ assistant integrations twilio numbers --json`,
+    )
+    .action(async (_opts: unknown, cmd: Command) => {
+      await runRead(cmd, async () => readTwilioNumbers());
+    });
 
   const telegram = integrations
     .command("telegram")
     .description("Telegram integration status");
 
+  telegram.addHelpText(
+    "after",
+    `
+Checks the Telegram bot configuration status through the gateway API.
+Requires the assistant to be running.
+
+Examples:
+  $ assistant integrations telegram config
+  $ assistant integrations telegram config --json`,
+  );
+
   telegram
     .command("config")
     .description("Get Telegram integration configuration status")
+    .addHelpText(
+      "after",
+      `
+Returns the Telegram bot token status, webhook URL, and bot username from
+the gateway. Requires the assistant to be running.
+
+The response includes whether a bot token is configured, the current webhook
+endpoint, and the bot's Telegram username.
+
+Examples:
+  $ assistant integrations telegram config
+  $ assistant integrations telegram config --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () =>
         gatewayGet("/v1/integrations/telegram/config"),
@@ -229,58 +369,44 @@ export function registerIntegrationsCommand(program: Command): void {
     .command("guardian")
     .description("Guardian verification status");
 
+  guardian.addHelpText(
+    "after",
+    `
+Guardian is the trust verification system for contacts. It tracks whether
+contacts on each channel have completed identity verification. Requires
+the assistant to be running.
+
+Examples:
+  $ assistant integrations guardian status
+  $ assistant integrations guardian status --channel voice`,
+  );
+
   guardian
     .command("status")
     .description("Get guardian status for a channel")
-    .option("--channel <channel>", "Channel: telegram|voice|sms", "telegram")
+    .option("--channel <channel>", "Channel: telegram|voice", "telegram")
+    .addHelpText(
+      "after",
+      `
+Returns the guardian verification state for the specified channel. Requires
+the assistant to be running.
+
+The --channel flag accepts: telegram, voice. Defaults to telegram if
+not specified. The response includes whether guardian verification is active
+and the current verification state for that channel.
+
+Examples:
+  $ assistant integrations guardian status
+  $ assistant integrations guardian status --channel telegram
+  $ assistant integrations guardian status --channel voice
+  $ assistant integrations guardian status --channel telegram --json`,
+    )
     .action(async (opts: { channel?: GuardianChannel }, cmd: Command) => {
       const channel = opts.channel ?? "telegram";
       await runRead(cmd, async () =>
         gatewayGet(
-          `/v1/integrations/guardian/status${toQueryString({ channel })}`,
+          `/v1/channel-verification-sessions/status${toQueryString({ channel })}`,
         ),
-      );
-    });
-
-  const twilio = integrations
-    .command("twilio")
-    .description("Twilio integration status");
-
-  twilio
-    .command("config")
-    .description("Get Twilio credential and phone number status")
-    .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet("/v1/integrations/twilio/config"),
-      );
-    });
-
-  twilio
-    .command("numbers")
-    .description("List Twilio incoming phone numbers")
-    .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet("/v1/integrations/twilio/numbers"),
-      );
-    });
-
-  const twilioSms = twilio.command("sms").description("Twilio SMS status");
-
-  twilioSms
-    .command("compliance")
-    .description("Get Twilio SMS compliance status")
-    .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet("/v1/integrations/twilio/sms/compliance"),
-      );
-    });
-
-  twilio
-    .command("sms-compliance")
-    .description('Alias for "vellum integrations twilio sms compliance"')
-    .action(async (_opts: unknown, cmd: Command) => {
-      await runRead(cmd, async () =>
-        gatewayGet("/v1/integrations/twilio/sms/compliance"),
       );
     });
 
@@ -288,18 +414,66 @@ export function registerIntegrationsCommand(program: Command): void {
     .command("ingress")
     .description("Trusted contact membership and invite status");
 
+  ingress.addHelpText(
+    "after",
+    `
+Shows the public ingress URL and local gateway target URL. Reads from the
+local config file and does not require the gateway to be running.
+
+Examples:
+  $ assistant integrations ingress config`,
+  );
+
   ingress
     .command("config")
     .description("Get public ingress URL and local gateway target")
+    .addHelpText(
+      "after",
+      `
+Shows the public ingress URL and the local gateway target URL. Reads from
+the local config file and does not require the gateway to be running.
+
+The response includes whether ingress is enabled, the configured public base
+URL (if any), and the local gateway target address. Ingress is considered
+enabled if explicitly set to true or if a publicBaseUrl is configured.
+
+Examples:
+  $ assistant integrations ingress config
+  $ assistant integrations ingress config --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () => readIngressConfig());
     });
 
   const voice = integrations.command("voice").description("Voice setup status");
 
+  voice.addHelpText(
+    "after",
+    `
+Shows voice and call readiness configuration. Reads from the local config
+file and does not require the gateway to be running.
+
+Examples:
+  $ assistant integrations voice config`,
+  );
+
   voice
     .command("config")
     .description("Get voice and call readiness config")
+    .addHelpText(
+      "after",
+      `
+Shows voice and call readiness status. Reads from the local config file and
+does not require the gateway to be running.
+
+The response includes whether calls are enabled, the active ElevenLabs voice
+ID (falls back to default if not configured), whether a custom voice ID is
+set, and whether the default voice is in use.
+
+Examples:
+  $ assistant integrations voice config
+  $ assistant integrations voice config --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       await runRead(cmd, async () => readVoiceConfig());
     });

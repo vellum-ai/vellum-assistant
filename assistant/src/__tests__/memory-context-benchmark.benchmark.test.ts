@@ -193,10 +193,10 @@ describe("Memory context benchmark", () => {
 
     const longMessages = makeLongMessages(90); // 180 messages
     const summaryCounter = { calls: 0 };
-    const manager = new ContextWindowManager(
-      makeSummaryProvider(summaryCounter),
-      "system prompt for compaction benchmark",
-      {
+    const manager = new ContextWindowManager({
+      provider: makeSummaryProvider(summaryCounter),
+      systemPrompt: "system prompt for compaction benchmark",
+      config: {
         ...DEFAULT_CONFIG.contextWindow,
         maxInputTokens: 6000,
         targetInputTokens: 3200,
@@ -204,7 +204,7 @@ describe("Memory context benchmark", () => {
         preserveRecentUserTurns: 8,
         chunkTokens: 1200,
       },
-    );
+    });
 
     const compacted = await manager.maybeCompact(longMessages);
     expect(compacted.compacted).toBe(true);

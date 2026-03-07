@@ -2,6 +2,7 @@
  * Shared types for the runtime HTTP server and its route handlers.
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
+import type { SurfaceData, SurfaceType } from "../daemon/ipc-contract/surfaces.js";
 import type { Session } from "../daemon/session.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type {
@@ -169,7 +170,7 @@ export interface RuntimeHttpServerOptions {
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
   /** Dependencies for the POST /v1/messages queue-if-busy handler. */
   sendMessageDeps?: SendMessageDeps;
-  /** Lookup an active session by ID (for surface actions). Returns undefined if not found. */
+  /** Lookup an active session by ID (for surface actions and content fetches). */
   findSession?: (sessionId: string) =>
     | {
         handleSurfaceAction(
@@ -177,6 +178,17 @@ export interface RuntimeHttpServerOptions {
           actionId: string,
           data?: Record<string, unknown>,
         ): void;
+        surfaceState: Map<
+          string,
+          { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+        >;
+        currentTurnSurfaces?: Array<{
+          surfaceId: string;
+          surfaceType: SurfaceType;
+          title?: string;
+          data: SurfaceData;
+          actions?: Array<{ id: string; label: string; style?: string }>;
+        }>;
       }
     | undefined;
 }

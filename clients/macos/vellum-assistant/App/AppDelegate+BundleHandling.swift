@@ -10,8 +10,8 @@ extension AppDelegate {
 
     public func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            guard url.pathExtension == "vellumapp" else { continue }
-            log.info("Opening .vellumapp file: \(url.path, privacy: .private)")
+            guard url.pathExtension == "vellum" else { continue }
+            log.info("Opening .vellum file: \(url.path, privacy: .private)")
 
             guard daemonClient.isConnected else {
                 log.warning("Cannot open bundle: daemon not connected")
@@ -36,8 +36,8 @@ extension AppDelegate {
     func handleOpenBundleResponse(_ response: OpenBundleResponseMessage) {
         let filePath = pendingBundleFilePaths.isEmpty ? "" : pendingBundleFilePaths.removeFirst()
 
-        // Check format version compatibility
-        if response.manifest.formatVersion > 1 {
+        // Check format version compatibility (1 = legacy single-HTML, 2 = multi-file TSX)
+        if response.manifest.format_version > 2 {
             let alert = NSAlert()
             alert.messageText = "Incompatible App"
             alert.informativeText = "This app requires a newer version of vellum-assistant."
@@ -68,15 +68,26 @@ extension AppDelegate {
         let confirmWindow = BundleConfirmationWindow()
         self.bundleConfirmationWindow = confirmWindow
 
-        viewModel.onConfirm = { [weak self] in
-            guard let self else { return }
-            confirmWindow.close()
-            self.bundleConfirmationWindow = nil
+        viewModel.onConfirm = { [weak self, weak viewModel] in
+            guard let self, let viewModel else { return }
+            viewModel.installState = .installing
             self.unpackAndLoadBundle(
                 filePath: filePath,
                 manifest: response.manifest,
                 signatureResult: response.signatureResult,
-                bundleSizeBytes: response.bundleSizeBytes
+                bundleSizeBytes: response.bundleSizeBytes,
+                onSuccess: {
+                    viewModel.installState = .installed
+                    // Auto-close after brief success feedback
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(500))
+                        confirmWindow.close()
+                        self.bundleConfirmationWindow = nil
+                    }
+                },
+                onError: { errorMessage in
+                    viewModel.installState = .error(errorMessage)
+                }
             )
         }
 
@@ -90,9 +101,11 @@ extension AppDelegate {
 
     func unpackAndLoadBundle(
         filePath: String,
-        manifest: OpenBundleResponseMessage.Manifest,
-        signatureResult: OpenBundleResponseMessage.SignatureResult,
-        bundleSizeBytes: Int
+        manifest: IPCOpenBundleResponseManifest,
+        signatureResult: IPCOpenBundleResponseSignatureResult,
+        bundleSizeBytes: Int,
+        onSuccess: (() -> Void)? = nil,
+        onError: ((String) -> Void)? = nil
     ) {
         // Run the unzip on a background thread to avoid blocking the UI.
         Task.detached {
@@ -138,16 +151,21 @@ extension AppDelegate {
                         messageId: nil
                     )
                     self.surfaceManager.showSurface(surfaceMsg)
+                    onSuccess?()
                 }
             } catch {
                 await MainActor.run {
                     log.error("Failed to unpack bundle: \(error.localizedDescription)")
-                    let alert = NSAlert()
-                    alert.messageText = "Failed to open app"
-                    alert.informativeText = error.localizedDescription
-                    alert.alertStyle = .critical
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
+                    if let onError {
+                        onError(error.localizedDescription)
+                    } else {
+                        let alert = NSAlert()
+                        alert.messageText = "Failed to open app"
+                        alert.informativeText = error.localizedDescription
+                        alert.alertStyle = .critical
+                        alert.addButton(withTitle: "OK")
+                        alert.runModal()
+                    }
                 }
             }
         }

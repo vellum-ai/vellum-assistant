@@ -18,8 +18,10 @@ import {
   unregisterCallTranscriptNotifier,
 } from "../calls/call-state.js";
 import { getCallSession } from "../calls/call-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
-import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import {
+  addMessage,
+  provenanceFromTrustContext,
+} from "../memory/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import type { WatchSession } from "../tools/watch/watch-state.js";
 import {
@@ -106,7 +108,7 @@ export function registerSessionNotifiers(
       const callee = callSession?.toNumber ?? "the caller";
       const questionText = `**Live call question** (to ${callee}):\n\n${question}\n\n_Use the call answer API to respond._`;
 
-      await conversationStore.addMessage(
+      await addMessage(
         conversationId,
         "assistant",
         JSON.stringify([{ type: "text", text: questionText }]),

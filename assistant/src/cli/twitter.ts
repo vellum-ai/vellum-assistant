@@ -1,5 +1,5 @@
 /**
- * CLI command group: `vellum twitter`
+ * CLI command group: `assistant twitter`
  *
  * Post tweets and manage Twitter sessions via the command line.
  * All commands output JSON to stdout. Use --json for machine-readable output.
@@ -24,6 +24,7 @@ import {
   searchTweets,
   SessionExpiredError,
 } from "../twitter/client.js";
+import type { TwitterStrategy } from "../twitter/router.js";
 import { routedPostTweet } from "../twitter/router.js";
 import {
   clearSession,
@@ -58,7 +59,7 @@ function getJson(cmd: Command): boolean {
 
 const SESSION_EXPIRED_MSG =
   "Your Twitter session has expired. Please sign in to Twitter in Chrome — " +
-  "run `vellum twitter refresh` to capture your session automatically.";
+  "run `assistant twitter refresh` to capture your session automatically.";
 
 async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
   try {
@@ -118,12 +119,57 @@ export function registerTwitterCommand(program: Command): void {
     )
     .option("--json", "Machine-readable JSON output");
 
+  tw.addHelpText(
+    "after",
+    `
+Twitter (X) uses a dual-path architecture for interacting with the platform:
+
+  1. OAuth (official API) — uses an authenticated Twitter OAuth application for
+     posting and replying. Requires a connected OAuth credential.
+  2. Browser session (Ride Shotgun) — uses cookies captured from a real Chrome
+     session to call Twitter's internal GraphQL API. Supports all read operations
+     and posting as a fallback.
+
+The strategy system controls which path is used for operations that support both:
+  oauth    — always use the OAuth API; fail if unavailable
+  browser  — always use the browser session; fail if unavailable
+  auto     — try OAuth first, fall back to browser session (default)
+
+Session management:
+  - "login" imports cookies from a Ride Shotgun recording file
+  - "refresh" launches Chrome with CDP, navigates to x.com/login, and runs a
+    Ride Shotgun learn session to capture fresh cookies automatically
+  - "status" shows whether browser session and OAuth are active
+  - "logout" clears the saved browser session cookies
+
+Examples:
+  $ assistant x status
+  $ assistant x post "Hello world"
+  $ assistant x timeline elonmusk --count 10
+  $ assistant x search "from:vaborsh AI agents" --product Latest
+  $ assistant x strategy set oauth`,
+  );
+
   // =========================================================================
   // login — import session from a recording
   // =========================================================================
   tw.command("login")
     .description("Import a Twitter session from a Ride Shotgun recording")
     .requiredOption("--recording <path>", "Path to the recording JSON file")
+    .addHelpText(
+      "after",
+      `
+Imports cookies from a Ride Shotgun recording file to establish a browser
+session. The recording file is a JSON file produced by a Ride Shotgun learn
+session that contains captured cookies for x.com.
+
+After import, all browser-path commands (timeline, search, bookmarks, etc.)
+will use these cookies for authentication.
+
+Examples:
+  $ assistant x login --recording /tmp/ride-shotgun/recording-abc123.json
+  $ assistant x login --recording ~/recordings/twitter-session.json`,
+    )
     .action(async (opts: { recording: string }, cmd: Command) => {
       await run(cmd, async () => {
         const session = importFromRecording(opts.recording);
@@ -140,6 +186,16 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   tw.command("logout")
     .description("Clear the saved Twitter session")
+    .addHelpText(
+      "after",
+      `
+Deletes all saved browser session cookies. After logout, browser-path commands
+will fail until a new session is imported via "login" or captured via "refresh".
+OAuth credentials are not affected.
+
+Examples:
+  $ assistant x logout`,
+    )
     .action((_opts: unknown, cmd: Command) => {
       clearSession();
       output({ ok: true, message: "Session cleared" }, getJson(cmd));
@@ -155,6 +211,24 @@ export function registerTwitterCommand(program: Command): void {
         "NOTE: Chrome will restart with debugging enabled; your tabs will be restored.",
     )
     .option("--duration <seconds>", "Recording duration in seconds", "180")
+    .addHelpText(
+      "after",
+      `
+Restarts Chrome with CDP (Chrome DevTools Protocol) enabled, navigates to
+x.com/login, and runs a Ride Shotgun learn session to capture fresh cookies.
+Sign in when Chrome opens — the session will be recorded automatically.
+
+The --duration flag sets how long (in seconds) the recording runs before
+stopping. Default is 180 seconds (3 minutes). After the recording completes,
+cookies are imported automatically and Chrome is minimized.
+
+Requires the assistant to be running (Ride Shotgun runs via the assistant).
+
+Examples:
+  $ assistant x refresh
+  $ assistant x refresh --duration 120
+  $ assistant x refresh --duration 300`,
+    )
     .action(async (opts: { duration: string }, cmd: Command) => {
       const json = getJson(cmd);
       const duration = parseInt(opts.duration, 10);
@@ -166,7 +240,7 @@ export function registerTwitterCommand(program: Command): void {
 
           // Hide Chrome after capturing session
           try {
-            await minimizeChromeWindow();
+            await minimizeChromeWindow(); // uses default CDP port
           } catch {
             /* best-effort */
           }
@@ -201,6 +275,22 @@ export function registerTwitterCommand(program: Command): void {
   // =========================================================================
   tw.command("status")
     .description("Check Twitter session, OAuth, and strategy status")
+    .addHelpText(
+      "after",
+      `
+Shows the current state of both authentication paths:
+
+  Browser session — whether cookies are loaded, cookie count, import timestamp,
+    and the recording ID they came from.
+  OAuth — whether an OAuth credential is connected, the linked account, the
+    current strategy setting, and whether a strategy has been explicitly configured.
+
+If the assistant is not running, OAuth fields will be reported as undefined.
+
+Examples:
+  $ assistant x status
+  $ assistant x status --json`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       const session = loadSession();
       const browserInfo: Record<string, unknown> = session
@@ -258,6 +348,26 @@ export function registerTwitterCommand(program: Command): void {
     .description(
       "Get or set the Twitter operation strategy (oauth, browser, auto)",
     )
+    .addHelpText(
+      "after",
+      `
+The strategy controls which authentication path is used for operations that
+support both OAuth and browser session:
+
+  oauth    — always use the official Twitter OAuth API. Fails if no OAuth
+             credential is connected. Best for reliable posting.
+  browser  — always use the browser session (captured cookies). Fails if no
+             session is loaded. Required for read-only endpoints not available
+             via OAuth (bookmarks, notifications, search).
+  auto     — try OAuth first, fall back to browser session. This is the default.
+
+Run without a subcommand to display the current strategy. Use "set" to change it.
+
+Examples:
+  $ assistant x strategy
+  $ assistant x strategy set oauth
+  $ assistant x strategy set auto`,
+    )
     .action(async (_opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
       try {
@@ -279,6 +389,21 @@ export function registerTwitterCommand(program: Command): void {
     .command("set")
     .description("Set the Twitter operation strategy")
     .argument("<value>", "Strategy value: oauth, browser, or auto")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  value   Strategy to use: "oauth", "browser", or "auto"
+
+Sets the preferred strategy for Twitter operations that support dual-path
+routing. The setting is persisted by the assistant and applies to all subsequent
+operations until changed.
+
+Examples:
+  $ assistant x strategy set oauth
+  $ assistant x strategy set browser
+  $ assistant x strategy set auto`,
+    )
     .action(async (value: string, _opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
       try {
@@ -311,17 +436,59 @@ export function registerTwitterCommand(program: Command): void {
   tw.command("post")
     .description("Post a tweet")
     .argument("<text>", "Tweet text")
-    .action(async (text: string, _opts: unknown, cmd: Command) => {
-      await run(cmd, async () => {
-        const { result, pathUsed } = await routedPostTweet(text);
-        return {
-          tweetId: result.tweetId,
-          text: result.text,
-          url: result.url,
-          pathUsed,
-        };
-      });
-    });
+    .requiredOption(
+      "--strategy <strategy>",
+      "Operation strategy: oauth, browser, or auto",
+    )
+    .option(
+      "--oauth-token <token>",
+      "OAuth access token (required when strategy is oauth or auto)",
+    )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  text   The tweet text to post (max 280 characters)
+
+Posts a new tweet using the routed dual-path system. The --strategy flag
+controls which path is used. The response includes the tweet ID, URL, and
+which path was used.
+
+Examples:
+  $ assistant x post "Hello world" --strategy browser
+  $ assistant x post "Hello world" --strategy oauth --oauth-token "$TOKEN"
+  $ assistant x post "Hello world" --strategy auto --oauth-token "$TOKEN"`,
+    )
+    .action(
+      async (
+        text: string,
+        opts: { strategy: string; oauthToken?: string },
+        cmd: Command,
+      ) => {
+        await run(cmd, async () => {
+          const strategy = opts.strategy as TwitterStrategy;
+          if (
+            strategy !== "oauth" &&
+            strategy !== "browser" &&
+            strategy !== "auto"
+          ) {
+            throw new Error(
+              `Invalid strategy "${opts.strategy}". Must be oauth, browser, or auto.`,
+            );
+          }
+          const { result, pathUsed } = await routedPostTweet(text, {
+            strategy,
+            oauthToken: opts.oauthToken,
+          });
+          return {
+            tweetId: result.tweetId,
+            text: result.text,
+            url: result.url,
+            pathUsed,
+          };
+        });
+      },
+    );
 
   // =========================================================================
   // reply — reply to a tweet
@@ -330,9 +497,47 @@ export function registerTwitterCommand(program: Command): void {
     .description("Reply to a tweet")
     .argument("<tweetUrl>", "Tweet URL or tweet ID")
     .argument("<text>", "Reply text")
+    .requiredOption(
+      "--strategy <strategy>",
+      "Operation strategy: oauth, browser, or auto",
+    )
+    .option(
+      "--oauth-token <token>",
+      "OAuth access token (required when strategy is oauth or auto)",
+    )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  tweetUrl   Full tweet URL (e.g. https://x.com/user/status/123456) or a bare tweet ID
+  text       The reply text to post (max 280 characters)
+
+Posts a reply to the specified tweet. Accepts either a full tweet URL or a bare
+numeric tweet ID. The tweet ID is extracted from the last numeric segment of the
+URL. The --strategy flag controls which path is used.
+
+Examples:
+  $ assistant x reply https://x.com/elonmusk/status/1234567890 "Great point!" --strategy browser
+  $ assistant x reply 1234567890 "Interesting thread" --strategy oauth --oauth-token "$TOKEN"`,
+    )
     .action(
-      async (tweetUrl: string, text: string, _opts: unknown, cmd: Command) => {
+      async (
+        tweetUrl: string,
+        text: string,
+        opts: { strategy: string; oauthToken?: string },
+        cmd: Command,
+      ) => {
         await run(cmd, async () => {
+          const strategy = opts.strategy as TwitterStrategy;
+          if (
+            strategy !== "oauth" &&
+            strategy !== "browser" &&
+            strategy !== "auto"
+          ) {
+            throw new Error(
+              `Invalid strategy "${opts.strategy}". Must be oauth, browser, or auto.`,
+            );
+          }
           // Extract tweet ID: either a bare numeric ID or the last numeric segment of a URL
           const idMatch = tweetUrl.match(/(\d+)\s*$/);
           if (!idMatch) {
@@ -341,6 +546,8 @@ export function registerTwitterCommand(program: Command): void {
           const inReplyToTweetId = idMatch[1];
           const { result, pathUsed } = await routedPostTweet(text, {
             inReplyToTweetId,
+            strategy,
+            oauthToken: opts.oauthToken,
           });
           return {
             tweetId: result.tweetId,
@@ -359,6 +566,21 @@ export function registerTwitterCommand(program: Command): void {
     .description("Fetch a user's recent tweets")
     .argument("<screenName>", "Twitter screen name (without @)")
     .option("--count <n>", "Number of tweets to fetch", "20")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  screenName   Twitter screen name without the @ prefix (e.g. "elonmusk", not "@elonmusk")
+
+Fetches a user's recent tweets via the browser session. Resolves the screen name
+to a user ID first, then retrieves their tweet timeline. The --count flag controls
+how many tweets to return (default: 20).
+
+Examples:
+  $ assistant x timeline elonmusk
+  $ assistant x timeline vaborsh --count 50
+  $ assistant x timeline openai --count 10 --json`,
+    )
     .action(
       async (screenName: string, opts: { count: string }, cmd: Command) => {
         await run(cmd, async () => {
@@ -378,6 +600,22 @@ export function registerTwitterCommand(program: Command): void {
   tw.command("tweet")
     .description("Fetch a tweet and its reply thread")
     .argument("<tweetIdOrUrl>", "Tweet ID or URL")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  tweetIdOrUrl   A bare tweet ID (e.g. 1234567890) or a full tweet URL
+                 (e.g. https://x.com/user/status/1234567890)
+
+Fetches a single tweet and its reply thread via the browser session. The tweet
+ID is extracted from the last numeric segment of the input. Returns an array of
+tweets representing the conversation thread.
+
+Examples:
+  $ assistant x tweet 1234567890
+  $ assistant x tweet https://x.com/elonmusk/status/1234567890
+  $ assistant x tweet https://x.com/openai/status/9876543210 --json`,
+    )
     .action(async (tweetIdOrUrl: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const idMatch = tweetIdOrUrl.match(/(\d+)\s*$/);
@@ -395,6 +633,26 @@ export function registerTwitterCommand(program: Command): void {
     .description("Search tweets")
     .argument("<query>", "Search query")
     .option("--product <type>", "Top, Latest, People, or Media", "Top")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  query   Twitter search query string. Supports Twitter search operators
+          (e.g. "from:user", "to:user", "min_faves:100", quoted phrases)
+
+The --product flag selects the search result type:
+  Top      — most relevant tweets (default)
+  Latest   — most recent tweets, reverse chronological
+  People   — user accounts matching the query
+  Media    — tweets containing images or video
+
+Uses the browser session path. Requires an active browser session.
+
+Examples:
+  $ assistant x search "AI agents"
+  $ assistant x search "from:elonmusk SpaceX" --product Latest
+  $ assistant x search "machine learning" --product Media --json`,
+    )
     .action(async (query: string, opts: { product: string }, cmd: Command) => {
       await run(cmd, async () => {
         const tweets = await searchTweets(
@@ -411,6 +669,20 @@ export function registerTwitterCommand(program: Command): void {
   tw.command("bookmarks")
     .description("Fetch your bookmarks")
     .option("--count <n>", "Number of bookmarks", "20")
+    .addHelpText(
+      "after",
+      `
+Fetches the authenticated user's bookmarked tweets via the browser session.
+The --count flag controls how many bookmarks to return (default: 20).
+
+Requires an active browser session. Bookmarks are private and only available
+for the logged-in account.
+
+Examples:
+  $ assistant x bookmarks
+  $ assistant x bookmarks --count 50
+  $ assistant x bookmarks --json`,
+    )
     .action(async (opts: { count: string }, cmd: Command) => {
       await run(cmd, async () => {
         const tweets = await getBookmarks(parseInt(opts.count, 10));
@@ -424,6 +696,19 @@ export function registerTwitterCommand(program: Command): void {
   tw.command("home")
     .description("Fetch your home timeline")
     .option("--count <n>", "Number of tweets", "20")
+    .addHelpText(
+      "after",
+      `
+Fetches the authenticated user's home timeline (the "For You" feed) via the
+browser session. The --count flag controls how many tweets to return (default: 20).
+
+Requires an active browser session.
+
+Examples:
+  $ assistant x home
+  $ assistant x home --count 50
+  $ assistant x home --json`,
+    )
     .action(async (opts: { count: string }, cmd: Command) => {
       await run(cmd, async () => {
         const tweets = await getHomeTimeline(parseInt(opts.count, 10));
@@ -437,6 +722,20 @@ export function registerTwitterCommand(program: Command): void {
   tw.command("notifications")
     .description("Fetch your notifications")
     .option("--count <n>", "Number of notifications", "20")
+    .addHelpText(
+      "after",
+      `
+Fetches the authenticated user's Twitter notifications (mentions, likes,
+retweets, follows, etc.) via the browser session. The --count flag controls
+how many notifications to return (default: 20).
+
+Requires an active browser session.
+
+Examples:
+  $ assistant x notifications
+  $ assistant x notifications --count 50
+  $ assistant x notifications --json`,
+    )
     .action(async (opts: { count: string }, cmd: Command) => {
       await run(cmd, async () => {
         const notifications = await getNotifications(parseInt(opts.count, 10));
@@ -451,6 +750,21 @@ export function registerTwitterCommand(program: Command): void {
     .description("Fetch a user's liked tweets")
     .argument("<screenName>", "Twitter screen name (without @)")
     .option("--count <n>", "Number of likes", "20")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  screenName   Twitter screen name without the @ prefix (e.g. "elonmusk", not "@elonmusk")
+
+Fetches tweets liked by the specified user via the browser session. Resolves the
+screen name to a user ID first. The --count flag controls how many liked tweets
+to return (default: 20).
+
+Examples:
+  $ assistant x likes elonmusk
+  $ assistant x likes vaborsh --count 50
+  $ assistant x likes openai --json`,
+    )
     .action(
       async (screenName: string, opts: { count: string }, cmd: Command) => {
         await run(cmd, async () => {
@@ -467,6 +781,19 @@ export function registerTwitterCommand(program: Command): void {
   tw.command("followers")
     .description("Fetch a user's followers")
     .argument("<screenName>", "Twitter screen name (without @)")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  screenName   Twitter screen name without the @ prefix (e.g. "elonmusk", not "@elonmusk")
+
+Fetches the list of accounts following the specified user via the browser session.
+Resolves the screen name to a user ID first.
+
+Examples:
+  $ assistant x followers elonmusk
+  $ assistant x followers vaborsh --json`,
+    )
     .action(async (screenName: string, _opts: unknown, cmd: Command) => {
       await run(cmd, async () => {
         const cleanName = screenName.replace(/^@/, "");
@@ -483,6 +810,21 @@ export function registerTwitterCommand(program: Command): void {
     .description("Fetch who a user follows")
     .argument("<screenName>", "Twitter screen name (without @)")
     .option("--count <n>", "Number of following", "20")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  screenName   Twitter screen name without the @ prefix (e.g. "elonmusk", not "@elonmusk")
+
+Fetches the list of accounts the specified user follows via the browser session.
+Resolves the screen name to a user ID first. The --count flag controls how many
+results to return (default: 20).
+
+Examples:
+  $ assistant x following elonmusk
+  $ assistant x following vaborsh --count 100
+  $ assistant x following openai --json`,
+    )
     .action(
       async (screenName: string, opts: { count: string }, cmd: Command) => {
         await run(cmd, async () => {
@@ -503,6 +845,21 @@ export function registerTwitterCommand(program: Command): void {
     .description("Fetch a user's media tweets")
     .argument("<screenName>", "Twitter screen name (without @)")
     .option("--count <n>", "Number of media tweets", "20")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  screenName   Twitter screen name without the @ prefix (e.g. "elonmusk", not "@elonmusk")
+
+Fetches tweets containing images or video from the specified user via the browser
+session. Resolves the screen name to a user ID first. The --count flag controls
+how many media tweets to return (default: 20).
+
+Examples:
+  $ assistant x media elonmusk
+  $ assistant x media nasa --count 50
+  $ assistant x media openai --json`,
+    )
     .action(
       async (screenName: string, opts: { count: string }, cmd: Command) => {
         await run(cmd, async () => {
@@ -613,108 +970,13 @@ function sendDaemonMessage(
 }
 
 // ---------------------------------------------------------------------------
-// Chrome CDP restart helper
+// Chrome CDP helpers (shared)
 // ---------------------------------------------------------------------------
 
-import { spawn as spawnChild } from "node:child_process";
-import { homedir } from "node:os";
-import { join as pathJoin } from "node:path";
-
-const CDP_BASE = "http://localhost:9222";
-const CHROME_DATA_DIR = pathJoin(
-  homedir(),
-  "Library/Application Support/Google/Chrome-CDP",
-);
-
-async function isCdpReady(): Promise<boolean> {
-  try {
-    const res = await fetch(`${CDP_BASE}/json/version`);
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureChromeWithCDP(): Promise<void> {
-  // Already running with CDP?
-  if (await isCdpReady()) return;
-
-  // Launch a separate Chrome instance with CDP flags alongside any existing Chrome.
-  // Using a dedicated --user-data-dir allows coexistence without killing the user's browser.
-  const chromeApp =
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-  spawnChild(
-    chromeApp,
-    [
-      `--remote-debugging-port=9222`,
-      `--force-renderer-accessibility`,
-      `--user-data-dir=${CHROME_DATA_DIR}`,
-      "https://x.com/login",
-    ],
-    {
-      detached: true,
-      stdio: "ignore",
-    },
-  ).unref();
-
-  // Wait for CDP to be ready
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    if (await isCdpReady()) return;
-  }
-  throw new Error("Chrome started but CDP endpoint not responding after 15s");
-}
-
-async function minimizeChromeWindow(): Promise<void> {
-  const res = await fetch(`${CDP_BASE}/json/list`);
-  const targets = (await res.json()) as Array<{
-    type: string;
-    webSocketDebuggerUrl: string;
-  }>;
-  const pageTarget = targets.find((t) => t.type === "page");
-  if (!pageTarget) return;
-
-  const ws = new WebSocket(pageTarget.webSocketDebuggerUrl);
-
-  await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("CDP minimize timed out"));
-    }, 5000);
-
-    ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ id: 1, method: "Browser.getWindowForTarget" }));
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(String(event.data)) as {
-        id: number;
-        result?: { windowId: number };
-      };
-      if (msg.id === 1 && msg.result) {
-        ws.send(
-          JSON.stringify({
-            id: 2,
-            method: "Browser.setWindowBounds",
-            params: {
-              windowId: msg.result.windowId,
-              bounds: { windowState: "minimized" },
-            },
-          }),
-        );
-      } else if (msg.id === 2) {
-        clearTimeout(timeout);
-        ws.close();
-        resolve();
-      }
-    });
-
-    ws.addEventListener("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
+import {
+  ensureChromeWithCdp,
+  minimizeChromeWindow,
+} from "../tools/browser/chrome-cdp.js";
 
 // ---------------------------------------------------------------------------
 // Ride Shotgun learn session helper
@@ -725,9 +987,9 @@ interface LearnResult {
   recordingPath?: string;
 }
 
-async function navigateToX(): Promise<void> {
+async function navigateToX(cdpBase: string): Promise<void> {
   try {
-    const res = await fetch(`${CDP_BASE}/json/list`);
+    const res = await fetch(`${cdpBase}/json/list`);
     if (!res.ok) return;
     const targets = (await res.json()) as Array<{
       id: string;
@@ -737,7 +999,7 @@ async function navigateToX(): Promise<void> {
     const tab = targets.find((t) => t.type === "page");
     if (!tab) return;
     await fetch(
-      `${CDP_BASE}/json/navigate?url=${encodeURIComponent(
+      `${cdpBase}/json/navigate?url=${encodeURIComponent(
         "https://x.com/login",
       )}&id=${tab.id}`,
       { method: "PUT" },
@@ -750,8 +1012,10 @@ async function navigateToX(): Promise<void> {
 async function startLearnSession(
   durationSeconds: number,
 ): Promise<LearnResult> {
-  await ensureChromeWithCDP();
-  await navigateToX();
+  const cdpSession = await ensureChromeWithCdp({
+    startUrl: "https://x.com/login",
+  });
+  await navigateToX(cdpSession.baseUrl);
 
   return new Promise((resolve, reject) => {
     const socketPath = getSocketPath();
@@ -810,6 +1074,13 @@ async function startLearnSession(
         }
 
         if (m.type === "auth_result") {
+          continue;
+        }
+
+        if (m.type === "ride_shotgun_error") {
+          clearTimeout(timeoutHandle);
+          socket.destroy();
+          reject(new Error((m as { message: string }).message));
           continue;
         }
 

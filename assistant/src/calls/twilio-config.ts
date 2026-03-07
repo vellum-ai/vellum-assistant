@@ -4,7 +4,6 @@ import {
   getPublicBaseUrl,
   getTwilioRelayUrl,
 } from "../inbound/public-ingress-urls.js";
-import { getSecureKey } from "../security/secure-keys.js";
 import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 
@@ -18,29 +17,35 @@ export interface TwilioConfig {
   wssBaseUrl: string;
 }
 
-function resolveTwilioPhoneNumber(
-  config: ReturnType<typeof loadConfig>,
-  assistantId?: string,
-): string {
-  if (assistantId) {
-    const scoped = (
-      config.sms?.assistantPhoneNumbers as Record<string, string> | undefined
-    )?.[assistantId];
-    if (scoped) return scoped;
+/**
+ * Resolve the Twilio phone number using a unified fallback chain so that
+ * all callers (calls, SMS adapter, readiness checks, invite transports)
+ * agree on the same number.
+ *
+ * Resolution order:
+ *   1. TWILIO_PHONE_NUMBER env var
+ *   2. config.twilio?.phoneNumber
+ *   3. ""
+ */
+export function resolveTwilioPhoneNumber(): string {
+  const fromEnv = getTwilioPhoneNumberEnv();
+  if (fromEnv) return fromEnv;
+
+  try {
+    const config = loadConfig();
+    if (config.twilio?.phoneNumber) return config.twilio.phoneNumber;
+  } catch {
+    // Config may not be available yet during early startup
   }
-  return (
-    getTwilioPhoneNumberEnv() ||
-    config.sms?.phoneNumber ||
-    getSecureKey("credential:twilio:phone_number") ||
-    ""
-  );
+
+  return "";
 }
 
-export function getTwilioConfig(assistantId?: string): TwilioConfig {
-  const accountSid = getSecureKey("credential:twilio:account_sid");
-  const authToken = getSecureKey("credential:twilio:auth_token");
+export function getTwilioConfig(): TwilioConfig {
   const config = loadConfig();
-  const phoneNumber = resolveTwilioPhoneNumber(config, assistantId);
+  const accountSid = config.twilio?.accountSid || "";
+  const authToken = config.twilio?.authToken || "";
+  const phoneNumber = resolveTwilioPhoneNumber();
   const webhookBaseUrl = getPublicBaseUrl(config);
 
   let wssBaseUrl: string;
@@ -52,7 +57,7 @@ export function getTwilioConfig(assistantId?: string): TwilioConfig {
 
   if (!accountSid || !authToken) {
     throw new ConfigError(
-      "Twilio credentials not configured. Set credential:twilio:account_sid and credential:twilio:auth_token via the credential_store tool.",
+      "Twilio credentials not configured. Set twilio.accountSid and twilio.authToken via config.",
     );
   }
   if (!phoneNumber) {

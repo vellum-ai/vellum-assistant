@@ -266,6 +266,7 @@ export class PermissionChecker {
           persistentDecisionsAllowed,
           context.signal,
           temporaryOptionsAvailable,
+          context.toolUseId,
         );
 
         const decision = response.decision;

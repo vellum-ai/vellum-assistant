@@ -19,8 +19,12 @@ import {
   uploadAttachment,
   validateAttachmentUpload,
 } from "../memory/attachments-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
-import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import {
+  addMessage,
+  provenanceFromTrustContext,
+  setConversationOriginChannelIfUnset,
+  setConversationOriginInterfaceIfUnset,
+} from "../memory/conversation-crud.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
@@ -317,7 +321,7 @@ export async function persistUserMessage(
           ).content,
         )
       : JSON.stringify(userMessage.content);
-    const persistedUserMessage = await conversationStore.addMessage(
+    const persistedUserMessage = await addMessage(
       ctx.conversationId,
       "user",
       contentToPersist,
@@ -325,13 +329,13 @@ export async function persistUserMessage(
     );
 
     if (turnCtx) {
-      conversationStore.setConversationOriginChannelIfUnset(
+      setConversationOriginChannelIfUnset(
         ctx.conversationId,
         turnCtx.userMessageChannel,
       );
     }
     if (turnIfCtx) {
-      conversationStore.setConversationOriginInterfaceIfUnset(
+      setConversationOriginInterfaceIfUnset(
         ctx.conversationId,
         turnIfCtx.userMessageInterface,
       );
@@ -403,7 +407,7 @@ export function redirectToSecurePrompt(
     .then(async (result): Promise<void> => {
       if (!result.value) return;
 
-      const { setSecureKey } = await import("../security/secure-keys.js");
+      const { setSecureKeyAsync } = await import("../security/secure-keys.js");
       const { upsertCredentialMetadata } =
         await import("../tools/credentials/metadata-store.js");
 
@@ -435,7 +439,7 @@ export function redirectToSecurePrompt(
         );
       } else {
         const key = `credential:${target.service}:${target.field}`;
-        const stored = setSecureKey(key, result.value);
+        const stored = await setSecureKeyAsync(key, result.value);
         if (stored) {
           try {
             upsertCredentialMetadata(target.service, target.field, {});

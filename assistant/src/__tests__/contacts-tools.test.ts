@@ -26,8 +26,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -74,7 +72,6 @@ initializeDb();
 
 // ── Lightweight gateway stub ─────────────────────────────────────────────────
 
-const TEST_ASSISTANT_ID = "test-assistant";
 let testServer: ReturnType<typeof Bun.serve>;
 
 beforeAll(() => {
@@ -85,17 +82,17 @@ beforeAll(() => {
       const path = url.pathname;
 
       if (path === "/v1/contacts/merge" && req.method === "POST") {
-        return handleMergeContacts(req, TEST_ASSISTANT_ID);
+        return handleMergeContacts(req);
       }
       if (path === "/v1/contacts" && req.method === "GET") {
-        return handleListContacts(url, TEST_ASSISTANT_ID);
+        return handleListContacts(url);
       }
       if (path === "/v1/contacts" && req.method === "POST") {
-        return handleUpsertContact(req, TEST_ASSISTANT_ID);
+        return handleUpsertContact(req);
       }
       const idMatch = path.match(/^\/v1\/contacts\/([^/]+)$/);
       if (idMatch && req.method === "GET") {
-        return handleGetContact(idMatch[1], TEST_ASSISTANT_ID);
+        return handleGetContact(idMatch[1]);
       }
       return new Response("Not found", { status: 404 });
     },

@@ -10,6 +10,9 @@ struct RecordingSourcePickerView: View {
     var onStart: (IPCRecordingOptions) -> Void
     var onCancel: () -> Void
 
+    @State private var hoveredDisplayId: UInt32?
+    @State private var hoveredWindowId: Int?
+
     /// Row thumbnail size (80x50pt).
     private let rowThumbnailSize = CGSize(width: 80, height: 50)
     /// Preview pane height.
@@ -21,13 +24,13 @@ struct RecordingSourcePickerView: View {
             Text("Screen Recording")
                 .font(VFont.title)
                 .foregroundColor(VColor.textPrimary)
-                .padding(.top, VSpacing.md)
+                .padding(.top, VSpacing.sm)
                 .padding(.bottom, VSpacing.sm)
 
             Text("Choose what to record")
                 .font(VFont.body)
                 .foregroundColor(VColor.textSecondary)
-                .padding(.bottom, VSpacing.md)
+                .padding(.bottom, VSpacing.sm)
 
             // Scope picker (Display / Window)
             VSegmentedControl(
@@ -62,7 +65,7 @@ struct RecordingSourcePickerView: View {
             bottomBar
         }
         .frame(width: 420)
-        .background(VColor.background)
+        .background(VColor.surface)
         .task {
             await viewModel.loadSources()
             await viewModel.loadPreviews()
@@ -136,6 +139,8 @@ struct RecordingSourcePickerView: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.xs)
+        .animation(VAnimation.fast, value: hoveredDisplayId)
+        .animation(VAnimation.fast, value: hoveredWindowId)
     }
 
     /// Source list that hugs content when items fit, scrolls when they overflow.
@@ -166,8 +171,7 @@ struct RecordingSourcePickerView: View {
                     size: rowThumbnailSize
                 )
 
-                Image(systemName: "macwindow")
-                    .font(.system(size: 16))
+                VIconView(.appWindow, size: 16)
                     .foregroundColor(isSelected ? VColor.accent : VColor.textSecondary)
                     .frame(width: 24)
 
@@ -187,8 +191,7 @@ struct RecordingSourcePickerView: View {
                 Spacer()
 
                 if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18))
+                    VIconView(.circleCheck, size: 18)
                         .foregroundColor(VColor.accent)
                 }
             }
@@ -197,7 +200,7 @@ struct RecordingSourcePickerView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
+                    .fill(isSelected ? VColor.accent.opacity(0.1) : (hoveredWindowId == window.id ? VColor.ghostHover : Color.clear))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
@@ -205,6 +208,13 @@ struct RecordingSourcePickerView: View {
             )
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering {
+                hoveredWindowId = window.id
+            } else if hoveredWindowId == window.id {
+                hoveredWindowId = nil
+            }
+        }
     }
 
     /// Row for a display source showing name, resolution + scale, and a badge
@@ -242,8 +252,7 @@ struct RecordingSourcePickerView: View {
                 Spacer()
 
                 if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18))
+                    VIconView(.circleCheck, size: 18)
                         .foregroundColor(VColor.accent)
                 }
             }
@@ -252,7 +261,7 @@ struct RecordingSourcePickerView: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isSelected ? VColor.accent.opacity(0.1) : Color.clear)
+                    .fill(isSelected ? VColor.accent.opacity(0.1) : (hoveredDisplayId == display.id ? VColor.ghostHover : Color.clear))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
@@ -260,12 +269,18 @@ struct RecordingSourcePickerView: View {
             )
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering {
+                hoveredDisplayId = display.id
+            } else if hoveredDisplayId == display.id {
+                hoveredDisplayId = nil
+            }
+        }
     }
 
     private func emptyState(_ message: String) -> some View {
         VStack(spacing: VSpacing.sm) {
-            Image(systemName: "rectangle.dashed")
-                .font(.system(size: 32))
+            VIconView(.squareDashed, size: 32)
                 .foregroundColor(VColor.textMuted)
             Text(message)
                 .font(VFont.body)
@@ -281,7 +296,7 @@ struct RecordingSourcePickerView: View {
         VStack(spacing: VSpacing.lg) {
             // Audio toggles — icon + text left, toggle right (space-between)
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "speaker.wave.2")
+                VIconView(.volume2, size: 14)
                     .foregroundColor(VColor.textSecondary)
                     .frame(width: 20)
                 Text("System audio")
@@ -295,7 +310,7 @@ struct RecordingSourcePickerView: View {
 
             if #available(macOS 14, *) {
                 HStack(spacing: VSpacing.sm) {
-                    Image(systemName: "mic")
+                    VIconView(.mic, size: 14)
                         .foregroundColor(VColor.textSecondary)
                         .frame(width: 20)
                     Text("Microphone")
@@ -338,7 +353,7 @@ struct RecordingSourcePickerView: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.vertical, VSpacing.lg)
+        .padding(.vertical, VSpacing.md)
     }
 }
 

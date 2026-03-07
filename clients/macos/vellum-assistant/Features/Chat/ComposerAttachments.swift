@@ -35,8 +35,7 @@ extension ComposerView {
                     .fill(VColor.surfaceBorder.opacity(0.5))
                     .frame(width: 28, height: 28)
                     .overlay {
-                        Image(systemName: iconForMimeType(attachment.mimeType, filename: attachment.filename))
-                            .font(.system(size: 14))
+                        VIconView(iconForMimeType(attachment.mimeType, filename: attachment.filename), size: 14)
                             .foregroundColor(VColor.textSecondary)
                     }
             }
@@ -54,8 +53,7 @@ extension ComposerView {
             Button {
                 onRemoveAttachment(attachment.id)
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10))
+                VIconView(.x, size: 10)
                     .foregroundColor(VColor.textMuted)
             }
             .buttonStyle(.plain)
@@ -84,16 +82,16 @@ extension ComposerView {
         }
     }
 
-    func iconForMimeType(_ mimeType: String, filename: String) -> String {
-        if mimeType == "application/pdf" { return "doc.fill" }
-        if mimeType.hasPrefix("text/") { return "doc.text.fill" }
-        if mimeType.hasPrefix("image/") { return "photo" }
+    func iconForMimeType(_ mimeType: String, filename: String) -> VIcon {
+        if mimeType == "application/pdf" { return .file }
+        if mimeType.hasPrefix("text/") { return .fileText }
+        if mimeType.hasPrefix("image/") { return .image }
         let ext = filename.split(separator: ".").last.map(String.init) ?? ""
         switch ext.lowercased() {
-        case "pdf": return "doc.fill"
-        case "csv": return "tablecells"
-        case "md", "txt": return "doc.text.fill"
-        default: return "doc.fill"
+        case "pdf": return .file
+        case "csv": return .table
+        case "md", "txt": return .fileText
+        default: return .file
         }
     }
 }

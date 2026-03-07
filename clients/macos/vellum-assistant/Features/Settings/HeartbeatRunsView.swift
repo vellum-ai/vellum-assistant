@@ -26,8 +26,7 @@ struct HeartbeatRunsView: View {
             if runs.isEmpty {
                 Spacer()
                 VStack(spacing: VSpacing.sm) {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.largeTitle)
+                    VIconView(.history, size: 32)
                         .foregroundColor(VColor.textMuted)
                     Text("No heartbeat runs yet")
                         .font(VFont.body)
@@ -56,8 +55,7 @@ struct HeartbeatRunsView: View {
                                                 .foregroundColor(VColor.textMuted)
                                         }
                                         Spacer()
-                                        Image(systemName: expandedRunId == run.id ? "chevron.down" : "chevron.right")
-                                            .font(.system(size: 10, weight: .semibold))
+                                        VIconView(expandedRunId == run.id ? .chevronDown : .chevronRight, size: 10)
                                             .foregroundColor(VColor.textMuted)
                                     }
                                     .padding(VSpacing.sm)
@@ -106,7 +104,7 @@ struct HeartbeatRunsView: View {
             switch result {
             case "ok":
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "checkmark.circle.fill")
+                    VIconView(.circleCheck, size: 14)
                         .foregroundColor(VColor.success)
                     Text("OK")
                         .font(VFont.captionMedium)
@@ -114,7 +112,7 @@ struct HeartbeatRunsView: View {
                 }
             case "alert":
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                    VIconView(.triangleAlert, size: 14)
                         .foregroundColor(VColor.warning)
                     Text("ALERT")
                         .font(VFont.captionMedium)
@@ -122,7 +120,7 @@ struct HeartbeatRunsView: View {
                 }
             default:
                 HStack(spacing: VSpacing.xs) {
-                    Image(systemName: "questionmark.circle")
+                    VIconView(.info, size: 14)
                         .foregroundColor(VColor.textMuted)
                     Text("--")
                         .font(VFont.captionMedium)

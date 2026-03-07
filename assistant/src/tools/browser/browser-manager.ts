@@ -1,11 +1,11 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
 import { authSessionCache } from "./auth-cache.js";
 import type { ExtractedCredential } from "./network-recording-types.js";
-import { checkBrowserRuntime } from "./runtime-check.js";
+import { importPlaywright } from "./runtime-check.js";
 
 const log = getLogger("browser-manager");
 
@@ -23,6 +23,30 @@ function getDownloadsDir(): string {
   const dir = join(getDataDir(), "browser-downloads");
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/** Wraps a promise with a timeout to prevent indefinite hangs. */
+export function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms,
+    );
+    promise.then(
+      (val) => {
+        clearTimeout(timer);
+        resolve(val);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 export type DownloadInfo = { path: string; filename: string };
@@ -129,11 +153,6 @@ export function setLaunchFn(fn: LaunchFn | null): void {
   launchPersistentContext = fn;
 }
 
-async function getDefaultLaunchFn(): Promise<LaunchFn> {
-  const pw = await import("playwright");
-  return pw.chromium.launchPersistentContext.bind(pw.chromium);
-}
-
 function getProfileDir(): string {
   return join(getDataDir(), "browser-profile");
 }
@@ -168,10 +187,24 @@ class BrowserManager {
     this.contextCreating = (async () => {
       await authSessionCache.load();
 
-      // Auto-install Chromium if needed (skip when test launcher is injected)
-      if (!launchPersistentContext) {
-        const status = await checkBrowserRuntime();
-        if (status.playwrightAvailable && !status.chromiumInstalled) {
+      // Resolve launch function: use injected test launcher or resolve
+      // playwright (may install at runtime in compiled binaries).
+      let launch: LaunchFn;
+      if (launchPersistentContext) {
+        launch = launchPersistentContext;
+      } else {
+        const pw = await importPlaywright();
+
+        // Auto-install Chromium if the browser binary is missing
+        let chromiumInstalled = false;
+        try {
+          const execPath = pw.chromium.executablePath();
+          chromiumInstalled = existsSync(execPath);
+        } catch {
+          // executablePath() may throw if registry is missing
+        }
+
+        if (!chromiumInstalled) {
           log.info("Chromium not installed, installing via playwright...");
           const proc = Bun.spawn(
             ["bunx", "playwright", "install", "chromium"],
@@ -204,11 +237,12 @@ class BrowserManager {
             throw new Error(`Failed to install Chromium: ${msg}`);
           }
         }
+
+        launch = pw.chromium.launchPersistentContext.bind(pw.chromium);
       }
 
       const profileDir = getProfileDir();
       mkdirSync(profileDir, { recursive: true });
-      const launch = launchPersistentContext ?? (await getDefaultLaunchFn());
       const headless = !canDisplayGui();
       const ctx = await launch(profileDir, { headless });
       log.info(
@@ -669,7 +703,7 @@ class BrowserManager {
       try {
         const filename = dl.suggestedFilename();
         const destPath = join(getDownloadsDir(), `${Date.now()}-${filename}`);
-        await dl.saveAs(destPath);
+        await withTimeout(dl.saveAs(destPath), 120_000, "Download save");
         const info: DownloadInfo = { path: destPath, filename };
 
         // Resolve a pending waiter if one exists, otherwise store for later retrieval
@@ -686,7 +720,11 @@ class BrowserManager {
 
         log.info({ sessionId, filename, path: destPath }, "Download completed");
       } catch (err) {
-        const failure = await dl.failure();
+        const failure = await withTimeout(
+          dl.failure(),
+          5_000,
+          "Download failure check",
+        ).catch(() => null);
         log.warn({ err, failure, sessionId }, "Download failed");
 
         // Reject any pending waiters

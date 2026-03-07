@@ -5,7 +5,7 @@
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "guardian-verify-binding-test-")),
@@ -66,6 +66,14 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
   getTwilioStatusCallbackUrl: () => "https://test.example.com/status",
 }));
 
+mock.module("../calls/voice-ingress-preflight.js", () => ({
+  preflightVoiceIngress: async () => ({
+    ok: true as const,
+    ingressConfig: {},
+    publicBaseUrl: "https://test.example.com",
+  }),
+}));
+
 mock.module("../config/loader.js", () => ({
   loadConfig: () => ({
     calls: {
@@ -76,7 +84,26 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../inbound/platform-callback-registration.js", () => ({
+  resolveCallbackUrl: async (fn: () => string) => fn(),
+  shouldUsePlatformCallbacks: () => false,
+}));
+
+let mockPreflightResult:
+  | { ok: true; ingressConfig: unknown; publicBaseUrl: string }
+  | { ok: false; error: string; status: 503 } = {
+  ok: true,
+  ingressConfig: {
+    ingress: { enabled: true, publicBaseUrl: "https://test.example.com" },
+  },
+  publicBaseUrl: "https://test.example.com",
+};
+
+mock.module("../calls/voice-ingress-preflight.js", () => ({
+  preflightVoiceIngress: async () => mockPreflightResult,
+}));
+
+mock.module("../runtime/channel-verification-service.js", () => ({
   isGuardian: () => false,
 }));
 
@@ -84,7 +111,7 @@ mock.module("../memory/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: () => {},
 }));
 
-import { startGuardianVerificationCall } from "../calls/call-domain.js";
+import { startVerificationCall } from "../calls/call-domain.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { initializeDb, resetDb } from "../memory/db.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
@@ -100,12 +127,23 @@ afterAll(() => {
   }
 });
 
-describe("startGuardianVerificationCall — voice binding", () => {
+describe("startVerificationCall — voice binding", () => {
+  beforeEach(() => {
+    mockPreflightResult = {
+      ok: true as const,
+      ingressConfig: {
+        calls: { callerIdentity: { allowPerCallOverride: true } },
+        ingress: { enabled: true, publicBaseUrl: "https://test.example.com" },
+      },
+      publicBaseUrl: "https://test.example.com",
+    };
+  });
+
   test("creates a voice channel binding for the guardian verification conversation", async () => {
     const sessionId = "gv-session-001";
-    const result = await startGuardianVerificationCall({
+    const result = await startVerificationCall({
       phoneNumber: "+15559999999",
-      guardianVerificationSessionId: sessionId,
+      verificationSessionId: sessionId,
     });
 
     expect(result.ok).toBe(true);
@@ -118,5 +156,24 @@ describe("startGuardianVerificationCall — voice binding", () => {
     const binding = getBindingByConversation(conversationId);
     expect(binding).not.toBeNull();
     expect(binding!.sourceChannel).toBe("voice");
+  });
+
+  test("fails with 503 when voice ingress preflight fails", async () => {
+    mockPreflightResult = {
+      ok: false,
+      error: "Voice callback gateway is unhealthy",
+      status: 503,
+    };
+
+    const result = await startVerificationCall({
+      phoneNumber: "+15559999999",
+      verificationSessionId: "gv-session-preflight-fail",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(503);
+      expect(result.error).toContain("Voice callback gateway is unhealthy");
+    }
   });
 });

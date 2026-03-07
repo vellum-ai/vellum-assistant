@@ -40,8 +40,7 @@ struct SurfaceContainerView: View {
                     }
                     Spacer()
                     Button(action: { viewModel.onDismiss() }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .semibold))
+                        VIconView(.x, size: 10)
                             .foregroundColor(VColor.textSecondary)
                     }
                     .buttonStyle(.plain)
@@ -98,7 +97,7 @@ struct SurfaceContainerView: View {
             case .table, .documentPreview:
                 // These surfaces are rendered inline in chat, not in floating panels.
                 EmptyView()
-            case .stripped:
+            case .stripped, .strippedFailed:
                 EmptyView()
             }
 
@@ -116,7 +115,7 @@ struct SurfaceContainerView: View {
         switch surface.data {
         case .form, .confirmation, .dynamicPage, .fileUpload:
             return true
-        case .card, .list, .table, .documentPreview, .stripped:
+        case .card, .list, .table, .documentPreview, .stripped, .strippedFailed:
             return false
         }
     }

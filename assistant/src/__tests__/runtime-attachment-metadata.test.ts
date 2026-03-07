@@ -49,14 +49,21 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+mock.module("../security/secret-ingress.js", () => ({
+  checkIngressForSecrets: () => ({ blocked: false }),
+}));
+
+import { upsertContact } from "../contacts/contact-store.js";
 import {
   linkAttachmentToMessage,
   uploadAttachment,
 } from "../memory/attachments-store.js";
+import * as conversationStore from "../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import * as deliveryChannels from "../memory/delivery-channels.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 initializeDb();
 
@@ -225,5 +232,157 @@ describe("Runtime attachment metadata", () => {
 
     expect(res.status).toBe(404);
     expect(body.error.message).toBe("Attachment not found");
+  });
+});
+
+describe("WhatsApp channel ingress attachment resolution", () => {
+  const WHATSAPP_USER_ID = "whatsapp-user-123";
+  let ingressServer: RuntimeHttpServer;
+  let ingressPort: number;
+
+  function resetIngressTables(): void {
+    resetTestTables(
+      "message_attachments",
+      "attachments",
+      "channel_inbound_events",
+      "message_runs",
+      "messages",
+      "conversations",
+      "conversation_keys",
+      "contact_channels",
+      "contacts",
+    );
+    deliveryChannels.resetAllRunDeliveryClaims();
+    pendingInteractions.clear();
+  }
+
+  function ensureWhatsAppContact(): void {
+    upsertContact({
+      displayName: "WhatsApp Test User",
+      channels: [
+        {
+          type: "whatsapp",
+          address: WHATSAPP_USER_ID,
+          externalUserId: WHATSAPP_USER_ID,
+          status: "active",
+          policy: "allow",
+        },
+      ],
+    });
+  }
+
+  function makeInboundBody(
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      sourceChannel: "whatsapp",
+      interface: "whatsapp",
+      conversationExternalId: "whatsapp-chat-1",
+      actorExternalId: WHATSAPP_USER_ID,
+      externalMessageId: `wa-msg-${Date.now()}-${Math.random()}`,
+      content: "Check these attachments",
+      replyCallbackUrl: "https://gateway.test/deliver",
+      ...overrides,
+    };
+  }
+
+  // Create a real message in the DB so the background dispatch's
+  // linkMessage(eventId, userMessageId) FK constraint is satisfied.
+  const noopProcessMessage = mock(
+    async (conversationId: string, content: string) => {
+      const msg = await conversationStore.addMessage(
+        conversationId,
+        "user",
+        content,
+      );
+      return { messageId: msg.id };
+    },
+  );
+
+  beforeEach(async () => {
+    resetIngressTables();
+    ensureWhatsAppContact();
+    noopProcessMessage.mockClear();
+
+    ingressPort = 18000 + Math.floor(Math.random() * 1000);
+    ingressServer = new RuntimeHttpServer({
+      port: ingressPort,
+      bearerToken: TEST_TOKEN,
+      processMessage: noopProcessMessage,
+    });
+    await ingressServer.start();
+  });
+
+  afterEach(async () => {
+    await ingressServer?.stop();
+  });
+
+  test("inbound handler accepts request with valid gateway-uploaded attachment IDs", async () => {
+    // Simulate what the gateway does: upload attachments then forward the
+    // inbound event with attachmentIds. The handler must resolve them.
+    const img = uploadAttachment(
+      "whatsapp-photo.jpg",
+      "image/jpeg",
+      "/9j/4AAQ",
+    );
+    const doc = uploadAttachment("receipt.pdf", "application/pdf", "JVBERi0x");
+
+    const res = await fetch(
+      `http://127.0.0.1:${ingressPort}/v1/channels/inbound`,
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify(
+          makeInboundBody({ attachmentIds: [img.id, doc.id] }),
+        ),
+      },
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(200);
+    expect(body.accepted).toBe(true);
+  });
+
+  test("inbound handler rejects request when some attachment IDs are missing", async () => {
+    // When the gateway fails to upload one attachment, the handler detects
+    // the missing ID and returns a 400.
+    const valid = uploadAttachment("ok.jpg", "image/jpeg", "base64ok");
+
+    const res = await fetch(
+      `http://127.0.0.1:${ingressPort}/v1/channels/inbound`,
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify(
+          makeInboundBody({
+            attachmentIds: [valid.id, "nonexistent-whatsapp-att"],
+          }),
+        ),
+      },
+    );
+    const body = (await res.json()) as { error?: string };
+
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("nonexistent-whatsapp-att");
+  });
+
+  test("inbound handler accepts attachment-only message with no text content", async () => {
+    // WhatsApp allows sending images/documents without caption text.
+    const img = uploadAttachment("photo.jpg", "image/jpeg", "/9j/4AAQ");
+
+    const res = await fetch(
+      `http://127.0.0.1:${ingressPort}/v1/channels/inbound`,
+      {
+        method: "POST",
+        headers: { ...AUTH_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify(
+          makeInboundBody({ content: "", attachmentIds: [img.id] }),
+        ),
+      },
+    );
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(200);
+    expect(body.accepted).toBe(true);
   });
 });

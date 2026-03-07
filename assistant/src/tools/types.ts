@@ -167,6 +167,8 @@ export interface ToolContext {
   requesterChatId?: string;
   /** Slack channel ID for channel-scoped permission enforcement. When set, tools are checked against the channel's permission profile. */
   channelPermissionChannelId?: string;
+  /** The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations. */
+  toolUseId?: string;
 }
 
 export interface DiffInfo {

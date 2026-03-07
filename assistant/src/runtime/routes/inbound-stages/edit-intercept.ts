@@ -12,8 +12,8 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import { touchContactInteraction } from "../../../contacts/contacts-write.js";
-import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
-import * as conversationStore from "../../../memory/conversation-store.js";
+import { updateMessageContent } from "../../../memory/conversation-crud.js";
+import * as deliveryCrud from "../../../memory/delivery-crud.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("runtime-http");
@@ -56,7 +56,7 @@ export async function handleEditIntercept(
   } = params;
 
   // Dedup the edit event itself (retried edited_message webhooks)
-  const editResult = channelDeliveryStore.recordInbound(
+  const editResult = deliveryCrud.recordInbound(
     sourceChannel,
     conversationExternalId,
     externalMessageId,
@@ -85,7 +85,7 @@ export async function handleEditIntercept(
 
   let original: { messageId: string; conversationId: string } | null = null;
   for (let attempt = 0; attempt <= EDIT_LOOKUP_RETRIES; attempt++) {
-    original = channelDeliveryStore.findMessageBySourceId(
+    original = deliveryCrud.findMessageBySourceId(
       sourceChannel,
       conversationExternalId,
       sourceMessageId,
@@ -106,7 +106,7 @@ export async function handleEditIntercept(
   }
 
   if (original) {
-    conversationStore.updateMessageContent(original.messageId, content ?? "");
+    updateMessageContent(original.messageId, content ?? "");
     log.info(
       { assistantId, sourceMessageId, messageId: original.messageId },
       "Updated message content from edited_message",

@@ -115,8 +115,7 @@ struct QRPairingSheet: View {
         VStack(spacing: VSpacing.xl) {
             Spacer()
 
-            Image(systemName: "laptopcomputer.and.iphone")
-                .font(.system(size: 48))
+            VIconView(.laptop, size: 48)
                 .foregroundColor(VColor.accent)
 
             Text("Waiting for Approval")
@@ -156,8 +155,7 @@ struct QRPairingSheet: View {
         VStack(spacing: VSpacing.xl) {
             Spacer()
 
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 64))
+            VIconView(.circleCheck, size: 64)
                 .foregroundColor(VColor.success)
 
             Text("Connected!")
@@ -185,8 +183,7 @@ struct QRPairingSheet: View {
         VStack(spacing: VSpacing.xl) {
             Spacer()
 
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 48))
+            VIconView(.triangleAlert, size: 48)
                 .foregroundColor(VColor.error)
 
             Text("Pairing Failed")

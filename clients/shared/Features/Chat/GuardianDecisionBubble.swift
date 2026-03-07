@@ -22,16 +22,16 @@ public struct GuardianDecisionBubble: View {
     // MARK: - Kind-aware header configuration
 
     /// Header icon, title, and accent color derived from the canonical request kind.
-    private var headerConfig: (icon: String, title: String, accent: Color) {
+    private var headerConfig: (icon: VIcon, title: String, accent: Color) {
         switch decision.kind {
         case "pending_question":
-            return ("questionmark.circle.fill", "Question Pending", VColor.accent)
+            return (.circleAlert, "Question Pending", VColor.accent)
         case "access_request":
-            return ("person.badge.key.fill", "Access Request", VColor.warning)
+            return (.circleUser, "Access Request", VColor.warning)
         case "tool_approval":
-            return ("shield.lefthalf.filled", "Tool Approval Required", VColor.warning)
+            return (.shieldAlert, "Tool Approval Required", VColor.warning)
         default:
-            return ("shield.lefthalf.filled", "Guardian Approval Required", VColor.warning)
+            return (.shieldAlert, "Guardian Approval Required", VColor.warning)
         }
     }
 
@@ -52,8 +52,7 @@ public struct GuardianDecisionBubble: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Kind-aware header
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: config.icon)
-                    .font(.system(size: 14))
+                VIconView(config.icon, size: 14)
                     .foregroundColor(config.accent)
 
                 Text(config.title)
@@ -82,8 +81,7 @@ public struct GuardianDecisionBubble: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     if let toolName = decision.toolName, !toolName.isEmpty {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "wrench")
-                                .font(.system(size: 10))
+                            VIconView(.wrench, size: 10)
                                 .foregroundColor(VColor.textMuted)
                             Text(toolName)
                                 .font(VFont.monoSmall)

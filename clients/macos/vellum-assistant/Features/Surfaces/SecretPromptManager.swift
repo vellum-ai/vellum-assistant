@@ -161,8 +161,7 @@ struct SecretPromptView: View {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 // Header
                 HStack(spacing: VSpacing.md) {
-                    Image(systemName: "lock.shield.fill")
-                        .font(.title2)
+                    VIconView(.shield, size: 20)
                         .foregroundStyle(VColor.accent)
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -201,7 +200,7 @@ struct SecretPromptView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     safetyBullet(
                         icon: "key.fill",
-                        text: "Stored in your Mac's Keychain, not sent to any server"
+                        text: "Stored securely on your Mac, not sent to any server"
                     )
                     safetyBullet(
                         icon: "eye.slash.fill",
@@ -212,9 +211,9 @@ struct SecretPromptView: View {
 
                 if saved {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "checkmark.circle.fill")
+                        VIconView(.circleCheck, size: 14)
                             .foregroundColor(VColor.success)
-                        Text("Saved to Keychain")
+                        Text("Saved securely")
                             .font(VFont.caption)
                             .foregroundColor(VColor.success)
                             .textSelection(.enabled)
@@ -223,11 +222,11 @@ struct SecretPromptView: View {
                     // Buttons
                     HStack(spacing: VSpacing.lg) {
                         Spacer()
-                        VButton(label: "Cancel", style: .tertiary) {
+                        VButton(label: "Cancel", style: .tertiary, accessibilityID: "secure-credential-cancel") {
                             onCancel()
                         }
-                        .accessibilityIdentifier("secure-credential-cancel")
-                        VButton(label: "Save", style: .primary) {
+                        .accessibilityLabel("Cancel")
+                        VButton(label: "Save", style: .primary, accessibilityID: "secure-credential-save") {
                             let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !trimmed.isEmpty else { return }
                             if onSave(trimmed) {
@@ -235,13 +234,12 @@ struct SecretPromptView: View {
                             }
                         }
                         .disabled(secretValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityIdentifier("secure-credential-save")
+                        .accessibilityLabel("Save")
                     }
 
                     if allowOneTimeSend {
                         HStack(spacing: VSpacing.xs) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10))
+                            VIconView(.triangleAlert, size: 10)
                                 .foregroundColor(VColor.warning)
                             VButton(label: "Send Once (not saved)", style: .tertiary) {
                                 let trimmed = secretValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -291,8 +289,7 @@ struct SecretPromptView: View {
 
     private func contextBullet(icon: String, label: String, value: String) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(systemName: icon)
-                .font(.system(size: 10))
+            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
                 .foregroundColor(VColor.accent)
                 .frame(width: 14, alignment: .center)
             Text("\(label): \(value)")
@@ -303,8 +300,7 @@ struct SecretPromptView: View {
 
     private func safetyBullet(icon: String, text: String) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(systemName: icon)
-                .font(.system(size: 10))
+            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
                 .foregroundColor(VColor.success)
                 .frame(width: 14, alignment: .center)
             Text(text)

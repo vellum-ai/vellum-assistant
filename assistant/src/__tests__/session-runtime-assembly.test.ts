@@ -631,7 +631,7 @@ describe("injectInboundActorContext", () => {
 
   test("prepends inbound_actor_context block to user message", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: "sms",
+      sourceChannel: "voice",
       canonicalActorIdentity: "guardian-user-1",
       actorIdentifier: "+15550001111",
       actorDisplayName: "Guardian Name",
@@ -648,7 +648,7 @@ describe("injectInboundActorContext", () => {
     const text = (injected as { type: "text"; text: string }).text;
     expect(text).toContain("<inbound_actor_context>");
     expect(text).toContain("trust_class: guardian");
-    expect(text).toContain("source_channel: sms");
+    expect(text).toContain("source_channel: voice");
     expect(text).toContain("canonical_actor_identity: guardian-user-1");
     expect(text).toContain("actor_display_name: Guardian Name");
     expect(text).toContain("actor_sender_display_name: Guardian Name");
@@ -709,14 +709,12 @@ describe("injectInboundActorContext", () => {
       sourceChannel: "telegram",
       canonicalActorIdentity: null,
       trustClass: "unknown",
-      denialReason: "no_identity",
     };
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
     const text = (result.content[0] as { type: "text"; text: string }).text;
     expect(text).toContain("non-guardian account");
     expect(text).toContain("Do not explain the verification system");
-    expect(text).toContain("denial_reason: no_identity");
   });
 
   test("omits non-guardian behavioral guidance for guardian actors", () => {
@@ -735,10 +733,9 @@ describe("injectInboundActorContext", () => {
 
   test("omits member_status and member_policy when not provided", () => {
     const ctx: InboundActorContext = {
-      sourceChannel: "sms",
+      sourceChannel: "voice",
       canonicalActorIdentity: "user-1",
       trustClass: "unknown",
-      denialReason: "no_binding",
     };
 
     const result = injectInboundActorContext(baseUserMessage, ctx);
@@ -775,14 +772,14 @@ describe("applyRuntimeInjections with inboundActorContext", () => {
   const baseMessages: Message[] = [
     {
       role: "user",
-      content: [{ type: "text", text: "Help me send this over SMS." }],
+      content: [{ type: "text", text: "Help me send this message." }],
     },
   ];
 
   test("injects inbound actor context when provided", () => {
     const result = applyRuntimeInjections(baseMessages, {
       inboundActorContext: {
-        sourceChannel: "sms",
+        sourceChannel: "voice",
         canonicalActorIdentity: "requester-1",
         actorIdentifier: "+15550002222",
         trustClass: "trusted_contact",
@@ -1014,11 +1011,16 @@ describe("sanitizePttActivationKey", () => {
     expect(sanitizePttActivationKey(undefined)).toBeUndefined();
   });
 
-  test("passes through valid keys", () => {
-    expect(sanitizePttActivationKey("fn")).toBe("fn");
-    expect(sanitizePttActivationKey("ctrl")).toBe("ctrl");
-    expect(sanitizePttActivationKey("fn_shift")).toBe("fn_shift");
-    expect(sanitizePttActivationKey("none")).toBe("none");
+  test("passes through valid JSON PTTActivator payloads", () => {
+    const modifierOnly = JSON.stringify({
+      kind: "modifierOnly",
+      modifierFlags: 8388608,
+    });
+    expect(sanitizePttActivationKey(modifierOnly)).toBe(modifierOnly);
+    const keyPayload = JSON.stringify({ kind: "key", keyCode: 49 });
+    expect(sanitizePttActivationKey(keyPayload)).toBe(keyPayload);
+    const nonePayload = JSON.stringify({ kind: "none" });
+    expect(sanitizePttActivationKey(nonePayload)).toBe(nonePayload);
   });
 
   test("returns undefined for invalid keys", () => {
@@ -1035,11 +1037,15 @@ describe("sanitizePttActivationKey", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveChannelCapabilities with PTT metadata", () => {
-  test("sanitizes valid pttActivationKey", () => {
-    const caps = resolveChannelCapabilities("macos", "macos", {
-      pttActivationKey: "fn",
+  test("sanitizes valid JSON PTTActivator pttActivationKey", () => {
+    const key = JSON.stringify({
+      kind: "modifierOnly",
+      modifierFlags: 8388608,
     });
-    expect(caps.pttActivationKey).toBe("fn");
+    const caps = resolveChannelCapabilities("macos", "macos", {
+      pttActivationKey: key,
+    });
+    expect(caps.pttActivationKey).toBe(key);
   });
 
   test("sanitizes invalid pttActivationKey to undefined", () => {
@@ -1050,8 +1056,12 @@ describe("resolveChannelCapabilities with PTT metadata", () => {
   });
 
   test("passes through microphonePermissionGranted", () => {
+    const key = JSON.stringify({
+      kind: "modifierOnly",
+      modifierFlags: 8388608,
+    });
     const caps = resolveChannelCapabilities("macos", "macos", {
-      pttActivationKey: "fn",
+      pttActivationKey: key,
       microphonePermissionGranted: true,
     });
     expect(caps.microphonePermissionGranted).toBe(true);

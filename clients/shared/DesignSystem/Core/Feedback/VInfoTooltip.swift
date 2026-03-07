@@ -22,8 +22,7 @@ public struct VInfoTooltip: View {
     }
 
     public var body: some View {
-        Image(systemName: "info.circle")
-            .font(.system(size: 12))
+        VIconView(.info, size: 12)
             .foregroundColor(VColor.textMuted)
             .frame(width: 16, height: 16)
             .contentShape(Rectangle())

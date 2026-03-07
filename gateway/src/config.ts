@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getLogger, type LogFileConfig } from "./logger.js";
+import { readConfigFileDefaults } from "./config-file-mappings.js";
 import {
   getRootDir,
-  readKeychainCredential,
   readCredential,
   readTwilioCredentials,
   readWhatsAppCredentials,
@@ -47,17 +47,12 @@ export type GatewayConfig = {
   telegramWebhookSecret: string | undefined;
   /** Twilio auth token for validating webhook signatures at the gateway boundary. */
   twilioAuthToken: string | undefined;
-  /** Twilio account SID for sending SMS via the Messages API. */
+  /** Twilio account SID for API calls (voice, compliance). */
   twilioAccountSid: string | undefined;
-  /** Twilio phone number (E.164) used as the "From" for outbound SMS. */
+  /** Twilio phone number (E.164) used as the "From" for outbound voice calls. */
   twilioPhoneNumber: string | undefined;
   /** Per-assistant phone number mapping (assistantId -> E.164 phone number). */
   assistantPhoneNumbers?: Record<string, string>;
-  /**
-   * When true, the /deliver/sms endpoint allows unauthenticated access
-   * even when no bearer token is configured. Intended for local development only.
-   */
-  smsDeliverAuthBypass: boolean;
   /** Canonical public ingress base URL, used for webhook signature reconstruction. */
   ingressPublicBaseUrl: string | undefined;
   /** The assistant's own email address, persisted by the email setup skill. */
@@ -125,7 +120,7 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
   return entries;
 }
 
-export function loadConfig(): GatewayConfig {
+export async function loadConfig(): Promise<GatewayConfig> {
   const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || undefined;
   const telegramWebhookSecret =
     process.env.TELEGRAM_WEBHOOK_SECRET || undefined;
@@ -133,6 +128,10 @@ export function loadConfig(): GatewayConfig {
   const telegramApiBaseUrl =
     process.env.TELEGRAM_API_BASE_URL || "https://api.telegram.org";
 
+  // Port-based routing: each gateway instance reads RUNTIME_HTTP_PORT to
+  // discover its co-located daemon's HTTP port. In multi-instance setups,
+  // the CLI passes a per-instance daemon port so each gateway proxies to
+  // the correct daemon process (see cli/src/lib/local.ts startGateway).
   const runtimePort = process.env.RUNTIME_HTTP_PORT || "7821";
   const assistantRuntimeBaseUrl =
     process.env.ASSISTANT_RUNTIME_BASE_URL || `http://localhost:${runtimePort}`;
@@ -301,56 +300,45 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
-  // Twilio credentials: env var > credential store (keychain / encrypted file)
-  const twilioCreds = readTwilioCredentials();
+  // Twilio credentials: env var > credential store (encrypted file)
+  const twilioCreds = await readTwilioCredentials();
   const twilioAuthToken =
     process.env.TWILIO_AUTH_TOKEN || twilioCreds?.authToken || undefined;
-  const twilioAccountSid =
+  let twilioAccountSid =
     process.env.TWILIO_ACCOUNT_SID || twilioCreds?.accountSid || undefined;
 
-  // Phone number: env var > config file sms.phoneNumber > credential store
-  let twilioPhoneNumber: string | undefined =
-    process.env.TWILIO_PHONE_NUMBER || undefined;
-  let assistantPhoneNumbers: Record<string, string> | undefined;
+  // Read config.json defaults for fields that can come from the config file
+  let configFileData: Record<string, unknown> = {};
   try {
     const cfgPath = join(getRootDir(), "workspace", "config.json");
     const raw = readFileSync(cfgPath, "utf-8");
     const data = JSON.parse(raw);
-    if (
-      !twilioPhoneNumber &&
-      data?.sms?.phoneNumber &&
-      typeof data.sms.phoneNumber === "string"
-    ) {
-      twilioPhoneNumber = data.sms.phoneNumber;
-    }
-    const rawMapping = data?.sms?.assistantPhoneNumbers;
-    if (
-      rawMapping &&
-      typeof rawMapping === "object" &&
-      !Array.isArray(rawMapping)
-    ) {
-      const normalized: Record<string, string> = {};
-      for (const [assistantId, phoneNumber] of Object.entries(
-        rawMapping as Record<string, unknown>,
-      )) {
-        if (typeof phoneNumber === "string" && phoneNumber.trim().length > 0) {
-          normalized[assistantId] = phoneNumber;
-        }
-      }
-      assistantPhoneNumbers = normalized;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      configFileData = data as Record<string, unknown>;
     }
   } catch {
     // config file may not exist yet
   }
+  const configDefaults = readConfigFileDefaults(configFileData);
+
+  // Phone number: env var > config file > credential store
+  let twilioPhoneNumber: string | undefined =
+    process.env.TWILIO_PHONE_NUMBER ||
+    (configDefaults.twilioPhoneNumber as string | undefined);
+  if (!twilioAccountSid) {
+    twilioAccountSid = configDefaults.twilioAccountSid as string | undefined;
+  }
+  const assistantPhoneNumbers = configDefaults.assistantPhoneNumbers as
+    | Record<string, string>
+    | undefined;
+  const assistantEmail = configDefaults.assistantEmail as string | undefined;
   if (!twilioPhoneNumber) {
     twilioPhoneNumber =
-      readKeychainCredential("credential:twilio:phone_number") ||
-      readCredential("credential:twilio:phone_number") ||
-      undefined;
+      (await readCredential("credential:twilio:phone_number")) || undefined;
   }
 
-  // WhatsApp credentials: env var > credential store (keychain / encrypted file)
-  const whatsappCreds = readWhatsAppCredentials();
+  // WhatsApp credentials: env var > credential store (encrypted file)
+  const whatsappCreds = await readWhatsAppCredentials();
   const whatsappPhoneNumberId =
     process.env.WHATSAPP_PHONE_NUMBER_ID ||
     whatsappCreds?.phoneNumberId ||
@@ -407,8 +395,8 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
-  // Slack channel credentials: env var > credential store (keychain / encrypted file)
-  const slackChannelCreds = readSlackChannelCredentials();
+  // Slack channel credentials: env var > credential store (encrypted file)
+  const slackChannelCreds = await readSlackChannelCredentials();
   const slackChannelBotToken =
     process.env.SLACK_CHANNEL_BOT_TOKEN ||
     slackChannelCreds?.botToken ||
@@ -431,18 +419,6 @@ export function loadConfig(): GatewayConfig {
   }
   let slackDeliverAuthBypass = slackDeliverAuthBypassRaw === "true";
 
-  const smsDeliverAuthBypassRaw = process.env.GATEWAY_SMS_DELIVER_AUTH_BYPASS;
-  if (
-    smsDeliverAuthBypassRaw !== undefined &&
-    smsDeliverAuthBypassRaw !== "true" &&
-    smsDeliverAuthBypassRaw !== "false"
-  ) {
-    throw new Error(
-      `GATEWAY_SMS_DELIVER_AUTH_BYPASS must be "true" or "false", got "${smsDeliverAuthBypassRaw}"`,
-    );
-  }
-  let smsDeliverAuthBypass = smsDeliverAuthBypassRaw === "true";
-
   // Production guard: auth bypass flags must never be active outside dev mode.
   // Fail closed: treat missing APP_VERSION as production, since the gateway
   // release pipeline does not inject it (unlike the daemon build).
@@ -455,13 +431,6 @@ export function loadConfig(): GatewayConfig {
         appVersion,
       );
       telegramDeliverAuthBypass = false;
-    }
-    if (smsDeliverAuthBypass) {
-      log.warn(
-        "GATEWAY_SMS_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)",
-        appVersion,
-      );
-      smsDeliverAuthBypass = false;
     }
     if (whatsappDeliverAuthBypass) {
       log.warn(
@@ -491,20 +460,9 @@ export function loadConfig(): GatewayConfig {
   }
   const trustProxy = trustProxyRaw === "true";
 
-  const ingressPublicBaseUrl = process.env.INGRESS_PUBLIC_BASE_URL || undefined;
-
-  // Assistant email from workspace config file
-  let assistantEmail: string | undefined;
-  try {
-    const cfgPath = join(getRootDir(), "workspace", "config.json");
-    const raw = readFileSync(cfgPath, "utf-8");
-    const data = JSON.parse(raw);
-    if (data?.email?.address && typeof data.email.address === "string") {
-      assistantEmail = data.email.address;
-    }
-  } catch {
-    // config file may not exist yet
-  }
+  const ingressPublicBaseUrl =
+    process.env.INGRESS_PUBLIC_BASE_URL ||
+    (configDefaults.ingressPublicBaseUrl as string | undefined);
 
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 
@@ -538,7 +496,6 @@ export function loadConfig(): GatewayConfig {
       assistantPhoneNumberCount: assistantPhoneNumbers
         ? Object.keys(assistantPhoneNumbers).length
         : 0,
-      smsDeliverAuthBypass,
       ingressPublicBaseUrl,
       hasWhatsAppPhoneNumberId: !!whatsappPhoneNumberId,
       hasWhatsAppAccessToken: !!whatsappAccessToken,
@@ -580,7 +537,6 @@ export function loadConfig(): GatewayConfig {
     twilioAccountSid,
     twilioPhoneNumber,
     assistantPhoneNumbers,
-    smsDeliverAuthBypass,
     ingressPublicBaseUrl,
     assistantEmail,
     unmappedPolicy,

@@ -61,7 +61,7 @@ let mockDbMessages: Array<{
 let mockConversation: Record<string, unknown> | null = null;
 let nextMockMessageId = 1;
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -76,7 +76,6 @@ mock.module("../memory/conversation-store.js", () => ({
   getMessages: () => mockDbMessages,
   getConversation: () => mockConversation,
   createConversation: () => ({ id: "conv-1" }),
-  listConversations: () => [],
   addMessage: async (
     _conversationId: string,
     role: string,
@@ -94,6 +93,10 @@ mock.module("../memory/conversation-store.js", () => ({
   },
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  listConversations: () => [],
 }));
 
 import { Session } from "../daemon/session.js";

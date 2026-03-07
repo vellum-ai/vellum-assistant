@@ -8,9 +8,11 @@ import {
   type AttentionFilterState,
   listConversationAttention,
 } from "../../memory/conversation-attention-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import {
+  getConversation,
+  getMessageById,
+} from "../../memory/conversation-crud.js";
 import { truncate } from "../../util/truncate.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -38,7 +40,6 @@ export function handleListConversationAttention(url: URL): Response {
   }
 
   const attentionStates = listConversationAttention({
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     state: stateParam as AttentionFilterState,
     sourceChannel: channel,
     source: sourceParam !== "all" ? sourceParam : undefined,
@@ -58,7 +59,7 @@ export function handleListConversationAttention(url: URL): Response {
     { title: string | null; source: string }
   >();
   for (const id of conversationIds) {
-    const conv = conversationStore.getConversation(id);
+    const conv = getConversation(id);
     if (conv) {
       conversationMap.set(id, {
         title: conv.title,
@@ -71,9 +72,7 @@ export function handleListConversationAttention(url: URL): Response {
   const snippetMap = new Map<string, string>();
   for (const attn of pageStates) {
     if (attn.latestAssistantMessageId) {
-      const msg = conversationStore.getMessageById(
-        attn.latestAssistantMessageId,
-      );
+      const msg = getMessageById(attn.latestAssistantMessageId);
       if (msg?.content) {
         snippetMap.set(
           attn.latestAssistantMessageId,

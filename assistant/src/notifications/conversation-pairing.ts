@@ -6,9 +6,12 @@
  * auditable conversation trail and enables the macOS/iOS client to
  * deep-link directly into the notification thread.
  *
- * When the decision engine selects `reuse_existing` for a channel and
- * the target conversation is valid, the seed message is appended to the
- * existing thread instead of creating a new one.
+ * Resolution order:
+ * 1. Explicit `reuse_existing` thread action — highest precedence.
+ * 2. Binding-key reuse — for `continue_existing_conversation` channels,
+ *    looks up a previously bound conversation by (sourceChannel, externalChatId).
+ * 3. Default — creates a fresh conversation and, when binding context is
+ *    present, upserts it into the external-conversation store for future reuse.
  */
 
 import type { ConversationStrategy } from "../channels/config.js";
@@ -18,14 +21,34 @@ import {
   addMessage,
   createConversation,
   getConversation,
-} from "../memory/conversation-store.js";
+} from "../memory/conversation-crud.js";
+import {
+  getBindingByChannelChat,
+  upsertOutboundBinding,
+} from "../memory/external-conversation-store.js";
 import { getLogger } from "../util/logger.js";
 import type { NotificationSignal } from "./signal.js";
 import { composeThreadSeed, isThreadSeedSane } from "./thread-seed-composer.js";
-import type { NotificationChannel, ThreadAction } from "./types.js";
+import type {
+  DestinationBindingContext,
+  NotificationChannel,
+  ThreadAction,
+} from "./types.js";
 import type { RenderedChannelCopy } from "./types.js";
 
 const log = getLogger("notification-conversation-pairing");
+
+/**
+ * Prefix applied to sourceChannel values in notification bindings so they
+ * occupy a separate namespace from messaging adapter bindings in the
+ * external_conversation_bindings table.  Without this, notification pairing
+ * and messaging adapters (Telegram, Slack, etc.) would destructively overwrite
+ * each other's bindings since both use (sourceChannel, externalChatId) as key.
+ */
+const NOTIFICATION_CHANNEL_PREFIX = "notification:";
+function notificationChannel(sourceChannel: string): string {
+  return `${NOTIFICATION_CHANNEL_PREFIX}${sourceChannel}`;
+}
 
 export interface PairingResult {
   conversationId: string | null;
@@ -40,6 +63,8 @@ export interface PairingResult {
 export interface PairingOptions {
   /** Per-channel thread action from the decision engine. */
   threadAction?: ThreadAction;
+  /** Destination binding data for channel-scoped conversation continuation. */
+  bindingContext?: DestinationBindingContext;
 }
 
 /**
@@ -48,11 +73,13 @@ export interface PairingOptions {
  * Looks up the channel's conversation strategy from the policy registry
  * and materializes a conversation + assistant message accordingly.
  *
- * When `options.threadAction` is `reuse_existing`, the function attempts
- * to look up the target conversation. If it exists and has the right source,
- * the seed message is appended to it. If the target is invalid or stale,
- * a new conversation is created instead (with `threadDecisionFallbackUsed`
- * set to true on the result).
+ * Resolution precedence:
+ * 1. `options.threadAction === "reuse_existing"` — reuse the explicit target.
+ * 2. `continue_existing_conversation` strategy with binding context —
+ *    look up a previously bound conversation by (sourceChannel, externalChatId).
+ * 3. Create a new conversation (and upsert the binding when context is present).
+ *
+ * Invalid/stale targets at any level fall through to the next.
  *
  * Errors are caught and logged — this function never throws so the
  * notification pipeline is not disrupted by pairing failures.
@@ -78,10 +105,9 @@ export async function pairDeliveryWithConversation(
 
     const title = copy.threadTitle ?? copy.title ?? signal.sourceEventName;
 
-    // Only start_new_conversation threads should be user-visible. For channels
-    // that intend to continue an existing external conversation (e.g. Telegram),
-    // we still materialize an auditable row but keep it background-only until
-    // true continuation-by-key is implemented.
+    // Only start_new_conversation threads should be user-visible in the sidebar.
+    // Channels with continue_existing_conversation reuse bound external threads
+    // and mark them as background so they don't clutter the sidebar UI.
     const threadType =
       strategy === "start_new_conversation" ? "standard" : "background";
 
@@ -93,6 +119,7 @@ export async function pairDeliveryWithConversation(
       : composeThreadSeed(signal, channel, copy);
 
     const threadAction = options?.threadAction;
+    const bindingContext = options?.bindingContext;
 
     // Attempt to reuse an existing conversation when the model requests it
     if (threadAction?.action === "reuse_existing") {
@@ -108,6 +135,16 @@ export async function pairDeliveryWithConversation(
           undefined,
           { skipIndexing: true },
         );
+
+        // Rebind the destination so subsequent deliveries to the same
+        // (sourceChannel, externalChatId) resolve to this conversation.
+        if (bindingContext?.sourceChannel && bindingContext?.externalChatId) {
+          upsertOutboundBinding({
+            conversationId: existing.id,
+            sourceChannel: notificationChannel(bindingContext.sourceChannel),
+            externalChatId: bindingContext.externalChatId,
+          });
+        }
 
         log.info(
           {
@@ -156,6 +193,16 @@ export async function pairDeliveryWithConversation(
         { skipIndexing: true },
       );
 
+      // Bind the new conversation to the destination so subsequent
+      // deliveries reuse it instead of creating yet another conversation.
+      if (bindingContext?.sourceChannel && bindingContext?.externalChatId) {
+        upsertOutboundBinding({
+          conversationId: conversation.id,
+          sourceChannel: notificationChannel(bindingContext.sourceChannel),
+          externalChatId: bindingContext.externalChatId,
+        });
+      }
+
       return {
         conversationId: conversation.id,
         messageId: message.id,
@@ -163,6 +210,83 @@ export async function pairDeliveryWithConversation(
         createdNewConversation: true,
         threadDecisionFallbackUsed: true,
       };
+    }
+
+    // For channels with continue_existing_conversation strategy, try to
+    // reuse a previously bound conversation keyed by (sourceChannel, externalChatId)
+    // before falling through to create a new one.
+    if (
+      strategy === "continue_existing_conversation" &&
+      bindingContext?.sourceChannel &&
+      bindingContext?.externalChatId
+    ) {
+      // Look up by namespaced key first; fall back to pre-namespace key for
+      // bindings created before the notification: prefix was introduced.
+      const existingBinding =
+        getBindingByChannelChat(
+          notificationChannel(bindingContext.sourceChannel),
+          bindingContext.externalChatId,
+        ) ??
+        getBindingByChannelChat(
+          bindingContext.sourceChannel,
+          bindingContext.externalChatId,
+        );
+
+      if (existingBinding) {
+        const boundConversation = getConversation(
+          existingBinding.conversationId,
+        );
+
+        if (boundConversation && boundConversation.source === "notification") {
+          const message = await addMessage(
+            boundConversation.id,
+            "assistant",
+            messageContent,
+            undefined,
+            { skipIndexing: true },
+          );
+
+          // Touch the outbound timestamp so the binding stays fresh.
+          upsertOutboundBinding({
+            conversationId: boundConversation.id,
+            sourceChannel: notificationChannel(bindingContext.sourceChannel),
+            externalChatId: bindingContext.externalChatId,
+          });
+
+          log.info(
+            {
+              signalId: signal.signalId,
+              channel,
+              strategy,
+              conversationId: boundConversation.id,
+              messageId: message.id,
+              bindingKey: `${bindingContext.sourceChannel}:${bindingContext.externalChatId}`,
+            },
+            "Reused bound conversation for channel destination",
+          );
+
+          return {
+            conversationId: boundConversation.id,
+            messageId: message.id,
+            strategy,
+            createdNewConversation: false,
+            threadDecisionFallbackUsed: false,
+          };
+        }
+
+        // Binding exists but conversation is stale or wrong source — fall through
+        // to create a new one and re-bind below.
+        log.warn(
+          {
+            signalId: signal.signalId,
+            channel,
+            boundConversationId: existingBinding.conversationId,
+            boundConversationExists: !!boundConversation,
+            boundConversationSource: boundConversation?.source,
+          },
+          "Bound conversation stale or invalid — creating fresh conversation",
+        );
+      }
     }
 
     // Default path: create a new conversation
@@ -183,6 +307,16 @@ export async function pairDeliveryWithConversation(
       undefined,
       { skipIndexing: true },
     );
+
+    // When binding context is available, record the new conversation so
+    // subsequent deliveries to the same destination reuse it.
+    if (bindingContext?.sourceChannel && bindingContext?.externalChatId) {
+      upsertOutboundBinding({
+        conversationId: conversation.id,
+        sourceChannel: notificationChannel(bindingContext.sourceChannel),
+        externalChatId: bindingContext.externalChatId,
+      });
+    }
 
     log.info(
       {

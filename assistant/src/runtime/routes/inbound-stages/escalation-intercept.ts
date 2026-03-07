@@ -9,10 +9,11 @@
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
 import { createCanonicalGuardianRequest } from "../../../memory/canonical-guardian-store.js";
-import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
+import * as deliveryCrud from "../../../memory/delivery-crud.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { getLogger } from "../../../util/logger.js";
-import { getGuardianBinding } from "../../channel-guardian-service.js";
+import { getGuardianBinding } from "../../channel-verification-service.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "../channel-route-shared.js";
 import type { ResolvedMember } from "./acl-enforcement.js";
 
@@ -92,7 +93,7 @@ export function handleEscalationIntercept(
 
   // Persist the raw payload so the decide handler can recover the original
   // message content when the escalation is approved.
-  channelDeliveryStore.storePayload(eventId, {
+  deliveryCrud.storePayload(eventId, {
     sourceChannel,
     interface: sourceInterface,
     externalChatId: conversationExternalId,
@@ -132,9 +133,8 @@ export function handleEscalationIntercept(
   // channels, supplementing the direct guardian notification below.
   void emitNotificationSignal({
     sourceEventName: "ingress.escalation",
-    sourceChannel,
+    sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceSessionId: conversationId,
-    assistantId: canonicalAssistantId,
     attentionHints: {
       requiresAction: true,
       urgency: "high",

@@ -18,7 +18,7 @@ extension ChatBubble {
 
         bubbleChrome {
             if hasRichContent {
-                MarkdownSegmentView(segments: segments, isStreaming: streaming)
+                MarkdownSegmentView(segments: segments)
             } else {
                 let attributed = Self.cachedInlineMarkdown(for: segmentText, isStreaming: streaming)
                 Text(attributed)
@@ -26,7 +26,7 @@ extension ChatBubble {
                     .lineSpacing(6)
                     .foregroundColor(VColor.textPrimary)
                     .tint(VColor.accent)
-                    .selectableText(!streaming)
+                    .textSelection(.enabled)
                     // Bound width before fixedSize so vertical measurement is
                     // computed within a finite horizontal space, preventing
                     // unbounded layout passes on long messages during scroll.
@@ -73,6 +73,10 @@ extension ChatBubble {
             var leading = AttributedString("\u{2009}")
             leading.backgroundColor = VColor.codeBackground
             result.insert(leading, at: range.lowerBound)
+        }
+        // Underline links so they are visually distinct from plain text
+        for run in result.runs where result[run.range].link != nil {
+            result[run.range].underlineStyle = .single
         }
         if isStreaming {
             lastStreamingInlineMarkdown = (text, result)
@@ -184,6 +188,10 @@ extension ChatBubble {
             var leading = AttributedString("\u{2009}")
             leading.backgroundColor = inlineCodeBgColor
             parsed.insert(leading, at: range.lowerBound)
+        }
+        // Underline links so they are visually distinct from plain text
+        for run in parsed.runs where parsed[run.range].link != nil {
+            parsed[run.range].underlineStyle = .single
         }
 
         // Highlight slash command token (e.g. /model) in blue

@@ -25,7 +25,7 @@ import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/ac
  * interacting.  Used to gate UI-specific references and permission asks.
  */
 export interface ChannelCapabilities {
-  /** The raw channel identifier (e.g. "vellum", "telegram", "sms"). */
+  /** The raw channel identifier (e.g. "vellum", "telegram"). */
   channel: string;
   /** Whether this channel can render the dashboard UI (apps, dynamic pages). */
   dashboardCapable: boolean;
@@ -81,8 +81,6 @@ export interface TrustContext {
   requesterExternalUserId?: string;
   /** Chat/conversation ID the requester is interacting through. */
   requesterChatId?: string;
-  /** Access denial reason, if applicable. See {@link DenialReason}. */
-  denialReason?: "no_binding" | "no_identity";
 }
 
 /**
@@ -113,8 +111,6 @@ export interface InboundActorContext {
   memberStatus?: string;
   /** Member policy when the actor has a contact record. */
   memberPolicy?: string;
-  /** Denial reason when access is blocked. */
-  denialReason?: string;
   /** Free-text notes about this contact. */
   contactNotes?: string;
   /** Number of prior interactions with this contact. */
@@ -138,7 +134,6 @@ export function inboundActorContextFromTrustContext(
     actorMemberDisplayName: ctx.requesterMemberDisplayName,
     trustClass: ctx.trustClass,
     guardianIdentity: ctx.guardianExternalUserId,
-    denialReason: ctx.denialReason,
   };
 }
 
@@ -162,28 +157,22 @@ export function inboundActorContextFromTrust(
       ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)
       : undefined,
     memberPolicy: ctx.memberRecord?.channel.policy ?? undefined,
-    denialReason: ctx.denialReason,
     contactNotes: ctx.memberRecord?.contact.notes ?? undefined,
     contactInteractionCount:
       ctx.memberRecord?.contact.interactionCount ?? undefined,
   };
 }
 
-/** Legacy push-to-talk activation key values (pre-custom-key support). */
-const PTT_KEY_LEGACY = new Set(["fn", "ctrl", "fn_shift", "none"]);
-
 /**
- * Validate a PTT activation key string. Accepts both legacy string values
- * (fn, ctrl, fn_shift, none) and JSON PTTActivator payloads from the
- * custom key feature. Returns the key as-is if valid, undefined otherwise.
+ * Validate a PTT activation key string. Accepts JSON PTTActivator payloads
+ * from the custom key feature. Returns the key as-is if valid, undefined otherwise.
  */
 export function sanitizePttActivationKey(
   key: string | undefined | null,
 ): string | undefined {
   if (key == null) return undefined;
-  if (PTT_KEY_LEGACY.has(key)) return key;
 
-  // Try parsing as a JSON PTTActivator payload
+  // Parse as a JSON PTTActivator payload
   if (key.startsWith("{")) {
     try {
       const parsed = JSON.parse(key) as { kind?: string };
@@ -247,14 +236,8 @@ const KEY_CODE_NAMES: Record<number, string> = {
   57: "Caps Lock",
 };
 
-/** Derive a human-readable label from a PTT activation key value (legacy string or JSON). */
+/** Derive a human-readable label from a PTT activation key JSON value. */
 function pttKeyLabel(raw: string): string {
-  // Legacy string values
-  if (raw === "fn") return "Fn (Globe)";
-  if (raw === "ctrl") return "Ctrl";
-  if (raw === "fn_shift") return "Fn+Shift";
-  if (raw === "none") return "none";
-
   // JSON PTTActivator payload
   if (raw.startsWith("{")) {
     try {
@@ -362,7 +345,6 @@ export function resolveChannelCapabilities(
       };
     }
     case "telegram":
-    case "sms":
     case "voice":
     case "whatsapp":
     case "slack":
@@ -779,7 +761,6 @@ export function buildInboundActorContextBlock(
   if (ctx.memberPolicy) {
     lines.push(`member_policy: ${ctx.memberPolicy}`);
   }
-  lines.push(`denial_reason: ${ctx.denialReason ?? "none"}`);
   // Contact metadata — only included when the sender has a contact record
   // with non-default values.
   if (ctx.contactNotes) {

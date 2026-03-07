@@ -82,7 +82,7 @@ struct DisplayGallerySection: View {
                 VCard {
                     VEmptyState(
                         title: "Empty inbox",
-                        icon: "envelope"
+                        icon: VIcon.mail.rawValue
                     )
                     .frame(height: 200)
                 }
@@ -131,14 +131,13 @@ struct DisplayGallerySection: View {
                 VStack(spacing: 0) {
                     VListRow(onTap: {}) {
                         HStack {
-                            Image(systemName: "doc.text")
+                            VIconView(.fileText, size: 14)
                                 .foregroundColor(VColor.accent)
                             Text("Tappable row with icon")
                                 .font(VFont.body)
                                 .foregroundColor(VColor.textPrimary)
                             Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10))
+                            VIconView(.chevronRight, size: 10)
                                 .foregroundColor(VColor.textMuted)
                         }
                     }
@@ -147,7 +146,7 @@ struct DisplayGallerySection: View {
 
                     VListRow(onTap: {}) {
                         HStack {
-                            Image(systemName: "folder")
+                            VIconView(.folder, size: 14)
                                 .foregroundColor(VColor.warning)
                             Text("Another tappable row")
                                 .font(VFont.body)

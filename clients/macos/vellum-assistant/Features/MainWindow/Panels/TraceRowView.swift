@@ -7,8 +7,7 @@ struct TraceRowView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
-            Image(systemName: iconName)
-                .font(.system(size: 11))
+            VIconView(iconToken, size: 11)
                 .foregroundColor(statusColor)
                 .frame(width: 18, alignment: .center)
 
@@ -30,42 +29,42 @@ struct TraceRowView: View {
 
     // MARK: - Icon
 
-    private var iconName: String {
+    private var iconToken: VIcon {
         switch event.kind {
         case "request_received":
-            return "play.circle"
+            return .circlePlay
         case "request_queued":
-            return "tray.and.arrow.down"
+            return .inbox
         case "request_dequeued":
-            return "tray.and.arrow.up"
+            return .inbox
         case "llm_call_started":
-            return "brain"
+            return .brain
         case "llm_call_finished":
-            return "brain.head.profile"
+            return .brain
         case "assistant_message":
-            return "text.bubble"
+            return .messageCircle
         case "tool_started":
-            return "wrench.and.screwdriver"
+            return .wrench
         case "tool_permission_requested":
-            return "lock.shield"
+            return .shield
         case "tool_permission_decided":
-            return "lock.open"
+            return .lockOpen
         case "tool_finished":
-            return "wrench.and.screwdriver.fill"
+            return .wrench
         case "tool_failed":
-            return "exclamationmark.triangle.fill"
+            return .triangleAlert
         case "secret_detected":
-            return "eye.trianglebadge.exclamationmark"
+            return .eye
         case "generation_handoff":
-            return "arrow.right.arrow.left.circle"
+            return .refreshCw
         case "message_complete":
-            return "checkmark.circle"
+            return .circleCheck
         case "generation_cancelled":
-            return "xmark.circle"
+            return .circleX
         case "request_error":
-            return "exclamationmark.circle"
+            return .circleAlert
         default:
-            return "circle.fill"
+            return .circle
         }
     }
 

@@ -34,6 +34,8 @@ export interface WatchSession {
   recordingId?: string;
   /** Path where the learn recording was successfully saved (undefined if save failed) */
   savedRecordingPath?: string;
+  /** Reason the learn-mode bootstrap failed (CDP launch vs recorder attach) */
+  bootstrapFailureReason?: string;
 }
 
 /** Module-level map of watch sessions keyed by watchId. */

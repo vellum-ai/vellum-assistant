@@ -127,47 +127,5 @@ export function createTwilioControlPlaneProxyHandler(config: GatewayConfig) {
     async handleReleaseTwilioNumber(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/integrations/twilio/numbers/release", "");
     },
-
-    async handleGetSmsCompliance(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/twilio/sms/compliance", "");
-    },
-
-    async handleSubmitTollfreeVerification(req: Request): Promise<Response> {
-      return proxyToRuntime(
-        req,
-        "/v1/integrations/twilio/sms/compliance/tollfree",
-        "",
-      );
-    },
-
-    async handleUpdateTollfreeVerification(
-      req: Request,
-      verificationSid: string,
-    ): Promise<Response> {
-      return proxyToRuntime(
-        req,
-        `/v1/integrations/twilio/sms/compliance/tollfree/${encodeURIComponent(verificationSid)}`,
-        "",
-      );
-    },
-
-    async handleDeleteTollfreeVerification(
-      req: Request,
-      verificationSid: string,
-    ): Promise<Response> {
-      return proxyToRuntime(
-        req,
-        `/v1/integrations/twilio/sms/compliance/tollfree/${encodeURIComponent(verificationSid)}`,
-        "",
-      );
-    },
-
-    async handleSmsSendTest(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/twilio/sms/test", "");
-    },
-
-    async handleSmsDoctor(req: Request): Promise<Response> {
-      return proxyToRuntime(req, "/v1/integrations/twilio/sms/doctor", "");
-    },
   };
 }

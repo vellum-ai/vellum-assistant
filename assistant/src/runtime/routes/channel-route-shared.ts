@@ -8,8 +8,6 @@ import type {
   ApprovalDecisionResult,
   ApprovalUIMetadata,
 } from "../channel-approval-types.js";
-import type { DenialReason } from "../trust-context-resolver.js";
-export type { DenialReason } from "../trust-context-resolver.js";
 
 /** Canonicalize assistantId for channel ingress paths. */
 export function canonicalChannelAssistantId(_assistantId: string): string {
@@ -113,7 +111,7 @@ export function parseReactionCallbackData(
  */
 export function buildGuardianDenyContext(
   toolName: string,
-  denialReason: DenialReason,
+  denialReason: "no_binding" | "no_identity",
   _sourceChannel: ChannelId,
 ): string {
   if (denialReason === "no_identity") {

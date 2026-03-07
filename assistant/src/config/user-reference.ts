@@ -1,7 +1,24 @@
 import { readTextFileSync } from "../util/fs.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
-const DEFAULT_USER_REFERENCE = "my human";
+export const DEFAULT_USER_REFERENCE = "my human";
+export const DECLINED_BY_USER_SENTINEL = "declined_by_user";
+
+/**
+ * Read the raw "Preferred name/reference:" value from USER.md.
+ * Returns the trimmed value when present, or `null` when the file
+ * is missing, unreadable, or the field is empty.
+ */
+function readPreferredNameFromUserMd(): string | null {
+  const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
+  if (content != null) {
+    const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
+    if (match && match[1].trim()) {
+      return match[1].trim();
+    }
+  }
+  return null;
+}
 
 /**
  * Resolve the name/reference the assistant uses when referring to
@@ -12,14 +29,10 @@ const DEFAULT_USER_REFERENCE = "my human";
  * file is missing, unreadable, or the field is empty.
  */
 export function resolveUserReference(): string {
-  const content = readTextFileSync(getWorkspacePromptPath("USER.md"));
-  if (content != null) {
-    const match = content.match(/Preferred name\/reference:[ \t]*(.*)/);
-    if (match && match[1].trim()) {
-      return match[1].trim();
-    }
+  const preferredName = readPreferredNameFromUserMd();
+  if (preferredName != null && preferredName !== DECLINED_BY_USER_SENTINEL) {
+    return preferredName;
   }
-
   return DEFAULT_USER_REFERENCE;
 }
 
@@ -62,7 +75,32 @@ export function resolveUserPronouns(): string | null {
 }
 
 function cleanPronounValue(raw: string): string | null {
-  if (raw === "declined_by_user") return null;
+  if (raw === DECLINED_BY_USER_SENTINEL) return null;
   // Strip "inferred: " prefix for clean output
   return raw.replace(/^inferred:\s*/i, "");
+}
+
+/**
+ * Resolve the guardian's display name.
+ *
+ * Priority:
+ *   1. USER.md "Preferred name/reference:" — the user-editable, actively
+ *      maintained source of truth.
+ *   2. guardianDisplayName (fallback for when USER.md is missing or empty,
+ *      e.g. pre-onboarding). Callers pass in Contact.displayName.
+ *   3. DEFAULT_USER_REFERENCE ("my human").
+ */
+export function resolveGuardianName(
+  guardianDisplayName?: string | null,
+): string {
+  const preferredName = readPreferredNameFromUserMd();
+  if (preferredName != null && preferredName !== DECLINED_BY_USER_SENTINEL) {
+    return preferredName;
+  }
+
+  if (guardianDisplayName && guardianDisplayName.trim().length > 0) {
+    return guardianDisplayName.trim();
+  }
+
+  return DEFAULT_USER_REFERENCE;
 }

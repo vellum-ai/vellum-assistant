@@ -25,6 +25,8 @@ import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
+import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
+import { getConfig } from "./loader.js";
 import { stripCommentLines } from "./system-prompt.js";
 
 const log = getLogger("skills");
@@ -968,6 +970,39 @@ export function loadSkillCatalog(
   return catalog;
 }
 
+/**
+ * Process feature-gated sections in skill body markdown.
+ *
+ * Markers:
+ *   <!-- feature:<flag-id>:start --> ... <!-- feature:<flag-id>:end -->
+ *     Content included only when the flag is enabled.
+ *   <!-- feature:<flag-id>:alt --> ... <!-- feature:<flag-id>:alt:end -->
+ *     Fallback content included only when the flag is disabled.
+ */
+function applyFeatureGatedSections(body: string): string {
+  const config = getConfig();
+  // Match feature:*:start/end blocks
+  const mainRe =
+    /<!-- feature:([^:]+):start -->\n?([\s\S]*?)<!-- feature:\1:end -->\n?/g;
+  // Match feature:*:alt/alt:end blocks
+  const altRe =
+    /<!-- feature:([^:]+):alt -->\n?([\s\S]*?)<!-- feature:\1:alt:end -->\n?/g;
+
+  let result = body;
+
+  result = result.replace(mainRe, (_match, flagId: string, content: string) => {
+    const key = `feature_flags.${flagId}.enabled`;
+    return isAssistantFeatureFlagEnabled(key, config) ? content : "";
+  });
+
+  result = result.replace(altRe, (_match, flagId: string, content: string) => {
+    const key = `feature_flags.${flagId}.enabled`;
+    return isAssistantFeatureFlagEnabled(key, config) ? "" : content;
+  });
+
+  return result;
+}
+
 function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   let loaded: SkillDefinition | null;
   if (skill.bundled) {
@@ -992,6 +1027,8 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   }
   // Replace {baseDir} placeholders with the actual skill directory path
   loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
+  // Strip feature-gated sections based on assistant feature flags
+  loaded.body = applyFeatureGatedSections(loaded.body);
   return { skill: loaded };
 }
 

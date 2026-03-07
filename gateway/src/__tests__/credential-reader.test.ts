@@ -1,42 +1,31 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { join } from "node:path";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { createCipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
 
 // ---------------------------------------------------------------------------
-// Mock logger — capture log calls to verify no secrets leak
+// Logger mock — captures all log calls so the secret-leak test can inspect them
 // ---------------------------------------------------------------------------
 
-const logCalls: { level: string; args: unknown[] }[] = [];
+const logCalls: { method: string; args: unknown[] }[] = [];
 
 mock.module("../logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
-      get:
-        (_target, prop) =>
-        (...args: unknown[]) => {
-          logCalls.push({ level: String(prop), args });
-        },
+      get: (_target, prop) => {
+        if (typeof prop !== "string") return undefined;
+        return (...args: unknown[]) => {
+          logCalls.push({ method: prop, args });
+        };
+      },
     }),
 }));
 
-// ---------------------------------------------------------------------------
-// Mock execFileSync — intercept keychain CLI calls
-// ---------------------------------------------------------------------------
-
-let execFileSyncMock: ReturnType<typeof mock>;
-
-mock.module("node:child_process", () => {
-  execFileSyncMock = mock(() => {
-    throw new Error("not found");
-  });
-  return { execFileSync: execFileSyncMock };
-});
-
 import {
+  readCredential,
   readTelegramCredentials,
-  readKeychainCredential,
 } from "../credential-reader.js";
 
 // ---------------------------------------------------------------------------
@@ -129,129 +118,154 @@ function writeEncryptedStore(entries: Record<string, string>): void {
   writeFileSync(storePath, JSON.stringify(store));
 }
 
-const originalPlatform = process.platform;
+// ---------------------------------------------------------------------------
+// Broker test helpers — mock UDS server
+// ---------------------------------------------------------------------------
+
+const TEST_TOKEN = "test-auth-token-abc123";
+
+function writeBrokerToken(token: string): void {
+  const tokenDir = join(testDir, ".vellum", "protected");
+  mkdirSync(tokenDir, { recursive: true });
+  writeFileSync(join(tokenDir, "keychain-broker.token"), token);
+}
+
+/**
+ * Create a mock keychain broker UDS server that responds to key.get requests.
+ * Returns the socket path and a handle to close the server.
+ */
+function createMockBroker(credentials: Record<string, string>): {
+  socketPath: string;
+  server: Server;
+  close: () => void;
+} {
+  const socketPath = join(
+    tmpdir(),
+    `mock-broker-${randomBytes(4).toString("hex")}.sock`,
+  );
+
+  const server = createServer((conn) => {
+    let buf = "";
+    conn.on("data", (chunk) => {
+      buf += chunk.toString();
+      const idx = buf.indexOf("\n");
+      if (idx !== -1) {
+        const line = buf.slice(0, idx);
+        buf = buf.slice(idx + 1);
+        try {
+          const req = JSON.parse(line);
+          if (req.token !== TEST_TOKEN) {
+            conn.write(
+              JSON.stringify({
+                id: req.id,
+                ok: false,
+                error: { code: "UNAUTHORIZED", message: "bad token" },
+              }) + "\n",
+            );
+            return;
+          }
+          if (req.method === "key.get") {
+            const account = req.params?.account;
+            const value = credentials[account];
+            conn.write(
+              JSON.stringify({
+                id: req.id,
+                ok: true,
+                result:
+                  value !== undefined
+                    ? { found: true, value }
+                    : { found: false },
+              }) + "\n",
+            );
+          }
+        } catch {
+          // ignore malformed requests
+        }
+      }
+    });
+  });
+
+  server.listen(socketPath);
+
+  return {
+    socketPath,
+    server,
+    close: () => {
+      server.close();
+      try {
+        unlinkSync(socketPath);
+      } catch {
+        // best-effort
+      }
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Setup / teardown
+// ---------------------------------------------------------------------------
+
+let savedBrokerSocket: string | undefined;
 
 beforeEach(() => {
   process.env.BASE_DATA_DIR = testDir;
+  savedBrokerSocket = process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+  delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
   logCalls.length = 0;
-  execFileSyncMock.mockReset();
-  // Default: execFileSync throws with exit code 44 (errSecItemNotFound)
-  execFileSyncMock.mockImplementation(() => {
-    const err = new Error("not found") as Error & { status: number };
-    err.status = 44;
-    throw err;
-  });
 });
 
 afterEach(() => {
   delete process.env.BASE_DATA_DIR;
+  if (savedBrokerSocket === undefined) {
+    delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+  } else {
+    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = savedBrokerSocket;
+  }
   try {
     rmSync(testDir, { recursive: true, force: true });
   } catch {
     // best-effort cleanup
   }
-  // Restore platform in case a test changed it
-  Object.defineProperty(process, "platform", {
-    value: originalPlatform,
-    writable: true,
-  });
 });
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests: encrypted store (existing)
 // ---------------------------------------------------------------------------
 
-describe("readTelegramCredentials: encrypted store only (existing behavior)", () => {
-  test("returns null when metadata file does not exist", () => {
-    const result = readTelegramCredentials();
+describe("readTelegramCredentials", () => {
+  test("returns null when metadata file does not exist", async () => {
+    const result = await readTelegramCredentials();
     expect(result).toBeNull();
   });
 
-  test("returns null when metadata has no Telegram entries", () => {
+  test("returns null when metadata has no Telegram entries", async () => {
     writeMetadata([{ service: "github", field: "token" }]);
-    const result = readTelegramCredentials();
+    const result = await readTelegramCredentials();
     expect(result).toBeNull();
   });
 
-  test("returns null when metadata exists but secrets are missing from both backends", () => {
+  test("returns null when metadata exists but secrets are missing from encrypted store", async () => {
     writeMetadata([
       { service: "telegram", field: "bot_token" },
       { service: "telegram", field: "webhook_secret" },
     ]);
 
-    // Keychain returns nothing (throws), encrypted store has no file
-    const result = readTelegramCredentials();
+    const result = await readTelegramCredentials();
     expect(result).toBeNull();
   });
-});
 
-describe("readTelegramCredentials: keychain on macOS", () => {
-  beforeEach(() => {
-    Object.defineProperty(process, "platform", {
-      value: "darwin",
-      writable: true,
-    });
-  });
-
-  test("returns credentials from keychain when available on macOS", () => {
+  test("returns credentials from encrypted store", async () => {
     writeMetadata([
       { service: "telegram", field: "bot_token" },
       { service: "telegram", field: "webhook_secret" },
     ]);
 
-    // Simulate keychain returning credentials
-    execFileSyncMock.mockImplementation((_cmd: string, args: string[]) => {
-      const aIdx = (args as string[]).indexOf("-a");
-      const account = (args as string[])[aIdx + 1];
-      if (account === "credential:telegram:bot_token") return "kc-bot-token\n";
-      if (account === "credential:telegram:webhook_secret")
-        return "kc-webhook-secret\n";
-      throw new Error("not found");
-    });
-
-    const result = readTelegramCredentials();
-    expect(result).toEqual({
-      botToken: "kc-bot-token",
-      webhookSecret: "kc-webhook-secret",
-    });
-  });
-
-  test("prefers keychain over encrypted store on macOS", () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    // Keychain returns credentials — encrypted store should not be consulted
-    execFileSyncMock.mockImplementation((_cmd: string, args: string[]) => {
-      const aIdx = (args as string[]).indexOf("-a");
-      const account = (args as string[])[aIdx + 1];
-      if (account === "credential:telegram:bot_token")
-        return "keychain-token\n";
-      if (account === "credential:telegram:webhook_secret")
-        return "keychain-secret\n";
-      throw new Error("not found");
-    });
-
-    const result = readTelegramCredentials();
-    expect(result).not.toBeNull();
-    expect(result!.botToken).toBe("keychain-token");
-    expect(result!.webhookSecret).toBe("keychain-secret");
-  });
-
-  test("falls back to encrypted store when keychain has no credentials", () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    // Keychain throws (credential not found) — fall through to encrypted store.
     writeEncryptedStore({
       "credential:telegram:bot_token": "enc-bot-token",
       "credential:telegram:webhook_secret": "enc-webhook-secret",
     });
 
-    const result = readTelegramCredentials();
+    const result = await readTelegramCredentials();
     expect(result).toEqual({
       botToken: "enc-bot-token",
       webhookSecret: "enc-webhook-secret",
@@ -259,148 +273,169 @@ describe("readTelegramCredentials: keychain on macOS", () => {
   });
 });
 
-describe("readTelegramCredentials: non-macOS platforms", () => {
-  test("skips keychain on non-macOS and uses encrypted store", () => {
-    Object.defineProperty(process, "platform", {
-      value: "linux",
-      writable: true,
+// ---------------------------------------------------------------------------
+// Tests: broker credential reading
+// ---------------------------------------------------------------------------
+
+describe("readCredential broker integration", () => {
+  test("returns undefined when broker env var is unset", async () => {
+    delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+    const result = await readCredential("credential:test:key");
+    expect(result).toBeUndefined();
+  });
+
+  test("falls back to encrypted store when broker is unavailable", async () => {
+    // No broker socket configured — should fall through to encrypted store
+    delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+
+    writeEncryptedStore({
+      "credential:test:key": "encrypted-value",
     });
+
+    const result = await readCredential("credential:test:key");
+    expect(result).toBe("encrypted-value");
+  });
+
+  test("falls back to encrypted store when broker socket path is set but no server", async () => {
+    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = "/tmp/nonexistent-broker.sock";
+    writeBrokerToken(TEST_TOKEN);
+
+    writeEncryptedStore({
+      "credential:test:key": "encrypted-value",
+    });
+
+    const result = await readCredential("credential:test:key");
+    expect(result).toBe("encrypted-value");
+  });
+
+  test("falls back to encrypted store when broker token file is missing", async () => {
+    process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = "/tmp/nonexistent-broker.sock";
+    // Don't write a token file
+
+    writeEncryptedStore({
+      "credential:test:key": "encrypted-value",
+    });
+
+    const result = await readCredential("credential:test:key");
+    expect(result).toBe("encrypted-value");
+  });
+
+  test("reads credential from broker when available", async () => {
+    const broker = createMockBroker({
+      "credential:test:key": "broker-secret-value",
+    });
+    try {
+      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = broker.socketPath;
+      writeBrokerToken(TEST_TOKEN);
+
+      const result = await readCredential("credential:test:key");
+      expect(result).toBe("broker-secret-value");
+    } finally {
+      broker.close();
+    }
+  });
+
+  test("broker result takes priority over encrypted store", async () => {
+    const broker = createMockBroker({
+      "credential:test:key": "broker-value",
+    });
+    try {
+      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = broker.socketPath;
+      writeBrokerToken(TEST_TOKEN);
+
+      writeEncryptedStore({
+        "credential:test:key": "encrypted-value",
+      });
+
+      const result = await readCredential("credential:test:key");
+      expect(result).toBe("broker-value");
+    } finally {
+      broker.close();
+    }
+  });
+
+  test("falls back to encrypted store when broker returns not found", async () => {
+    // Broker has no entry for "credential:test:key"
+    const broker = createMockBroker({});
+    try {
+      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = broker.socketPath;
+      writeBrokerToken(TEST_TOKEN);
+
+      writeEncryptedStore({
+        "credential:test:key": "encrypted-value",
+      });
+
+      const result = await readCredential("credential:test:key");
+      expect(result).toBe("encrypted-value");
+    } finally {
+      broker.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: secret values must not leak into log output
+// ---------------------------------------------------------------------------
+
+describe("secret leak prevention", () => {
+  function allLogStrings(): string {
+    return JSON.stringify(logCalls);
+  }
+
+  test("broker read does not leak secret values into logs", async () => {
+    const secretValue = "super-secret-broker-credential-value";
+    const broker = createMockBroker({
+      "credential:leak-test:key": secretValue,
+    });
+    try {
+      process.env.VELLUM_KEYCHAIN_BROKER_SOCKET = broker.socketPath;
+      writeBrokerToken(TEST_TOKEN);
+
+      const result = await readCredential("credential:leak-test:key");
+      expect(result).toBe(secretValue);
+
+      const serialized = allLogStrings();
+      expect(serialized).not.toContain(secretValue);
+      // The auth token used for broker handshake should also stay out of logs
+      expect(serialized).not.toContain(TEST_TOKEN);
+    } finally {
+      broker.close();
+    }
+  });
+
+  test("encrypted store read does not leak secret values into logs", async () => {
+    const secretValue = "super-secret-encrypted-credential-value";
+    delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
+
+    writeEncryptedStore({
+      "credential:leak-test:key": secretValue,
+    });
+
+    const result = await readCredential("credential:leak-test:key");
+    expect(result).toBe(secretValue);
+
+    const serialized = allLogStrings();
+    expect(serialized).not.toContain(secretValue);
+  });
+
+  test("failed encrypted store read does not leak secret values into logs", async () => {
+    const secretValue = "super-secret-telegram-token";
+    delete process.env.VELLUM_KEYCHAIN_BROKER_SOCKET;
 
     writeMetadata([
       { service: "telegram", field: "bot_token" },
       { service: "telegram", field: "webhook_secret" },
     ]);
-
-    // readKeychainCredential should return undefined on linux
-    const keychainResult = readKeychainCredential(
-      "credential:telegram:bot_token",
-    );
-    expect(keychainResult).toBeUndefined();
-
-    // execFileSync should NOT have been called since platform is not darwin
-    expect(execFileSyncMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("readTelegramCredentials: neither backend has credentials", () => {
-  test("returns null when both keychain and encrypted store have nothing", () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    // Keychain throws, encrypted store file doesn't exist
-    const result = readTelegramCredentials();
-    expect(result).toBeNull();
-  });
-});
-
-describe("readKeychainCredential", () => {
-  beforeEach(() => {
-    Object.defineProperty(process, "platform", {
-      value: "darwin",
-      writable: true,
-    });
-  });
-
-  test("returns credential value from keychain on macOS", () => {
-    execFileSyncMock.mockImplementation(() => "my-secret-value\n");
-
-    const result = readKeychainCredential("credential:telegram:bot_token");
-    expect(result).toBe("my-secret-value");
-  });
-
-  test("returns undefined when keychain item not found (exit code 44)", () => {
-    execFileSyncMock.mockImplementation(() => {
-      const err = new Error(
-        "security: SecKeychainSearchCopyNext: The specified item could not be found",
-      ) as Error & { status: number };
-      err.status = 44;
-      throw err;
+    writeEncryptedStore({
+      "credential:telegram:bot_token": secretValue,
+      "credential:telegram:webhook_secret": "webhook-secret-value",
     });
 
-    const result = readKeychainCredential("credential:telegram:bot_token");
-    expect(result).toBeUndefined();
-  });
-
-  test("returns undefined for transient keychain errors (non-44 exit code)", () => {
-    execFileSyncMock.mockImplementation(() => {
-      const err = new Error(
-        "security: The user name or passphrase you entered is not correct.",
-      ) as Error & { status: number };
-      err.status = 51;
-      throw err;
-    });
-
-    // Should still return undefined (graceful fallback), but logs a warning
-    const result = readKeychainCredential("credential:telegram:bot_token");
-    expect(result).toBeUndefined();
-  });
-
-  test("returns undefined on non-darwin platforms", () => {
-    Object.defineProperty(process, "platform", {
-      value: "linux",
-      writable: true,
-    });
-
-    const result = readKeychainCredential("credential:telegram:bot_token");
-    expect(result).toBeUndefined();
-    expect(execFileSyncMock).not.toHaveBeenCalled();
-  });
-
-  test("passes correct service name and account to security CLI", () => {
-    execFileSyncMock.mockImplementation(() => "value\n");
-
-    readKeychainCredential("credential:telegram:bot_token");
-
-    expect(execFileSyncMock).toHaveBeenCalledWith(
-      "security",
-      [
-        "find-generic-password",
-        "-s",
-        "vellum-assistant",
-        "-a",
-        "credential:telegram:bot_token",
-        "-w",
-      ],
-      expect.objectContaining({ encoding: "utf-8", timeout: 5000 }),
-    );
-  });
-});
-
-describe("log output: no plaintext secrets", () => {
-  beforeEach(() => {
-    Object.defineProperty(process, "platform", {
-      value: "darwin",
-      writable: true,
-    });
-  });
-
-  test("log messages never contain secret values", () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    execFileSyncMock.mockImplementation((_cmd: string, args: string[]) => {
-      const aIdx = (args as string[]).indexOf("-a");
-      const account = (args as string[])[aIdx + 1];
-      if (account === "credential:telegram:bot_token")
-        return "SUPER_SECRET_TOKEN_123\n";
-      if (account === "credential:telegram:webhook_secret")
-        return "SUPER_SECRET_WEBHOOK_456\n";
-      throw new Error("not found");
-    });
-
-    const result = readTelegramCredentials();
-
-    // Verify credentials were actually returned (mock is working)
+    const result = await readTelegramCredentials();
     expect(result).not.toBeNull();
-    expect(result!.botToken).toBe("SUPER_SECRET_TOKEN_123");
 
-    // Verify no secret values appear in any log output
-    const allLogText = JSON.stringify(logCalls);
-    expect(allLogText).not.toContain("SUPER_SECRET_TOKEN_123");
-    expect(allLogText).not.toContain("SUPER_SECRET_WEBHOOK_456");
+    const serialized = allLogStrings();
+    expect(serialized).not.toContain(secretValue);
+    expect(serialized).not.toContain("webhook-secret-value");
   });
 });

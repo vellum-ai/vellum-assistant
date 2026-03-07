@@ -53,10 +53,14 @@ import type {
   ExtensionResponse,
 } from "../browser-extension-relay/protocol.js";
 import { extensionRelayServer } from "../browser-extension-relay/server.js";
-import { isSigningKeyInitialized } from "../runtime/auth/token-service.js";
+import {
+  initAuthSigningKey,
+  isSigningKeyInitialized,
+  loadOrCreateSigningKey,
+} from "../runtime/auth/token-service.js";
 import { gatewayPost } from "../runtime/gateway-internal-client.js";
 import type { ExtractedCredential } from "../tools/browser/network-recording-types.js";
-import { type AmazonSession, loadSession } from "./session.js";
+import { type AmazonSession, loadSession, saveSession } from "./session.js";
 
 export const AMAZON_BASE = "https://www.amazon.com";
 
@@ -81,12 +85,10 @@ export async function sendRelayCommand(
 
   // Fall back to HTTP relay endpoint via the gateway.
   // The gateway validates edge JWTs (aud=vellum-gateway) and mints an
-  // exchange token for the runtime. Without the signing key (CLI
-  // out-of-process), we cannot mint JWTs at all.
+  // exchange token for the runtime. In CLI out-of-process contexts the
+  // signing key may not be initialized yet — load it from disk.
   if (!isSigningKeyInitialized()) {
-    throw new Error(
-      "Auth signing key not initialized — browser-relay commands require the daemon to be running",
-    );
+    initAuthSigningKey(loadOrCreateSigningKey());
   }
 
   const { data } = await gatewayPost<ExtensionResponse>(
@@ -356,6 +358,86 @@ export interface CheckoutSummary {
 export interface PlaceOrderResult {
   orderId: string;
   estimatedDelivery?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Session refresh via browser extension relay
+// ---------------------------------------------------------------------------
+
+/**
+ * Refresh the Amazon session by grabbing cookies directly from Chrome
+ * via the browser extension relay's `get_cookies` action.
+ *
+ * Much faster than the CDP-based Ride Shotgun flow — no separate Chrome
+ * instance, no recording. Requires the extension to be loaded and connected.
+ */
+export async function refreshSessionFromExtension(): Promise<AmazonSession> {
+  const resp = await sendRelayCommand({
+    action: "get_cookies",
+    domain: "amazon.com",
+  });
+
+  if (!resp.success) {
+    throw new Error(
+      `Failed to get cookies from browser extension: ${resp.error ?? "unknown error"}`,
+    );
+  }
+
+  const chromeCookies = resp.result as Array<{
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    httpOnly: boolean;
+    secure: boolean;
+    expirationDate?: number;
+  }>;
+
+  if (!chromeCookies?.length) {
+    throw new Error(
+      "No Amazon cookies found in Chrome. " +
+        "Make sure you are signed into Amazon in Chrome.",
+    );
+  }
+
+  const cookies: ExtractedCredential[] = chromeCookies.map((c) => ({
+    name: c.name,
+    value: c.value,
+    domain: c.domain,
+    path: c.path || "/",
+    httpOnly: c.httpOnly,
+    secure: c.secure,
+    expires: c.expirationDate ? Math.floor(c.expirationDate) : undefined,
+  }));
+
+  // Validate required cookies
+  const cookieNames = new Set(cookies.map((c) => c.name));
+  if (!cookieNames.has("session-id")) {
+    throw new Error(
+      "Chrome cookies are missing required Amazon cookie: session-id. " +
+        "Make sure you are signed into Amazon in Chrome.",
+    );
+  }
+  if (!cookieNames.has("ubid-main")) {
+    throw new Error(
+      "Chrome cookies are missing required Amazon cookie: ubid-main. " +
+        "Make sure you are signed into Amazon in Chrome.",
+    );
+  }
+  if (!cookieNames.has("at-main") && !cookieNames.has("x-main")) {
+    throw new Error(
+      "Chrome cookies are missing required Amazon auth cookie (at-main or x-main). " +
+        "Make sure you are fully signed into Amazon in Chrome.",
+    );
+  }
+
+  const session: AmazonSession = {
+    cookies,
+    importedAt: new Date().toISOString(),
+  };
+
+  saveSession(session);
+  return session;
 }
 
 // ---------------------------------------------------------------------------

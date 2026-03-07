@@ -5,12 +5,10 @@ import {
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { getLogger } from "../util/logger.js";
-import { enforceGuardianOnlyPolicy } from "./guardian-control-plane-policy.js";
 import { getAllTools, getTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import type {
@@ -20,6 +18,7 @@ import type {
   ToolExecutionResult,
   ToolLifecycleEvent,
 } from "./types.js";
+import { enforceVerificationControlPlanePolicy } from "./verification-control-plane-policy.js";
 
 const log = getLogger("tool-approval-handler");
 
@@ -216,7 +215,7 @@ export class ToolApprovalHandler {
     }
 
     // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.
-    const guardianCheck = enforceGuardianOnlyPolicy(
+    const guardianCheck = enforceVerificationControlPlanePolicy(
       name,
       input,
       context.trustClass,
@@ -275,7 +274,6 @@ export class ToolApprovalHandler {
         inputDigest,
         consumingRequestId:
           context.requestId ?? `preexec-${context.sessionId}-${Date.now()}`,
-        assistantId: context.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
         executionChannel: context.executionChannel,
         conversationId: context.conversationId,
         callSessionId: context.callSessionId,

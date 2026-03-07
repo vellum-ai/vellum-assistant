@@ -171,7 +171,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
             region: nil,
             zone: nil,
             instanceId: nil,
-            hatchedAt: "2024-01-01T00:00:00Z"
+            hatchedAt: "2024-01-01T00:00:00Z",
+            gatewayPort: nil,
+            socketPath: nil,
+            instanceDir: nil
         )
         XCTAssertTrue(assistant.isManaged)
     }
@@ -186,7 +189,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
             region: nil,
             zone: nil,
             instanceId: nil,
-            hatchedAt: nil
+            hatchedAt: nil,
+            gatewayPort: nil,
+            socketPath: nil,
+            instanceDir: nil
         )
         XCTAssertFalse(assistant.isManaged)
     }
@@ -201,7 +207,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
             region: nil,
             zone: "us-central1-a",
             instanceId: "inst-1",
-            hatchedAt: nil
+            hatchedAt: nil,
+            gatewayPort: nil,
+            socketPath: nil,
+            instanceDir: nil
         )
         XCTAssertFalse(assistant.isManaged)
     }
@@ -216,7 +225,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
             region: nil,
             zone: nil,
             instanceId: nil,
-            hatchedAt: nil
+            hatchedAt: nil,
+            gatewayPort: nil,
+            socketPath: nil,
+            instanceDir: nil
         )
         XCTAssertTrue(assistant.isManaged, "isManaged should be case-insensitive")
     }
@@ -233,7 +245,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
             region: nil,
             zone: nil,
             instanceId: nil,
-            hatchedAt: nil
+            hatchedAt: nil,
+            gatewayPort: nil,
+            socketPath: nil,
+            instanceDir: nil
         )
         XCTAssertFalse(assistant.isRemote)
     }
@@ -248,7 +263,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
             region: nil,
             zone: nil,
             instanceId: nil,
-            hatchedAt: nil
+            hatchedAt: nil,
+            gatewayPort: nil,
+            socketPath: nil,
+            instanceDir: nil
         )
         XCTAssertTrue(assistant.isRemote)
     }
@@ -263,7 +281,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
             region: nil,
             zone: nil,
             instanceId: nil,
-            hatchedAt: nil
+            hatchedAt: nil,
+            gatewayPort: nil,
+            socketPath: nil,
+            instanceDir: nil
         )
         XCTAssertTrue(assistant.isRemote)
     }
@@ -280,7 +301,10 @@ final class LockfileAssistantManagedTests: XCTestCase {
             region: nil,
             zone: nil,
             instanceId: nil,
-            hatchedAt: nil
+            hatchedAt: nil,
+            gatewayPort: nil,
+            socketPath: nil,
+            instanceDir: nil
         )
         if case .vellum(let runtimeUrl) = assistant.home {
             XCTAssertEqual(runtimeUrl, "https://platform.vellum.ai")

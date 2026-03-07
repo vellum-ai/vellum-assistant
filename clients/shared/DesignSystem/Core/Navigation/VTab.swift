@@ -45,8 +45,7 @@ public struct VTab: View {
         Button(action: onSelect) {
             HStack(spacing: VSpacing.xs) {
                 if let icon = icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 12))
+                    VIconView(.resolve(icon), size: 12)
                 }
                 Text(label)
                     .font(VFont.caption)
@@ -64,8 +63,7 @@ public struct VTab: View {
         .overlay(alignment: .trailing) {
             if isCloseable, let onClose = onClose {
                 Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
+                    VIconView(.x, size: 10)
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
@@ -89,9 +87,9 @@ public struct VTab: View {
     ZStack {
         VColor.background.ignoresSafeArea()
         HStack(spacing: 8) {
-            VTab(label: "Dashboard", icon: "house", isSelected: true, onSelect: {})
-            VTab(label: "Settings", icon: "gear", onSelect: {})
-            VTab(label: "Thread", icon: "plus", isCloseable: false, style: .rectangular, onSelect: {})
+            VTab(label: "Dashboard", icon: VIcon.house.rawValue, isSelected: true, onSelect: {})
+            VTab(label: "Settings", icon: VIcon.settings.rawValue, onSelect: {})
+            VTab(label: "Thread", icon: VIcon.plus.rawValue, isCloseable: false, style: .rectangular, onSelect: {})
         }
         .padding()
     }

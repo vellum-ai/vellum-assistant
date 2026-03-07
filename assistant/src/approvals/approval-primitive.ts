@@ -32,7 +32,6 @@ const log = getLogger("approval-primitive");
 // ---------------------------------------------------------------------------
 
 export interface MintGrantParams {
-  assistantId: string;
   scopeMode: "request_id" | "tool_signature";
   requestId?: string | null;
   toolName?: string | null;
@@ -76,7 +75,6 @@ export function mintGrantFromDecision(
         event: "approval_primitive_mint_rejected",
         reason: "missing_request_id",
         scopeMode: params.scopeMode,
-        assistantId: params.assistantId,
         requestChannel: params.requestChannel,
         decisionChannel: params.decisionChannel,
       },
@@ -96,7 +94,6 @@ export function mintGrantFromDecision(
         scopeMode: params.scopeMode,
         toolName: params.toolName ?? null,
         inputDigest: params.inputDigest ?? null,
-        assistantId: params.assistantId,
         requestChannel: params.requestChannel,
         decisionChannel: params.decisionChannel,
       },
@@ -107,7 +104,6 @@ export function mintGrantFromDecision(
 
   try {
     const grant = createScopedApprovalGrant({
-      assistantId: params.assistantId,
       scopeMode: params.scopeMode,
       requestId: params.requestId ?? null,
       toolName: params.toolName ?? null,
@@ -129,7 +125,6 @@ export function mintGrantFromDecision(
         scopeMode: params.scopeMode,
         toolName: params.toolName ?? null,
         requestId: params.requestId ?? null,
-        assistantId: params.assistantId,
         requestChannel: params.requestChannel,
         decisionChannel: params.decisionChannel,
         conversationId: params.conversationId ?? null,
@@ -146,7 +141,6 @@ export function mintGrantFromDecision(
         event: "approval_primitive_mint_error",
         scopeMode: params.scopeMode,
         toolName: params.toolName ?? null,
-        assistantId: params.assistantId,
         err: error,
       },
       "Failed to mint approval grant (storage error)",
@@ -162,7 +156,6 @@ export function mintGrantFromDecision(
 export interface ConsumeByRequestIdParams {
   requestId: string;
   consumingRequestId: string;
-  assistantId: string;
   now?: string;
 }
 
@@ -170,7 +163,6 @@ export interface ConsumeByToolSignatureParams {
   toolName: string;
   inputDigest: string;
   consumingRequestId: string;
-  assistantId?: string;
   executionChannel?: string;
   conversationId?: string;
   callSessionId?: string;
@@ -195,7 +187,6 @@ export interface ConsumeGrantParams {
   toolName: string;
   inputDigest: string;
   consumingRequestId: string;
-  assistantId: string;
   executionChannel?: string;
   conversationId?: string;
   callSessionId?: string;
@@ -221,7 +212,6 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
       consumeScopedApprovalGrantByRequestId(
         params.requestId,
         params.consumingRequestId,
-        params.assistantId,
         params.now,
       );
 
@@ -233,7 +223,6 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
           grantId: reqResult.grant.id,
           requestId: params.requestId,
           consumingRequestId: params.consumingRequestId,
-          assistantId: params.assistantId,
           toolName: params.toolName,
         },
         "Approval grant consumed via request_id",
@@ -248,7 +237,6 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
         reason: "no_match",
         requestId: params.requestId,
         consumingRequestId: params.consumingRequestId,
-        assistantId: params.assistantId,
         toolName: params.toolName,
       },
       "No request_id grant match, falling through to tool_signature",
@@ -261,7 +249,6 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
       toolName: params.toolName,
       inputDigest: params.inputDigest,
       consumingRequestId: params.consumingRequestId,
-      assistantId: params.assistantId,
       executionChannel: params.executionChannel,
       conversationId: params.conversationId,
       callSessionId: params.callSessionId,
@@ -277,7 +264,6 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
         grantId: sigResult.grant.id,
         toolName: params.toolName,
         consumingRequestId: params.consumingRequestId,
-        assistantId: params.assistantId,
         conversationId: params.conversationId ?? null,
         callSessionId: params.callSessionId ?? null,
       },
@@ -293,7 +279,6 @@ function consumeGrantSync(params: ConsumeGrantParams): ConsumeGrantResult {
       reason: "no_match",
       toolName: params.toolName,
       consumingRequestId: params.consumingRequestId,
-      assistantId: params.assistantId,
       conversationId: params.conversationId ?? null,
       callSessionId: params.callSessionId ?? null,
       executionChannel: params.executionChannel ?? null,
@@ -321,7 +306,7 @@ const GRANT_RETRY_MAX_WAIT_MS = 10_000;
  * polling to handle the voice pipeline race condition where the grant
  * may still be in-flight: `answerCall()` triggers the voice turn as
  * fire-and-forget, and the voice LLM can attempt tool execution before
- * `tryMintGuardianActionGrant`'s LLM fallback finishes minting the
+ * `tryMintGuardianActionGrant`'s classifier finishes minting the
  * grant.  Polling bridges this timing gap without changing the
  * fire-and-forget architecture.
  */
@@ -330,7 +315,7 @@ export async function consumeGrantForInvocation(
   options?: { maxWaitMs?: number; intervalMs?: number; signal?: AbortSignal },
 ): Promise<ConsumeGrantResult> {
   // Fast path: try once synchronously — covers the common case where the
-  // grant already exists (deterministic classifier, or prior turns).
+  // grant already exists.
   const first = consumeGrantSync(params);
   if (first.ok) {
     return first;

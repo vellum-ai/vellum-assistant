@@ -251,22 +251,26 @@ export function setKey(account: string, value: string): boolean {
   }
 }
 
+/** Result of a delete operation — distinguishes success, not-found, and error. */
+export type DeleteKeyResult = "deleted" | "not-found" | "error";
+
 /**
  * Delete a secret from the encrypted store.
- * Returns true on success, false if not found or on failure.
+ * Returns `"deleted"` on success, `"not-found"` if the key doesn't exist,
+ * or `"error"` on failure.
  */
-export function deleteKey(account: string): boolean {
+export function deleteKey(account: string): DeleteKeyResult {
   try {
     const store = readStore();
     if (!store || !Object.prototype.hasOwnProperty.call(store.entries, account))
-      return false;
+      return "not-found";
 
     delete store.entries[account];
     writeStore(store);
-    return true;
+    return "deleted";
   } catch (err) {
     log.debug({ err, account }, "Failed to delete from encrypted store");
-    return false;
+    return "error";
   }
 }
 

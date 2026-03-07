@@ -48,7 +48,7 @@ struct FnKeyStepView: View {
                 // Permission status rows
                 VStack(spacing: 0) {
                     permissionRow(
-                        icon: "mic.fill",
+                        icon: VIcon.mic.rawValue,
                         label: "Microphone",
                         granted: micGranted
                     )
@@ -193,8 +193,7 @@ struct FnKeyStepView: View {
 
     private func permissionRow(icon: String, label: String, granted: Bool) -> some View {
         HStack {
-            Image(systemName: icon)
-                .font(.system(size: 14))
+            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 14)
                 .foregroundColor(granted ? Emerald._500 : VColor.textMuted)
                 .frame(width: 24)
             Text(label)
@@ -202,8 +201,7 @@ struct FnKeyStepView: View {
                 .foregroundColor(VColor.textPrimary)
                 .textSelection(.enabled)
             Spacer()
-            Image(systemName: granted ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 16))
+            VIconView(granted ? .circleCheck : .circle, size: 16)
                 .foregroundColor(granted ? Emerald._500 : VColor.textMuted)
         }
         .padding(.horizontal, VSpacing.lg)

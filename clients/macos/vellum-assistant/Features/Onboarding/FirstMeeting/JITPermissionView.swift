@@ -74,8 +74,7 @@ struct JITPermissionView: View {
                     )
                     .frame(width: 80, height: 80)
                     .scaleEffect(iconScale)
-                Image(systemName: request.icon)
-                    .font(.system(size: 32, weight: .light))
+                VIconView(SFSymbolMapping.icon(forSFSymbol: request.icon, fallback: .puzzle), size: 32)
                     .foregroundColor(VColor.accent)
                     .scaleEffect(iconScale)
             }
@@ -108,8 +107,7 @@ struct JITPermissionView: View {
                     }
                 }) {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
+                        VIconView(.chevronRight, size: 9)
                             .foregroundColor(VColor.accent)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                         Text("Technical details")

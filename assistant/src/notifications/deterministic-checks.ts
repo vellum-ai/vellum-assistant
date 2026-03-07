@@ -205,12 +205,7 @@ function checkDedupe(
         createdAt: notificationEvents.createdAt,
       })
       .from(notificationEvents)
-      .where(
-        and(
-          eq(notificationEvents.assistantId, signal.assistantId),
-          eq(notificationEvents.dedupeKey, decision.dedupeKey),
-        ),
-      )
+      .where(and(eq(notificationEvents.dedupeKey, decision.dedupeKey)))
       .all();
 
     // Filter by created_at > cutoff (the events store already checked

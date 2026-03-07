@@ -49,9 +49,6 @@ mock.module("../util/platform.js", () => ({
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
   removeSocketFile: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({

@@ -21,10 +21,6 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-mock.module("../util/platform.js", () => ({
-  readHttpToken: () => "test-http-token",
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {

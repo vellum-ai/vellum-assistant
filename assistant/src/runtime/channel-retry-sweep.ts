@@ -8,7 +8,9 @@ import {
   parseInterfaceId,
 } from "../channels/types.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
-import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
+import * as deliveryChannels from "../memory/delivery-channels.js";
+import * as deliveryCrud from "../memory/delivery-crud.js";
+import * as deliveryStatus from "../memory/delivery-status.js";
 import { getLogger } from "../util/logger.js";
 import { deliverReplyViaCallback } from "./channel-reply-delivery.js";
 import type { MessageProcessor } from "./http-types.js";
@@ -33,10 +35,6 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
       : undefined;
   if (!rawSourceChannel || !isChannelId(rawSourceChannel)) return undefined;
   const sourceChannel = rawSourceChannel;
-  const denialReason =
-    raw.denialReason === "no_binding" || raw.denialReason === "no_identity"
-      ? raw.denialReason
-      : undefined;
   return {
     sourceChannel,
     trustClass,
@@ -72,7 +70,6 @@ function parseTrustRuntimeContext(value: unknown): TrustContext | undefined {
         : undefined,
     requesterChatId:
       typeof raw.requesterChatId === "string" ? raw.requesterChatId : undefined,
-    denialReason,
   };
 }
 
@@ -84,7 +81,7 @@ export async function sweepFailedEvents(
   processMessage: MessageProcessor,
   mintBearerToken: (() => string) | undefined,
 ): Promise<void> {
-  const events = channelDeliveryStore.getRetryableEvents();
+  const events = deliveryStatus.getRetryableEvents();
   if (events.length === 0) return;
 
   log.info({ count: events.length }, "Retrying failed channel inbound events");
@@ -92,7 +89,7 @@ export async function sweepFailedEvents(
   for (const event of events) {
     if (!event.rawPayload) {
       // No payload stored -- can't replay, move to dead letter
-      channelDeliveryStore.recordProcessingFailure(
+      deliveryStatus.recordProcessingFailure(
         event.id,
         new Error("No raw payload stored for replay"),
       );
@@ -103,7 +100,7 @@ export async function sweepFailedEvents(
     try {
       payload = JSON.parse(event.rawPayload) as Record<string, unknown>;
     } catch {
-      channelDeliveryStore.recordProcessingFailure(
+      deliveryStatus.recordProcessingFailure(
         event.id,
         new Error("Failed to parse stored raw payload"),
       );
@@ -117,7 +114,7 @@ export async function sweepFailedEvents(
       : undefined;
     const sourceChannel = parseChannelId(payload.sourceChannel);
     if (!sourceChannel) {
-      channelDeliveryStore.recordProcessingFailure(
+      deliveryStatus.recordProcessingFailure(
         event.id,
         new Error(`Invalid sourceChannel: ${String(payload.sourceChannel)}`),
       );
@@ -132,9 +129,7 @@ export async function sweepFailedEvents(
       | undefined;
     const assistantId =
       typeof payload.assistantId === "string" ? payload.assistantId : undefined;
-    // Backward-compat: events persisted before the guardianCtx → trustCtx
-    // rename still carry the old key name.
-    const rawTrustCtx = payload.trustCtx ?? payload.guardianCtx;
+    const rawTrustCtx = payload.trustCtx;
     const parsedTrustContext = parseTrustRuntimeContext(rawTrustCtx);
 
     // If the stored payload had guardian context data but it couldn't be parsed
@@ -147,7 +142,7 @@ export async function sweepFailedEvents(
         { eventId: event.id },
         "Stored trustCtx could not be parsed into canonical form; marking event as failed to prevent privilege escalation",
       );
-      channelDeliveryStore.markRetryableFailure(
+      deliveryStatus.markRetryableFailure(
         event.id,
         "Unparseable guardian context in stored payload — refusing to process without trust classification",
       );
@@ -195,8 +190,8 @@ export async function sweepFailedEvents(
         sourceChannel,
         sourceInterface,
       );
-      channelDeliveryStore.linkMessage(event.id, userMessageId);
-      channelDeliveryStore.markProcessed(event.id);
+      deliveryCrud.linkMessage(event.id, userMessageId);
+      deliveryStatus.markProcessed(event.id);
       log.info(
         { eventId: event.id },
         "Successfully replayed failed channel event",
@@ -216,7 +211,7 @@ export async function sweepFailedEvents(
           // previously tracked segment progress belongs to the old response and
           // must not carry over. Reset to 0 so we deliver all segments of the
           // new response.
-          channelDeliveryStore.updateDeliveredSegmentCount(event.id, 0);
+          deliveryChannels.updateDeliveredSegmentCount(event.id, 0);
           await deliverReplyViaCallback(
             event.conversationId,
             externalChatId,
@@ -226,17 +221,14 @@ export async function sweepFailedEvents(
             {
               startFromSegment: 0,
               onSegmentDelivered: (count) =>
-                channelDeliveryStore.updateDeliveredSegmentCount(
-                  event.id,
-                  count,
-                ),
+                deliveryChannels.updateDeliveredSegmentCount(event.id, count),
             },
           );
         }
       }
     } catch (err) {
       log.error({ err, eventId: event.id }, "Retry failed for channel event");
-      channelDeliveryStore.recordProcessingFailure(event.id, err);
+      deliveryStatus.recordProcessingFailure(event.id, err);
     }
   }
 }

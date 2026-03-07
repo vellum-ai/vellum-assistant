@@ -34,12 +34,18 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.9"
         PRODUCT_NAME: vellum-assistant-ios
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: "Vellum Assistant iOS Distribution"
 
   vellum-assistant-iosTests:
     type: bundle.unit-test
     platform: iOS
     sources: [Tests]
     dependencies:
+      - target: vellum-assistant-ios
       - package: VellumAssistant
         product: VellumAssistantShared
     settings:

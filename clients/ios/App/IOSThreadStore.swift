@@ -15,12 +15,17 @@ struct IOSThread: Identifiable {
     /// When non-nil, this thread is backed by a daemon session (Connected mode).
     var sessionId: String?
     var isArchived: Bool
+    var isPinned: Bool
+    var displayOrder: Int?
     /// Private threads are excluded from the normal thread list and persist only
     /// for the current session. They match the macOS "temporary chat" behavior.
     var isPrivate: Bool
     /// The schedule job ID that created this thread, if any.
     /// Threads sharing the same scheduleJobId belong to the same schedule group.
     var scheduleJobId: String?
+    var hasUnseenLatestAssistantMessage: Bool
+    var latestAssistantMessageAt: Date?
+    var lastSeenAssistantMessageAt: Date?
 
     /// Whether this thread was created by a schedule or reminder trigger.
     var isScheduleThread: Bool {
@@ -28,15 +33,20 @@ struct IOSThread: Identifiable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false, isPrivate: Bool = false, scheduleJobId: String? = nil) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, sessionId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.lastActivityAt = lastActivityAt ?? createdAt
         self.sessionId = sessionId
         self.isArchived = isArchived
+        self.isPinned = isPinned
+        self.displayOrder = displayOrder
         self.isPrivate = isPrivate
         self.scheduleJobId = scheduleJobId
+        self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
+        self.latestAssistantMessageAt = latestAssistantMessageAt
+        self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
     }
 }
 
@@ -49,9 +59,14 @@ private struct PersistedThread: Codable {
     var createdAt: Date
     var lastActivityAt: Date?
     var isArchived: Bool?
+    var isPinned: Bool?
+    var displayOrder: Int?
     var isPrivate: Bool?
     var sessionId: String?
     var scheduleJobId: String?
+    var hasUnseenLatestAssistantMessage: Bool?
+    var latestAssistantMessageAt: Date?
+    var lastSeenAssistantMessageAt: Date?
 }
 
 // MARK: - IOSThreadStore
@@ -85,6 +100,7 @@ class IOSThreadStore: ObservableObject {
     private var observedActivityThreadIds: Set<UUID> = []
     /// Number of threads per page when listing sessions from the daemon.
     private static let threadPageSize = 50
+    private static let attentionSignalType = "ios_conversation_opened"
     /// Current offset used for the next page fetch; advances by `threadPageSize` on each load.
     private var threadListOffset: Int = 0
     /// Reconnect-generation counter. Incremented only when pagination is reset due to a
@@ -107,6 +123,123 @@ class IOSThreadStore: ObservableObject {
     /// since the cache was loaded. Only these threads preserve local overrides
     /// when the daemon response arrives; all others accept daemon data.
     private var locallyEditedSessionIds: Set<String> = []
+    /// SessionIds where the user explicitly pinned or unpinned. Used to preserve
+    /// local pin/displayOrder when merging daemon data; title/archive-only edits
+    /// must not overwrite daemon pin updates from other devices.
+    private var locallyEditedPinSessionIds: Set<String> = []
+    /// Local seen/unread mutations must survive a stale session-list replay until
+    /// the daemon acknowledges them or returns a newer assistant reply.
+    private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
+
+    private enum PendingAttentionOverride {
+        case seen(latestAssistantMessageAt: Date?)
+        case unread(latestAssistantMessageAt: Date?)
+    }
+
+    private func assistantTimestamp(_ timestampMs: Int?) -> Date? {
+        guard let timestampMs else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(timestampMs) / 1000.0)
+    }
+
+    private func applySessionMetadata(
+        _ session: IPCSessionListResponseSession,
+        to thread: inout IOSThread
+    ) {
+        thread.isPinned = session.isPinned ?? false
+        thread.displayOrder = session.displayOrder.map { Int($0) }
+        thread.hasUnseenLatestAssistantMessage =
+            session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+        thread.latestAssistantMessageAt = assistantTimestamp(
+            session.assistantAttention?.latestAssistantMessageAt
+        )
+        thread.lastSeenAssistantMessageAt = assistantTimestamp(
+            session.assistantAttention?.lastSeenAssistantMessageAt
+        )
+    }
+
+    private func existingThreadIndex(forSessionId sessionId: String) -> Int? {
+        if let threadIndex = threads.firstIndex(where: { $0.sessionId == sessionId }) {
+            return threadIndex
+        }
+        return threads.firstIndex(where: { viewModels[$0.id]?.sessionId == sessionId })
+    }
+
+    private func mergeThreadMetadata(from restored: IOSThread, into thread: inout IOSThread) {
+        thread.sessionId = restored.sessionId ?? thread.sessionId
+        thread.scheduleJobId = restored.scheduleJobId ?? thread.scheduleJobId
+        let hasLocalPinEdit = thread.sessionId.map { locallyEditedPinSessionIds.contains($0) } ?? false
+        if !hasLocalPinEdit {
+            thread.isPinned = restored.isPinned
+            thread.displayOrder = restored.displayOrder
+        } else if restored.isPinned == thread.isPinned {
+            // Server has acknowledged our pin change — stop suppressing updates so
+            // pin/order changes from other clients are reflected on the next refresh.
+            if let sid = thread.sessionId {
+                locallyEditedPinSessionIds.remove(sid)
+            }
+            thread.isPinned = restored.isPinned
+            thread.displayOrder = restored.displayOrder
+        }
+        thread.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
+        thread.latestAssistantMessageAt = restored.latestAssistantMessageAt
+        thread.lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
+        applyPendingAttentionOverride(to: &thread)
+    }
+
+    private func applyPendingAttentionOverride(to thread: inout IOSThread) {
+        guard let sessionId = thread.sessionId,
+              let override = pendingAttentionOverrides[sessionId] else { return }
+
+        switch override {
+        case .seen(let targetLatestAssistantMessageAt):
+            if !thread.hasUnseenLatestAssistantMessage {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+            if let targetLatestAssistantMessageAt,
+               let serverLatestAssistantMessageAt = thread.latestAssistantMessageAt,
+               serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+
+            if let targetLatestAssistantMessageAt,
+               thread.latestAssistantMessageAt == nil {
+                thread.latestAssistantMessageAt = targetLatestAssistantMessageAt
+            }
+            thread.hasUnseenLatestAssistantMessage = false
+            thread.lastSeenAssistantMessageAt = thread.latestAssistantMessageAt
+
+        case .unread(let targetLatestAssistantMessageAt):
+            if thread.hasUnseenLatestAssistantMessage {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+            if let targetLatestAssistantMessageAt,
+               let serverLatestAssistantMessageAt = thread.latestAssistantMessageAt,
+               serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+
+            if let targetLatestAssistantMessageAt,
+               thread.latestAssistantMessageAt == nil {
+                thread.latestAssistantMessageAt = targetLatestAssistantMessageAt
+            }
+            thread.hasUnseenLatestAssistantMessage = true
+            thread.lastSeenAssistantMessageAt = nil
+        }
+    }
+
+    private func latestLoadedAssistantMessageTimestamp(for threadId: UUID) -> Date? {
+        viewModels[threadId]?.messages.last(where: { $0.role == .assistant })?.timestamp
+    }
+
+    private func canMarkThreadUnread(at index: Int) -> Bool {
+        guard !threads[index].hasUnseenLatestAssistantMessage else { return false }
+        return threads[index].latestAssistantMessageAt != nil
+            || latestLoadedAssistantMessageTimestamp(for: threads[index].id) != nil
+    }
 
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
@@ -261,11 +394,13 @@ class IOSThreadStore: ObservableObject {
         viewModels.removeAll()
         observedActivityThreadIds.removeAll()
         pendingHistoryBySessionId.removeAll()
+        pendingAttentionOverrides.removeAll()
 
         if let daemon = newClient as? DaemonClient {
             // Connected mode — show cached threads instantly or spinner on first launch.
             isConnectedMode = true
             locallyEditedSessionIds.removeAll()
+            locallyEditedPinSessionIds.removeAll()
             let cached = Self.loadConnectedCache()
             if cached.isEmpty {
                 isLoadingInitialThreads = true
@@ -284,6 +419,8 @@ class IOSThreadStore: ObservableObject {
             isConnectedMode = false
             isLoadingInitialThreads = false
             locallyEditedSessionIds.removeAll()
+            locallyEditedPinSessionIds.removeAll()
+            pendingAttentionOverrides.removeAll()
             clearConnectedCache()
             let loaded = Self.load()
             if loaded.isEmpty {
@@ -325,6 +462,8 @@ class IOSThreadStore: ObservableObject {
             hasMoreThreads = response.hasMore ?? false
             clearConnectedCache()
             locallyEditedSessionIds.removeAll()
+            locallyEditedPinSessionIds.removeAll()
+            pendingAttentionOverrides.removeAll()
             return
         }
 
@@ -343,13 +482,14 @@ class IOSThreadStore: ObservableObject {
         var restoredThreads: [IOSThread] = []
         for session in filteredSessions {
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
-            let thread = IOSThread(
+            var thread = IOSThread(
                 title: session.title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 lastActivityAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 sessionId: session.id,
                 scheduleJobId: session.scheduleJobId
             )
+            applySessionMetadata(session, to: &thread)
             let vm = ChatViewModel(daemonClient: daemonClient)
             vm.sessionId = session.id
             viewModels[thread.id] = vm
@@ -388,6 +528,8 @@ class IOSThreadStore: ObservableObject {
                 var merged: [IOSThread] = []
                 for var restored in restoredThreads {
                     if let local = localOverrides[restored.sessionId ?? ""] {
+                        let sid = restored.sessionId ?? ""
+                        let useLocalPin = locallyEditedPinSessionIds.contains(sid)
                         restored = IOSThread(
                             id: restored.id,
                             title: local.title,
@@ -395,16 +537,25 @@ class IOSThreadStore: ObservableObject {
                             lastActivityAt: restored.lastActivityAt,
                             sessionId: restored.sessionId,
                             isArchived: local.isArchived,
-                            scheduleJobId: restored.scheduleJobId
+                            isPinned: useLocalPin ? local.isPinned : restored.isPinned,
+                            displayOrder: useLocalPin ? local.displayOrder : restored.displayOrder,
+                            scheduleJobId: restored.scheduleJobId,
+                            hasUnseenLatestAssistantMessage: restored.hasUnseenLatestAssistantMessage,
+                            latestAssistantMessageAt: restored.latestAssistantMessageAt,
+                            lastSeenAssistantMessageAt: restored.lastSeenAssistantMessageAt
                         )
                     }
+                    applyPendingAttentionOverride(to: &restored)
                     merged.append(restored)
                 }
 
                 threads = merged + privateThreads
                 locallyEditedSessionIds.removeAll()
+                locallyEditedPinSessionIds.removeAll()
             } else {
                 // Case 3: User is active (VMs exist or local threads present).
+                // Do not clear locallyEditedSessionIds — title/archive edits persist until
+                // rebind (which resets all local-edit tracking).
                 // Deduplicate: only prepend restored threads whose sessionId
                 // doesn't already exist in the current thread list.
                 let existingSessionIds: Set<String> = Set(
@@ -416,9 +567,16 @@ class IOSThreadStore: ObservableObject {
                 var newThreads: [IOSThread] = []
                 for restored in restoredThreads {
                     if let sid = restored.sessionId, existingSessionIds.contains(sid) {
+                        if let existingIndex = existingThreadIndex(forSessionId: sid) {
+                            var mergedThread = threads[existingIndex]
+                            mergeThreadMetadata(from: restored, into: &mergedThread)
+                            threads[existingIndex] = mergedThread
+                        }
                         viewModels.removeValue(forKey: restored.id)
                     } else {
-                        newThreads.append(restored)
+                        var mergedThread = restored
+                        applyPendingAttentionOverride(to: &mergedThread)
+                        newThreads.append(mergedThread)
                     }
                 }
                 threads = newThreads + threads
@@ -432,9 +590,16 @@ class IOSThreadStore: ObservableObject {
             })
             for restored in restoredThreads {
                 if let sid = restored.sessionId, existingSessionIds.contains(sid) {
+                    if let existingIndex = existingThreadIndex(forSessionId: sid) {
+                        var mergedThread = threads[existingIndex]
+                        mergeThreadMetadata(from: restored, into: &mergedThread)
+                        threads[existingIndex] = mergedThread
+                    }
                     viewModels.removeValue(forKey: restored.id)
                 } else {
-                    threads.append(restored)
+                    var mergedThread = restored
+                    applyPendingAttentionOverride(to: &mergedThread)
+                    threads.append(mergedThread)
                 }
             }
             saveConnectedCache()
@@ -517,6 +682,42 @@ class IOSThreadStore: ObservableObject {
         }
 
         try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxToolResultChars: 1000)
+    }
+
+    /// Mark a connected conversation as seen when the user explicitly opens it.
+    /// If the thread has a pending .unread override (user chose "Mark as unread"),
+    /// only an explicit open (e.g. tapping/selecting the thread) clears that
+    /// override — passive onChange callbacks leave it intact so the user's
+    /// "mark as unread" action isn't immediately undone.
+    func markConversationSeenIfNeeded(threadId: UUID, isExplicitOpen: Bool = false) {
+        guard isConnectedMode,
+              let idx = threads.firstIndex(where: { $0.id == threadId }),
+              let sessionId = threads[idx].sessionId,
+              threads[idx].hasUnseenLatestAssistantMessage else { return }
+        if case .unread = pendingAttentionOverrides[sessionId] {
+            if isExplicitOpen {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+            } else {
+                return
+            }
+        }
+
+        pendingAttentionOverrides[sessionId] = .seen(
+            latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
+        )
+        threads[idx].hasUnseenLatestAssistantMessage = false
+        threads[idx].lastSeenAssistantMessageAt = threads[idx].latestAssistantMessageAt
+        saveConnectedCache()
+
+        let signal = IPCConversationSeenSignal(
+            conversationId: sessionId,
+            sourceChannel: "vellum",
+            signalType: Self.attentionSignalType,
+            confidence: "explicit",
+            source: "ui-navigation",
+            evidenceText: "User opened conversation in app"
+        )
+        try? daemonClient.send(signal)
     }
 
     /// Request an older page of history for pagination.
@@ -663,7 +864,11 @@ class IOSThreadStore: ObservableObject {
 
     func deleteThread(_ thread: IOSThread) {
         viewModels.removeValue(forKey: thread.id)
-        if let sid = thread.sessionId { locallyEditedSessionIds.remove(sid) }
+        if let sid = thread.sessionId {
+            locallyEditedSessionIds.remove(sid)
+            locallyEditedPinSessionIds.remove(sid)
+            pendingAttentionOverrides.removeValue(forKey: sid)
+        }
         threads.removeAll { $0.id == thread.id }
         // Always keep at least one active (non-archived) non-private thread.
         // Private threads are managed separately and should not prevent the
@@ -692,6 +897,86 @@ class IOSThreadStore: ObservableObject {
         saveConnectedCache()
     }
 
+    func pinThread(_ thread: IOSThread) {
+        guard isConnectedMode,
+              let idx = threads.firstIndex(where: { $0.id == thread.id }),
+              threads[idx].sessionId != nil,
+              !threads[idx].isPinned else { return }
+
+        threads[idx].isPinned = true
+        threads[idx].displayOrder = Int.max
+        if let sid = threads[idx].sessionId {
+            locallyEditedSessionIds.insert(sid)
+            locallyEditedPinSessionIds.insert(sid)
+        }
+        recompactPinnedDisplayOrders()
+        sendReorderThreads()
+        saveConnectedCache()
+    }
+
+    func unpinThread(_ thread: IOSThread) {
+        guard isConnectedMode,
+              let idx = threads.firstIndex(where: { $0.id == thread.id }),
+              threads[idx].sessionId != nil,
+              threads[idx].isPinned else { return }
+
+        threads[idx].isPinned = false
+        threads[idx].displayOrder = nil
+        if let sid = threads[idx].sessionId {
+            locallyEditedSessionIds.insert(sid)
+            locallyEditedPinSessionIds.insert(sid)
+        }
+        recompactPinnedDisplayOrders()
+        sendReorderThreads()
+        saveConnectedCache()
+    }
+
+    func markThreadUnread(_ thread: IOSThread) {
+        guard isConnectedMode,
+              let idx = threads.firstIndex(where: { $0.id == thread.id }),
+              let sessionId = threads[idx].sessionId,
+              canMarkThreadUnread(at: idx) else { return }
+
+        let latestAssistantMessageAt =
+            threads[idx].latestAssistantMessageAt
+            ?? latestLoadedAssistantMessageTimestamp(for: threads[idx].id)
+        guard let latestAssistantMessageAt else { return }
+
+        let previousLastSeenAssistantMessageAt = threads[idx].lastSeenAssistantMessageAt
+        let previousOverride = pendingAttentionOverrides[sessionId]
+
+        pendingAttentionOverrides[sessionId] = .unread(
+            latestAssistantMessageAt: latestAssistantMessageAt
+        )
+        threads[idx].latestAssistantMessageAt = latestAssistantMessageAt
+        threads[idx].hasUnseenLatestAssistantMessage = true
+        threads[idx].lastSeenAssistantMessageAt = nil
+        saveConnectedCache()
+
+        let signal = IPCConversationUnreadSignal(
+            conversationId: sessionId,
+            sourceChannel: "vellum",
+            signalType: Self.attentionSignalType,
+            confidence: "explicit",
+            source: "ui-navigation",
+            evidenceText: "User selected Mark as unread"
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.daemonClient.sendConversationUnread(signal)
+            } catch {
+                self.rollbackUnreadMutationIfNeeded(
+                    threadId: thread.id,
+                    sessionId: sessionId,
+                    latestAssistantMessageAt: latestAssistantMessageAt,
+                    previousLastSeenAssistantMessageAt: previousLastSeenAssistantMessageAt,
+                    previousOverride: previousOverride
+                )
+            }
+        }
+    }
+
     func unarchiveThread(_ thread: IOSThread) {
         guard let idx = threads.firstIndex(where: { $0.id == thread.id }) else { return }
         threads[idx].isArchived = false
@@ -707,6 +992,28 @@ class IOSThreadStore: ObservableObject {
         save()
     }
 
+    private func rollbackUnreadMutationIfNeeded(
+        threadId: UUID,
+        sessionId: String,
+        latestAssistantMessageAt: Date,
+        previousLastSeenAssistantMessageAt: Date?,
+        previousOverride: PendingAttentionOverride?
+    ) {
+        guard let idx = threads.firstIndex(where: { $0.id == threadId }),
+              threads[idx].sessionId == sessionId,
+              case .unread(let pendingLatestAssistantMessageAt) = pendingAttentionOverrides[sessionId],
+              pendingLatestAssistantMessageAt == latestAssistantMessageAt else { return }
+
+        if let previousOverride {
+            pendingAttentionOverrides[sessionId] = previousOverride
+        } else {
+            pendingAttentionOverrides.removeValue(forKey: sessionId)
+        }
+        threads[idx].hasUnseenLatestAssistantMessage = false
+        threads[idx].lastSeenAssistantMessageAt = previousLastSeenAssistantMessageAt
+        saveConnectedCache()
+    }
+
     /// Returns the last message text for a thread, if available.
     func lastMessagePreview(for threadId: UUID) -> String? {
         guard let vm = viewModels[threadId],
@@ -714,6 +1021,38 @@ class IOSThreadStore: ObservableObject {
         let text = last.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         return String(text.prefix(80))
+    }
+
+    private func recompactPinnedDisplayOrders() {
+        let pinned = threads.enumerated()
+            .filter { $0.element.isPinned }
+            .sorted { ($0.element.displayOrder ?? Int.max) < ($1.element.displayOrder ?? Int.max) }
+
+        for (order, item) in pinned.enumerated() {
+            threads[item.offset].displayOrder = order
+        }
+    }
+
+    private func sendReorderThreads() {
+        let updates = threads.compactMap { thread -> IPCReorderThreadsRequestUpdate? in
+            guard let sessionId = thread.sessionId, !thread.isArchived, !thread.isPrivate else {
+                return nil
+            }
+
+            return IPCReorderThreadsRequestUpdate(
+                sessionId: sessionId,
+                displayOrder: thread.displayOrder.map(Double.init),
+                isPinned: thread.isPinned
+            )
+        }
+        guard !updates.isEmpty else { return }
+
+        do {
+            try daemonClient.send(IPCReorderThreadsRequest(
+                type: "reorder_threads",
+                updates: updates
+            ))
+        } catch {}
     }
 
     // MARK: - Persistence
@@ -727,7 +1066,23 @@ class IOSThreadStore: ObservableObject {
             UserDefaults.standard.removeObject(forKey: Self.connectedCacheKey)
             return
         }
-        let persisted = cacheable.map { PersistedThread(id: $0.id, title: $0.title, createdAt: $0.createdAt, lastActivityAt: $0.lastActivityAt, isArchived: $0.isArchived, isPrivate: false, sessionId: $0.sessionId, scheduleJobId: $0.scheduleJobId) }
+        let persisted = cacheable.map {
+            PersistedThread(
+                id: $0.id,
+                title: $0.title,
+                createdAt: $0.createdAt,
+                lastActivityAt: $0.lastActivityAt,
+                isArchived: $0.isArchived,
+                isPinned: $0.isPinned,
+                displayOrder: $0.displayOrder,
+                isPrivate: false,
+                sessionId: $0.sessionId,
+                scheduleJobId: $0.scheduleJobId,
+                hasUnseenLatestAssistantMessage: $0.hasUnseenLatestAssistantMessage,
+                latestAssistantMessageAt: $0.latestAssistantMessageAt,
+                lastSeenAssistantMessageAt: $0.lastSeenAssistantMessageAt
+            )
+        }
         if let data = try? JSONEncoder().encode(persisted) {
             UserDefaults.standard.set(data, forKey: Self.connectedCacheKey)
         }
@@ -740,7 +1095,21 @@ class IOSThreadStore: ObservableObject {
         }
         return persisted.compactMap { p in
             guard p.sessionId != nil, !(p.isPrivate ?? false) else { return nil }
-            return IOSThread(id: p.id, title: p.title, createdAt: p.createdAt, lastActivityAt: p.lastActivityAt, sessionId: p.sessionId, isArchived: p.isArchived ?? false, isPrivate: false, scheduleJobId: p.scheduleJobId)
+            return IOSThread(
+                id: p.id,
+                title: p.title,
+                createdAt: p.createdAt,
+                lastActivityAt: p.lastActivityAt,
+                sessionId: p.sessionId,
+                isArchived: p.isArchived ?? false,
+                isPinned: p.isPinned ?? false,
+                displayOrder: p.displayOrder,
+                isPrivate: false,
+                scheduleJobId: p.scheduleJobId,
+                hasUnseenLatestAssistantMessage: p.hasUnseenLatestAssistantMessage ?? false,
+                latestAssistantMessageAt: p.latestAssistantMessageAt,
+                lastSeenAssistantMessageAt: p.lastSeenAssistantMessageAt
+            )
         }
     }
 

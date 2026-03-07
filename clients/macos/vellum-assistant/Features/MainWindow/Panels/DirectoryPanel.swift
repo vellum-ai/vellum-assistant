@@ -33,7 +33,7 @@ struct DirectoryPanel: View {
     @State private var isLoadingDocuments = false
 
     var body: some View {
-        VSidePanel(title: "Directory", onClose: onClose) {
+        VSidePanel(title: "Directory", onClose: onClose, pinnedContent: { EmptyView() }) {
             VStack(spacing: 0) {
                 // Tab bar
                 HStack(spacing: VSpacing.xs) {
@@ -87,7 +87,7 @@ struct DirectoryPanel: View {
                 VEmptyState(
                     title: "No apps",
                     subtitle: "Generated apps will appear here",
-                    icon: "square.grid.2x2"
+                    icon: VIcon.layoutGrid.rawValue
                 )
                 .padding(VSpacing.xl)
             } else {
@@ -114,8 +114,7 @@ struct DirectoryPanel: View {
                         Text(icon)
                             .font(.system(size: 24))
                     } else {
-                        Image(systemName: "app.fill")
-                            .font(.system(size: 20))
+                        VIconView(.appWindow, size: 20)
                             .foregroundColor(VColor.textMuted)
                     }
 
@@ -144,8 +143,7 @@ struct DirectoryPanel: View {
                     Spacer()
 
                     if app.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.system(size: 12))
+                        VIconView(.pin, size: 12)
                             .foregroundColor(VColor.accent)
                     }
                 }

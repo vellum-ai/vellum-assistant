@@ -236,7 +236,7 @@ export class AgentMailProvider implements EmailProvider {
       return inboxes.inboxes[0].inboxId;
     }
     throw new ConfigError(
-      "No inboxes found. Run: vellum email setup inboxes --domain <domain>",
+      "No inboxes found. Run: assistant email setup inboxes --domain <domain>",
     );
   }
 }

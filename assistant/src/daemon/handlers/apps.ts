@@ -1,11 +1,19 @@
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import * as net from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { v4 as uuid } from "uuid";
 
 import { packageApp } from "../../bundler/app-bundler.js";
+import { compileApp } from "../../bundler/app-compiler.js";
 import { defaultGallery } from "../../gallery/default-gallery.js";
 import { resolveHomeBaseAppId } from "../../home-base/bootstrap.js";
 import { isPrebuiltHomeBaseApp } from "../../home-base/prebuilt-home-base-updater.js";
@@ -22,6 +30,8 @@ import {
   deleteAppRecord,
   getApp,
   getAppPreview,
+  getAppsDir,
+  isMultifileApp,
   listApps,
   queryAppRecords,
   updateApp,
@@ -104,11 +114,11 @@ export function handleAppDataRequest(
   }
 }
 
-export function handleAppOpenRequest(
+export async function handleAppOpenRequest(
   msg: { appId: string },
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   try {
     const appId = msg.appId;
     if (!appId) {
@@ -122,13 +132,37 @@ export function handleAppOpenRequest(
     const app = getApp(appId);
     if (app) {
       const surfaceId = `app-open-${uuid()}`;
+      let html = app.htmlDefinition;
+
+      // Multifile apps store source in src/ and compiled output in dist/.
+      // Read dist/index.html instead of the (empty) htmlDefinition.
+      if (isMultifileApp(app)) {
+        const appDir = join(getAppsDir(), appId);
+        const distIndex = join(appDir, "dist", "index.html");
+        if (!existsSync(distIndex)) {
+          // Auto-compile if dist/ is missing (first open or after clean)
+          const result = await compileApp(appDir);
+          if (!result.ok) {
+            log.warn(
+              { appId, errors: result.errors },
+              "Auto-compile failed on app open",
+            );
+          }
+        }
+        if (existsSync(distIndex)) {
+          html = readFileSync(distIndex, "utf-8");
+        } else {
+          html = `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
+        }
+      }
+
       ctx.send(socket, {
         type: "ui_surface_show",
         sessionId: "app-panel",
         surfaceId,
         surfaceType: "dynamic_page",
         title: app.name,
-        data: { html: app.htmlDefinition, appId: app.id },
+        data: { html, appId: app.id },
         display: "panel",
       } as UiSurfaceShow);
       return;
@@ -559,6 +593,7 @@ export async function handleBundleApp(
     ctx.send(socket, {
       type: "bundle_app_response",
       bundlePath: result.bundlePath,
+      iconImageBase64: result.iconImageBase64,
       manifest: result.manifest,
     });
   } catch (err) {
@@ -578,11 +613,11 @@ export function handleGalleryList(
   ctx.send(socket, { type: "gallery_list_response", gallery: defaultGallery });
 }
 
-export function handleGalleryInstall(
+export async function handleGalleryInstall(
   msg: GalleryInstallRequest,
   socket: net.Socket,
   ctx: HandlerContext,
-): void {
+): Promise<void> {
   try {
     const galleryApp = defaultGallery.apps.find(
       (a) => a.id === msg.galleryAppId,
@@ -601,7 +636,25 @@ export function handleGalleryInstall(
       description: galleryApp.description,
       schemaJson: galleryApp.schemaJson,
       htmlDefinition: galleryApp.htmlDefinition,
+      formatVersion: galleryApp.formatVersion,
     });
+
+    // For multifile apps, write source files to the app directory and compile
+    if (galleryApp.formatVersion === 2 && galleryApp.sourceFiles) {
+      const appDir = join(getAppsDir(), app.id);
+      for (const [relPath, content] of Object.entries(galleryApp.sourceFiles)) {
+        const fullPath = join(appDir, relPath);
+        mkdirSync(dirname(fullPath), { recursive: true });
+        writeFileSync(fullPath, content, "utf-8");
+      }
+      const result = await compileApp(appDir);
+      if (!result.ok) {
+        log.warn(
+          { appId: app.id, errors: result.errors },
+          "Gallery app compilation had errors; falling back to htmlDefinition",
+        );
+      }
+    }
 
     ctx.send(socket, {
       type: "gallery_install_response",

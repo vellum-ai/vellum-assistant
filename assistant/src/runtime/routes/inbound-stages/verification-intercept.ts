@@ -7,7 +7,7 @@
  * This is the dispatch point for channel-based post-verification side
  * effects. Voice verification has its own dispatch in relay-server.ts.
  * Both guardian and trusted-contact flows converge here after
- * validateAndConsumeChallenge() returns success.
+ * validateAndConsumeVerification() returns success.
  *
  * Verification code messages are short-circuited here and NEVER enter the
  * agent pipeline. This prevents verification codes from producing
@@ -18,23 +18,24 @@ import { findContactChannel } from "../../../contacts/contact-store.js";
 import {
   createGuardianBinding,
   revokeGuardianBinding,
-  upsertMember,
+  upsertContactChannel,
 } from "../../../contacts/contacts-write.js";
-import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
+import * as deliveryChannels from "../../../memory/delivery-channels.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { canonicalizeInboundIdentity } from "../../../util/canonicalize-identity.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   findActiveSession,
   getGuardianBinding,
-  getPendingChallenge,
-  validateAndConsumeChallenge,
-} from "../../channel-guardian-service.js";
+  getPendingSession,
+  validateAndConsumeVerification,
+} from "../../channel-verification-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../../guardian-verification-templates.js";
+} from "../../verification-templates.js";
 import { stripVerificationFailurePrefix } from "../channel-route-shared.js";
 
 const log = getLogger("runtime-http");
@@ -95,8 +96,7 @@ export async function handleVerificationIntercept(
   // Only intercept when there is a pending challenge or active outbound session
   const shouldIntercept =
     guardianVerifyCode !== undefined &&
-    (!!getPendingChallenge(canonicalAssistantId, sourceChannel) ||
-      !!findActiveSession(canonicalAssistantId, sourceChannel));
+    (!!getPendingSession(sourceChannel) || !!findActiveSession(sourceChannel));
 
   if (
     isDuplicate ||
@@ -107,8 +107,7 @@ export async function handleVerificationIntercept(
     return null;
   }
 
-  const verifyResult = validateAndConsumeChallenge(
-    canonicalAssistantId,
+  const verifyResult = validateAndConsumeVerification(
     sourceChannel,
     guardianVerifyCode,
     canonicalSenderId ?? rawSenderId,
@@ -143,8 +142,7 @@ export async function handleVerificationIntercept(
         ? existingContact.displayName
         : actorDisplayName;
 
-    upsertMember({
-      assistantId: canonicalAssistantId,
+    upsertContactChannel({
       sourceChannel,
       externalUserId: canonicalSenderId ?? rawSenderId,
       externalChatId: conversationExternalId,
@@ -156,7 +154,7 @@ export async function handleVerificationIntercept(
     });
 
     // Guardian-specific side effect: create/update the guardian binding.
-    // This was previously inside validateAndConsumeChallenge but is now
+    // This was previously inside validateAndConsumeVerification but is now
     // handled here so both verification types have symmetric dispatch.
     if (verifyResult.verificationType === "guardian") {
       // Reject if a different user already holds the guardian binding
@@ -170,7 +168,7 @@ export async function handleVerificationIntercept(
           (canonicalSenderId ?? rawSenderId)
       ) {
         // Edge case: another user already bound. Log and skip binding creation.
-        // The upsertMember above already succeeded, so the sender is a known contact,
+        // The upsertContactChannel above already succeeded, so the sender is a known contact,
         // but they won't get guardian role.
         log.warn(
           {
@@ -181,7 +179,7 @@ export async function handleVerificationIntercept(
         );
       } else {
         // Revoke any existing active binding before creating a new one (same-user re-verification)
-        revokeGuardianBinding(canonicalAssistantId, sourceChannel);
+        revokeGuardianBinding(sourceChannel);
 
         const metadata: Record<string, string> = {};
         if (actorUsername && actorUsername.trim().length > 0) {
@@ -202,7 +200,6 @@ export async function handleVerificationIntercept(
           rawSenderId;
 
         createGuardianBinding({
-          assistantId: canonicalAssistantId,
           channel: sourceChannel,
           guardianExternalUserId: canonicalSenderId ?? rawSenderId,
           guardianDeliveryChatId: conversationExternalId,
@@ -233,9 +230,8 @@ export async function handleVerificationIntercept(
     if (verifyResult.verificationType === "trusted_contact") {
       void emitNotificationSignal({
         sourceEventName: "ingress.trusted_contact.activated",
-        sourceChannel,
+        sourceChannel: sourceChannel as NotificationSourceChannel,
         sourceSessionId: conversationId,
-        assistantId: canonicalAssistantId,
         attentionHints: {
           requiresAction: false,
           urgency: "low",
@@ -290,7 +286,7 @@ export async function handleVerificationIntercept(
         { err, conversationExternalId },
         "Failed to deliver deterministic verification reply; persisting for retry",
       );
-      channelDeliveryStore.storePendingVerificationReply(eventId, {
+      deliveryChannels.storePendingVerificationReply(eventId, {
         chatId: conversationExternalId,
         text: replyText,
         assistantId,
@@ -312,7 +308,7 @@ export async function handleVerificationIntercept(
             mintBearerToken(),
           );
           log.info({ eventId }, "Verification reply delivered on self-retry");
-          channelDeliveryStore.clearPendingVerificationReply(eventId);
+          deliveryChannels.clearPendingVerificationReply(eventId);
         } catch (retryErr) {
           log.error(
             { err: retryErr, eventId },
@@ -325,7 +321,7 @@ export async function handleVerificationIntercept(
         accepted: true,
         duplicate: false,
         eventId,
-        guardianVerification: guardianVerifyOutcome,
+        verificationOutcome: guardianVerifyOutcome,
         deliveryPending: true,
       });
     }
@@ -335,6 +331,6 @@ export async function handleVerificationIntercept(
     accepted: true,
     duplicate: false,
     eventId,
-    guardianVerification: guardianVerifyOutcome,
+    verificationOutcome: guardianVerifyOutcome,
   });
 }

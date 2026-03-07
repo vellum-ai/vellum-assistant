@@ -51,7 +51,7 @@ export async function createProvider(
       }
       if (!apiKey) {
         throw new ConfigError(
-          "No AgentMail API key configured. Run: vellum keys set agentmail <key>",
+          "No AgentMail API key configured. Run: assistant keys set agentmail <key>",
         );
       }
       const { AgentMailClient } = await import("agentmail");

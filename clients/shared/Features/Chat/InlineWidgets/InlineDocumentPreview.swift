@@ -16,8 +16,7 @@ public struct InlineDocumentPreview: View {
             onOpen()
         } label: {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 20, weight: .medium))
+                VIconView(.fileText, size: 20)
                     .foregroundColor(VColor.accent)
 
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {

@@ -63,8 +63,7 @@ struct AppVersionHistoryPanel: View {
                 HStack {
                     Spacer()
                     VStack(spacing: VSpacing.sm) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 32))
+                        VIconView(.clock, size: 32)
                             .foregroundColor(VColor.textMuted)
                         Text("No version history")
                             .font(VFont.body)
@@ -164,8 +163,7 @@ struct AppVersionHistoryPanel: View {
                     Button(action: {
                         restoreConfirmVersion = version
                     }) {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 12))
+                        VIconView(.rotateCcw, size: 12)
                             .foregroundColor(VColor.textSecondary)
                     }
                     .buttonStyle(.plain)
@@ -241,7 +239,7 @@ struct AppVersionHistoryPanel: View {
 
             if let error = restoreError {
                 HStack {
-                    Image(systemName: "exclamationmark.triangle")
+                    VIconView(.triangleAlert, size: 14)
                         .foregroundColor(VColor.error)
                     Text(error)
                         .font(VFont.caption)

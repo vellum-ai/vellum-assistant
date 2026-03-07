@@ -1,14 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
 
 // Mock config before importing modules that depend on it.
-// The permissions mode must be 'legacy' so computer-use tools
-// (which have no trust rules in test) don't trigger approval prompts.
+// The permissions mode must be 'workspace' so computer-use tools
+// go through normal workspace trust evaluation instead of prompting.
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
 
     provider: "mock-provider",
-    permissions: { mode: "legacy" },
+    permissions: { mode: "workspace" },
     apiKeys: {},
     sandbox: { enabled: false },
     timeouts: { toolExecutionTimeoutSec: 30, permissionTimeoutSec: 5 },

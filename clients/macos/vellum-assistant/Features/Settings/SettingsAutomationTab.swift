@@ -114,14 +114,14 @@ struct HeartbeatAutomationSection: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    VIconButton(label: "Run Now", icon: "play.fill", iconOnly: true, tooltip: "Run Now") {
+                    VIconButton(label: "Run Now", icon: VIcon.play.rawValue, iconOnly: true, tooltip: "Run Now") {
                         triggerRun()
                     }
                 }
-                VIconButton(label: "History", icon: "clock.arrow.circlepath", iconOnly: true, tooltip: "History") {
+                VIconButton(label: "History", icon: VIcon.history.rawValue, iconOnly: true, tooltip: "History") {
                     showingHeartbeatRuns = true
                 }
-                VIconButton(label: "Config", icon: "gearshape", iconOnly: true, tooltip: "Config") {
+                VIconButton(label: "Config", icon: VIcon.settings.rawValue, iconOnly: true, tooltip: "Config") {
                     showingHeartbeatConfig = true
                 }
             }

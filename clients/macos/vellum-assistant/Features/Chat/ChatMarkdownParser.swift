@@ -1,17 +1,18 @@
+import os
 import SwiftUI
 import VellumAssistantShared
 
 // MARK: - Markdown Table Support
 
 /// A segment of message content — either plain text or a parsed table.
-struct ListItem {
+struct ListItem: Hashable {
     let indent: Int
     let ordered: Bool
     let number: Int      // meaningful only when ordered == true
     let text: String
 }
 
-enum MarkdownSegment {
+enum MarkdownSegment: Hashable {
     case text(String)
     case table(headers: [String], rows: [[String]])
     case image(alt: String, url: String)
@@ -70,6 +71,8 @@ func parseListLine(_ line: String) -> ListItem? {
 
 /// Parses message text into segments, extracting markdown tables, code blocks, headings, lists, and rules.
 func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
+    os_signpost(.begin, log: PerfSignposts.log, name: "markdownParse")
+    defer { os_signpost(.end, log: PerfSignposts.log, name: "markdownParse") }
     let lines = text.components(separatedBy: .newlines)
     var segments: [MarkdownSegment] = []
     var currentText: [String] = []
@@ -260,7 +263,6 @@ struct MarkdownTableView: View {
     let headers: [String]
     let rows: [[String]]
     var maxWidth: CGFloat = 520
-    var isStreaming: Bool = false
 
     @Environment(\.conversationZoomScale) private var zoomScale
 
@@ -275,7 +277,7 @@ struct MarkdownTableView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.sm)
-                        .selectableText(!isStreaming)
+                        .textSelection(.enabled)
                 }
             }
 
@@ -314,6 +316,6 @@ struct MarkdownTableView: View {
         return Text(attributed)
             .font(.custom("Inter", size: 13 * zoomScale))
             .foregroundColor(VColor.textPrimary)
-            .selectableText(!isStreaming)
+            .textSelection(.enabled)
     }
 }

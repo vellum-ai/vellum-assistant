@@ -45,7 +45,7 @@ public final class ChatViewModel: ObservableObject {
     static let subManagerCoalesceInterval: TimeInterval = 0.1 // 100ms
 
     /// Coalescing task: fires objectWillChange once per burst window, same
-    /// pattern as SubagentDetailStore.schedulePublish().
+    /// pattern as SubagentDetailStore.scheduleFlush().
     private var subManagerPublishTask: Task<Void, Never>?
 
     /// Schedule a single coalesced `objectWillChange` notification.
@@ -60,6 +60,16 @@ public final class ChatViewModel: ObservableObject {
             self?.objectWillChange.send()
             self?.subManagerPublishTask = nil
         }
+    }
+
+    /// Flush any pending coalesced publish immediately.
+    /// Used after clearing `inputText` in `sendMessage()` so the TextField
+    /// binding updates without the 100ms delay — preventing the field editor
+    /// from writing stale text back through the binding.
+    private func flushCoalescedPublish() {
+        subManagerPublishTask?.cancel()
+        subManagerPublishTask = nil
+        objectWillChange.send()
     }
 
     // MARK: - Debug publish-rate counters
@@ -104,7 +114,16 @@ public final class ChatViewModel: ObservableObject {
     }
     public var inputText: String {
         get { messageManager.inputText }
-        set { messageManager.inputText = newValue }
+        set {
+            let oldValue = messageManager.inputText
+            let oldSuggestion = messageManager.suggestion
+            messageManager.inputText = newValue
+            guard newValue != oldValue else { return }
+            if let oldSuggestion, !oldSuggestion.hasPrefix(newValue) {
+                messageManager.suggestion = nil
+                pendingSuggestionRequestId = nil
+            }
+        }
     }
     public var isThinking: Bool {
         get { messageManager.isThinking }
@@ -584,10 +603,11 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - On-Demand Content Rehydration
 
     /// Fetch full (untruncated) content for a message that was loaded with truncated
-    /// text/tool results. No-ops if the message is not found or wasn't truncated.
+    /// text/tool results or had its heavy content stripped. No-ops if the message is
+    /// not found or doesn't need rehydration.
     public func rehydrateMessage(id: UUID) {
         guard let idx = messages.firstIndex(where: { $0.id == id }),
-              messages[idx].wasTruncated,
+              messages[idx].wasTruncated || messages[idx].isContentStripped,
               let sessionId = sessionId,
               let daemonMessageId = messages[idx].daemonMessageId else { return }
         do {
@@ -615,21 +635,16 @@ public final class ChatViewModel: ObservableObject {
     public func handleMessageContentResponse(_ response: IPCMessageContentResponse) {
         guard let idx = messages.firstIndex(where: { $0.daemonMessageId == response.messageId }) else { return }
 
-        // Update text with full content. When collapsing multiple text segments
-        // into one, also update contentOrder so stale .text(N>0) references are
-        // removed — otherwise interleaved content orders become invalid.
+        // Only update text when the message has a single segment (non-interleaved).
+        // Interleaved messages have multiple text segments separated by tool calls;
+        // collapsing them into one destroys the contentOrder interleaving, which
+        // causes separate tool groups to merge into one massive progress view.
+        // Text is already displayed correctly from the original segments — rehydration
+        // is primarily needed for tool call details (inputs, results, images).
         if let fullText = response.text {
-            messages[idx].textSegments = fullText.isEmpty ? [] : [fullText]
-            if !messages[idx].contentOrder.isEmpty {
-                var seenText = false
-                messages[idx].contentOrder = messages[idx].contentOrder.compactMap { entry in
-                    if case .text = entry {
-                        if seenText { return nil }
-                        seenText = true
-                        return .text(0)
-                    }
-                    return entry
-                }
+            let hasInterleavedText = messages[idx].textSegments.count > 1
+            if !hasInterleavedText {
+                messages[idx].textSegments = fullText.isEmpty ? [] : [fullText]
             }
         }
 
@@ -660,6 +675,9 @@ public final class ChatViewModel: ObservableObject {
             }
         }
 
+        // Clear unconditionally — even when text replacement was skipped for
+        // interleaved messages, tool call data has been rehydrated. Leaving
+        // wasTruncated true would cause infinite rehydration requests.
         messages[idx].wasTruncated = false
         messages[idx].isContentStripped = false
     }
@@ -1004,9 +1022,13 @@ public final class ChatViewModel: ObservableObject {
                 secretBlockedActiveSurfaceId = nil
                 secretBlockedCurrentPage = nil
                 currentTurnUserText = rawText
+                flushCoalescedPublish()
                 return
             }
             pendingSkillInvocation = nil
+            inputText = ""
+            pendingAttachments = []
+            flushCoalescedPublish()
             return
         }
 
@@ -1052,6 +1074,7 @@ public final class ChatViewModel: ObservableObject {
         secretBlockedAttachments = nil
         secretBlockedActiveSurfaceId = nil
         secretBlockedCurrentPage = nil
+        flushCoalescedPublish()
 
         let ipcAttachments: [IPCAttachment]? = attachments.isEmpty ? nil : attachments.map {
             IPCAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil)
@@ -1393,6 +1416,48 @@ public final class ChatViewModel: ObservableObject {
         } catch {
             log.error("Failed to send UiSurfaceAction: \(error)")
         }
+    }
+
+    // MARK: - Surface Refetch
+
+    /// Lazily created manager that serializes surface content fetches.
+    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, sessionId in
+        guard let self else { return nil }
+        return await self.daemonClient.fetchSurfaceData(surfaceId: surfaceId, sessionId: sessionId)
+    }
+
+    /// In-flight refetch tasks, keyed by surface ID for cancellation.
+    private var refetchTasks: [String: Task<Void, Never>] = [:]
+
+    /// Re-fetch the full payload for a stripped surface and replace it in the message list.
+    public func refetchStrippedSurface(surfaceId: String, sessionId: String) {
+        guard refetchTasks[surfaceId] == nil else { return }
+        refetchTasks[surfaceId] = Task { @MainActor [weak self] in
+            defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
+            guard let self else { return }
+            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, sessionId: sessionId)
+            for msgIndex in self.messages.indices {
+                if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
+                    if let data = result.data {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = data
+                    } else if result.retriesExhausted {
+                        self.messages[msgIndex].inlineSurfaces[surfIndex].data = .strippedFailed
+                    }
+                    // When data is nil but retries are not exhausted, leave the
+                    // surface in .stripped state so a future onAppear re-triggers
+                    // the fetch attempt.
+                    return
+                }
+            }
+        }
+    }
+
+    /// Cancel all in-flight surface refetch tasks and reset the manager's
+    /// failure counts so surfaces can be retried in the new session.
+    private func cancelRefetchTasks() {
+        for task in refetchTasks.values { task.cancel() }
+        refetchTasks.removeAll()
+        Task { await surfaceRefetchManager.resetFailureCounts() }
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
@@ -2052,16 +2117,15 @@ public final class ChatViewModel: ObservableObject {
     ///
     /// - Parameters:
     ///   - historyMessages: The message items from the daemon's history response.
-    ///   - hasMore: Whether the daemon has older pages available. Defaults to `false`
-    ///     for backward compatibility with older daemons that don't send this field.
+    ///   - hasMore: Whether the daemon has older pages available.
     ///   - oldestTimestamp: The timestamp of the oldest message in the response (ms since epoch).
     ///     Used as the cursor for the next pagination request.
     ///   - isPaginationLoad: When `true`, messages are prepended to the existing list
     ///     (older page fetched on demand). When `false`, the standard initial-load
     ///     or reconnect-catch-up logic applies.
     public func populateFromHistory(
-        _ historyMessages: [HistoryResponseMessage.HistoryMessageItem],
-        hasMore: Bool = false,
+        _ historyMessages: [IPCHistoryResponseMessage],
+        hasMore: Bool,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
     ) {
@@ -2098,6 +2162,22 @@ public final class ChatViewModel: ObservableObject {
                     toolCall.cachedImage = decodedImage
                     toolCall.reasonDescription = (tc.input["reason"]?.value as? String)
                         ?? (tc.input["reasoning"]?.value as? String)
+                    // Restore persisted timing and confirmation data
+                    if let startMs = tc.startedAt {
+                        toolCall.startedAt = Date(timeIntervalSince1970: Double(startMs) / 1000.0)
+                    }
+                    if let endMs = tc.completedAt {
+                        toolCall.completedAt = Date(timeIntervalSince1970: Double(endMs) / 1000.0)
+                    }
+                    if let decision = tc.confirmationDecision {
+                        switch decision {
+                        case "approved": toolCall.confirmationDecision = .approved
+                        case "denied": toolCall.confirmationDecision = .denied
+                        case "timed_out": toolCall.confirmationDecision = .timedOut
+                        default: break
+                        }
+                    }
+                    toolCall.confirmationLabel = tc.confirmationLabel
                     // Cap tool input size to prevent unbounded memory from large history
                     // restores. Check size synchronously to avoid a race where a deferred
                     // Task might run before self.messages is populated with these new items.
@@ -2206,19 +2286,12 @@ public final class ChatViewModel: ObservableObject {
             // Populate inlineSurfaces from history
             chatMsg.inlineSurfaces = inlineSurfaces
 
-            // Use daemon-provided segments/order when available; fall back to legacy.
-            // The daemon always provides contentOrder when there are any content blocks,
-            // so we should use it even when textSegments is empty (e.g., widget-only turns).
-            if let segments = item.textSegments, let orderStrings = item.contentOrder {
+            // Use daemon-provided segments/order.
+            if let segments = item.textSegments {
                 chatMsg.textSegments = segments
+            }
+            if let orderStrings = item.contentOrder {
                 chatMsg.contentOrder = Self.parseContentOrder(orderStrings)
-            } else {
-                chatMsg.contentOrder = ChatMessage.buildDefaultContentOrder(
-                    textSegmentCount: chatMsg.textSegments.count,
-                    toolCallCount: toolCalls.count,
-                    arrivedBeforeText: toolsBeforeText,
-                    surfaceCount: inlineSurfaces.count
-                )
             }
 
             // Log contentOrder for debugging widget restoration
@@ -2323,6 +2396,7 @@ public final class ChatViewModel: ObservableObject {
         // after the messages array is replaced, creating an orphan assistant message
         // or appending text to a stale currentAssistantMessageId.
         discardStreamingBuffer()
+        cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
         lastContentWasToolCall = false
@@ -2397,6 +2471,8 @@ public final class ChatViewModel: ObservableObject {
         streamingFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
+        for task in refetchTasks.values { task.cancel() }
+        refetchTasks.removeAll()
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],

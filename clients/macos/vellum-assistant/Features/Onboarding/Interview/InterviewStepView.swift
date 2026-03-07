@@ -124,8 +124,7 @@ struct InterviewStepView: View {
                     viewModel.sendMessage()
                 }
             }) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 12, weight: .bold))
+                VIconView(.arrowUp, size: 12)
                     .foregroundColor(.white)
                     .frame(width: 24, height: 24)
                     .background(

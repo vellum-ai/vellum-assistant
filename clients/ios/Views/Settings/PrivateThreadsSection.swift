@@ -40,7 +40,7 @@ struct PrivateThreadsSection: View {
                                 threadToDelete = thread
                                 showingDeleteConfirmation = true
                             } label: {
-                                Label("Delete", systemImage: "trash")
+                                Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                             }
                         }
                         .swipeActions(edge: .leading) {
@@ -48,7 +48,7 @@ struct PrivateThreadsSection: View {
                                 renamingThread = thread
                                 renameText = thread.title
                             } label: {
-                                Label("Rename", systemImage: "pencil")
+                                Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
                             }
                             .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                         }
@@ -65,7 +65,7 @@ struct PrivateThreadsSection: View {
                     newThreadName = ""
                     showingCreateSheet = true
                 } label: {
-                    Label("New Private Thread", systemImage: "lock.shield")
+                    Label { Text("New Private Thread") } icon: { VIconView(.shield, size: 14) }
                 }
             }
         }
@@ -108,9 +108,8 @@ struct PrivateThreadsSection: View {
 
     private func privateThreadRow(_ thread: IOSThread) -> some View {
         HStack {
-            Image(systemName: "lock.shield")
+            VIconView(.shield, size: 12)
                 .foregroundStyle(VColor.accent)
-                .font(.caption)
             VStack(alignment: .leading, spacing: 2) {
                 Text(thread.title)
                     .lineLimit(1)

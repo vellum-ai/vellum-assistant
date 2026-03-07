@@ -2,13 +2,13 @@
  * Route handlers for shareable app pages and cloud sharing.
  */
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { extname, join } from "node:path";
 
 import JSZip from "jszip";
 
 import type { AppManifest } from "../../bundler/manifest.js";
-import { getApp } from "../../memory/app-store.js";
+import { getApp, getAppsDir, isMultifileApp } from "../../memory/app-store.js";
 import * as sharedAppLinksStore from "../../memory/shared-app-links-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -44,6 +44,11 @@ export function handleServePage(appId: string): Response {
   const app = getApp(appId);
   if (!app) {
     return httpError("NOT_FOUND", "App not found", 404);
+  }
+
+  // Multifile apps serve the compiled dist/index.html directly.
+  if (isMultifileApp(app)) {
+    return serveMultifileApp(appId, app.name);
   }
 
   const css = loadDesignSystemCss();
@@ -95,6 +100,122 @@ ${noncedHtml}
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Content-Security-Policy": csp,
+    },
+  });
+}
+
+/**
+ * Serve compiled output for multifile TSX apps.
+ * Falls back to a "not compiled yet" message if dist/index.html is missing.
+ */
+function serveMultifileApp(appId: string, appName: string): Response {
+  const distDir = join(getAppsDir(), appId, "dist");
+  const indexPath = join(distDir, "index.html");
+
+  if (!existsSync(indexPath)) {
+    const escapedName = appName.replace(
+      /[<>&"]/g,
+      (c) => HTML_ESCAPE_MAP[c] ?? c,
+    );
+    return new Response(
+      `<!DOCTYPE html><html><head><title>${escapedName}</title></head>` +
+        `<body><p>App has not been compiled yet. Edit a source file to trigger a build.</p></body></html>`,
+      {
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      },
+    );
+  }
+
+  // Rewrite relative asset paths to absolute HTTP routes so browsers and
+  // HTTP-based consumers (e.g. /pages/:appId) can resolve them. The macOS
+  // WebView uses the vellumapp:// scheme handler which resolves on disk,
+  // but HTTP clients need the /v1/apps/:appId/dist/ route.
+  let html = readFileSync(indexPath, "utf-8");
+  html = html.replace(
+    /(?:src|href)="(\.?\/?main\.(js|css))"/g,
+    (_match, _filename, ext) => {
+      const attr = ext === "css" ? "href" : "src";
+      return `${attr}="/v1/apps/${appId}/dist/main.${ext}"`;
+    },
+  );
+
+  // Compiled apps use external scripts so 'unsafe-inline' is not needed for
+  // script-src; however we keep it for style-src since the app HTML may use
+  // inline styles.
+  const csp = [
+    "default-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
+    "img-src 'self' data: https:",
+    "font-src 'self' data: https:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'self'",
+  ].join("; ");
+
+  return new Response(html, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": csp,
+    },
+  });
+}
+
+/** Content-Type map for static dist/ assets. */
+const DIST_CONTENT_TYPES: Record<string, string> = {
+  ".js": "application/javascript",
+  ".css": "text/css",
+  ".html": "text/html",
+  ".json": "application/json",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+};
+
+/**
+ * Serve a static file from an app's dist/ directory.
+ * Validates the filename to prevent path traversal.
+ */
+export function handleServeDistFile(appId: string, filename: string): Response {
+  // Reject any traversal attempts on appId
+  if (
+    !appId ||
+    appId.includes("..") ||
+    appId.includes("/") ||
+    appId.includes("\\") ||
+    appId !== appId.trim()
+  ) {
+    return httpError("BAD_REQUEST", "Invalid appId", 400);
+  }
+
+  // Reject any traversal attempts on filename
+  if (
+    !filename ||
+    filename.includes("..") ||
+    filename.includes("/") ||
+    filename.includes("\\") ||
+    filename !== filename.trim()
+  ) {
+    return httpError("BAD_REQUEST", "Invalid filename", 400);
+  }
+
+  const filePath = join(getAppsDir(), appId, "dist", filename);
+  if (!existsSync(filePath)) {
+    return httpError("NOT_FOUND", "File not found", 404);
+  }
+
+  const ext = extname(filename).toLowerCase();
+  const contentType = DIST_CONTENT_TYPES[ext] ?? "application/octet-stream";
+  const content = readFileSync(filePath);
+
+  return new Response(content, {
+    headers: {
+      "Content-Type": contentType,
+      "Cache-Control": "no-cache",
     },
   });
 }
@@ -167,7 +288,7 @@ export function handleDownloadSharedApp(shareToken: string): Response {
   return new Response(new Uint8Array(record.bundleData), {
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": 'attachment; filename="app.vellumapp"',
+      "Content-Disposition": 'attachment; filename="app.vellum"',
     },
   });
 }
@@ -207,6 +328,13 @@ export function handleDeleteSharedApp(shareToken: string): Response {
 
 export function appRouteDefinitions(): RouteDefinition[] {
   return [
+    {
+      endpoint: "apps/:appId/dist/:filename",
+      method: "GET",
+      policyKey: "apps/dist",
+      handler: ({ params }) =>
+        handleServeDistFile(params.appId, params.filename),
+    },
     {
       endpoint: "apps/share",
       method: "POST",

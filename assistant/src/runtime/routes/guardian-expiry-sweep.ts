@@ -6,9 +6,10 @@
 import {
   getExpiredPendingApprovals,
   updateApprovalDecision,
-} from "../../memory/channel-guardian-store.js";
+} from "../../memory/guardian-approvals.js";
 import { getLogger } from "../../util/logger.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { ApprovalDecisionResult } from "../channel-approval-types.js";
 import { handleChannelDecision } from "../channel-approvals.js";
 import { deliverChannelReply } from "../gateway-client.js";
@@ -30,7 +31,7 @@ let expirySweepTimer: ReturnType<typeof setInterval> | null = null;
  *
  * Accepts a `gatewayBaseUrl` rather than a fixed delivery URL so that
  * each approval's notification is routed to the correct channel-specific
- * endpoint (e.g. `/deliver/telegram`, `/deliver/sms`).
+ * endpoint (e.g. `/deliver/telegram`, `/deliver/voice`).
  */
 export function sweepExpiredGuardianApprovals(
   gatewayBaseUrl: string,
@@ -68,7 +69,7 @@ export function sweepExpiredGuardianApprovals(
         {
           chatId: approval.requesterChatId,
           text: requesterText,
-          assistantId: approval.assistantId,
+          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         },
         mintBearerToken?.(),
       );
@@ -96,7 +97,7 @@ export function sweepExpiredGuardianApprovals(
         {
           chatId: approval.guardianChatId,
           text: guardianText,
-          assistantId: approval.assistantId,
+          assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         },
         mintBearerToken?.(),
       );

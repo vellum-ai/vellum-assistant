@@ -13,37 +13,14 @@ export interface ResolvedSkill {
   configEntry?: SkillEntryConfig;
 }
 
-// Skill IDs whose feature flag key differs from the default
-// `feature_flags.<skillId>.enabled` derivation. The sms-setup skill is
-// gated by the `sms` flag so that the macOS Settings SMS toggle controls
-// both the channel UI and the setup skill.
-const SKILL_FLAG_KEY_OVERRIDES: Record<string, string> = {
-  "sms-setup": "feature_flags.sms.enabled",
-};
-
 /**
- * Derive the feature flag key for a given skill ID, respecting overrides.
+ * Derive the feature flag key for a given skill ID.
  *
  * Exported so other modules (system-prompt, session-skill-tools, skill loader)
- * can perform the same mapping without duplicating the override table.
+ * can perform the same mapping.
  */
 export function skillFlagKey(skillId: string): string {
-  return (
-    SKILL_FLAG_KEY_OVERRIDES[skillId] ?? `feature_flags.${skillId}.enabled`
-  );
-}
-
-/**
- * @deprecated Use `isAssistantFeatureFlagEnabled` from `./assistant-feature-flags.js` instead.
- *
- * Thin backward-compatible wrapper that delegates to the canonical resolver.
- * Kept to avoid breaking existing call sites during migration.
- */
-export function isSkillFeatureEnabled(
-  skillId: string,
-  config: AssistantConfig,
-): boolean {
-  return isAssistantFeatureFlagEnabled(skillFlagKey(skillId), config);
+  return `feature_flags.${skillId}.enabled`;
 }
 
 export function resolveSkillStates(

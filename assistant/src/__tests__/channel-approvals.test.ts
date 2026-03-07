@@ -509,8 +509,8 @@ describe("channelSupportsRichApprovalUI", () => {
     expect(channelSupportsRichApprovalUI("vellum")).toBe(false);
   });
 
-  test("returns false for sms", () => {
-    expect(channelSupportsRichApprovalUI("sms")).toBe(false);
+  test("returns false for voice", () => {
+    expect(channelSupportsRichApprovalUI("voice")).toBe(false);
   });
 
   test("returns true for slack", () => {

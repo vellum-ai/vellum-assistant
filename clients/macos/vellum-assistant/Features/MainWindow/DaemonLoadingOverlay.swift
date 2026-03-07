@@ -18,12 +18,13 @@ struct DaemonLoadingChatSkeleton: View {
 /// Mimics 5 thread rows matching the height of nav items like "Things".
 struct DaemonLoadingThreadsSkeleton: View {
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: SidebarLayoutMetrics.listRowGap) {
             ForEach(0..<5, id: \.self) { _ in
                 VSkeletonBone(height: 13)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, VSpacing.xs)
-                    .padding(.vertical, 11)
+                    .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+                    .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
                     .padding(.horizontal, VSpacing.sm)
             }
         }

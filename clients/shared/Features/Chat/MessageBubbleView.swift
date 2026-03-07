@@ -16,6 +16,8 @@ public struct MessageBubbleView: View {
     public let onAlwaysAllow: ((String, String, String, String) -> Void)?
     /// Called when a guardian decision action button is clicked: (requestId, action).
     public let onGuardianAction: ((String, String) -> Void)?
+    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
+    public let onSurfaceRefetch: ((String, String) -> Void)?
 
     public init(
         message: ChatMessage,
@@ -23,7 +25,8 @@ public struct MessageBubbleView: View {
         onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?,
         onRegenerate: (() -> Void)?,
         onAlwaysAllow: ((String, String, String, String) -> Void)? = nil,
-        onGuardianAction: ((String, String) -> Void)? = nil
+        onGuardianAction: ((String, String) -> Void)? = nil,
+        onSurfaceRefetch: ((String, String) -> Void)? = nil
     ) {
         self.message = message
         self.onConfirmationResponse = onConfirmationResponse
@@ -31,6 +34,7 @@ public struct MessageBubbleView: View {
         self.onRegenerate = onRegenerate
         self.onAlwaysAllow = onAlwaysAllow
         self.onGuardianAction = onGuardianAction
+        self.onSurfaceRefetch = onSurfaceRefetch
     }
 
     public var body: some View {
@@ -96,7 +100,8 @@ public struct MessageBubbleView: View {
                                 surface: surface,
                                 onAction: { surfaceId, actionId, data in
                                     onSurfaceAction?(surfaceId, actionId, data)
-                                }
+                                },
+                                onRefetch: onSurfaceRefetch
                             )
                         }
                     }
@@ -106,8 +111,7 @@ public struct MessageBubbleView: View {
                 // locally awaiting daemon reconnect. Replaces the streaming dots.
                 if message.status == .pendingOffline {
                     HStack(spacing: VSpacing.xs) {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 11, weight: .medium))
+                        VIconView(.history, size: 11)
                             .foregroundColor(VColor.textMuted)
                         Text("Pending")
                             .font(VFont.small)
@@ -202,7 +206,8 @@ public struct MessageBubbleView: View {
                             surface: message.inlineSurfaces[i],
                             onAction: { surfaceId, actionId, data in
                                 onSurfaceAction?(surfaceId, actionId, data)
-                            }
+                            },
+                            onRefetch: onSurfaceRefetch
                         )
                     }
                 }
@@ -224,8 +229,7 @@ public struct MessageBubbleView: View {
                 .textSelection(.enabled)
         } else if message.isError {
             HStack(alignment: .top, spacing: VSpacing.sm) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 13, weight: .medium))
+                VIconView(.triangleAlert, size: 13)
                     .foregroundColor(VColor.error)
                     .padding(.top, 1)
                 Text(text)
@@ -246,7 +250,7 @@ public struct MessageBubbleView: View {
                     Button {
                         onRegenerate()
                     } label: {
-                        Label("Regenerate", systemImage: "arrow.trianglehead.counterclockwise")
+                        Label { Text("Regenerate") } icon: { VIconView(.rotateCcw, size: 14) }
                     }
                 }
             }
@@ -260,7 +264,7 @@ public struct MessageBubbleView: View {
                         Button {
                             onRegenerate()
                         } label: {
-                            Label("Regenerate", systemImage: "arrow.trianglehead.counterclockwise")
+                            Label { Text("Regenerate") } icon: { VIconView(.rotateCcw, size: 14) }
                         }
                     }
                 }

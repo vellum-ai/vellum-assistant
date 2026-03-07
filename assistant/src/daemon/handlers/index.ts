@@ -2,11 +2,11 @@ import * as net from "node:net";
 
 import {
   type Confidence,
+  markConversationUnread,
   recordConversationSeenSignal,
   type SignalType,
 } from "../../memory/conversation-attention-store.js";
 import { updateDeliveryClientOutcome } from "../../notifications/deliveries-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import type { ClientMessage } from "../ipc-protocol.js";
 import {
   handleRideShotgunStart,
@@ -17,7 +17,7 @@ import { appHandlers } from "./apps.js";
 import { avatarHandlers } from "./avatar.js";
 import { browserHandlers } from "./browser.js";
 import { computerUseHandlers } from "./computer-use.js";
-import { configHandlers } from "./config.js";
+import { configHandlers } from "./config-dispatch.js";
 import { inboxInviteHandlers } from "./config-inbox.js";
 import { contactsHandlers } from "./contacts.js";
 import { diagnosticsHandlers } from "./diagnostics.js";
@@ -45,18 +45,6 @@ import { subagentHandlers } from "./subagents.js";
 import { twitterAuthHandlers } from "./twitter-auth.js";
 import { workItemHandlers } from "./work-items.js";
 import { workspaceFileHandlers } from "./workspace-files.js";
-
-// Re-export types and utilities for backwards compatibility
-export { handleRecordingStart, handleRecordingStop } from "./recording.js";
-export type {
-  HandlerContext,
-  HistorySurface,
-  HistoryToolCall,
-  ParsedHistoryMessage,
-  RenderedHistoryContent,
-  SessionCreateOptions,
-} from "./shared.js";
-export { mergeToolResults, renderHistoryContent } from "./shared.js";
 
 // ─── Typed dispatch ──────────────────────────────────────────────────────────
 
@@ -120,7 +108,6 @@ const inlineHandlers = defineHandlers({
     try {
       recordConversationSeenSignal({
         conversationId: msg.conversationId,
-        assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
         sourceChannel: msg.sourceChannel,
         signalType: msg.signalType as SignalType,
         confidence: msg.confidence as Confidence,
@@ -133,6 +120,18 @@ const inlineHandlers = defineHandlers({
       log.error(
         { err, conversationId: msg.conversationId },
         "conversation_seen_signal: failed to record seen signal",
+      );
+    }
+  },
+
+  // Client signal: user explicitly wants the latest assistant reply marked unread.
+  conversation_unread_signal: (msg) => {
+    try {
+      markConversationUnread(msg.conversationId);
+    } catch (err) {
+      log.error(
+        { err, conversationId: msg.conversationId },
+        "conversation_unread_signal: failed to mark conversation unread",
       );
     }
   },
@@ -200,11 +199,25 @@ export function handleMessage(
   if (msg.type === "auth") return;
 
   const handler = handlers[msg.type] as
-    | ((msg: ClientMessage, socket: net.Socket, ctx: HandlerContext) => void)
+    | ((
+        msg: ClientMessage,
+        socket: net.Socket,
+        ctx: HandlerContext,
+      ) => void | Promise<void>)
     | undefined;
   if (!handler) {
     log.warn({ type: msg.type }, "Unknown message type, ignoring");
     return;
   }
-  handler(msg, socket, ctx);
+  // Handlers may be async — catch rejected promises so they don't become
+  // unhandled rejections at the process level.
+  const result = handler(msg, socket, ctx);
+  if (result && typeof result.catch === "function") {
+    result.catch((err: unknown) => {
+      log.error(
+        { err, type: msg.type },
+        "Unhandled error in async message handler",
+      );
+    });
+  }
 }

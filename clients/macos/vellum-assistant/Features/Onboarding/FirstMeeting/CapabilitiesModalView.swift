@@ -85,8 +85,7 @@ struct CapabilitiesModalView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .semibold))
+                VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 14)
                     .foregroundColor(iconColor)
                 Text(title)
                     .font(VFont.headline)

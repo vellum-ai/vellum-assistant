@@ -21,7 +21,6 @@ export interface RefreshTokenRecord {
   id: string;
   tokenHash: string;
   familyId: string;
-  assistantId: string;
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
@@ -38,7 +37,6 @@ export interface RefreshTokenRecord {
 export function createRefreshTokenRecord(params: {
   tokenHash: string;
   familyId: string;
-  assistantId: string;
   guardianPrincipalId: string;
   hashedDeviceId: string;
   platform: string;
@@ -54,7 +52,6 @@ export function createRefreshTokenRecord(params: {
     id,
     tokenHash: params.tokenHash,
     familyId: params.familyId,
-    assistantId: params.assistantId,
     guardianPrincipalId: params.guardianPrincipalId,
     hashedDeviceId: params.hashedDeviceId,
     platform: params.platform,
@@ -120,7 +117,6 @@ export function revokeFamily(familyId: string): number {
 
 /** Revoke all active refresh tokens for a device binding. */
 export function revokeByDeviceBinding(
-  assistantId: string,
   guardianPrincipalId: string,
   hashedDeviceId: string,
 ): number {
@@ -130,7 +126,6 @@ export function revokeByDeviceBinding(
     .set({ status: "revoked", updatedAt: now })
     .where(
       and(
-        eq(actorRefreshTokenRecords.assistantId, assistantId),
         eq(actorRefreshTokenRecords.guardianPrincipalId, guardianPrincipalId),
         eq(actorRefreshTokenRecords.hashedDeviceId, hashedDeviceId),
         eq(actorRefreshTokenRecords.status, "active"),
@@ -147,7 +142,6 @@ function rowToRecord(
     id: row.id,
     tokenHash: row.tokenHash,
     familyId: row.familyId,
-    assistantId: row.assistantId,
     guardianPrincipalId: row.guardianPrincipalId,
     hashedDeviceId: row.hashedDeviceId,
     platform: row.platform,

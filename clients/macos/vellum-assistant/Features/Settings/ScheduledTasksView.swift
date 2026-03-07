@@ -31,8 +31,7 @@ struct ScheduledTasksView: View {
             } else if let errorMessage {
                 Spacer()
                 VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
+                    VIconView(.triangleAlert, size: 32)
                         .foregroundStyle(.secondary)
                     Text("Failed to load schedules")
                         .foregroundStyle(.secondary)
@@ -46,8 +45,7 @@ struct ScheduledTasksView: View {
             } else if schedules.isEmpty {
                 Spacer()
                 VStack(spacing: 8) {
-                    Image(systemName: "clock.badge.questionmark")
-                        .font(.largeTitle)
+                    VIconView(.clock, size: 32)
                         .foregroundStyle(.secondary)
                     Text("No scheduled tasks")
                         .foregroundStyle(.secondary)
@@ -212,9 +210,8 @@ private struct ScheduleRow: View {
                         withAnimation(.easeInOut(duration: 0.2)) { isTriggered = false }
                     }
                 } label: {
-                    Image(systemName: isTriggered ? "checkmark.circle.fill" : "play.fill")
+                    VIconView(isTriggered ? .circleCheck : .play, size: 14)
                         .foregroundStyle(isTriggered ? .green : .blue)
-                        .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.borderless)
                 .help("Run now")
@@ -227,7 +224,7 @@ private struct ScheduleRow: View {
                 Button {
                     onDelete()
                 } label: {
-                    Image(systemName: "trash")
+                    VIconView(.trash, size: 14)
                         .foregroundStyle(.red)
                 }
                 .buttonStyle(.borderless)
@@ -237,8 +234,7 @@ private struct ScheduleRow: View {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
+                    VIconView(.chevronRight, size: 9)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     Text("Task definition")
                         .font(.caption2)

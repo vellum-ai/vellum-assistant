@@ -1,6 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
-import { executeGetWeather, weatherCodeToDescription } from "../service.js";
+import {
+  executeGetWeather,
+  weatherCodeToDescription,
+  type WeatherData,
+} from "../service.js";
+
+// ---------------------------------------------------------------------------
+// Helper: parse successful result
+// ---------------------------------------------------------------------------
+
+function parseResult(content: string): { text: string; data: WeatherData } {
+  return JSON.parse(content);
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build a mock fetch that returns predefined geocoding & weather data
@@ -172,11 +184,12 @@ describe("geocoding parsing", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain(
+    const parsed = parseResult(result.content);
+    expect(parsed.data.location.name).toBe(
       "San Francisco, California, United States",
     );
-    expect(result.content).toContain("37.7749");
-    expect(result.content).toContain("-122.4194");
+    expect(parsed.data.location.latitude).toBe(37.7749);
+    expect(parsed.data.location.longitude).toBe(-122.4194);
   });
 
   test("handles location without admin1", async () => {
@@ -193,7 +206,8 @@ describe("geocoding parsing", () => {
     const result = await executeGetWeather({ location: "Tokyo" }, mockFetch);
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Tokyo, Japan");
+    const parsed = parseResult(result.content);
+    expect(parsed.data.location.name).toBe("Tokyo, Japan");
   });
 
   test("handles location without country", async () => {
@@ -206,7 +220,9 @@ describe("geocoding parsing", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("Weather for Somewhere");
+    const parsed = parseResult(result.content);
+    expect(parsed.data.location.name).toBe("Somewhere");
+    expect(parsed.text).toContain("Weather for Somewhere");
   });
 });
 
@@ -223,10 +239,12 @@ describe("weather output formatting", () => {
     );
 
     expect(result.isError).toBe(false);
+    const parsed = parseResult(result.content);
     // 15C = 59F
-    expect(result.content).toContain("59\u00B0F");
-    expect(result.content).toContain("Humidity: 72%");
-    expect(result.content).toContain("Partly cloudy");
+    expect(parsed.data.current.temperature).toBe(59);
+    expect(parsed.data.current.humidity).toBe(72);
+    expect(parsed.data.current.condition).toBe("Partly cloudy");
+    expect(parsed.data.units.temperature).toBe("F");
   });
 
   test("returns current conditions in celsius when requested", async () => {
@@ -237,8 +255,10 @@ describe("weather output formatting", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("15\u00B0C");
-    expect(result.content).toContain("Humidity: 72%");
+    const parsed = parseResult(result.content);
+    expect(parsed.data.current.temperature).toBe(15);
+    expect(parsed.data.current.humidity).toBe(72);
+    expect(parsed.data.units.temperature).toBe("C");
   });
 
   test("includes 10-day forecast by default", async () => {
@@ -249,10 +269,11 @@ describe("weather output formatting", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("10-Day Forecast");
-    expect(result.content).toContain("2025-01-15");
-    expect(result.content).toContain("2025-01-19");
-    expect(result.content).toContain("Precip");
+    const parsed = parseResult(result.content);
+    expect(parsed.text).toContain("10-Day Forecast");
+    expect(parsed.data.daily.length).toBe(5); // Mock only has 5 days
+    expect(parsed.data.daily[0].date).toBe("2025-01-15");
+    expect(parsed.data.daily[4].date).toBe("2025-01-19");
   });
 
   test("wind speed is converted to mph in fahrenheit mode", async () => {
@@ -263,9 +284,11 @@ describe("weather output formatting", () => {
     );
 
     expect(result.isError).toBe(false);
+    const parsed = parseResult(result.content);
     // 18 km/h ~= 11 mph
-    expect(result.content).toContain("11 mph");
-    expect(result.content).toContain("W");
+    expect(parsed.data.current.windSpeed).toBe(11);
+    expect(parsed.data.current.windDirection).toBe("W");
+    expect(parsed.data.units.speed).toBe("mph");
   });
 
   test("wind speed stays in km/h in celsius mode", async () => {
@@ -276,7 +299,9 @@ describe("weather output formatting", () => {
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("18 km/h");
+    const parsed = parseResult(result.content);
+    expect(parsed.data.current.windSpeed).toBe(18);
+    expect(parsed.data.units.speed).toBe("km/h");
   });
 });
 

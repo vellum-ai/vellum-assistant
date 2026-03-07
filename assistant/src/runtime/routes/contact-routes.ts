@@ -1,18 +1,17 @@
 /**
  * Route handlers for contact management endpoints.
  *
- * GET   /v1/contacts              — list contacts
- * POST  /v1/contacts              — create or update a contact
- * GET   /v1/contacts/:id          — get a contact by ID
- * POST  /v1/contacts/merge        — merge two contacts
- * PATCH /v1/contacts/channels/:id — update a contact channel's status/policy
- * POST  /v1/contacts/:contactId/channels/:channelId/verify — initiate trusted contact verification
+ * GET    /v1/contacts              — list contacts
+ * POST   /v1/contacts              — create or update a contact
+ * GET    /v1/contacts/:id          — get a contact by ID
+ * DELETE /v1/contacts/:id          — delete a contact
+ * POST   /v1/contacts/merge        — merge two contacts
+ * PATCH  /v1/contact-channels/:contactChannelId — update a contact channel's status/policy
  */
 
-import { createHash, randomBytes } from "node:crypto";
-
-import type { ChannelId } from "../../channels/types.js";
+import { resolveGuardianName } from "../../config/user-reference.js";
 import {
+  deleteContact,
   getAssistantContactMetadata,
   getChannelById,
   getContact,
@@ -24,7 +23,6 @@ import {
   upsertContact,
   validateSpeciesMetadata,
 } from "../../contacts/contact-store.js";
-import type { ContactChannel } from "../../contacts/types.js";
 import type {
   AssistantSpecies,
   ChannelPolicy,
@@ -32,29 +30,20 @@ import type {
   ContactRole,
   ContactType,
 } from "../../contacts/types.js";
-import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
-import { normalizePhoneNumber } from "../../util/phone.js";
-import {
-  countRecentSendsToDestination,
-  createOutboundSession,
-  updateSessionDelivery,
-} from "../channel-guardian-service.js";
-import {
-  deliverVerificationSlack,
-  deliverVerificationSms,
-  deliverVerificationTelegram,
-  DESTINATION_RATE_WINDOW_MS,
-  MAX_SENDS_PER_DESTINATION_WINDOW,
-  normalizeTelegramDestination,
-} from "../guardian-outbound-actions.js";
-import {
-  composeVerificationSlack,
-  composeVerificationSms,
-  composeVerificationTelegram,
-  GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../guardian-verification-templates.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+
+function withGuardianNameOverride<
+  T extends { role: string; displayName: string },
+>(contact: T): T {
+  if (contact.role === "guardian") {
+    return {
+      ...contact,
+      displayName: resolveGuardianName(contact.displayName),
+    };
+  }
+  return contact;
+}
 
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
 const VALID_ASSISTANT_SPECIES: readonly AssistantSpecies[] = [
@@ -68,7 +57,7 @@ const VALID_ASSISTANT_SPECIES: readonly AssistantSpecies[] = [
  * Also supports search query params: query, channelAddress, channelType.
  * When any search param is provided, delegates to searchContacts() instead of listContacts().
  */
-export function handleListContacts(url: URL, assistantId: string): Response {
+export function handleListContacts(url: URL): Response {
   const limit = Number(url.searchParams.get("limit") ?? 50);
   const role = url.searchParams.get("role") as ContactRole | null;
   const contactTypeParam = url.searchParams.get("contactType");
@@ -91,7 +80,6 @@ export function handleListContacts(url: URL, assistantId: string): Response {
 
   if (hasSearchParams) {
     const contacts = searchContacts({
-      assistantId,
       query: query ?? undefined,
       channelAddress: channelAddress ?? undefined,
       channelType: channelType ?? undefined,
@@ -99,26 +87,24 @@ export function handleListContacts(url: URL, assistantId: string): Response {
       contactType,
       limit,
     });
-    return Response.json({ ok: true, contacts });
+    return Response.json({
+      ok: true,
+      contacts: contacts.map(withGuardianNameOverride),
+    });
   }
 
-  const contacts = listContacts(
-    assistantId,
-    limit,
-    role ?? undefined,
-    contactType,
-  );
-  return Response.json({ ok: true, contacts });
+  const contacts = listContacts(limit, role ?? undefined, contactType);
+  return Response.json({
+    ok: true,
+    contacts: contacts.map(withGuardianNameOverride),
+  });
 }
 
 /**
  * GET /v1/contacts/:id
  */
-export function handleGetContact(
-  contactId: string,
-  assistantId: string,
-): Response {
-  const contact = getContact(contactId, assistantId);
+export function handleGetContact(contactId: string): Response {
+  const contact = getContact(contactId);
   if (!contact) {
     return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
   }
@@ -128,18 +114,29 @@ export function handleGetContact(
       : undefined;
   return Response.json({
     ok: true,
-    contact,
+    contact: withGuardianNameOverride(contact),
     assistantMetadata: assistantMeta ?? undefined,
   });
 }
 
 /**
+ * DELETE /v1/contacts/:id
+ */
+export function handleDeleteContact(contactId: string): Response {
+  const result = deleteContact(contactId);
+  if (result === "not_found") {
+    return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
+  }
+  if (result === "is_guardian") {
+    return httpError("FORBIDDEN", "Cannot delete a guardian contact", 403);
+  }
+  return new Response(null, { status: 204 });
+}
+
+/**
  * POST /v1/contacts/merge { keepId, mergeId }
  */
-export async function handleMergeContacts(
-  req: Request,
-  assistantId: string,
-): Promise<Response> {
+export async function handleMergeContacts(req: Request): Promise<Response> {
   const body = (await req.json()) as { keepId?: string; mergeId?: string };
 
   if (!body.keepId || !body.mergeId) {
@@ -147,8 +144,11 @@ export async function handleMergeContacts(
   }
 
   try {
-    const contact = mergeContacts(body.keepId, body.mergeId, assistantId);
-    return Response.json({ ok: true, contact });
+    const contact = mergeContacts(body.keepId, body.mergeId);
+    return Response.json({
+      ok: true,
+      contact: withGuardianNameOverride(contact),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return httpError("BAD_REQUEST", message, 400);
@@ -187,10 +187,7 @@ function isChannelPolicy(value: string): value is ChannelPolicy {
 /**
  * POST /v1/contacts { displayName, id?, notes?, contactType?, assistantMetadata?, ... }
  */
-export async function handleUpsertContact(
-  req: Request,
-  assistantId: string,
-): Promise<Response> {
+export async function handleUpsertContact(req: Request): Promise<Response> {
   const body = (await req.json()) as {
     id?: string;
     displayName?: string;
@@ -306,7 +303,6 @@ export async function handleUpsertContact(
       notes: body.notes,
       role: body.role as ContactRole | undefined,
       contactType: body.contactType as ContactType | undefined,
-      assistantId,
       channels: body.channels?.map((ch) => ({
         ...ch,
         status: ch.status as ChannelStatus | undefined,
@@ -323,7 +319,7 @@ export async function handleUpsertContact(
     }
 
     return Response.json(
-      { ok: true, contact },
+      { ok: true, contact: withGuardianNameOverride(contact) },
       { status: contact.created ? 201 : 200 },
     );
   } catch (err) {
@@ -333,12 +329,11 @@ export async function handleUpsertContact(
 }
 
 /**
- * PATCH /v1/contacts/channels/:channelId { status?, policy?, reason? }
+ * PATCH /v1/contact-channels/:contactChannelId { status?, policy?, reason? }
  */
 export async function handleUpdateContactChannel(
   req: Request,
   channelId: string,
-  assistantId: string,
 ): Promise<Response> {
   const body = (await req.json()) as {
     status?: string;
@@ -404,285 +399,13 @@ export async function handleUpdateContactChannel(
     return httpError("NOT_FOUND", `Channel "${channelId}" not found`, 404);
   }
 
-  const parentContact = getContact(updated.contactId, assistantId);
-  return Response.json({ ok: true, contact: parentContact ?? undefined });
-}
-
-// ---------------------------------------------------------------------------
-// Channel verification
-// ---------------------------------------------------------------------------
-
-/** Session TTL in seconds (matches challenge TTL of 10 minutes). */
-const SESSION_TTL_SECONDS = 600;
-
-/**
- * Map a contact channel type to the verification ChannelId used by the
- * guardian service. Returns null for unsupported channel types.
- */
-function toVerificationChannel(channelType: string): ChannelId | null {
-  switch (channelType) {
-    case "phone":
-      return "sms";
-    case "telegram":
-      return "telegram";
-    case "slack":
-      return "slack";
-    default:
-      return null;
-  }
-}
-
-/**
- * Get the Telegram bot username from credential metadata.
- * Falls back to process.env.TELEGRAM_BOT_USERNAME.
- */
-function getTelegramBotUsername(): string | undefined {
-  const meta = getCredentialMetadata("telegram", "bot_token");
-  if (
-    meta?.accountInfo &&
-    typeof meta.accountInfo === "string" &&
-    meta.accountInfo.trim().length > 0
-  ) {
-    return meta.accountInfo.trim();
-  }
-  return process.env.TELEGRAM_BOT_USERNAME || undefined;
-}
-
-/**
- * POST /v1/contacts/:contactId/channels/:channelId/verify
- *
- * Initiate trusted contact verification for a specific channel. Sends a
- * verification code via SMS, Telegram, Slack, or voice and returns session
- * info so the client can track the verification flow.
- */
-export async function handleVerifyContactChannel(
-  contactId: string,
-  channelId: string,
-  assistantId: string,
-): Promise<Response> {
-  const contact = getContact(contactId, assistantId);
-  if (!contact) {
-    return httpError("NOT_FOUND", `Contact "${contactId}" not found`, 404);
-  }
-
-  const channel: ContactChannel | undefined = contact.channels.find(
-    (ch) => ch.id === channelId,
-  );
-  if (!channel) {
-    return httpError("NOT_FOUND", `Channel "${channelId}" not found`, 404);
-  }
-
-  // Already verified — no need to re-verify
-  if (channel.status === "active" && channel.verifiedAt != null) {
-    return httpError("CONFLICT", "Channel is already verified", 409);
-  }
-
-  const verificationChannel = toVerificationChannel(channel.type);
-  if (!verificationChannel) {
-    return httpError(
-      "BAD_REQUEST",
-      `Verification is not supported for channel type "${channel.type}"`,
-      400,
-    );
-  }
-
-  const destination = channel.address;
-  if (!destination) {
-    return httpError(
-      "BAD_REQUEST",
-      "Channel has no address to send verification to",
-      400,
-    );
-  }
-
-  // Normalize Telegram destinations so rate-limit lookups are consistent with
-  // guardian-outbound-actions (strips leading '@', lowercases handles).
-  const effectiveDestination =
-    verificationChannel === "telegram"
-      ? normalizeTelegramDestination(destination)
-      : destination;
-
-  // Rate limit check
-  const recentSendCount = countRecentSendsToDestination(
-    verificationChannel,
-    effectiveDestination,
-    DESTINATION_RATE_WINDOW_MS,
-  );
-  if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
-    return httpError(
-      "RATE_LIMITED",
-      "Too many verification attempts to this destination. Please try again later.",
-      429,
-    );
-  }
-
-  // --- SMS verification ---
-  if (verificationChannel === "sms") {
-    const phoneE164 = normalizePhoneNumber(destination);
-    if (!phoneE164) {
-      return httpError(
-        "BAD_REQUEST",
-        "Channel address is not a valid phone number",
-        400,
-      );
-    }
-
-    const sessionResult = createOutboundSession({
-      assistantId,
-      channel: verificationChannel,
-      expectedPhoneE164: phoneE164,
-      expectedExternalUserId: channel.externalUserId ?? undefined,
-      destinationAddress: phoneE164,
-      verificationPurpose: "trusted_contact",
-    });
-
-    const smsBody = composeVerificationSms(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.CHALLENGE_REQUEST,
-      {
-        code: sessionResult.secret,
-        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-      },
-    );
-
-    const now = Date.now();
-    const sendCount = 1;
-    updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
-    deliverVerificationSms(phoneE164, smsBody, assistantId);
-
-    return Response.json({
-      ok: true,
-      verificationSessionId: sessionResult.sessionId,
-      expiresAt: sessionResult.expiresAt,
-      sendCount,
-    });
-  }
-
-  // --- Telegram verification ---
-  if (verificationChannel === "telegram") {
-    // Telegram with known chat ID: identity is already bound
-    if (channel.externalChatId) {
-      const sessionResult = createOutboundSession({
-        assistantId,
-        channel: verificationChannel,
-        expectedChatId: channel.externalChatId,
-        expectedExternalUserId: channel.externalUserId ?? undefined,
-        identityBindingStatus: "bound",
-        destinationAddress: effectiveDestination,
-        verificationPurpose: "trusted_contact",
-      });
-
-      const telegramBody = composeVerificationTelegram(
-        GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
-        {
-          code: sessionResult.secret,
-          expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-        },
-      );
-
-      const now = Date.now();
-      const sendCount = 1;
-      updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
-      deliverVerificationTelegram(
-        channel.externalChatId,
-        telegramBody,
-        assistantId,
-      );
-
-      return Response.json({
-        ok: true,
-        verificationSessionId: sessionResult.sessionId,
-        expiresAt: sessionResult.expiresAt,
-        sendCount,
-      });
-    }
-
-    // Telegram handle only (no chat ID): bootstrap flow
-    const botUsername = getTelegramBotUsername();
-    if (!botUsername) {
-      return httpError(
-        "BAD_REQUEST",
-        "Telegram bot username is not configured. Set up the Telegram integration first.",
-        400,
-      );
-    }
-
-    const bootstrapToken = randomBytes(16).toString("hex");
-    const bootstrapTokenHash = createHash("sha256")
-      .update(bootstrapToken)
-      .digest("hex");
-
-    const sessionResult = createOutboundSession({
-      assistantId,
-      channel: verificationChannel,
-      identityBindingStatus: "pending_bootstrap",
-      destinationAddress: effectiveDestination,
-      bootstrapTokenHash,
-      verificationPurpose: "trusted_contact",
-    });
-
-    const telegramBootstrapUrl = `https://t.me/${botUsername}?start=gv_${bootstrapToken}`;
-
-    return Response.json({
-      ok: true,
-      verificationSessionId: sessionResult.sessionId,
-      expiresAt: sessionResult.expiresAt,
-      sendCount: 0,
-      telegramBootstrapUrl,
-    });
-  }
-
-  // --- Slack verification ---
-  if (verificationChannel === "slack") {
-    const slackUserId = channel.externalUserId ?? destination;
-
-    // Only claim identity is bound when we have at least one platform identifier
-    const hasIdentityBinding = Boolean(
-      channel.externalUserId || channel.externalChatId,
-    );
-    if (!hasIdentityBinding) {
-      return httpError(
-        "BAD_REQUEST",
-        "Slack verification requires an externalUserId or externalChatId for identity binding",
-        400,
-      );
-    }
-
-    const sessionResult = createOutboundSession({
-      assistantId,
-      channel: verificationChannel,
-      expectedExternalUserId: channel.externalUserId ?? undefined,
-      expectedChatId: channel.externalChatId ?? undefined,
-      identityBindingStatus: "bound",
-      destinationAddress: slackUserId,
-      verificationPurpose: "trusted_contact",
-    });
-
-    const slackBody = composeVerificationSlack(
-      GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST,
-      {
-        code: sessionResult.secret,
-        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
-      },
-    );
-
-    const now = Date.now();
-    const sendCount = 1;
-    updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
-    deliverVerificationSlack(slackUserId, slackBody, assistantId);
-
-    return Response.json({
-      ok: true,
-      verificationSessionId: sessionResult.sessionId,
-      expiresAt: sessionResult.expiresAt,
-      sendCount,
-    });
-  }
-
-  return httpError(
-    "BAD_REQUEST",
-    `Verification is not supported for channel type "${channel.type}"`,
-    400,
-  );
+  const parentContact = getContact(updated.contactId);
+  return Response.json({
+    ok: true,
+    contact: parentContact
+      ? withGuardianNameOverride(parentContact)
+      : undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -694,38 +417,24 @@ export function contactRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "contacts",
       method: "GET",
-      handler: ({ url, authContext }) =>
-        handleListContacts(url, authContext.assistantId),
+      handler: ({ url }) => handleListContacts(url),
     },
     {
       endpoint: "contacts",
       method: "POST",
-      handler: async ({ req, authContext }) =>
-        handleUpsertContact(req, authContext.assistantId),
+      handler: async ({ req }) => handleUpsertContact(req),
     },
     {
       endpoint: "contacts/merge",
       method: "POST",
-      handler: async ({ req, authContext }) =>
-        handleMergeContacts(req, authContext.assistantId),
+      handler: async ({ req }) => handleMergeContacts(req),
     },
     {
-      endpoint: "contacts/channels/:id",
+      endpoint: "contact-channels/:contactChannelId",
       method: "PATCH",
-      policyKey: "contacts/channels",
-      handler: async ({ req, params, authContext }) =>
-        handleUpdateContactChannel(req, params.id, authContext.assistantId),
-    },
-    {
-      endpoint: "contacts/:contactId/channels/:channelId/verify",
-      method: "POST",
-      policyKey: "contacts/channels",
-      handler: async ({ params, authContext }) =>
-        handleVerifyContactChannel(
-          params.contactId,
-          params.channelId,
-          authContext.assistantId,
-        ),
+      policyKey: "contact-channels",
+      handler: async ({ req, params }) =>
+        handleUpdateContactChannel(req, params.contactChannelId),
     },
   ];
 }
@@ -741,8 +450,13 @@ export function contactCatchAllRouteDefinitions(): RouteDefinition[] {
       endpoint: "contacts/:id",
       method: "GET",
       policyKey: "contacts",
-      handler: ({ params, authContext }) =>
-        handleGetContact(params.id, authContext.assistantId),
+      handler: ({ params }) => handleGetContact(params.id),
+    },
+    {
+      endpoint: "contacts/:id",
+      method: "DELETE",
+      policyKey: "contacts",
+      handler: ({ params }) => handleDeleteContact(params.id),
     },
   ];
 }

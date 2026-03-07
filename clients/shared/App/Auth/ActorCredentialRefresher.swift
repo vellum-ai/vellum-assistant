@@ -1,6 +1,6 @@
 import Foundation
 
-/// Shared credential refresher. Calls POST /v1/integrations/guardian/vellum/refresh
+/// Shared credential refresher. Calls POST /v1/guardian/refresh
 /// through the gateway, updates Keychain via ActorTokenManager, and handles
 /// terminal errors that require re-pairing.
 public class ActorCredentialRefresher {
@@ -24,7 +24,7 @@ public class ActorCredentialRefresher {
             return .terminalError(reason: "refresh_token_expired")
         }
 
-        guard let url = URL(string: "\(baseURL)/v1/integrations/guardian/vellum/refresh") else {
+        guard let url = URL(string: "\(baseURL)/v1/guardian/refresh") else {
             return .transientError
         }
 

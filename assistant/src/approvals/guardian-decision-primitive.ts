@@ -35,8 +35,7 @@ import {
 import {
   type GuardianApprovalRequest,
   updateApprovalDecision,
-} from "../memory/channel-guardian-store.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+} from "../memory/guardian-approvals.js";
 import type {
   ApprovalAction,
   ApprovalDecisionResult,
@@ -107,7 +106,6 @@ export function tryMintToolApprovalGrant(params: {
   }
 
   const result = mintGrantFromDecision({
-    assistantId: approval.assistantId,
     scopeMode: "tool_signature",
     toolName: approvalInfo.toolName,
     inputDigest,
@@ -277,7 +275,6 @@ export function mintCanonicalRequestGrant(params: {
   }
 
   const result = mintGrantFromDecision({
-    assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
     scopeMode: "tool_signature",
     toolName: request.toolName,
     inputDigest: request.inputDigest,

@@ -1,5 +1,4 @@
-import { randomBytes } from "node:crypto";
-import { chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { config as dotenvConfig } from "dotenv";
@@ -11,10 +10,10 @@ import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
+  getQdrantHttpPortEnv,
   getQdrantUrlEnv,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
-  getRuntimeProxyBearerToken,
   validateEnv,
 } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
@@ -27,14 +26,16 @@ import { closeSentry, initSentry } from "../instrument.js";
 import { initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import {
+  deleteMessageById,
+  getConversationThreadType,
+  getMessages,
+} from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
-import { migrateToDataLayout } from "../migrations/data-layout.js";
-import { migrateToWorkspaceLayout } from "../migrations/workspace-layout.js";
 import {
   emitNotificationSignal,
   registerBroadcastFn,
@@ -43,15 +44,15 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
+  mintCliEdgeToken,
+  mintPairingBearerToken,
 } from "../runtime/auth/token-service.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import { migrateKeychainToEncrypted } from "../security/keychain-to-encrypted-migration.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
-  getHttpTokenPath,
   getInterfacesDir,
   getRootDir,
   getSocketPath,
@@ -137,42 +138,21 @@ export async function runDaemon(): Promise<void> {
 
     await initLogfire();
 
-    // Migration order matters: first move legacy flat files into the data dir
-    // structure, then relocate the data dir into the active workspace, and
-    // finally create any directories that don't yet exist.
-    migrateToDataLayout();
-    migrateToWorkspaceLayout();
     ensureDataDir();
-
-    // Copy any existing macOS keychain secrets into the encrypted file store
-    // before config loads, so the new encrypted-store-first read path sees them.
-    migrateKeychainToEncrypted();
-
-    // Resolve and write the bearer token as early as possible so the CLI
-    // (which polls for this file during gateway startup) doesn't time out
-    // waiting for Qdrant or other slow init steps to finish.
-    const httpTokenPath = getHttpTokenPath();
-    let bearerToken = getRuntimeProxyBearerToken();
-    if (!bearerToken) {
-      try {
-        const existing = readFileSync(httpTokenPath, "utf-8").trim();
-        if (existing) bearerToken = existing;
-      } catch {
-        // File doesn't exist or can't be read — will generate below
-      }
-    }
-    if (!bearerToken) {
-      bearerToken = randomBytes(32).toString("hex");
-    }
-    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
-    chmodSync(httpTokenPath, 0o600);
-    log.info("Daemon startup: bearer token written");
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts. Must happen after ensureDataDir() creates the
     // protected directory.
     const signingKey = loadOrCreateSigningKey();
     initAuthSigningKey(signingKey);
+
+    // Mint a CLI edge token (JWT) so the CLI can authenticate with the
+    // gateway. Written early so the CLI doesn't time out polling.
+    const httpTokenPath = join(getRootDir(), "http-token");
+    const bearerToken = mintCliEdgeToken();
+    writeFileSync(httpTokenPath, bearerToken, { mode: 0o600 });
+    chmodSync(httpTokenPath, 0o600);
+    log.info("Daemon startup: bearer token written");
 
     log.info("Daemon startup: migrations complete");
 
@@ -268,7 +248,13 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: DaemonServer started");
 
     // Initialize Qdrant vector store — non-fatal so the daemon stays up without it
-    const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
+    // Prefer QDRANT_HTTP_PORT (locally-spawned Qdrant on a specific port) over
+    // QDRANT_URL (external Qdrant instance) so the CLI can set the port without
+    // triggering QdrantManager's external mode which skips local process spawn.
+    const qdrantHttpPort = getQdrantHttpPortEnv();
+    const qdrantUrl = qdrantHttpPort
+      ? `http://127.0.0.1:${qdrantHttpPort}`
+      : getQdrantUrlEnv() || config.memory.qdrant.url;
     log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
     const qdrantManager = new QdrantManager({ url: qdrantUrl });
     try {
@@ -404,10 +390,15 @@ export async function runDaemon(): Promise<void> {
 
     const hostname = getRuntimeHttpHost();
 
+    // Mint a JWT bearer token for the pairing flow. This replaces the
+    // old static http-token that was removed — the pairing IPC handler
+    // and HTTP auto-approve logic both guard on a non-empty bearer token.
+    const pairingBearerToken = mintPairingBearerToken();
+
     runtimeHttp = new RuntimeHttpServer({
       port: httpPort,
       hostname,
-      bearerToken,
+      bearerToken: pairingBearerToken,
       processMessage: (
         conversationId,
         content,
@@ -458,8 +449,7 @@ export async function runDaemon(): Promise<void> {
           data: a.dataBase64,
         })),
       deriveDefaultStrictSideEffects: (conversationId) => {
-        const threadType =
-          conversationStore.getConversationThreadType(conversationId);
+        const threadType = getConversationThreadType(conversationId);
         return threadType === "private";
       },
     });
@@ -496,13 +486,13 @@ export async function runDaemon(): Promise<void> {
             // messages array during runAgentLoop.
             const rollback = async (extraMessageIds?: string[]) => {
               try {
-                conversationStore.deleteMessageById(messageId);
+                deleteMessageById(messageId);
               } catch {
                 /* best effort */
               }
               for (const id of extraMessageIds ?? []) {
                 try {
-                  conversationStore.deleteMessageById(id);
+                  deleteMessageById(id);
                 } catch {
                   /* best effort */
                 }
@@ -529,7 +519,7 @@ export async function runDaemon(): Promise<void> {
             // improvement could tag messages with a per-run correlation
             // ID so rollback only targets its own output.
             const preRunMessageIds = new Set(
-              conversationStore.getMessages(conversationId).map((m) => m.id),
+              getMessages(conversationId).map((m) => m.id),
             );
 
             let agentLoopError: string | undefined;
@@ -559,8 +549,7 @@ export async function runDaemon(): Promise<void> {
             // the pre-run snapshot. This captures all messages added to the
             // conversation during the loop window, which may include messages
             // from concurrent pointer events (see over-capture caveat above).
-            const postRunMessages =
-              conversationStore.getMessages(conversationId);
+            const postRunMessages = getMessages(conversationId);
             const createdMessageIds = postRunMessages
               .filter((m) => !preRunMessageIds.has(m.id) && m.id !== messageId)
               .map((m) => m.id);
@@ -604,7 +593,7 @@ export async function runDaemon(): Promise<void> {
       runtimeHttp.setPairingBroadcast((msg) =>
         server.broadcast(msg as ServerMessage),
       );
-      initPairingHandlers(runtimeHttp.getPairingStore(), bearerToken);
+      initPairingHandlers(runtimeHttp.getPairingStore(), pairingBearerToken);
       initSlashPairingContext(runtimeHttp.getPairingStore());
       server.setHttpPort(httpPort);
       log.info(

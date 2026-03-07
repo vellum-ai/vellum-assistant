@@ -87,10 +87,9 @@ describe("guardian-question-mode", () => {
 
     expect(resolved.mode).toBe("answer");
     expect(resolved.requestKind).toBe("pending_question");
-    expect(resolved.legacyFallbackUsed).toBe(false);
   });
 
-  test("resolve mode uses legacy fallback when requestKind is missing", () => {
+  test("resolve mode defaults to approval when requestKind is missing", () => {
     const resolved = resolveGuardianQuestionInstructionMode({
       requestCode: "A1B2C3",
       questionText: "Allow host bash?",
@@ -99,7 +98,6 @@ describe("guardian-question-mode", () => {
 
     expect(resolved.mode).toBe("approval");
     expect(resolved.requestKind).toBeNull();
-    expect(resolved.legacyFallbackUsed).toBe(true);
   });
 
   test("resolve mode treats pending_question with toolName as approval-mode", () => {
@@ -115,7 +113,6 @@ describe("guardian-question-mode", () => {
 
     expect(resolved.mode).toBe("approval");
     expect(resolved.requestKind).toBe("pending_question");
-    expect(resolved.legacyFallbackUsed).toBe(false);
   });
 
   test("resolveGuardianInstructionModeFromFields returns null for unknown request kind", () => {

@@ -159,6 +159,14 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
             cmdKLocalMonitor = nil
         }
+        if let monitor = navLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            navLocalMonitor = nil
+        }
+        if let monitor = zoomLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            zoomLocalMonitor = nil
+        }
     }
 
     /// Registers Cmd+Shift+V as a global shortcut to open the quick input text field.
@@ -203,6 +211,69 @@ extension AppDelegate {
         cmdKLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
+    /// Registers Cmd+[ and Cmd+] as local shortcuts for back/forward navigation.
+    /// Uses event monitoring (like Cmd+K) instead of NSMenu key equivalents
+    /// because SwiftUI manages the menu bar and may interfere with programmatic
+    /// NSMenu items and their validation.
+    ///
+    /// Matches on `charactersIgnoringModifiers` instead of hardware keycodes
+    /// so the shortcuts work correctly on non-ANSI keyboard layouts (ISO, JIS).
+    /// Only consumes the event when navigation actually occurs — if the history
+    /// stack is empty, the event passes through to the responder chain.
+    func registerNavigationMonitor() {
+        guard navLocalMonitor == nil else { return }
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard mods == [.command] else { return event }
+            guard let chars = event.charactersIgnoringModifiers else { return event }
+            switch chars {
+            case "[":
+                guard self?.mainWindow?.windowState.navigationHistory.canGoBack == true else { return event }
+                Task { @MainActor in
+                    self?.mainWindow?.windowState.navigateBack()
+                }
+                return nil
+            case "]":
+                guard self?.mainWindow?.windowState.navigationHistory.canGoForward == true else { return event }
+                Task { @MainActor in
+                    self?.mainWindow?.windowState.navigateForward()
+                }
+                return nil
+            default:
+                return event
+            }
+        }
+        navLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers Cmd+=/Cmd+-/Cmd+0 as local shortcuts for window zoom.
+    /// Uses event monitoring instead of NSMenu key equivalents because
+    /// SwiftUI manages the menu bar and strips programmatic items.
+    func registerZoomMonitor() {
+        guard zoomLocalMonitor == nil else { return }
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard let chars = event.charactersIgnoringModifiers else { return event }
+            // Cmd+= (same physical key as Cmd++, shift ignored)
+            if chars == "=" && mods.contains(.command) && !mods.contains(.control) {
+                Task { @MainActor in self?.zoomManager.zoomIn() }
+                return nil
+            }
+            // Cmd+-
+            if chars == "-" && mods == [.command] {
+                Task { @MainActor in self?.zoomManager.zoomOut() }
+                return nil
+            }
+            // Cmd+0
+            if chars == "0" && mods == [.command] {
+                Task { @MainActor in self?.zoomManager.resetZoom() }
+                return nil
+            }
+            return event
+        }
+        zoomLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
     func toggleCommandPalette() {
         if let window = commandPaletteWindow, window.isVisible {
             window.dismiss()
@@ -213,18 +284,33 @@ extension AppDelegate {
 
         // Static actions
         window.actions = [
-            CommandPaletteAction(id: "new-conversation", icon: "square.and.pencil", label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
+            CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
                 self?.mainWindow?.threadManager.enterDraftMode()
                 self?.mainWindow?.windowState.selection = nil
             },
-            CommandPaletteAction(id: "settings", icon: "gear", label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
+            CommandPaletteAction(id: "settings", icon: VIcon.settings.rawValue, label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
                 self?.mainWindow?.windowState.togglePanel(.settings)
             },
-            CommandPaletteAction(id: "app-directory", icon: "square.grid.2x2", label: "App Directory", shortcutHint: nil) { [weak self] in
+            CommandPaletteAction(id: "app-directory", icon: VIcon.layoutGrid.rawValue, label: "App Directory", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.showAppsPanel()
             },
-            CommandPaletteAction(id: "intelligence", icon: "brain.head.profile", label: "Intelligence", shortcutHint: nil) { [weak self] in
+            CommandPaletteAction(id: "intelligence", icon: VIcon.brain.rawValue, label: "Intelligence", shortcutHint: nil) { [weak self] in
                 self?.mainWindow?.windowState.togglePanel(.intelligence)
+            },
+            CommandPaletteAction(id: "navigate-back", icon: "chevron.left", label: "Back", shortcutHint: "\u{2318}[") { [weak self] in
+                self?.mainWindow?.windowState.navigateBack()
+            },
+            CommandPaletteAction(id: "navigate-forward", icon: "chevron.right", label: "Forward", shortcutHint: "\u{2318}]") { [weak self] in
+                self?.mainWindow?.windowState.navigateForward()
+            },
+            CommandPaletteAction(id: "zoom-in", icon: "plus.magnifyingglass", label: "Zoom In", shortcutHint: "\u{2318}+") { [weak self] in
+                self?.zoomManager.zoomIn()
+            },
+            CommandPaletteAction(id: "zoom-out", icon: "minus.magnifyingglass", label: "Zoom Out", shortcutHint: "\u{2318}-") { [weak self] in
+                self?.zoomManager.zoomOut()
+            },
+            CommandPaletteAction(id: "zoom-reset", icon: "magnifyingglass", label: "Actual Size", shortcutHint: "\u{2318}0") { [weak self] in
+                self?.zoomManager.resetZoom()
             },
         ]
 
@@ -245,11 +331,8 @@ extension AppDelegate {
         window.runtimeHTTPResolver = {
             let port = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"]
                 .flatMap(Int.init) ?? 7821
-            if let jwt = ActorTokenManager.getToken(), !jwt.isEmpty {
-                return ("http://localhost:\(port)", jwt)
-            }
-            guard let token = readHttpToken() else { return nil }
-            return ("http://localhost:\(port)", token)
+            guard let jwt = ActorTokenManager.getToken(), !jwt.isEmpty else { return nil }
+            return ("http://localhost:\(port)", jwt)
         }
 
         window.show()

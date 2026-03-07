@@ -2,39 +2,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // --- Mocks (must be declared before importing the module under test) ---
 
-let secureKeyStore: Record<string, string> = {};
-
-mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
-  setSecureKey: (account: string, value: string) => {
-    secureKeyStore[account] = value;
-    return true;
-  },
-  deleteSecureKey: () => true,
-  listSecureKeys: () => Object.keys(secureKeyStore),
-  getBackendType: () => "encrypted",
-  isDowngradedFromKeychain: () => false,
-  _resetBackend: () => {},
-  _setBackend: () => {},
-}));
-
-// withValidToken: call the callback directly with a fake token.
-mock.module("../security/token-manager.js", () => ({
-  withValidToken: async (
-    _service: string,
-    cb: (token: string) => Promise<unknown>,
-  ) => cb("fake-oauth-token"),
-  TokenExpiredError: class TokenExpiredError extends Error {
-    constructor(
-      public readonly service: string,
-      message?: string,
-    ) {
-      super(message ?? `Token expired for "${service}".`);
-      this.name = "TokenExpiredError";
-    }
-  },
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
@@ -65,7 +32,6 @@ const originalFetch = globalThis.fetch;
 let _fetchMock: ReturnType<typeof mock> | null = null;
 
 beforeEach(() => {
-  secureKeyStore = {};
   _fetchMock = null;
 });
 
@@ -101,7 +67,9 @@ describe("Twitter OAuth client", () => {
         json: { data: { id: "12345", text: "Hello world" } },
       });
 
-      const result = await oauthPostTweet("Hello world");
+      const result = await oauthPostTweet("Hello world", {
+        oauthToken: "fake-oauth-token",
+      });
 
       expect(result.tweetId).toBe("12345");
       expect(result.text).toBe("Hello world");
@@ -132,6 +100,7 @@ describe("Twitter OAuth client", () => {
 
       const result = await oauthPostTweet("My reply", {
         inReplyToTweetId: "11111",
+        oauthToken: "fake-oauth-token",
       });
 
       expect(result.tweetId).toBe("67890");
@@ -150,12 +119,12 @@ describe("Twitter OAuth client", () => {
         text: "Rate limit exceeded",
       });
 
-      await expect(oauthPostTweet("will fail")).rejects.toThrow(
-        /Twitter API error \(429\)/,
-      );
+      await expect(
+        oauthPostTweet("will fail", { oauthToken: "fake-oauth-token" }),
+      ).rejects.toThrow(/Twitter API error \(429\)/);
     });
 
-    test("attaches status to thrown error for token manager retry", async () => {
+    test("throws with status in error message on 401", async () => {
       mockFetch({
         ok: false,
         status: 401,
@@ -163,23 +132,25 @@ describe("Twitter OAuth client", () => {
       });
 
       try {
-        await oauthPostTweet("will fail");
+        await oauthPostTweet("will fail", { oauthToken: "fake-oauth-token" });
         expect(true).toBe(false); // should not reach
       } catch (err) {
-        expect((err as Error & { status: number }).status).toBe(401);
+        expect((err as Error).message).toContain("401");
       }
     });
   });
 
   describe("oauthIsAvailable", () => {
-    test("returns true when access token exists", () => {
-      secureKeyStore["credential:integration:twitter:access_token"] =
-        "some-token";
-      expect(oauthIsAvailable()).toBe(true);
+    test("returns true when token is provided", () => {
+      expect(oauthIsAvailable("some-token")).toBe(true);
     });
 
-    test("returns false when no access token", () => {
-      expect(oauthIsAvailable()).toBe(false);
+    test("returns false when token is undefined", () => {
+      expect(oauthIsAvailable(undefined)).toBe(false);
+    });
+
+    test("returns false when token is empty string", () => {
+      expect(oauthIsAvailable("")).toBe(false);
     });
   });
 

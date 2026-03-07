@@ -10,8 +10,7 @@ public struct InlineFallbackChip: View {
 
     public var body: some View {
         HStack(spacing: VSpacing.sm) {
-            Image(systemName: "square.on.square")
-                .font(VFont.caption)
+            VIconView(.layers, size: 12)
                 .foregroundColor(VColor.textMuted)
 
             Text("Interactive \(surfaceType.rawValue) surface")

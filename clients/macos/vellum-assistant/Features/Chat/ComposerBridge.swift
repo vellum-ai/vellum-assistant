@@ -17,17 +17,6 @@ extension EnvironmentValues {
     }
 }
 
-// MARK: - Composer Editor Height Preference Key
-
-/// PreferenceKey used to measure the natural height of the TextField composer
-/// so that ChatView can compute the correct bottom safe-area inset.
-struct ComposerEditorHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
 // MARK: - Composer Focus Bridge
 
 /// Minimal NSViewRepresentable that provides AppKit integration for the
@@ -36,12 +25,16 @@ struct ComposerEditorHeightKey: PreferenceKey {
 ///   keystrokes auto-focus the composer when nothing else is focused.
 /// - Registers the composer container view for click-away-to-blur detection.
 /// - Intercepts Cmd+V when the pasteboard contains image content.
-/// - Intercepts Cmd+Enter for send when cmdEnterToSend is enabled.
+/// - Intercepts Cmd+Return when `cmdEnterToSend` is enabled to trigger send
+///   before SwiftUI's `.onSubmit` fires.
+/// - Intercepts Shift+Return in default send mode to insert a newline, and
+///   routes default-mode Option+Return through the same bridge send path used
+///   by Cmd+Return, before SwiftUI's `.onSubmit` fires.
 struct ComposerFocusBridge: NSViewRepresentable {
     let isFocused: Bool
     let cmdEnterToSend: Bool
     let onImagePaste: () -> Void
-    let onCmdEnterSend: () -> Void
+    let onSend: () -> Void
     let onRedirectKeystroke: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -110,12 +103,32 @@ struct ComposerFocusBridge: NSViewRepresentable {
                     return nil
                 }
 
-                // Cmd+Enter -> send (when cmdEnterToSend is enabled)
-                if self.parent.cmdEnterToSend,
-                   modifiers == [.command],
-                   event.keyCode == 36 || event.keyCode == 76 {
-                    self.parent.onCmdEnterSend()
-                    return nil
+                // Return-key routing. The bridge handles modifier-specific
+                // interception for its dedicated paths: Shift+Enter newline in
+                // default mode, Option+Enter send in default mode, and
+                // Cmd+Enter send when the preference is enabled.
+                // Plain Enter flows through to SwiftUI's .onSubmit which
+                // calls performSendAction() — the canonical send path that
+                // handles slash-menu, ghost-text, and pending-confirmation.
+                let isReturn = event.keyCode == 36 || event.keyCode == 76
+                if isReturn {
+                    let action = ComposerReturnKeyRouting.resolve(
+                        cmdEnterToSend: self.parent.cmdEnterToSend,
+                        modifiers: modifiers
+                    )
+                    let textView = (event.window?.firstResponder as? NSTextView)
+                        ?? (NSApp.keyWindow?.firstResponder as? NSTextView)
+
+                    // Still consume newline routes when the field editor is
+                    // missing so SwiftUI cannot accidentally treat them as send.
+                    if ComposerReturnKeyRouting.performBridgeAction(
+                        action,
+                        textView: textView,
+                        onSend: self.parent.onSend
+                    ) {
+                        return nil
+                    }
+                    return event
                 }
 
                 // Let zoom shortcuts propagate instead of being consumed
@@ -155,9 +168,12 @@ struct ComposerFocusBridge: NSViewRepresentable {
 
 struct MicrophoneButton: View {
     let isRecording: Bool
-    let iconSize: CGFloat
+    let size: CGFloat
     let action: () -> Void
+
     @State private var isPulsing = false
+    @State private var isHovered = false
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         Button(action: action) {
@@ -171,11 +187,22 @@ struct MicrophoneButton: View {
                         .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false), value: isPulsing)
                 }
 
-                Image(systemName: isRecording ? "mic.fill" : "mic")
-                    .font(.system(size: iconSize, weight: .regular))
+                VIconView(.mic, size: 16)
+                    .frame(width: 18, height: 18)
                     .foregroundColor(isRecording ? VColor.error : adaptiveColor(light: Forest._500, dark: Moss._400))
             }
         }
+        .buttonStyle(VIconButtonStyle(isHovered: isHovered, isFocused: isFocused, size: size))
+        .focused($isFocused)
+        #if os(macOS)
+        .onHover { hovering in
+            isHovered = hovering
+            if hovering { NSCursor.pointingHand.set() }
+            else { NSCursor.arrow.set() }
+        }
+        #else
+        .onHover { isHovered = $0 }
+        #endif
         .accessibilityLabel(isRecording ? "Stop recording" : "Start voice input")
         .onChange(of: isRecording) {
             isPulsing = isRecording

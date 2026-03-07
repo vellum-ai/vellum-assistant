@@ -95,7 +95,7 @@ function buildSystemPrompt(
     `- \`title\` and \`body\` are for native notification popups (e.g. vellum desktop/mobile) — keep them short and glanceable (title ≤ 8 words, body ≤ 2 sentences).`,
     `- \`deliveryText\` is the channel-native message for chat channels (e.g. telegram). It must read naturally as a standalone message.`,
     `  - Do not prepend mechanical labels like "Thread:".`,
-    `  - Do not mention channel or transport names (e.g. Telegram, SMS, email) unless the event context explicitly requires it.`,
+    `  - Do not mention channel or transport names (e.g. Telegram, Slack, email) unless the event context explicitly requires it.`,
     `  - Do not repeat title/body verbatim unless that repetition is truly necessary.`,
     `  - Avoid meta-send phrasing (e.g. "I'd like to send a notification", "May I go ahead with that?"). Write the recipient-facing message directly.`,
     `  - For telegram: 1-2 concise sentences.`,
@@ -546,15 +546,6 @@ function enforceGuardianRequestCode(
   const modeResolution = resolveGuardianQuestionInstructionMode(
     signal.contextPayload,
   );
-  if (modeResolution.legacyFallbackUsed) {
-    log.warn(
-      {
-        signalId: signal.signalId,
-        requestKind: modeResolution.requestKind,
-      },
-      "guardian.question payload missing/invalid typed fields; using legacy instruction-mode fallback",
-    );
-  }
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
@@ -696,12 +687,11 @@ export async function evaluateSignal(
   let resolvedPreferenceContext = preferenceContext;
   if (resolvedPreferenceContext === undefined) {
     try {
-      resolvedPreferenceContext =
-        getPreferenceSummary(signal.assistantId) ?? undefined;
+      resolvedPreferenceContext = getPreferenceSummary() ?? undefined;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       log.warn(
-        { err: errMsg, assistantId: signal.assistantId },
+        { err: errMsg },
         "Failed to load preference summary, proceeding without preferences",
       );
       resolvedPreferenceContext = undefined;
@@ -712,7 +702,7 @@ export async function evaluateSignal(
   // so candidate lookup failures do not block the decision path.
   let candidateSet: ThreadCandidateSet | undefined;
   try {
-    candidateSet = buildThreadCandidates(availableChannels, signal.assistantId);
+    candidateSet = buildThreadCandidates(availableChannels);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     log.warn(

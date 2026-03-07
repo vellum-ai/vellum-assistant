@@ -36,7 +36,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const testConfig: Record<string, any> = {
-  permissions: { mode: "legacy" as "legacy" | "strict" | "workspace" },
+  permissions: { mode: "workspace" as "strict" | "workspace" },
   skills: { load: { extraDirs: [] as string[] } },
   sandbox: { enabled: false },
 };
@@ -263,7 +263,7 @@ describe("ephemeral-permissions", () => {
   describe("check() with ephemeral rules", () => {
     beforeEach(() => {
       clearCache();
-      testConfig.permissions.mode = "legacy";
+      testConfig.permissions.mode = "workspace";
     });
 
     test("ephemeral allow rule auto-allows non-high-risk tool", async () => {
@@ -327,7 +327,7 @@ describe("ephemeral-permissions", () => {
     });
 
     afterEach(() => {
-      testConfig.permissions.mode = "legacy";
+      testConfig.permissions.mode = "workspace";
     });
 
     test("workspace mode auto-allows workspace-scoped file_write (medium risk)", async () => {

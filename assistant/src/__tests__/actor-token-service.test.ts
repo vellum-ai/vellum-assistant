@@ -19,6 +19,7 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
   readLockfile: () => null,
+  writeLockfile: () => {},
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
@@ -39,7 +40,6 @@ mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => false,
   getInternalGatewayTarget: () => "http://localhost:7822",
   getGatewayBaseUrl: () => "http://localhost:7822",
-  getRuntimeProxyBearerToken: () => undefined,
   getRuntimeGatewayOriginSecret: () => undefined,
   isHttpAuthDisabledWithoutSafetyGate: () => false,
   getEnableMonitoring: () => false,
@@ -130,7 +130,6 @@ describe("actor-token store (hash-only)", () => {
 
     const record = createActorTokenRecord({
       tokenHash,
-      assistantId: "self",
       guardianPrincipalId: "principal-store",
       hashedDeviceId: "hashed-dev-store",
       platform: "macos",
@@ -149,7 +148,6 @@ describe("actor-token store (hash-only)", () => {
 
     createActorTokenRecord({
       tokenHash,
-      assistantId: "self",
       guardianPrincipalId: "principal-bind",
       hashedDeviceId: "hashed-dev-bind",
       platform: "ios",
@@ -157,7 +155,6 @@ describe("actor-token store (hash-only)", () => {
     });
 
     const found = findActiveByDeviceBinding(
-      "self",
       "principal-bind",
       "hashed-dev-bind",
     );
@@ -170,7 +167,6 @@ describe("actor-token store (hash-only)", () => {
 
     createActorTokenRecord({
       tokenHash,
-      assistantId: "self",
       guardianPrincipalId: "principal-revoke",
       hashedDeviceId: "hashed-dev-revoke",
       platform: "macos",
@@ -178,7 +174,6 @@ describe("actor-token store (hash-only)", () => {
     });
 
     const count = revokeByDeviceBinding(
-      "self",
       "principal-revoke",
       "hashed-dev-revoke",
     );
@@ -193,7 +188,6 @@ describe("actor-token store (hash-only)", () => {
 
     createActorTokenRecord({
       tokenHash,
-      assistantId: "self",
       guardianPrincipalId: "principal-single",
       hashedDeviceId: "hashed-dev-single",
       platform: "macos",
@@ -214,7 +208,7 @@ describe("guardian vellum migration", () => {
     const principalId = ensureVellumGuardianBinding("self");
     expect(principalId).toMatch(/^vellum-principal-/);
 
-    const guardianResult = findGuardianForChannel("vellum", "self");
+    const guardianResult = findGuardianForChannel("vellum");
     expect(guardianResult).not.toBeNull();
     expect(guardianResult!.contact.principalId).toBe(principalId);
     expect(guardianResult!.channel.verifiedVia).toBe("startup-migration");
@@ -228,7 +222,6 @@ describe("guardian vellum migration", () => {
 
   test("ensureVellumGuardianBinding preserves existing bindings for other channels", () => {
     createGuardianBinding({
-      assistantId: "self",
       channel: "telegram",
       guardianExternalUserId: "tg-user-123",
       guardianDeliveryChatId: "tg-chat-456",
@@ -238,11 +231,11 @@ describe("guardian vellum migration", () => {
 
     ensureVellumGuardianBinding("self");
 
-    const tgGuardian = findGuardianForChannel("telegram", "self");
+    const tgGuardian = findGuardianForChannel("telegram");
     expect(tgGuardian).not.toBeNull();
     expect(tgGuardian!.channel.externalUserId).toBe("tg-user-123");
 
-    const vGuardian = findGuardianForChannel("vellum", "self");
+    const vGuardian = findGuardianForChannel("vellum");
     expect(vGuardian).not.toBeNull();
   });
 });
@@ -256,14 +249,11 @@ describe("bootstrap endpoint idempotency", () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req1 = new Request(
-      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "macos", deviceId: "test-device-1" }),
-      },
-    );
+    const req1 = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "macos", deviceId: "test-device-1" }),
+    });
 
     const res1 = await handleGuardianBootstrap(req1, loopbackServer);
     expect(res1.status).toBe(200);
@@ -273,14 +263,11 @@ describe("bootstrap endpoint idempotency", () => {
     expect(body1.isNew).toBe(true);
 
     // Second call with same device
-    const req2 = new Request(
-      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "macos", deviceId: "test-device-1" }),
-      },
-    );
+    const req2 = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "macos", deviceId: "test-device-1" }),
+    });
 
     const res2 = await handleGuardianBootstrap(req2, loopbackServer);
     expect(res2.status).toBe(200);
@@ -296,14 +283,11 @@ describe("bootstrap endpoint idempotency", () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request(
-      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "macos" }),
-      },
-    );
+    const req = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "macos" }),
+    });
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(400);
@@ -313,14 +297,11 @@ describe("bootstrap endpoint idempotency", () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request(
-      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "android", deviceId: "test-device" }),
-      },
-    );
+    const req = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "android", deviceId: "test-device" }),
+    });
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(400);
@@ -330,26 +311,20 @@ describe("bootstrap endpoint idempotency", () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req1 = new Request(
-      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "macos", deviceId: "device-A" }),
-      },
-    );
+    const req1 = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "macos", deviceId: "device-A" }),
+    });
 
     const res1 = await handleGuardianBootstrap(req1, loopbackServer);
     const body1 = (await res1.json()) as Record<string, unknown>;
 
-    const req2 = new Request(
-      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "macos", deviceId: "device-B" }),
-      },
-    );
+    const req2 = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "macos", deviceId: "device-B" }),
+    });
 
     const res2 = await handleGuardianBootstrap(req2, loopbackServer);
     const body2 = (await res2.json()) as Record<string, unknown>;
@@ -363,17 +338,14 @@ describe("bootstrap endpoint idempotency", () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request(
-      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform: "macos",
-          deviceId: "test-device-jwt",
-        }),
-      },
-    );
+    const req = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        platform: "macos",
+        deviceId: "test-device-jwt",
+      }),
+    });
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(200);
@@ -440,7 +412,7 @@ describe("resolveLocalIpcAuthContext", () => {
 
   test("enriches actorPrincipalId from vellum guardian binding when present", () => {
     ensureVellumGuardianBinding("self");
-    const guardianResult = findGuardianForChannel("vellum", "self");
+    const guardianResult = findGuardianForChannel("vellum");
     expect(guardianResult).toBeTruthy();
 
     const ctx = resolveLocalIpcAuthContext("session-123");
@@ -714,17 +686,14 @@ describe("bootstrap loopback guard", () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request(
-      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Forwarded-For": "10.0.0.1",
-        },
-        body: JSON.stringify({ platform: "macos", deviceId: "test-device" }),
+    const req = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": "10.0.0.1",
       },
-    );
+      body: JSON.stringify({ platform: "macos", deviceId: "test-device" }),
+    });
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(403);
@@ -736,14 +705,11 @@ describe("bootstrap loopback guard", () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request(
-      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "macos", deviceId: "test-device" }),
-      },
-    );
+    const req = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "macos", deviceId: "test-device" }),
+    });
 
     const res = await handleGuardianBootstrap(req, nonLoopbackServer);
     expect(res.status).toBe(403);
@@ -755,14 +721,11 @@ describe("bootstrap loopback guard", () => {
     const { handleGuardianBootstrap } =
       await import("../runtime/routes/guardian-bootstrap-routes.js");
 
-    const req = new Request(
-      "http://localhost/v1/integrations/guardian/vellum/bootstrap",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: "macos", deviceId: "test-device-ok" }),
-      },
-    );
+    const req = new Request("http://localhost/v1/guardian/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "macos", deviceId: "test-device-ok" }),
+    });
 
     const res = await handleGuardianBootstrap(req, loopbackServer);
     expect(res.status).toBe(200);

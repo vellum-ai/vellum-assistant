@@ -76,7 +76,8 @@ mock.module("../config/loader.js", () => ({
     apiKeys: {},
     skills: { entries: {}, allowBundled: true },
     memory: { retrieval: { injectionStrategy: "inline" } },
-    permissions: { mode: "legacy" },
+    permissions: { mode: "workspace" },
+    sandbox: { enabled: false },
     daemon: {
       startupSocketWaitMs: 5000,
       stopTimeoutMs: 5000,
@@ -133,7 +134,7 @@ mock.module("../memory/admin.js", () => ({
   }),
 }));
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   getConversationThreadType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -154,12 +155,15 @@ mock.module("../memory/conversation-store.js", () => ({
     totalEstimatedCost: 0,
   }),
   createConversation: () => ({ id: "conv-1" }),
-  listConversations: () => [],
   addMessage: (_convId: string, _role: string, _content: string) => {
     return { id: `msg-${Date.now()}` };
   },
   updateConversationUsage: () => {},
   updateConversationTitle: () => {},
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  listConversations: () => [],
 }));
 
 let linkAttachmentShouldThrow = false;

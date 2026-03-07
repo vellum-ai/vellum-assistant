@@ -9,11 +9,7 @@ import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import {
-  getConversationByKey,
-  getOrCreateConversation,
-  setConversationKeyIfAbsent,
-} from "./conversation-key-store.js";
+import { getOrCreateConversation } from "./conversation-key-store.js";
 import { getDb } from "./db.js";
 import { channelInboundEvents, conversations } from "./schema.js";
 
@@ -65,35 +61,9 @@ export function recordInbound(
     };
   }
 
-  const assistantId = options?.assistantId;
-  const legacyKey = `${sourceChannel}:${externalChatId}`;
-  const scopedKey = assistantId
-    ? `asst:${assistantId}:${sourceChannel}:${externalChatId}`
-    : legacyKey;
-
-  // Resolve conversation mapping with assistant-scoped keying:
-  // 1. If scoped key exists, use it directly.
-  // 2. If assistantId is "self" and legacy key exists, reuse the legacy
-  //    conversation and create a scoped alias to prevent future bleed.
-  // 3. Otherwise, create/get conversation from the scoped key.
-  let mapping: { conversationId: string; created: boolean };
-  const scopedMapping = assistantId ? getConversationByKey(scopedKey) : null;
-  if (scopedMapping) {
-    mapping = { conversationId: scopedMapping.conversationId, created: false };
-  } else if (assistantId === DAEMON_INTERNAL_ASSISTANT_ID) {
-    const legacyMapping = getConversationByKey(legacyKey);
-    if (legacyMapping) {
-      mapping = {
-        conversationId: legacyMapping.conversationId,
-        created: false,
-      };
-      setConversationKeyIfAbsent(scopedKey, legacyMapping.conversationId);
-    } else {
-      mapping = getOrCreateConversation(scopedKey);
-    }
-  } else {
-    mapping = getOrCreateConversation(scopedKey);
-  }
+  const assistantId = options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
+  const scopedKey = `asst:${assistantId}:${sourceChannel}:${externalChatId}`;
+  const mapping = getOrCreateConversation(scopedKey);
   const now = Date.now();
   const eventId = uuid();
 
@@ -123,6 +93,19 @@ export function recordInbound(
     conversationId: mapping.conversationId,
     duplicate: false,
   };
+}
+
+/**
+ * Delete an inbound event record by its event ID. Used to roll back a
+ * dedup record when downstream processing (e.g. invite redemption) fails,
+ * so that webhook retries can re-attempt instead of short-circuiting as
+ * duplicates.
+ */
+export function deleteInbound(eventId: string): void {
+  const db = getDb();
+  db.delete(channelInboundEvents)
+    .where(eq(channelInboundEvents.id, eventId))
+    .run();
 }
 
 /**
