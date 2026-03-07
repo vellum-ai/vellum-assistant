@@ -36,6 +36,8 @@ Commands:
   notifications [options]  Send and inspect notifications through the unified
                            notification router
   oauth [options]          Manage OAuth tokens for connected integrations
+  platform [options]       Manage platform integration for containerized
+                           deployments
   skills                   Browse and install skills from the Vellum catalog
   x|twitter [options]      Post on X and manage connections. Supports OAuth
                            (official API) and browser session paths.

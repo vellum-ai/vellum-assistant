@@ -24,6 +24,7 @@ import { registerMcpCommand } from "./mcp.js";
 import { registerMemoryCommand } from "./memory.js";
 import { registerNotificationsCommand } from "./notifications.js";
 import { registerOAuthCommand } from "./oauth.js";
+import { registerPlatformCommand } from "./platform.js";
 import { registerSequenceCommand } from "./sequence.js";
 import { registerSessionsCommand } from "./sessions.js";
 import { registerSkillsCommand } from "./skills.js";
@@ -59,6 +60,7 @@ export function buildCliProgram(): Command {
   registerAutonomyCommand(program);
   registerCompletionsCommand(program);
   registerNotificationsCommand(program);
+  registerPlatformCommand(program);
   registerOAuthCommand(program);
   registerSkillsCommand(program);
 
