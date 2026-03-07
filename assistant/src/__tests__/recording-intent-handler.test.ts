@@ -342,7 +342,7 @@ mock.module("../providers/provider-send-message.js", () => ({
   resolveConfiguredProvider: () => null,
   extractText: (_response: unknown) => "",
   extractAllText: (_response: unknown) => "",
-  extractToolUse: (_response: unknown) => [],
+  extractToolUse: (_response: unknown) => undefined,
   createTimeout: (_ms: number) => ({
     signal: new AbortController().signal,
     cleanup: () => {},
