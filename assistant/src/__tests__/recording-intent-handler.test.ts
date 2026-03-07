@@ -284,6 +284,8 @@ mock.module("../memory/conversation-queries.js", () => ({
   listConversations: () => [],
   countConversations: () => 0,
   searchConversations: () => [],
+  getMessagesPaginated: () => ({ messages: [], hasMore: false }),
+  getNextMessage: () => null,
 }));
 
 mock.module("../memory/conversation-title-service.js", () => ({
@@ -337,12 +339,17 @@ mock.module("../daemon/handlers/computer-use.js", () => ({
 
 mock.module("../providers/provider-send-message.js", () => ({
   getConfiguredProvider: () => null,
+  resolveConfiguredProvider: () => null,
   extractText: (_response: unknown) => "",
+  extractAllText: (_response: unknown) => "",
+  extractToolUse: (_response: unknown) => [],
   createTimeout: (_ms: number) => ({
     signal: new AbortController().signal,
     cleanup: () => {},
   }),
   userMessage: (text: string) => ({ role: "user", content: text }),
+  userMessageWithImage: (text: string) => ({ role: "user", content: text }),
+  userMessageWithImages: (text: string) => ({ role: "user", content: text }),
 }));
 
 // ── Mock external conversation store ───────────────────────────────────────
