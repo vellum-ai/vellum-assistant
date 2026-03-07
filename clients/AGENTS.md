@@ -99,7 +99,7 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
 | Auto-growing height | `ScrollView` + `GeometryReader` on inner content + `.frame(height: clamp(measured, min, max))` | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
 | Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
-| Newline in chat input | Shift+Return via AppKit bridge (intercepts before `.onSubmit`); Option+Return also works natively | Relying solely on `.onSubmit` modifier detection (SwiftUI's `.onSubmit` cannot distinguish Shift+Return from plain Return) |
+| Newline in chat input | Shift+Return via AppKit bridge (intercepts before `.onSubmit`); treat default-mode Option+Return as send, not newline | Relying solely on `.onSubmit` modifier detection (SwiftUI's `.onSubmit` cannot distinguish Shift+Return from plain Return) |
 | Keyboard shortcuts | `.onKeyPress()` modifiers | `keyDown(with:)` / `performKeyEquivalent` overrides |
 | Attributed/colored text display | `AttributedString` + `Text` overlay | `layoutManager.addTemporaryAttributes` |
 | File drag-drop | `.onDrop(of: [.fileURL])` | `performDragOperation` override |

@@ -1963,7 +1963,7 @@ public struct TwilioNumberInfo: Codable, Sendable {
 
 // MARK: - Guardian Verification Messages
 
-/// Guardian verification request (create challenge, check status, revoke).
+/// Guardian verification request (create_session, status, cancel_session, revoke, resend_session).
 /// Backed by generated `IPCGuardianVerificationRequest`.
 public typealias GuardianVerificationRequestMessage = IPCGuardianVerificationRequest
 

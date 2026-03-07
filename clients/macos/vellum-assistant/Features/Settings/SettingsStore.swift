@@ -1544,7 +1544,7 @@ public final class SettingsStore: ObservableObject {
             pendingGuardianChallengeChannel = channel
             armGuardianChallengeTimeout(for: channel)
             try daemonClient.sendGuardianVerification(
-                action: "create_challenge",
+                action: "create_session",
                 channel: channel,
                 rebind: rebind ? true : nil
             )
@@ -1833,7 +1833,7 @@ public final class SettingsStore: ObservableObject {
                 return
             }
             try daemonClient.sendGuardianVerification(
-                action: "start_outbound",
+                action: "create_session",
                 channel: channel,
                 destination: destination
             )
@@ -1861,7 +1861,7 @@ public final class SettingsStore: ObservableObject {
     func resendOutboundGuardian(channel: String) {
         do {
             try daemonClient?.sendGuardianVerification(
-                action: "resend_outbound",
+                action: "resend_session",
                 channel: channel
             )
         } catch {
@@ -1886,7 +1886,7 @@ public final class SettingsStore: ObservableObject {
         }
         do {
             try daemonClient?.sendGuardianVerification(
-                action: "cancel_outbound",
+                action: "cancel_session",
                 channel: channel
             )
         } catch {

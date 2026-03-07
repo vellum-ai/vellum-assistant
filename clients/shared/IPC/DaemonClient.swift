@@ -1390,7 +1390,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         try send(VercelApiConfigRequestMessage(action: action, apiToken: apiToken))
     }
 
-    /// Create a guardian verification challenge, check status, revoke, or manage outbound verification for a channel.
+    /// Guardian verification session management: "create_session", "status", "cancel_session", "revoke", "resend_session".
     public func sendGuardianVerification(
         action: String,
         channel: String? = nil,

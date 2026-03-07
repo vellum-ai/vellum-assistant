@@ -86,7 +86,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.telegramGuardianError)
 
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-        let challengeMessages = guardianMessages.filter { $0.action == "create_challenge" && $0.channel == "telegram" }
+        let challengeMessages = guardianMessages.filter { $0.action == "create_session" && $0.channel == "telegram" }
         XCTAssertEqual(challengeMessages.count, 1)
     }
 
@@ -99,7 +99,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.smsGuardianError)
 
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-        let challengeMessages = guardianMessages.filter { $0.action == "create_challenge" && $0.channel == "sms" }
+        let challengeMessages = guardianMessages.filter { $0.action == "create_session" && $0.channel == "sms" }
         XCTAssertEqual(challengeMessages.count, 1)
     }
 
@@ -153,7 +153,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.smsGuardianError)
     }
 
-    // MARK: - Successful create_challenge response provides instruction
+    // MARK: - Successful create_session response provides instruction
 
     func testSuccessfulChallengeResponseProvidesInstruction() {
         store.telegramGuardianVerificationInProgress = true
@@ -518,12 +518,12 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     func testStartVerificationWithUnknownChannelIsNoOp() {
         let messageCountBefore = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-            .filter { $0.action == "create_challenge" }.count
+            .filter { $0.action == "create_session" }.count
 
         store.startChannelGuardianVerification(channel: "discord")
 
         let messageCountAfter = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-            .filter { $0.action == "create_challenge" }.count
+            .filter { $0.action == "create_session" }.count
         XCTAssertEqual(messageCountAfter, messageCountBefore)
     }
 
@@ -702,7 +702,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertNil(store.voiceGuardianError)
 
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-        let challengeMessages = guardianMessages.filter { $0.action == "create_challenge" && $0.channel == "voice" }
+        let challengeMessages = guardianMessages.filter { $0.action == "create_session" && $0.channel == "voice" }
         XCTAssertEqual(challengeMessages.count, 1)
     }
 
@@ -824,7 +824,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         store.startOutboundGuardianVerification(channel: "sms", destination: "+15551234567")
 
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-        let outboundMessages = guardianMessages.filter { $0.action == "start_outbound" && $0.channel == "sms" }
+        let outboundMessages = guardianMessages.filter { $0.action == "create_session" && $0.channel == "sms" }
         XCTAssertEqual(outboundMessages.count, 1)
         XCTAssertEqual(outboundMessages.first?.destination, "+15551234567")
         XCTAssertTrue(store.smsGuardianVerificationInProgress)
@@ -846,7 +846,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         store.startOutboundGuardianVerification(channel: "telegram", destination: "@guardian_user")
 
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-        let outboundMessages = guardianMessages.filter { $0.action == "start_outbound" && $0.channel == "telegram" }
+        let outboundMessages = guardianMessages.filter { $0.action == "create_session" && $0.channel == "telegram" }
         XCTAssertEqual(outboundMessages.count, 1)
         XCTAssertEqual(outboundMessages.first?.destination, "@guardian_user")
         XCTAssertTrue(store.telegramGuardianVerificationInProgress)
@@ -909,12 +909,12 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
 
     func testResendOutboundSendsCorrectIPCMessage() {
         let guardianMessagesBefore = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-        let resendCountBefore = guardianMessagesBefore.filter { $0.action == "resend_outbound" }.count
+        let resendCountBefore = guardianMessagesBefore.filter { $0.action == "resend_session" }.count
 
         store.resendOutboundGuardian(channel: "sms")
 
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-        let resendMessages = guardianMessages.filter { $0.action == "resend_outbound" && $0.channel == "sms" }
+        let resendMessages = guardianMessages.filter { $0.action == "resend_session" && $0.channel == "sms" }
         XCTAssertEqual(resendMessages.count, resendCountBefore + 1)
     }
 
@@ -935,7 +935,7 @@ final class SettingsStoreChannelVerificationTests: XCTestCase {
         XCTAssertFalse(store.smsGuardianVerificationInProgress)
 
         let guardianMessages = sentMessages.compactMap { $0 as? GuardianVerificationRequestMessage }
-        let cancelMessages = guardianMessages.filter { $0.action == "cancel_outbound" && $0.channel == "sms" }
+        let cancelMessages = guardianMessages.filter { $0.action == "cancel_session" && $0.channel == "sms" }
         XCTAssertEqual(cancelMessages.count, 1)
     }
 
