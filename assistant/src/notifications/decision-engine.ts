@@ -546,15 +546,6 @@ function enforceGuardianRequestCode(
   const modeResolution = resolveGuardianQuestionInstructionMode(
     signal.contextPayload,
   );
-  if (modeResolution.legacyFallbackUsed) {
-    log.warn(
-      {
-        signalId: signal.signalId,
-        requestKind: modeResolution.requestKind,
-      },
-      "guardian.question payload missing/invalid typed fields; using legacy instruction-mode fallback",
-    );
-  }
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
