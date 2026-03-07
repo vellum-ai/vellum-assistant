@@ -403,6 +403,8 @@ export class Session {
             messages: flushMessages,
             conversationId: this.conversationId,
             scopeId: this.memoryPolicy.scopeId,
+            extractFromAssistant:
+              getConfig().memory.extraction.extractFromAssistant,
             abortSignal: flushController.signal,
           });
 

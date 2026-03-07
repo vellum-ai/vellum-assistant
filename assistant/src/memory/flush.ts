@@ -13,6 +13,7 @@ export interface FlushMemoryOptions {
   messages: FlushMessage[];
   conversationId: string;
   scopeId: string;
+  extractFromAssistant?: boolean;
   abortSignal?: AbortSignal;
 }
 
@@ -24,15 +25,23 @@ export interface FlushMemoryOptions {
 export async function flushMemoryForMessages(
   opts: FlushMemoryOptions,
 ): Promise<{ flushed: number; skipped: number }> {
-  const { messages, conversationId, scopeId, abortSignal } = opts;
+  const {
+    messages,
+    conversationId,
+    scopeId,
+    extractFromAssistant,
+    abortSignal,
+  } = opts;
 
-  // Only user messages are extracted per current policy
-  const userMessages = messages.filter((m) => m.role === "user");
+  const extractableMessages = messages.filter(
+    (m) =>
+      m.role === "user" || (m.role === "assistant" && extractFromAssistant),
+  );
 
   let flushed = 0;
   let skipped = 0;
 
-  for (const message of userMessages) {
+  for (const message of extractableMessages) {
     if (abortSignal?.aborted) {
       log.info(
         { conversationId, flushed, skipped },
@@ -62,7 +71,7 @@ export async function flushMemoryForMessages(
   }
 
   log.info(
-    { conversationId, total: userMessages.length, flushed, skipped },
+    { conversationId, total: extractableMessages.length, flushed, skipped },
     "Pre-compaction memory flush complete",
   );
 
