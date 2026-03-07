@@ -181,7 +181,7 @@ public extension VSplitView where Panel == EmptyView {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(VColor.surface)
                 } panel: {
-                    VSidePanel(title: "Panel") {
+                    VSidePanel(title: "Panel", pinnedContent: { EmptyView() }) {
                         Text("Side panel")
                             .font(VFont.body)
                             .foregroundColor(VColor.textSecondary)
