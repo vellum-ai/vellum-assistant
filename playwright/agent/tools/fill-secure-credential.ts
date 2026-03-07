@@ -124,11 +124,11 @@ tell application "System Events"
     end if
 
     -- Find and fill the text field using entire contents (works regardless of nesting depth).
-    -- We use clipboard paste (Cmd-V) instead of `keystroke` or `set value` because:
-    --   - `set value` doesn't trigger SecureField's SwiftUI @State binding updates
-    --   - `keystroke` depends on the active macOS input source/keyboard layout, so
+    -- We use clipboard paste (Cmd-V) instead of \`keystroke\` or \`set value\` because:
+    --   - \`set value\` doesn't trigger SecureField's SwiftUI @State binding updates
+    --   - \`keystroke\` depends on the active macOS input source/keyboard layout, so
     --     non-US or non-Latin layouts produce wrong characters (especially symbols)
-    --   - `keystroke` also interprets control characters literally (tab moves focus,
+    --   - \`keystroke\` also interprets control characters literally (tab moves focus,
     --     return submits the form), corrupting values that contain them
     -- The tradeoff: the secret sits on the clipboard for ~100ms between paste and
     -- clear. This is acceptable because the clipboard is immediately cleared, and
