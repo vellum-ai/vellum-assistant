@@ -275,7 +275,7 @@ export async function handleMemoryUpdate(
       .get();
     if (collision && collision.id !== existing.id) {
       return {
-        content: `Error: Another memory item (ID: ${collision.id}) already contains this statement. Use memory_search to find it.`,
+        content: `Error: Another memory item (ID: ${collision.id}) already contains this statement. Use memory_recall to find it.`,
         isError: true,
       };
     }
