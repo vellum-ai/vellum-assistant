@@ -2,6 +2,12 @@ import * as net from "node:net";
 
 import { getIngressPublicBaseUrl } from "../../config/env.js";
 import {
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../config/loader.js";
+import {
   registerCallbackRoute,
   shouldUsePlatformCallbacks,
 } from "../../inbound/platform-callback-registration.js";
@@ -10,9 +16,9 @@ import {
   getSecureKey,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
+import { getTelegramBotUsername } from "../../telegram/bot-username.js";
 import {
   deleteCredentialMetadata,
-  getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import type {
@@ -60,8 +66,7 @@ export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 export function getTelegramConfig(): TelegramConfigResult {
   const hasBotToken = !!getSecureKey("credential:telegram:bot_token");
   const hasWebhookSecret = !!getSecureKey("credential:telegram:webhook_secret");
-  const meta = getCredentialMetadata("telegram", "bot_token");
-  const botUsername = meta?.accountInfo ?? undefined;
+  const botUsername = getTelegramBotUsername();
   return {
     success: true,
     hasBotToken,
@@ -145,10 +150,16 @@ export async function setTelegramConfig(
     };
   }
 
-  // Store metadata with bot username
+  // Store metadata with bot username (kept for consumers that haven't migrated yet)
   upsertCredentialMetadata("telegram", "bot_token", {
     accountInfo: botUsername,
   });
+
+  // Dual-write: persist bot username to config for the new config-based path
+  const raw = loadRawConfig();
+  setNestedValue(raw, "telegram.botUsername", botUsername);
+  saveRawConfig(raw);
+  invalidateConfigCache();
 
   // Ensure webhook secret exists (generate if missing)
   let hasWebhookSecret = !!getSecureKey("credential:telegram:webhook_secret");
