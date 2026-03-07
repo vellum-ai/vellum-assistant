@@ -426,7 +426,8 @@ export async function runAgentLoopImpl(
 
     const isFirstMessage = ctx.messages.length === 1;
 
-    if (ctx.contextWindowManager.shouldCompact(ctx.messages)) {
+    const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
+    if (compactCheck.needed) {
       ctx.emitActivityState(
         "thinking",
         "thinking_delta",
@@ -438,7 +439,10 @@ export async function runAgentLoopImpl(
     const compacted = await ctx.contextWindowManager.maybeCompact(
       ctx.messages,
       abortController.signal,
-      { lastCompactedAt: ctx.contextCompactedAt ?? undefined },
+      {
+        lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+        precomputedEstimate: compactCheck.estimatedTokens,
+      },
     );
     if (compacted.compacted) {
       ctx.messages = compacted.messages;
