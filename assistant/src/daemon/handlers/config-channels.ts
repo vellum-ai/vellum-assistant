@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import * as net from "node:net";
 
 import type { ChannelId } from "../../channels/types.js";
@@ -5,6 +6,8 @@ import { resolveGuardianName } from "../../config/user-reference.js";
 import {
   findContactChannel,
   findGuardianForChannel,
+  getChannelById,
+  getContact,
 } from "../../contacts/contact-store.js";
 import { revokeMember } from "../../contacts/contacts-write.js";
 import type { ChannelStatus } from "../../contacts/types.js";
@@ -15,18 +18,32 @@ import {
   createReadinessService,
 } from "../../runtime/channel-readiness-service.js";
 import {
+  countRecentSendsToDestination,
   createInboundVerificationSession,
+  createOutboundSession,
   findActiveSession,
   getGuardianBinding,
   getPendingSession,
   revokeBinding,
   revokePendingSessions,
+  updateSessionDelivery,
 } from "../../runtime/channel-verification-service.js";
 import {
   cancelOutbound,
+  deliverVerificationSlack,
+  deliverVerificationTelegram,
+  DESTINATION_RATE_WINDOW_MS,
+  MAX_SENDS_PER_DESTINATION_WINDOW,
+  normalizeTelegramDestination,
   resendOutbound,
   startOutbound,
 } from "../../runtime/verification-outbound-actions.js";
+import {
+  composeVerificationSlack,
+  composeVerificationTelegram,
+  GUARDIAN_VERIFY_TEMPLATE_KEYS,
+} from "../../runtime/verification-templates.js";
+import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
 import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
@@ -218,6 +235,242 @@ export function revokeVerificationForChannel(
 }
 
 // ---------------------------------------------------------------------------
+// Trusted-contact verification (shared by IPC + HTTP transports)
+// ---------------------------------------------------------------------------
+
+/** Session TTL in seconds (matches challenge TTL of 10 minutes). */
+const SESSION_TTL_SECONDS = 600;
+
+/**
+ * Map a contact channel type to the verification ChannelId used by the
+ * verification service. Returns null for unsupported channel types.
+ */
+function toVerificationChannel(channelType: string): ChannelId | null {
+  switch (channelType) {
+    case "phone":
+      return "voice";
+    case "telegram":
+      return "telegram";
+    case "slack":
+      return "slack";
+    default:
+      return null;
+  }
+}
+
+function getTelegramBotUsername(): string | undefined {
+  const meta = getCredentialMetadata("telegram", "bot_token");
+  if (
+    meta?.accountInfo &&
+    typeof meta.accountInfo === "string" &&
+    meta.accountInfo.trim().length > 0
+  ) {
+    return meta.accountInfo.trim();
+  }
+  return process.env.TELEGRAM_BOT_USERNAME || undefined;
+}
+
+/**
+ * Transport-agnostic trusted-contact verification. Looks up the contact
+ * channel, derives the verification channel and destination, checks rate
+ * limits, and creates the appropriate outbound session.
+ *
+ * Returns a `ChannelVerificationSessionResult` so both the IPC handler
+ * and the HTTP handler can wrap it in their respective response envelopes.
+ */
+export async function verifyTrustedContact(
+  contactChannelId: string,
+  assistantId: string,
+): Promise<ChannelVerificationSessionResult> {
+  const channel = getChannelById(contactChannelId);
+  if (!channel) {
+    return {
+      success: false,
+      error: `Channel "${contactChannelId}" not found`,
+    };
+  }
+
+  const contact = getContact(channel.contactId);
+  if (!contact) {
+    return {
+      success: false,
+      error: `Contact "${channel.contactId}" not found`,
+    };
+  }
+
+  if (channel.status === "active" && channel.verifiedAt != null) {
+    return {
+      success: false,
+      error: "already_verified",
+      message: "Channel is already verified",
+    };
+  }
+
+  const verificationChannel = toVerificationChannel(channel.type);
+  if (!verificationChannel) {
+    return {
+      success: false,
+      error: `Verification is not supported for channel type "${channel.type}"`,
+    };
+  }
+
+  const destination = channel.address;
+  if (!destination) {
+    return {
+      success: false,
+      error: "Channel has no address to send verification to",
+    };
+  }
+
+  const effectiveDestination =
+    verificationChannel === "telegram"
+      ? normalizeTelegramDestination(destination)
+      : destination;
+
+  const recentSendCount = countRecentSendsToDestination(
+    verificationChannel,
+    effectiveDestination,
+    DESTINATION_RATE_WINDOW_MS,
+  );
+  if (recentSendCount >= MAX_SENDS_PER_DESTINATION_WINDOW) {
+    return {
+      success: false,
+      error: "rate_limited",
+      message:
+        "Too many verification attempts to this destination. Please try again later.",
+    };
+  }
+
+  // --- Telegram verification ---
+  if (verificationChannel === "telegram") {
+    if (channel.externalChatId) {
+      const sessionResult = createOutboundSession({
+        channel: verificationChannel,
+        expectedChatId: channel.externalChatId,
+        expectedExternalUserId: channel.externalUserId ?? undefined,
+        identityBindingStatus: "bound",
+        destinationAddress: effectiveDestination,
+        verificationPurpose: "trusted_contact",
+      });
+
+      const telegramBody = composeVerificationTelegram(
+        GUARDIAN_VERIFY_TEMPLATE_KEYS.TELEGRAM_CHALLENGE_REQUEST,
+        {
+          code: sessionResult.secret,
+          expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
+        },
+      );
+
+      const now = Date.now();
+      const sendCount = 1;
+      updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+      deliverVerificationTelegram(
+        channel.externalChatId,
+        telegramBody,
+        assistantId,
+      );
+
+      return {
+        success: true,
+        verificationSessionId: sessionResult.sessionId,
+        expiresAt: sessionResult.expiresAt,
+        sendCount,
+        channel: verificationChannel,
+      };
+    }
+
+    // Telegram handle only (no chat ID): bootstrap flow
+    const { ensureTelegramBotUsernameResolved } =
+      await import("../../runtime/channel-invite-transports/telegram.js");
+    await ensureTelegramBotUsernameResolved();
+    const botUsername = getTelegramBotUsername();
+    if (!botUsername) {
+      return {
+        success: false,
+        error:
+          "Telegram bot username is not configured. Set up the Telegram integration first.",
+      };
+    }
+
+    const bootstrapToken = randomBytes(16).toString("hex");
+    const bootstrapTokenHash = createHash("sha256")
+      .update(bootstrapToken)
+      .digest("hex");
+
+    const sessionResult = createOutboundSession({
+      channel: verificationChannel,
+      identityBindingStatus: "pending_bootstrap",
+      destinationAddress: effectiveDestination,
+      bootstrapTokenHash,
+      verificationPurpose: "trusted_contact",
+    });
+
+    const telegramBootstrapUrl = `https://t.me/${botUsername}?start=gv_${bootstrapToken}`;
+
+    return {
+      success: true,
+      verificationSessionId: sessionResult.sessionId,
+      expiresAt: sessionResult.expiresAt,
+      sendCount: 0,
+      telegramBootstrapUrl,
+      pendingBootstrap: true,
+      channel: verificationChannel,
+    };
+  }
+
+  // --- Slack verification ---
+  if (verificationChannel === "slack") {
+    const slackUserId = channel.externalUserId ?? destination;
+
+    const hasIdentityBinding = Boolean(
+      channel.externalUserId || channel.externalChatId,
+    );
+    if (!hasIdentityBinding) {
+      return {
+        success: false,
+        error:
+          "Slack verification requires an externalUserId or externalChatId for identity binding",
+      };
+    }
+
+    const sessionResult = createOutboundSession({
+      channel: verificationChannel,
+      expectedExternalUserId: channel.externalUserId ?? undefined,
+      expectedChatId: channel.externalChatId ?? undefined,
+      identityBindingStatus: "bound",
+      destinationAddress: slackUserId,
+      verificationPurpose: "trusted_contact",
+    });
+
+    const slackBody = composeVerificationSlack(
+      GUARDIAN_VERIFY_TEMPLATE_KEYS.SLACK_CHALLENGE_REQUEST,
+      {
+        code: sessionResult.secret,
+        expiresInMinutes: Math.floor(SESSION_TTL_SECONDS / 60),
+      },
+    );
+
+    const now = Date.now();
+    const sendCount = 1;
+    updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+    deliverVerificationSlack(slackUserId, slackBody, assistantId);
+
+    return {
+      success: true,
+      verificationSessionId: sessionResult.sessionId,
+      expiresAt: sessionResult.expiresAt,
+      sendCount,
+      channel: verificationChannel,
+    };
+  }
+
+  return {
+    success: false,
+    error: `Verification is not supported for channel type "${channel.type}"`,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Channel verification session handler
 // ---------------------------------------------------------------------------
 
@@ -230,7 +483,16 @@ export async function handleChannelVerificationSession(
 
   try {
     if (msg.action === "create_session") {
-      if (msg.destination) {
+      if (msg.purpose === "trusted_contact" && msg.contactChannelId) {
+        const result = await verifyTrustedContact(
+          msg.contactChannelId,
+          DAEMON_INTERNAL_ASSISTANT_ID,
+        );
+        ctx.send(socket, {
+          type: "channel_verification_session_response",
+          ...result,
+        });
+      } else if (msg.destination) {
         const result = await startOutbound({
           channel,
           destination: msg.destination,

@@ -967,6 +967,7 @@ struct ContactDetailView: View {
         do {
             try daemonClient.sendChannelVerificationSession(
                 action: "create_session",
+                purpose: "trusted_contact",
                 contactChannelId: channel.id
             )
         } catch {
