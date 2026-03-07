@@ -15,6 +15,7 @@ import {
   getMemoryBackendStatus,
   logMemoryEmbeddingWarning,
 } from "./embedding-backend.js";
+import { formatRecallText } from "./format-recall.js";
 import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
 import {
   getCachedRecall,
@@ -23,7 +24,7 @@ import {
 } from "./recall-cache.js";
 import { memoryItemSources } from "./schema.js";
 import { entitySearch } from "./search/entity.js";
-import { buildInjectedText, MEMORY_CONTEXT_ACK } from "./search/formatting.js";
+import { MEMORY_CONTEXT_ACK } from "./search/formatting.js";
 import {
   directItemSearch,
   lexicalSearch,
@@ -32,10 +33,8 @@ import {
 import { buildFTSQuery, expandQueryForFTS } from "./search/query-expansion.js";
 import {
   applySourceCaps,
-  markItemUsage,
   mergeCandidates,
   rerankWithLLM,
-  trimToTokenBudget,
 } from "./search/ranking.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
 import type {
@@ -658,17 +657,12 @@ function formatRecallResult(
     ),
   );
 
-  const selected = trimToTokenBudget(
-    merged,
-    maxInjectTokens,
-    config.memory.retrieval.injectionFormat,
-  );
-  markItemUsage(selected);
-
-  const injectedText = buildInjectedText(
-    selected,
-    config.memory.retrieval.injectionFormat,
-  );
+  const formatted = formatRecallText(merged, {
+    format: config.memory.retrieval.injectionFormat,
+    maxTokens: maxInjectTokens,
+  });
+  const { selected } = formatted;
+  const injectedText = formatted.text;
 
   const topCandidates: MemoryRecallCandiateDebug[] = selected
     .slice(0, 10)
