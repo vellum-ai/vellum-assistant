@@ -146,11 +146,11 @@ export type WhatsAppApiCaches = {
 };
 
 /**
- * Resolve WhatsApp credentials from cache (preferred) or config (fallback).
- * Returns undefined fields if neither source has the value.
+ * Resolve WhatsApp credentials from cache.
+ * Returns undefined fields if the cache has no values.
  */
 async function resolveWhatsAppCredentials(
-  config: GatewayConfig,
+  _config: GatewayConfig,
   caches?: WhatsAppApiCaches,
 ): Promise<{
   phoneNumberId: string | undefined;
@@ -166,8 +166,6 @@ async function resolveWhatsAppCredentials(
       "credential:whatsapp:access_token",
     );
   }
-  phoneNumberId ??= config.whatsappPhoneNumberId;
-  accessToken ??= config.whatsappAccessToken;
   return { phoneNumberId, accessToken };
 }
 

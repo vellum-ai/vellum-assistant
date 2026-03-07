@@ -1,3 +1,4 @@
+import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import { getLogger } from "../../logger.js";
 import {
@@ -22,7 +23,7 @@ const REJECT_TWIML =
 
 export function createTwilioVoiceWebhookHandler(
   config: GatewayConfig,
-  caches?: TwilioValidationCaches,
+  caches?: TwilioValidationCaches & { configFile?: ConfigFileCache },
 ) {
   return async (req: Request): Promise<Response> => {
     const validation = await validateTwilioWebhookRequest(req, config, caches);
@@ -40,7 +41,7 @@ export function createTwilioVoiceWebhookHandler(
 
     if (!hasCallSessionId) {
       const phoneRouting = params.To
-        ? resolveAssistantByPhoneNumber(config, params.To)
+        ? resolveAssistantByPhoneNumber(config, params.To, caches?.configFile)
         : undefined;
 
       if (phoneRouting && "assistantId" in phoneRouting) {

@@ -54,27 +54,15 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
     telegramApiBaseUrl: "https://api.telegram.org",
-    telegramBotToken: undefined,
     telegramDeliverAuthBypass: false,
     telegramInitialBackoffMs: 1000,
     telegramMaxRetries: 3,
     telegramTimeoutMs: 15000,
-    telegramWebhookSecret: undefined,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    ingressPublicBaseUrl: undefined,
     unmappedPolicy: "reject",
-    whatsappPhoneNumberId: "123456789012345",
-    whatsappAccessToken: "test-whatsapp-token",
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
     whatsappDeliverAuthBypass: true,
     whatsappTimeoutMs: 15000,
     whatsappMaxRetries: 3,
     whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
     slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
@@ -167,27 +155,11 @@ describe("/deliver/whatsapp", () => {
     expect(body.ok).toBe(true);
   });
 
-  it("returns 503 when WhatsApp credentials are not configured", async () => {
-    const handler = createWhatsAppDeliverHandler(
-      makeConfig({ whatsappPhoneNumberId: undefined }),
-    );
-    const req = makeRequest({ to: "+15559876543", text: "hello" });
-    const res = await handler(req);
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe("WhatsApp integration not configured");
-  });
-
-  it("returns 503 when WhatsApp access token is missing", async () => {
-    const handler = createWhatsAppDeliverHandler(
-      makeConfig({ whatsappAccessToken: undefined }),
-    );
-    const req = makeRequest({ to: "+15559876543", text: "hello" });
-    const res = await handler(req);
-    expect(res.status).toBe(503);
-    const body = await res.json();
-    expect(body.error).toBe("WhatsApp integration not configured");
-  });
+  // WhatsApp credential availability is now gated by the route precondition
+  // (isWhatsAppConfigured) rather than checked inside the handler. The 503
+  // tests for missing credentials were removed because the handler no longer
+  // performs those checks -- the router prevents the handler from running at
+  // all when credentials are absent.
 
   it("returns 400 when 'to' is missing", async () => {
     const handler = createWhatsAppDeliverHandler(makeConfig());

@@ -1,5 +1,6 @@
 import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
 import { initSigningKey } from "../auth/token-service.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
@@ -22,8 +23,6 @@ const { createTelegramWebhookHandler } =
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
-    telegramBotToken: "test-bot-token",
-    telegramWebhookSecret: "test-webhook-secret",
     telegramApiBaseUrl: "https://api.telegram.org",
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
@@ -44,21 +43,11 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
     whatsappDeliverAuthBypass: false,
     whatsappTimeoutMs: 15000,
     whatsappMaxRetries: 3,
     whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
     slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
@@ -95,6 +84,18 @@ function makeWebhookRequest(
     },
     body: JSON.stringify(payload),
   });
+}
+
+/** Create a mock CredentialCache that returns the webhook secret. */
+function makeCaches(webhookSecret: string | undefined = "test-webhook-secret") {
+  const credentials = {
+    get: async (key: string) => {
+      if (key === "credential:telegram:webhook_secret") return webhookSecret;
+      return undefined;
+    },
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  return { credentials };
 }
 
 let fetchCalls: {
@@ -210,7 +211,7 @@ describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
       ],
     });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeTelegramPayload("hello");
     const req = makeWebhookRequest(payload);
@@ -234,7 +235,7 @@ describe("telegram webhook handler: gatewayInternalBaseUrl", () => {
       ],
     });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeTelegramPayload("hello", 2001);
     const req = makeWebhookRequest(payload);
@@ -258,7 +259,7 @@ describe("telegram webhook handler: /new rejection", () => {
       ],
     });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeTelegramPayload("/start deep-link-token", 2501);
     const req = makeWebhookRequest(payload);
@@ -290,7 +291,7 @@ describe("telegram webhook handler: /new rejection", () => {
   test("/start with routing rejection sends setup notice and does not forward", async () => {
     const config = makeConfig({ unmappedPolicy: "reject" });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeTelegramPayload("/start", 2502);
     (payload.message as any).chat.id = 54321;
@@ -315,7 +316,7 @@ describe("telegram webhook handler: /new rejection", () => {
     // No routing entries and unmappedPolicy is "reject" — routing will fail
     const config = makeConfig({ unmappedPolicy: "reject" });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeTelegramPayload("/new", 3001);
     const req = makeWebhookRequest(payload);
@@ -343,7 +344,7 @@ describe("telegram webhook handler: /new rejection", () => {
       ],
     });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeTelegramPayload("/new", 4001);
     const req = makeWebhookRequest(payload);
@@ -377,7 +378,7 @@ describe("telegram webhook handler: /new rejection", () => {
   test("/new rejection does not call resetConversation", async () => {
     const config = makeConfig({ unmappedPolicy: "reject" });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeTelegramPayload("/new", 5001);
     const req = makeWebhookRequest(payload);
@@ -454,7 +455,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
       },
     );
 
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
     const payload = makeTelegramPayload("hello", 9001);
 
     // Fire first request (will block on runtime call)
@@ -534,7 +535,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
       },
     );
 
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
     const payload = makeTelegramPayload("hello", 9002);
 
     // First attempt fails — should return 500 and unreserve
@@ -555,7 +556,7 @@ describe("telegram webhook handler: in-flight dedup", () => {
       ],
     });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
     const payload = makeTelegramPayload("hello", 9003);
 
     // Process successfully
@@ -602,7 +603,7 @@ describe("telegram webhook handler: callback_query forwarding", () => {
       ],
     });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeCallbackQueryPayload("apr:run-abc:approve", 7001);
     const req = makeWebhookRequest(payload);
@@ -628,7 +629,7 @@ describe("telegram webhook handler: callback_query forwarding", () => {
       ],
     });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeCallbackQueryPayload("apr:run-xyz:reject", 7002);
     const req = makeWebhookRequest(payload);
@@ -652,7 +653,7 @@ describe("telegram webhook handler: callback_query forwarding", () => {
       ],
     });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeTelegramPayload("hello", 7003);
     const req = makeWebhookRequest(payload);
@@ -675,7 +676,7 @@ describe("telegram webhook handler: callback_query forwarding", () => {
       ],
     });
     installFetchMock();
-    const { handler } = createTelegramWebhookHandler(config);
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
 
     const payload = makeTelegramPayload("hello", 7004);
     const req = makeWebhookRequest(payload);

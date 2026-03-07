@@ -1,7 +1,12 @@
 import { verifyToken } from "../../auth/token-service.js";
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
+import type { CredentialCache } from "../../credential-cache.js";
 import { getLogger } from "../../logger.js";
-import { reconcileTelegramWebhook } from "../../telegram/webhook-manager.js";
+import {
+  reconcileTelegramWebhook,
+  type WebhookManagerCaches,
+} from "../../telegram/webhook-manager.js";
 
 const log = getLogger("telegram-reconcile");
 
@@ -9,12 +14,15 @@ const log = getLogger("telegram-reconcile");
  * Internal endpoint that triggers Telegram webhook reconciliation.
  * Called by the assistant daemon after an ingress URL change so that
  * the webhook re-registers immediately without a gateway restart.
+ *
+ * No longer mutates in-memory config — caches are the source of truth.
+ * Invalidates the config file cache so the reconciler reads fresh values.
  */
-export function createTelegramReconcileHandler(config: GatewayConfig) {
+export function createTelegramReconcileHandler(
+  config: GatewayConfig,
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
+) {
   // Serialize reconcile operations so that concurrent requests don't race.
-  // Without this, overlapping calls could each mutate config.ingressPublicBaseUrl
-  // and then call reconcileTelegramWebhook independently, leaving Telegram
-  // pointed at a stale URL from an earlier request.
   let reconcileChain: Promise<void> = Promise.resolve();
 
   return async (req: Request): Promise<Response> => {
@@ -33,36 +41,36 @@ export function createTelegramReconcileHandler(config: GatewayConfig) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let body: { ingressPublicBaseUrl?: string } = {};
+    // Accept (and ignore) the body — the daemon may still send
+    // `{ ingressPublicBaseUrl }` for backward compatibility, but the
+    // reconciler now reads the ingress URL from the config file cache.
     try {
       const text = await req.text();
       if (text) {
-        body = JSON.parse(text) as typeof body;
+        JSON.parse(text); // validate JSON format
       }
     } catch {
       return Response.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    // Chain this reconcile after any in-flight one so config mutation +
-    // webhook registration are atomic with respect to other requests.
+    // Chain this reconcile after any in-flight one
     const result = new Promise<Response>((resolve) => {
       reconcileChain = reconcileChain
         .then(async () => {
-          // If a new ingress URL is provided, update the in-memory config so that
-          // reconcile uses the latest value without requiring a gateway restart.
-          if (typeof body.ingressPublicBaseUrl === "string") {
-            const normalized = body.ingressPublicBaseUrl
-              .trim()
-              .replace(/\/+$/, "");
-            config.ingressPublicBaseUrl = normalized || undefined;
-            log.info(
-              { ingressPublicBaseUrl: config.ingressPublicBaseUrl },
-              "Updated in-memory ingress URL",
-            );
+          // Force-refresh caches so the reconciler uses the latest values
+          if (caches?.configFile) {
+            caches.configFile.refreshNow();
           }
 
+          const webhookCaches: WebhookManagerCaches | undefined = caches
+            ? {
+                credentials: caches.credentials,
+                configFile: caches.configFile,
+              }
+            : undefined;
+
           try {
-            await reconcileTelegramWebhook(config);
+            await reconcileTelegramWebhook(config, webhookCaches);
             log.info("Telegram webhook reconciled via internal endpoint");
             resolve(Response.json({ ok: true }));
           } catch (err) {

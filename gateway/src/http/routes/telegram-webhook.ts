@@ -69,14 +69,10 @@ export function createTelegramWebhookHandler(
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
-    // Verify webhook secret — prefer cache, fall back to config
-    let webhookSecret: string | undefined;
-    if (caches?.credentials) {
-      webhookSecret = await caches.credentials.get(
-        "credential:telegram:webhook_secret",
-      );
-    }
-    webhookSecret ??= config.telegramWebhookSecret;
+    // Verify webhook secret from cache
+    const webhookSecret = caches?.credentials
+      ? await caches.credentials.get("credential:telegram:webhook_secret")
+      : undefined;
 
     let secretVerified =
       !!webhookSecret && verifyWebhookSecret(req.headers, webhookSecret);

@@ -52,9 +52,16 @@ export function createWhatsAppWebhookHandler(
       const token = url.searchParams.get("hub.verify_token");
       const challenge = url.searchParams.get("hub.challenge");
 
-      if (mode === "subscribe" && token && config.whatsappWebhookVerifyToken) {
+      // Resolve the verify token from cache
+      const verifyToken = caches?.credentials
+        ? await caches.credentials.get(
+            "credential:whatsapp:webhook_verify_token",
+          )
+        : undefined;
+
+      if (mode === "subscribe" && token && verifyToken) {
         const a = Buffer.from(token);
-        const b = Buffer.from(config.whatsappWebhookVerifyToken);
+        const b = Buffer.from(verifyToken);
         const match = a.length === b.length && timingSafeEqual(a, b);
         if (match) {
           tlog.info("WhatsApp webhook verify token validated");
@@ -96,14 +103,10 @@ export function createWhatsAppWebhookHandler(
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
-    // Resolve app secret — prefer cache, fall back to config
-    let appSecret: string | undefined;
-    if (caches?.credentials) {
-      appSecret = await caches.credentials.get(
-        "credential:whatsapp:app_secret",
-      );
-    }
-    appSecret ??= config.whatsappAppSecret;
+    // Resolve app secret from cache
+    const appSecret = caches?.credentials
+      ? await caches.credentials.get("credential:whatsapp:app_secret")
+      : undefined;
 
     // Signature validation is required — reject requests when the app secret is not configured
     // rather than silently accepting unauthenticated payloads (fail-closed).
@@ -299,6 +302,7 @@ export function createWhatsAppWebhookHandler(
                     fileName: att.fileName,
                     mimeType: att.mimeType,
                   },
+                  caches,
                 );
                 return uploadAttachment(config, downloaded);
               }),

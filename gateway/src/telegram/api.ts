@@ -176,7 +176,6 @@ export async function callTelegramApi<T>(
   if (opts?.credentials) {
     botToken = await opts.credentials.get("credential:telegram:bot_token");
   }
-  botToken ??= config.telegramBotToken;
 
   return retryableFetch<T>(config, method, () =>
     fetchImpl(`${config.telegramApiBaseUrl}/bot${botToken}/${method}`, {
@@ -198,7 +197,6 @@ export async function callTelegramApiMultipart<T>(
   if (opts?.credentials) {
     botToken = await opts.credentials.get("credential:telegram:bot_token");
   }
-  botToken ??= config.telegramBotToken;
 
   return retryableFetch<T>(config, method, () =>
     fetchImpl(`${config.telegramApiBaseUrl}/bot${botToken}/${method}`, {
