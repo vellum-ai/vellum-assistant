@@ -7,7 +7,7 @@
  */
 
 import { execSync } from "child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
 
@@ -100,6 +100,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   ensureVellumInPath(appDisplayName);
   publishBaseDataDir(baseDataDir);
   await ensureAssistantHatched();
+  publishLockfileToHome();
   skipAssistantOnboarding();
   ensureApiKeyInDefaults();
 
@@ -108,6 +109,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
       retireAssistant();
       quitApp(appDisplayName);
       unpublishBaseDataDir();
+      unpublishLockfileFromHome();
       collectHatchLogs();
       cleanupTestDataDir(baseDataDir);
     },
@@ -147,6 +149,36 @@ function unpublishBaseDataDir(): void {
     execSync(`defaults delete ${domain} BASE_DATA_DIR`, { timeout: 5_000 });
   } catch {
     // Key may not exist
+  }
+}
+
+/**
+ * Copies the lockfile from the per-test BASE_DATA_DIR to the home
+ * directory as a safety net. Even if the app fails to read
+ * UserDefaults for BASE_DATA_DIR, it will still discover the
+ * lockfile at the default home-dir location.
+ */
+function publishLockfileToHome(): void {
+  const src = path.join(getBaseDir(), ".vellum.lock.json");
+  const dst = path.join(os.homedir(), ".vellum.lock.json");
+  if (src === dst) return;
+  if (!existsSync(src)) return;
+  try {
+    copyFileSync(src, dst);
+  } catch {
+    // Best-effort
+  }
+}
+
+/** Removes the home-dir lockfile copy created by publishLockfileToHome. */
+function unpublishLockfileFromHome(): void {
+  const src = path.join(getBaseDir(), ".vellum.lock.json");
+  const dst = path.join(os.homedir(), ".vellum.lock.json");
+  if (src === dst) return;
+  try {
+    rmSync(dst, { force: true });
+  } catch {
+    // May not exist
   }
 }
 
