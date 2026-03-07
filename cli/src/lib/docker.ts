@@ -97,6 +97,28 @@ function createLinePrefixer(
   };
 }
 
+export async function retireDocker(name: string): Promise<void> {
+  console.log(`\u{1F5D1}\ufe0f  Stopping Docker container '${name}'...\n`);
+
+  try {
+    await exec("docker", ["stop", name]);
+  } catch (error) {
+    console.warn(
+      `\u26a0\ufe0f  Failed to stop container: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+
+  try {
+    await exec("docker", ["rm", name]);
+  } catch (error) {
+    console.warn(
+      `\u26a0\ufe0f  Failed to remove container: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+
+  console.log(`\u2705 Docker instance retired.`);
+}
+
 export async function hatchDocker(
   species: Species,
   detached: boolean,
