@@ -466,7 +466,7 @@ Features/
   Chat/               Chat interface (ChatView, ChatViewModel, ChatMessage)
   CommandPalette/     Command palette (search, actions)
   Contacts/           Contact management
-  GuardianVerification/ Guardian verification flow
+  ChannelVerification/ Channel verification flow
   MainWindow/         Main window shell, ThreadTabBar, PanelCoordinator, side panels
   Onboarding/         First-launch setup flow (permissions, naming, Fn key)
   QuickInput/         Quick task input popover and screen selection

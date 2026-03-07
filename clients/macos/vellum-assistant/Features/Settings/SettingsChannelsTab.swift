@@ -37,18 +37,18 @@ struct SettingsChannelsTab: View {
     // Email copy state
     @State private var emailCopied: Bool = false
 
-    // Outbound guardian verification destination input (keyed by channel)
-    @State private var guardianDestinationText: [String: String] = [:]
+    // Outbound verification destination input (keyed by channel)
+    @State private var verificationDestinationText: [String: String] = [:]
 
     // Countdown timer for outbound verification expiry — only active when
     // at least one channel has an outbound verification session pending
     @State private var countdownNow: Date = Date()
     @State private var countdownTimer: Timer?
 
-    // Shared label column width for channelStatusRow and guardian verification alignment
+    // Shared label column width for channelStatusRow and channel verification alignment
     private let labelColumnWidth: CGFloat = 140
 
-    /// True when at least one channel has an active outbound guardian verification session
+    /// True when at least one channel has an active outbound verification session
     /// that needs the 1-second countdown timer for expiry/resend cooldown display.
     private var hasAnyOutboundSession: Bool {
         store.telegramOutboundSessionId != nil ||
@@ -64,9 +64,9 @@ struct SettingsChannelsTab: View {
         .onAppear {
             store.refreshAssistantEmail()
             store.refreshApprovedDevices()
-            store.refreshChannelGuardianStatus(channel: "telegram")
-            store.refreshChannelGuardianStatus(channel: "voice")
-            store.refreshChannelGuardianStatus(channel: "slack")
+            store.refreshChannelVerificationStatus(channel: "telegram")
+            store.refreshChannelVerificationStatus(channel: "voice")
+            store.refreshChannelVerificationStatus(channel: "slack")
             store.refreshTelegramApprovedMembers()
             store.refreshSlackApprovedMembers()
             store.fetchSlackChannelConfig()
@@ -76,7 +76,7 @@ struct SettingsChannelsTab: View {
             Task {
                 await loadSmsFeatureFlag()
                 if isSmsFeatureEnabled {
-                    store.refreshChannelGuardianStatus(channel: "sms")
+                    store.refreshChannelVerificationStatus(channel: "sms")
                 }
             }
             if hasAnyOutboundSession {
@@ -217,14 +217,14 @@ struct SettingsChannelsTab: View {
                     .foregroundColor(VColor.error)
             }
 
-            // Guardian row (only when credentials exist)
+            // Verification row (only when credentials exist)
             if store.telegramHasBotToken {
                 Divider().background(VColor.surfaceBorder)
-                guardianVerificationView(channel: "telegram")
+                channelVerificationView(channel: "telegram")
             }
 
-            // Approved users (only when bot token exists and guardian is verified)
-            if store.telegramHasBotToken && store.telegramGuardianVerified {
+            // Approved users (only when bot token exists and verification is complete)
+            if store.telegramHasBotToken && store.telegramVerificationVerified {
                 Divider().background(VColor.surfaceBorder)
                 telegramApprovedUsersSection
             }
@@ -369,10 +369,10 @@ struct SettingsChannelsTab: View {
                     .foregroundColor(VColor.error)
             }
 
-            // Guardian row (only when bot token and app token are configured)
+            // Verification row (only when bot token and app token are configured)
             if store.slackChannelHasBotToken && store.slackChannelHasAppToken {
                 Divider().background(VColor.surfaceBorder)
-                guardianVerificationView(channel: "slack")
+                channelVerificationView(channel: "slack")
 
                 Divider().background(VColor.surfaceBorder)
                 slackApprovedUsersSection
@@ -557,10 +557,10 @@ struct SettingsChannelsTab: View {
                     .foregroundColor(VColor.error)
             }
 
-            // Guardian row (only when credentials exist)
+            // Verification row (only when credentials exist)
             if store.twilioHasCredentials {
                 Divider().background(VColor.surfaceBorder)
-                guardianVerificationView(channel: "sms")
+                channelVerificationView(channel: "sms")
             }
         }
         .padding(VSpacing.lg)
@@ -632,11 +632,11 @@ struct SettingsChannelsTab: View {
                     .foregroundColor(VColor.error)
             }
 
-            // Guardian row (only when credentials and a phone number are assigned —
+            // Verification row (only when credentials and a phone number are assigned —
             // voice verification initiates an outbound call which requires a valid caller number)
             if store.twilioHasCredentials && store.twilioPhoneNumber != nil {
                 Divider().background(VColor.surfaceBorder)
-                guardianVerificationView(channel: "voice")
+                channelVerificationView(channel: "voice")
             }
         }
         .padding(VSpacing.lg)
@@ -801,23 +801,23 @@ struct SettingsChannelsTab: View {
         }
     }
 
-    // MARK: - Guardian Verification Row
+    // MARK: - Channel Verification Row
 
     @ViewBuilder
-    private func guardianVerificationView(channel: String) -> some View {
-        GuardianVerificationFlowView(
-            state: store.guardianChannelState(for: channel),
+    private func channelVerificationView(channel: String) -> some View {
+        ChannelVerificationFlowView(
+            state: store.channelVerificationState(for: channel),
             countdownNow: $countdownNow,
             destinationText: Binding<String>(
-                get: { guardianDestinationText[channel] ?? "" },
-                set: { guardianDestinationText[channel] = $0 }
+                get: { verificationDestinationText[channel] ?? "" },
+                set: { verificationDestinationText[channel] = $0 }
             ),
-            onStartOutbound: { dest in store.startOutboundGuardianVerification(channel: channel, destination: dest) },
-            onResend: { store.resendOutboundGuardian(channel: channel) },
-            onCancelOutbound: { store.cancelOutboundGuardian(channel: channel) },
-            onRevoke: { store.revokeChannelGuardian(channel: channel) },
-            onStartChallenge: { rebind in store.startChannelGuardianVerification(channel: channel, rebind: rebind) },
-            onCancelChallenge: { store.cancelGuardianChallenge(channel: channel) },
+            onStartOutbound: { dest in store.startOutboundVerification(channel: channel, destination: dest) },
+            onResend: { store.resendOutboundVerification(channel: channel) },
+            onCancelOutbound: { store.cancelOutboundVerification(channel: channel) },
+            onRevoke: { store.revokeChannelVerification(channel: channel) },
+            onStartChallenge: { rebind in store.startChannelVerification(channel: channel, rebind: rebind) },
+            onCancelChallenge: { store.cancelVerificationChallenge(channel: channel) },
             botUsername: store.telegramBotUsername,
             phoneNumber: store.twilioPhoneNumber,
             showLabel: true,
@@ -887,7 +887,7 @@ struct SettingsChannelsTab: View {
                 }
             }
 
-            // Device pairing row — mirrors Guardian Verification row layout
+            // Device pairing row — mirrors Channel Verification row layout
             mobilePairingRow
         }
         .padding(VSpacing.lg)

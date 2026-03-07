@@ -1,14 +1,14 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Reusable SwiftUI view that renders the full guardian verification flow for a single channel.
+/// Reusable SwiftUI view that renders the full channel verification flow for a single channel.
 /// Supports all 5 states: destination input, sending, outbound pending (code/countdown/resend),
 /// instruction pending (code/copy), and verified (identity/revoke).
 ///
 /// Decoupled from SettingsStore — accepts state + action closures so it can be reused
-/// in both the Channels preferences tab and the Contacts page guardian card.
-struct GuardianVerificationFlowView: View {
-    let state: GuardianChannelState
+/// in both the Channels preferences tab and the Contacts page verification card.
+struct ChannelVerificationFlowView: View {
+    let state: ChannelVerificationState
     @Binding var countdownNow: Date
     @Binding var destinationText: String
 
@@ -74,7 +74,7 @@ struct GuardianVerificationFlowView: View {
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 if showLabel {
-                    guardianLabel
+                    verificationLabel
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     if let telegramProfileURL {
@@ -119,7 +119,7 @@ struct GuardianVerificationFlowView: View {
     private var sendingView: some View {
         HStack(spacing: VSpacing.sm) {
             if showLabel {
-                guardianLabel
+                verificationLabel
             }
             ProgressView()
                 .controlSize(.small)
@@ -148,7 +148,7 @@ struct GuardianVerificationFlowView: View {
         return VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 if showLabel {
-                    guardianLabel
+                    verificationLabel
                 }
                 Spacer()
             }
@@ -276,15 +276,15 @@ struct GuardianVerificationFlowView: View {
 
     @ViewBuilder
     private func instructionView(instruction: String) -> some View {
-        // All channels now use code-only verification. extractGuardianCommand
+        // All channels now use code-only verification. extractVerificationCommand
         // handles both "six-digit code: 123456" and "the code: <hex>" formats.
-        let command: String? = extractGuardianCommand(from: instruction)
+        let command: String? = extractVerificationCommand(from: instruction)
         let leadingPadding: CGFloat = showLabel ? labelColumnWidth + VSpacing.sm : 0
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
                 if showLabel {
-                    guardianLabel
+                    verificationLabel
                 }
                 Text("Verification pending")
                     .font(VFont.body)
@@ -293,7 +293,7 @@ struct GuardianVerificationFlowView: View {
             }
 
             if let command {
-                Text(guardianInstructionSubtext(
+                Text(verificationInstructionSubtext(
                     channel: state.channel,
                     botUsername: botUsername,
                     phoneNumber: phoneNumber
@@ -371,11 +371,11 @@ struct GuardianVerificationFlowView: View {
 
     private var destinationInputView: some View {
         let destination = destinationText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let placeholder = guardianDestinationPlaceholder(for: state.channel)
+        let placeholder = verificationDestinationPlaceholder(for: state.channel)
 
         return VStack(alignment: .leading, spacing: VSpacing.md) {
             if showLabel {
-                guardianLabel
+                verificationLabel
             }
 
             TextField(placeholder, text: $destinationText)
@@ -436,9 +436,9 @@ struct GuardianVerificationFlowView: View {
         .padding(.leading, leadingPadding)
     }
 
-    // MARK: - Guardian Label
+    // MARK: - Verification Label
 
-    private var guardianLabel: some View {
+    private var verificationLabel: some View {
         HStack(spacing: VSpacing.xs) {
             Text("Guardian Verification")
             VInfoTooltip("Guardian verification links your account identity for this channel.")
@@ -452,12 +452,12 @@ struct GuardianVerificationFlowView: View {
 // MARK: - Preview
 
 #if DEBUG
-struct GuardianVerificationFlowView_Previews: PreviewProvider {
+struct ChannelVerificationFlowView_Previews: PreviewProvider {
     struct PreviewWrapper: View {
         @State private var countdownNow = Date()
         @State private var destinationText = ""
 
-        let state: GuardianChannelState
+        let state: ChannelVerificationState
         let title: String
 
         var body: some View {
@@ -465,7 +465,7 @@ struct GuardianVerificationFlowView_Previews: PreviewProvider {
                 Text(title)
                     .font(VFont.captionMedium)
                     .foregroundColor(VColor.textMuted)
-                GuardianVerificationFlowView(
+                ChannelVerificationFlowView(
                     state: state,
                     countdownNow: $countdownNow,
                     destinationText: $destinationText,
@@ -485,7 +485,7 @@ struct GuardianVerificationFlowView_Previews: PreviewProvider {
             VColor.background.ignoresSafeArea()
             VStack(alignment: .leading, spacing: VSpacing.xl) {
                 PreviewWrapper(
-                    state: GuardianChannelState(
+                    state: ChannelVerificationState(
                         channel: "telegram",
                         identity: "123456789",
                         username: "guardian_user",
@@ -506,7 +506,7 @@ struct GuardianVerificationFlowView_Previews: PreviewProvider {
                 )
 
                 PreviewWrapper(
-                    state: GuardianChannelState(
+                    state: ChannelVerificationState(
                         channel: "telegram",
                         identity: nil,
                         username: nil,
@@ -527,7 +527,7 @@ struct GuardianVerificationFlowView_Previews: PreviewProvider {
                 )
 
                 PreviewWrapper(
-                    state: GuardianChannelState(
+                    state: ChannelVerificationState(
                         channel: "telegram",
                         identity: nil,
                         username: nil,
@@ -548,7 +548,7 @@ struct GuardianVerificationFlowView_Previews: PreviewProvider {
                 )
 
                 PreviewWrapper(
-                    state: GuardianChannelState(
+                    state: ChannelVerificationState(
                         channel: "telegram",
                         identity: nil,
                         username: nil,
@@ -571,7 +571,7 @@ struct GuardianVerificationFlowView_Previews: PreviewProvider {
             .padding(VSpacing.xl)
         }
         .frame(width: 500, height: 800)
-        .previewDisplayName("GuardianVerificationFlowView")
+        .previewDisplayName("ChannelVerificationFlowView")
     }
 }
 #endif
