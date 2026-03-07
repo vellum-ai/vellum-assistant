@@ -1,3 +1,5 @@
+import type { CredentialCache } from "../credential-cache.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
 import { getLogger } from "../logger.js";
 import { verifyTwilioSignature } from "./verify.js";
@@ -155,17 +157,28 @@ export type TwilioValidationSuccess = {
   params: Record<string, string>;
 };
 
+/** Options bag for optional cache injection into Twilio webhook validation. */
+export type TwilioValidationCaches = {
+  credentials?: CredentialCache;
+  configFile?: ConfigFileCache;
+};
+
 /**
  * Validate an incoming Twilio webhook request:
  * - Enforces POST method
  * - Enforces payload size limits
  * - Validates X-Twilio-Signature via HMAC-SHA1
  *
+ * When caches are provided, reads the auth token and ingress URL from them.
+ * On signature failure, performs one forced refresh of the auth token and
+ * ingress URL, then retries validation once before rejecting.
+ *
  * Returns the parsed body on success, or a Response on failure.
  */
 export async function validateTwilioWebhookRequest(
   req: Request,
   config: GatewayConfig,
+  caches?: TwilioValidationCaches,
 ): Promise<TwilioValidationSuccess | Response> {
   if (req.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -173,19 +186,44 @@ export async function validateTwilioWebhookRequest(
 
   // Payload size guard (Content-Length header)
   const contentLength = req.headers.get("content-length");
-  const validationDiagnostics = buildValidationDiagnostics(req, config);
-  const { logContext: validationLogContext, signatureUrlCandidates } =
-    validationDiagnostics;
   if (contentLength && Number(contentLength) > config.maxWebhookPayloadBytes) {
-    log.warn(
-      { contentLength, ...validationLogContext },
-      "Twilio webhook payload too large",
-    );
+    log.warn({ contentLength }, "Twilio webhook payload too large");
     return Response.json({ error: "Payload too large" }, { status: 413 });
   }
 
+  // Resolve the auth token — prefer cache when available, fall back to config
+  let authToken: string | undefined;
+  if (caches?.credentials) {
+    authToken = await caches.credentials.get("credential:twilio:auth_token");
+  }
+  authToken ??= config.twilioAuthToken;
+
+  // Resolve ingress URL — prefer cache when available, fall back to config
+  let ingressUrl: string | undefined;
+  if (caches?.configFile) {
+    ingressUrl = caches.configFile.getString("ingress", "publicBaseUrl");
+  }
+  ingressUrl ??= config.ingressPublicBaseUrl;
+
+  // Build a transient config overlay for URL candidate generation so the
+  // diagnostics and candidate builder use the cache-resolved values.
+  const effectiveConfig: GatewayConfig = caches
+    ? {
+        ...config,
+        twilioAuthToken: authToken,
+        ingressPublicBaseUrl: ingressUrl,
+      }
+    : config;
+
+  const validationDiagnostics = buildValidationDiagnostics(
+    req,
+    effectiveConfig,
+  );
+  const { logContext: validationLogContext, signatureUrlCandidates } =
+    validationDiagnostics;
+
   // Fail-closed: reject if no auth token is configured
-  if (!config.twilioAuthToken) {
+  if (!authToken) {
     log.error(
       validationLogContext,
       "Twilio auth token not configured — rejecting webhook (fail-closed)",
@@ -226,13 +264,57 @@ export async function validateTwilioWebhookRequest(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const signatureCandidateUrls = signatureUrlCandidates.map((c) => c.url);
-  const validatingIndex = findValidatingCandidateIndex(
+  let signatureCandidateUrls = signatureUrlCandidates.map((c) => c.url);
+  let validatingIndex = findValidatingCandidateIndex(
     signatureCandidateUrls,
     params,
     signature,
-    config.twilioAuthToken!,
+    authToken,
   );
+
+  // One-shot force retry: if validation failed and caches are available,
+  // force-refresh the auth token and ingress URL then retry once.
+  if (validatingIndex === -1 && caches?.credentials) {
+    const freshAuthToken = await caches.credentials.get(
+      "credential:twilio:auth_token",
+      { force: true },
+    );
+    let freshIngressUrl: string | undefined;
+    if (caches.configFile) {
+      caches.configFile.refreshNow();
+      freshIngressUrl = caches.configFile.getString("ingress", "publicBaseUrl");
+    }
+
+    const retryAuthToken = freshAuthToken ?? config.twilioAuthToken;
+    const retryIngressUrl = freshIngressUrl ?? config.ingressPublicBaseUrl;
+
+    if (retryAuthToken) {
+      // Rebuild candidates with potentially updated ingress URL
+      const retryConfig: GatewayConfig = {
+        ...config,
+        twilioAuthToken: retryAuthToken,
+        ingressPublicBaseUrl: retryIngressUrl,
+      };
+      const retryDiagnostics = buildValidationDiagnostics(req, retryConfig);
+      const retryCandidateUrls = retryDiagnostics.signatureUrlCandidates.map(
+        (c) => c.url,
+      );
+      validatingIndex = findValidatingCandidateIndex(
+        retryCandidateUrls,
+        params,
+        signature,
+        retryAuthToken,
+      );
+
+      if (validatingIndex !== -1) {
+        log.info(
+          "Twilio webhook signature validated after forced credential refresh",
+        );
+        // Update references for the success log below
+        signatureCandidateUrls = retryCandidateUrls;
+      }
+    }
+  }
 
   if (validatingIndex === -1) {
     log.warn(
@@ -242,7 +324,10 @@ export async function validateTwilioWebhookRequest(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const validatingCandidate = signatureUrlCandidates[validatingIndex];
+  const validatingCandidate = signatureUrlCandidates[validatingIndex] ?? {
+    source: "configured_ingress" as const,
+    url: signatureCandidateUrls[validatingIndex],
+  };
   const successLogContext = {
     ...validationLogContext,
     validatedCandidateSource: validatingCandidate.source,
@@ -254,14 +339,14 @@ export async function validateTwilioWebhookRequest(
   // a likely drift between the configured ingress URL and the actual webhook
   // registration — the ingress URL should match what Twilio is signing against.
   if (
-    config.ingressPublicBaseUrl &&
+    effectiveConfig.ingressPublicBaseUrl &&
     validatingIndex === signatureCandidateUrls.length - 1 &&
     signatureCandidateUrls.length > 1
   ) {
     log.warn(
       {
         ...successLogContext,
-        ingressPublicBaseUrl: config.ingressPublicBaseUrl,
+        ingressPublicBaseUrl: effectiveConfig.ingressPublicBaseUrl,
       },
       "Twilio signature validated against raw request URL fallback — " +
         "INGRESS_PUBLIC_BASE_URL may be stale or mismatched with the actual webhook registration",

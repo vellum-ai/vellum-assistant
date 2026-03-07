@@ -1,5 +1,6 @@
 import { buildTelegramTransportMetadata } from "../../channels/transport-hints.js";
 import type { GatewayConfig } from "../../config.js";
+import type { CredentialCache } from "../../credential-cache.js";
 import { DedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
@@ -44,7 +45,10 @@ const rejectionLimiter = new RejectionRateLimiter();
 const START_COMMAND_ACK_TEXT =
   "Starting up... you'll get my first message in a moment.";
 
-export function createTelegramWebhookHandler(config: GatewayConfig) {
+export function createTelegramWebhookHandler(
+  config: GatewayConfig,
+  caches?: { credentials?: CredentialCache },
+) {
   const dedupCache = new DedupCache();
 
   const handler = async (req: Request): Promise<Response> => {
@@ -65,11 +69,36 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
-    // Verify webhook secret
-    if (
-      !config.telegramWebhookSecret ||
-      !verifyWebhookSecret(req.headers, config.telegramWebhookSecret)
-    ) {
+    // Verify webhook secret — prefer cache, fall back to config
+    let webhookSecret: string | undefined;
+    if (caches?.credentials) {
+      webhookSecret = await caches.credentials.get(
+        "credential:telegram:webhook_secret",
+      );
+    }
+    webhookSecret ??= config.telegramWebhookSecret;
+
+    let secretVerified =
+      !!webhookSecret && verifyWebhookSecret(req.headers, webhookSecret);
+
+    // One-shot force retry: if verification failed and caches are available,
+    // force-refresh the webhook secret and retry once.
+    if (!secretVerified && caches?.credentials) {
+      const freshSecret = await caches.credentials.get(
+        "credential:telegram:webhook_secret",
+        { force: true },
+      );
+      if (freshSecret) {
+        secretVerified = verifyWebhookSecret(req.headers, freshSecret);
+        if (secretVerified) {
+          tlog.info(
+            "Telegram webhook secret verified after forced credential refresh",
+          );
+        }
+      }
+    }
+
+    if (!secretVerified) {
       tlog.warn("Telegram webhook request failed secret verification");
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
