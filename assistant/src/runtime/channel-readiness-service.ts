@@ -1,3 +1,4 @@
+import { resolveTwilioPhoneNumber } from "../calls/twilio-config.js";
 import {
   getPhoneNumberSid,
   getTollFreeVerificationStatus,
@@ -5,7 +6,6 @@ import {
   hasTwilioCredentials,
 } from "../calls/twilio-rest.js";
 import { getChannelInvitePolicy } from "../channels/config.js";
-import { getTwilioPhoneNumberEnv } from "../config/env.js";
 import { loadRawConfig } from "../config/loader.js";
 import { getEmailService } from "../email/service.js";
 import { getSecureKey } from "../security/secure-keys.js";
@@ -22,31 +22,6 @@ import type {
 export const REMOTE_TTL_MS = 5 * 60 * 1000;
 
 // ── SMS Probe ───────────────────────────────────────────────────────────────
-
-// Keep Twilio phone-number resolution inside an already-authorized module so
-// the secure-key import boundary does not expand for shared config helpers.
-function resolveSmsPhoneNumber(): string {
-  return resolveTwilioPhoneNumber();
-}
-
-function resolveTwilioPhoneNumber(): string {
-  try {
-    const raw = loadRawConfig();
-    const smsConfig = (raw?.sms ?? {}) as Record<string, unknown>;
-    return (
-      getTwilioPhoneNumberEnv() ||
-      (smsConfig.phoneNumber as string) ||
-      getSecureKey("credential:twilio:phone_number") ||
-      ""
-    );
-  } catch {
-    return (
-      getTwilioPhoneNumberEnv() ||
-      getSecureKey("credential:twilio:phone_number") ||
-      ""
-    );
-  }
-}
 
 function hasIngressConfigured(): boolean {
   try {
@@ -76,7 +51,7 @@ const smsProbe: ChannelProbe = {
         : "Twilio Account SID and Auth Token are not configured",
     });
 
-    const resolvedNumber = resolveSmsPhoneNumber();
+    const resolvedNumber = resolveTwilioPhoneNumber();
     const hasPhone = !!resolvedNumber;
     results.push({
       name: "phone_number",
@@ -108,7 +83,7 @@ const smsProbe: ChannelProbe = {
       return [];
     }
 
-    const phoneNumber = resolveSmsPhoneNumber();
+    const phoneNumber = resolveTwilioPhoneNumber();
     if (!phoneNumber) return [];
 
     // Only toll-free numbers need verification checks
@@ -195,7 +170,7 @@ const voiceProbe: ChannelProbe = {
         : "Twilio Account SID and Auth Token are not configured",
     });
 
-    const resolvedNumber = resolveSmsPhoneNumber();
+    const resolvedNumber = resolveTwilioPhoneNumber();
     const hasPhone = !!resolvedNumber;
     results.push({
       name: "phone_number",

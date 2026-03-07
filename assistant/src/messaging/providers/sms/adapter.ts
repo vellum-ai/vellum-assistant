@@ -6,28 +6,25 @@
  * the gateway which owns the Twilio credentials and handles the Messages API.
  *
  * Twilio credentials (account_sid, auth_token) and a configured phone number
- * are required for connectivity. The phone number is resolved from the config
- * (sms.phoneNumber), env var (TWILIO_PHONE_NUMBER), or secure key fallback.
+ * are required for connectivity. The phone number is resolved via the
+ * centralized resolveTwilioPhoneNumber() fallback chain in twilio-config.ts.
  *
  * The `token` parameter in MessagingProvider methods is unused for SMS
  * because delivery is authenticated via the gateway's bearer token, not
  * a per-user OAuth token.
  */
 
+import { resolveTwilioPhoneNumber } from "../../../calls/twilio-config.js";
 import {
   getTwilioCredentials,
   hasTwilioCredentials,
 } from "../../../calls/twilio-rest.js";
-import {
-  getGatewayInternalBaseUrl,
-  getTwilioPhoneNumberEnv,
-} from "../../../config/env.js";
+import { getGatewayInternalBaseUrl } from "../../../config/env.js";
 import { loadConfig } from "../../../config/loader.js";
 import { getOrCreateConversation } from "../../../memory/conversation-key-store.js";
 import * as externalConversationStore from "../../../memory/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../../../runtime/auth/token-service.js";
-import { getSecureKey } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";
 import type {
   ConnectionInfo,
@@ -54,17 +51,7 @@ function getBearerToken(): string {
 
 /** Resolve the configured SMS phone number. */
 function getPhoneNumber(): string | undefined {
-  const fromEnv = getTwilioPhoneNumberEnv();
-  if (fromEnv) return fromEnv;
-
-  try {
-    const config = loadConfig();
-    if (config.sms?.phoneNumber) return config.sms.phoneNumber;
-  } catch {
-    // Config may not be available yet during early startup
-  }
-
-  return getSecureKey("credential:twilio:phone_number") || undefined;
+  return resolveTwilioPhoneNumber() || undefined;
 }
 
 export const smsMessagingProvider: MessagingProvider = {

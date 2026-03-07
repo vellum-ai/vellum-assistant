@@ -16,6 +16,7 @@
  * POST   /v1/integrations/twilio/sms/doctor                          — run SMS diagnostics
  */
 
+import { resolveTwilioPhoneNumber } from "../../calls/twilio-config.js";
 import {
   deleteTollFreeVerification,
   fetchMessageStatus,
@@ -885,12 +886,7 @@ export async function handleSmsSendTest(req: Request): Promise<Response> {
     );
   }
 
-  const raw = loadRawConfig();
-  const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
-  const from =
-    (smsSection.phoneNumber as string | undefined) ||
-    getSecureKey("credential:twilio:phone_number") ||
-    "";
+  const from = resolveTwilioPhoneNumber();
   if (!from) {
     return Response.json({
       success: false,
@@ -1008,12 +1004,7 @@ export async function handleSmsDoctor(): Promise<Response> {
   let complianceRemediation: string | undefined;
   if (hasCredentials) {
     try {
-      const raw = loadRawConfig();
-      const smsSection = (raw?.sms ?? {}) as Record<string, unknown>;
-      const phoneNumber =
-        (smsSection.phoneNumber as string | undefined) ||
-        getSecureKey("credential:twilio:phone_number") ||
-        "";
+      const phoneNumber = resolveTwilioPhoneNumber();
       if (phoneNumber) {
         const { accountSid, authToken } = getTwilioCredentials();
         const isTollFree =
