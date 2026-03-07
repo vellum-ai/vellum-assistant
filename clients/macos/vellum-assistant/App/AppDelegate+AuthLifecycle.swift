@@ -157,9 +157,17 @@ extension AppDelegate {
 
     // MARK: - Local Assistant API Key Provisioning
 
-    /// Ensures the current local assistant has a provisioned AssistantAPIKey.
-    /// Safe to call at any time — exits early if the assistant is managed/remote,
-    /// the user isn't authenticated, or a key already exists.
+    /// Ensures the current local assistant has a provisioned AssistantAPIKey
+    /// and that the key is injected into the daemon's secret store.
+    ///
+    /// Safe to call at any time — exits early if the assistant is managed/remote
+    /// or the user isn't authenticated. Always calls through to
+    /// `LocalAssistantBootstrapService.bootstrap()` so existing-key re-injection
+    /// and stale-key reprovisioning are handled (not just Keychain presence).
+    ///
+    /// Waits up to 60s for the actor token to become available, retrying every
+    /// 5s, so that assistant switches (which clear then re-bootstrap actor
+    /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
         guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else { return }
         guard authManager.isAuthenticated else { return }
@@ -168,32 +176,34 @@ extension AppDelegate {
         guard let assistantId = storedId,
               let assistant = LockfileAssistant.loadByName(assistantId) else { return }
 
-        // Already provisioned — skip
-        let credentialStorage = KeychainCredentialStorage()
-        let credentialAccount = "vellum_assistant_credential_\(assistant.assistantId)"
-        if let existing = credentialStorage.get(account: credentialAccount), !existing.isEmpty {
-            log.info("Local assistant \(assistant.assistantId, privacy: .public) already has an API key")
-            return
-        }
-
         // Resolve daemon HTTP endpoint
         let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
         let daemonPort = Int(portString) ?? 7821
         let daemonBaseURL = "http://localhost:\(daemonPort)"
 
         Task {
-            // Wait for actor token — may not be available immediately on launch
+            // Wait for actor token with retries — initial bootstrap may take
+            // longer than a single waitForToken timeout when the daemon is
+            // still coming up or credentials are being rotated after a switch.
             let daemonToken: String
             if let token = ActorTokenManager.getToken(), !token.isEmpty {
                 daemonToken = token
-            } else if let token = await ActorTokenManager.waitForToken(timeout: 10) {
-                daemonToken = token
             } else {
-                log.warning("No actor token available for local API key provisioning")
-                return
+                var token: String?
+                for attempt in 1...6 {
+                    token = await ActorTokenManager.waitForToken(timeout: 10)
+                    if token != nil { break }
+                    log.info("Actor token not yet available (attempt \(attempt)/6), retrying...")
+                }
+                guard let resolved = token else {
+                    log.warning("No actor token available for local API key provisioning after 60s")
+                    return
+                }
+                daemonToken = resolved
             }
 
             do {
+                let credentialStorage = KeychainCredentialStorage()
                 let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
                 let outcome = try await bootstrapService.bootstrap(
                     runtimeAssistantId: assistant.assistantId,
@@ -202,7 +212,9 @@ extension AppDelegate {
                     daemonToken: daemonToken
                 )
                 switch outcome {
-                case .registeredWithExistingKey(let id), .registeredAndProvisioned(let id):
+                case .registeredWithExistingKey(let id):
+                    log.info("Local assistant API key re-synced to daemon: \(id, privacy: .public)")
+                case .registeredAndProvisioned(let id):
                     log.info("Local assistant API key provisioned: \(id, privacy: .public)")
                 }
             } catch {
