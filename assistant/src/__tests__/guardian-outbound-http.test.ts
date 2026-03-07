@@ -129,17 +129,17 @@ globalThis.fetch = (async (
 // ---------------------------------------------------------------------------
 
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { updateSessionDelivery } from "../runtime/channel-guardian-service.js";
-import {
-  cancelOutbound,
-  resendOutbound,
-  startOutbound,
-} from "../runtime/guardian-outbound-actions.js";
+import { updateSessionDelivery } from "../runtime/channel-verification-service.js";
 import {
   handleCancelGuardianSession,
   handleCreateGuardianSession,
   handleResendGuardianSession,
 } from "../runtime/routes/integration-routes.js";
+import {
+  cancelOutbound,
+  resendOutbound,
+  startOutbound,
+} from "../runtime/verification-outbound-actions.js";
 
 // Initialize the database (creates all tables)
 initializeDb();

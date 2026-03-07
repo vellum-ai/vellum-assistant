@@ -199,7 +199,7 @@ import {
   resolveCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import {
-  createChallenge,
+  createInboundSession,
   createVerificationSession,
 } from "../memory/channel-guardian-store.js";
 import { addMessage, getMessages } from "../memory/conversation-store.js";
@@ -209,7 +209,7 @@ import { conversations } from "../memory/schema.js";
 import {
   createOutboundSession,
   getGuardianBinding,
-} from "../runtime/channel-guardian-service.js";
+} from "../runtime/channel-verification-service.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 
 initializeDb();
@@ -317,7 +317,7 @@ function createVoiceVerificationSession(
 function createPendingVoiceGuardianChallenge(
   secret: string = "123456",
 ): string {
-  createChallenge({
+  createInboundSession({
     id: randomUUID(),
     channel: "voice",
     challengeHash: createHash("sha256").update(secret).digest("hex"),
@@ -3876,8 +3876,8 @@ describe("relay-server", () => {
     });
 
     // Create a trusted-contact verification challenge with status 'pending'
-    // so getPendingChallenge finds it during inbound setup, and
-    // verificationPurpose 'trusted_contact' so validateAndConsumeChallenge
+    // so getPendingSession finds it during inbound setup, and
+    // verificationPurpose 'trusted_contact' so validateAndConsumeVerification
     // returns the correct verificationType.
     const tcSecret = "654321";
     createVerificationSession({

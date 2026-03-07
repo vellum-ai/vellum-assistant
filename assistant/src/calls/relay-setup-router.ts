@@ -13,7 +13,7 @@ import {
   resolveActorTrust,
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getPendingChallenge } from "../runtime/channel-guardian-service.js";
+import { getPendingSession } from "../runtime/channel-verification-service.js";
 import { getLogger } from "../util/logger.js";
 import type { CallSession } from "./types.js";
 
@@ -164,7 +164,7 @@ export function routeSetup(ctx: SetupContext): {
   }
 
   // ── Inbound call ACL evaluation ─────────────────────────────────
-  const pendingChallenge = getPendingChallenge("voice");
+  const pendingChallenge = getPendingSession("voice");
 
   if (actorTrust.trustClass === "unknown" && !pendingChallenge) {
     // Check for blocked caller

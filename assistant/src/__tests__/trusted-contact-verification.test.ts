@@ -53,8 +53,8 @@ import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import {
   createOutboundSession,
-  validateAndConsumeChallenge,
-} from "../runtime/channel-guardian-service.js";
+  validateAndConsumeVerification,
+} from "../runtime/channel-verification-service.js";
 
 initializeDb();
 
@@ -100,7 +100,7 @@ describe("trusted contact verification → member activation", () => {
     });
 
     // Requester enters the 6-digit code
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       session.secret,
       "requester-user-123",
@@ -243,7 +243,7 @@ describe("trusted contact verification → member activation", () => {
       verificationPurpose: "trusted_contact",
     });
 
-    validateAndConsumeChallenge(
+    validateAndConsumeVerification(
       "telegram",
       session.secret,
       "requester-user-456",
@@ -282,7 +282,7 @@ describe("trusted contact verification → member activation", () => {
       verificationPurpose: "trusted_contact",
     });
 
-    validateAndConsumeChallenge(
+    validateAndConsumeVerification(
       "telegram",
       session.secret,
       "user-cross-test",
@@ -348,7 +348,7 @@ describe("trusted contact verification → member activation", () => {
     });
 
     // Requester enters the new code
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       session.secret,
       "user-revoked",
@@ -399,7 +399,7 @@ describe("trusted contact verification → member activation", () => {
       verificationPurpose: "trusted_contact",
     });
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       session.secret,
       "requester-user-789",
@@ -425,10 +425,10 @@ describe("trusted contact verification → member activation", () => {
     // Create an inbound challenge (no expected identity — guardian flow)
 
     const { createVerificationChallenge } =
-      await import("../runtime/channel-guardian-service.js");
+      await import("../runtime/channel-verification-service.js");
     const { secret } = createVerificationChallenge("telegram");
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret,
       "guardian-user",

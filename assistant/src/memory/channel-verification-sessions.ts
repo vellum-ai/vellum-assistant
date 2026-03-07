@@ -1,9 +1,9 @@
 /**
- * Guardian verification challenge and session management.
+ * Channel verification session management.
  *
- * Verification challenges track the cryptographic handshake used to prove
- * guardian identity. Sessions extend challenges with outbound identity-bound
- * delivery tracking.
+ * Verification sessions track the cryptographic handshake used to prove
+ * identity. Inbound sessions handle challenge-response verification;
+ * outbound sessions extend with identity-bound delivery tracking.
  */
 
 import { and, count, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
@@ -15,7 +15,7 @@ import { channelVerificationSessions } from "./schema.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export type ChallengeStatus = "pending" | "consumed" | "expired" | "revoked";
+export type InboundSessionStatus = "pending" | "consumed" | "expired" | "revoked";
 export type SessionStatus =
   | "pending"
   | "consumed"
@@ -28,7 +28,7 @@ export type SessionStatus =
 export type IdentityBindingStatus = "pending_bootstrap" | "bound";
 export type VerificationPurpose = "guardian" | "trusted_contact";
 
-export interface VerificationChallenge {
+export interface VerificationSession {
   id: string;
   channel: string;
   challengeHash: string;
@@ -62,9 +62,9 @@ export interface VerificationChallenge {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function rowToChallenge(
+function rowToSession(
   row: typeof channelVerificationSessions.$inferSelect,
-): VerificationChallenge {
+): VerificationSession {
   return {
     id: row.id,
     channel: row.channel,
@@ -94,21 +94,21 @@ function rowToChallenge(
 }
 
 // ---------------------------------------------------------------------------
-// Verification Challenges
+// Inbound Verification Sessions
 // ---------------------------------------------------------------------------
 
-export function createChallenge(params: {
+export function createInboundSession(params: {
   id: string;
   channel: string;
   challengeHash: string;
   expiresAt: number;
   createdBySessionId?: string;
-}): VerificationChallenge {
+}): VerificationSession {
   const db = getDb();
   const now = Date.now();
 
-  // Revoke any prior pending challenges for the same channel
-  // to close the replay window — only the latest challenge should be valid.
+  // Revoke any prior pending sessions for the same channel
+  // to close the replay window — only the latest session should be valid.
   db.update(channelVerificationSessions)
     .set({ status: "revoked", updatedAt: now })
     .where(
@@ -146,10 +146,10 @@ export function createChallenge(params: {
 
   db.insert(channelVerificationSessions).values(row).run();
 
-  return rowToChallenge(row);
+  return rowToSession(row);
 }
 
-export function revokePendingChallenges(channel: string): void {
+export function revokePendingSessions(channel: string): void {
   const db = getDb();
   db.update(channelVerificationSessions)
     .set({ status: "revoked", updatedAt: Date.now() })
@@ -162,10 +162,10 @@ export function revokePendingChallenges(channel: string): void {
     .run();
 }
 
-export function findPendingChallengeByHash(
+export function findPendingSessionByHash(
   channel: string,
   challengeHash: string,
-): VerificationChallenge | null {
+): VerificationSession | null {
   const db = getDb();
   const now = Date.now();
 
@@ -187,20 +187,20 @@ export function findPendingChallengeByHash(
     )
     .get();
 
-  return row ? rowToChallenge(row) : null;
+  return row ? rowToSession(row) : null;
 }
 
 /**
- * Find any pending inbound (non-expired) challenge for a given channel.
+ * Find any pending inbound (non-expired) session for a given channel.
  * Scoped to 'pending' status only — this is the inbound verification path used by
  * the relay-server to gate incoming voice calls. Outbound session states
  * (pending_bootstrap, awaiting_response) are excluded so that an active outbound
  * verification does not inadvertently force unrelated inbound callers into the
- * guardian verification flow.
+ * verification flow.
  */
-export function findPendingChallengeForChannel(
+export function findPendingSessionForChannel(
   channel: string,
-): VerificationChallenge | null {
+): VerificationSession | null {
   const db = getDb();
   const now = Date.now();
 
@@ -216,10 +216,10 @@ export function findPendingChallengeForChannel(
     )
     .get();
 
-  return row ? rowToChallenge(row) : null;
+  return row ? rowToSession(row) : null;
 }
 
-export function consumeChallenge(
+export function consumeSession(
   id: string,
   consumedByExternalUserId: string,
   consumedByChatId: string,
@@ -263,7 +263,7 @@ export function createVerificationSession(params: {
   maxAttempts?: number;
   verificationPurpose?: VerificationPurpose;
   bootstrapTokenHash?: string | null;
-}): VerificationChallenge {
+}): VerificationSession {
   const db = getDb();
   const now = Date.now();
 
@@ -309,7 +309,7 @@ export function createVerificationSession(params: {
 
   db.insert(channelVerificationSessions).values(row).run();
 
-  return rowToChallenge(row);
+  return rowToSession(row);
 }
 
 /**
@@ -318,7 +318,7 @@ export function createVerificationSession(params: {
  */
 export function findActiveSession(
   channel: string,
-): VerificationChallenge | null {
+): VerificationSession | null {
   const db = getDb();
   const now = Date.now();
 
@@ -338,7 +338,7 @@ export function findActiveSession(
     .orderBy(desc(channelVerificationSessions.createdAt))
     .get();
 
-  return row ? rowToChallenge(row) : null;
+  return row ? rowToSession(row) : null;
 }
 
 /**
@@ -348,7 +348,7 @@ export function findActiveSession(
 export function findSessionByBootstrapTokenHash(
   channel: string,
   tokenHash: string,
-): VerificationChallenge | null {
+): VerificationSession | null {
   const db = getDb();
   const now = Date.now();
 
@@ -365,7 +365,7 @@ export function findSessionByBootstrapTokenHash(
     )
     .get();
 
-  return row ? rowToChallenge(row) : null;
+  return row ? rowToSession(row) : null;
 }
 
 /**
@@ -377,7 +377,7 @@ export function findSessionByIdentity(
   externalUserId?: string,
   chatId?: string,
   phoneE164?: string,
-): VerificationChallenge | null {
+): VerificationSession | null {
   // Require at least one identity parameter to avoid accidentally matching
   // an unrelated session when the caller has no parsed identity fields.
   if (!externalUserId && !chatId && !phoneE164) {
@@ -425,7 +425,7 @@ export function findSessionByIdentity(
     .orderBy(desc(channelVerificationSessions.createdAt))
     .get();
 
-  return row ? rowToChallenge(row) : null;
+  return row ? rowToSession(row) : null;
 }
 
 /**

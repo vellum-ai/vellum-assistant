@@ -79,7 +79,7 @@ mock.module("../runtime/gateway-client.js", () => ({
 
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { findActiveSession } from "../runtime/channel-guardian-service.js";
+import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
@@ -293,10 +293,10 @@ describe("Slack inbound trusted contact verification", () => {
     // sessions, extract it from the session's challengeHash by consuming
     // the challenge directly.
     // The session was created with createOutboundSession which generates
-    // a 6-digit code. We can validate by calling validateAndConsumeChallenge
+    // a 6-digit code. We can validate by calling validateAndConsumeVerification
     // with the correct secret. Since the mock captures the DM text, we
     // can extract the code indirectly. But for testing, we just verify
-    // the session properties and that validateAndConsumeChallenge works
+    // the session properties and that validateAndConsumeVerification works
     // with the correct identity.
 
     // The actual secret was sent in the DM. For this test, let's use the
@@ -313,7 +313,7 @@ describe("Slack inbound trusted contact verification", () => {
 
     // Create a verification session manually to test the consume path
     const { createOutboundSession } =
-      await import("../runtime/channel-guardian-service.js");
+      await import("../runtime/channel-verification-service.js");
 
     const outboundSession = createOutboundSession({
       channel: "slack",

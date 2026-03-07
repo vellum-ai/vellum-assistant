@@ -20,7 +20,7 @@ import { queueGenerateConversationTitle } from "../memory/conversation-title-ser
 import { upsertBinding } from "../memory/external-conversation-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { isGuardian } from "../runtime/channel-guardian-service.js";
+import { isGuardian } from "../runtime/channel-verification-service.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { upsertActiveCallLease } from "./active-call-lease.js";

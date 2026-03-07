@@ -1,6 +1,6 @@
 import { startCall } from "../../calls/call-domain.js";
 import { getConfig } from "../../config/loader.js";
-import { findActiveSession } from "../../runtime/channel-guardian-service.js";
+import { findActiveSession } from "../../runtime/channel-verification-service.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 

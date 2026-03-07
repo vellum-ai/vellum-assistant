@@ -331,16 +331,16 @@ Guardian verification and ingress contact management are complementary but indep
 
 ### Key Modules
 
-| File                                            | Purpose                                                                                                               |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `src/runtime/channel-guardian-service.ts`       | Challenge lifecycle: `createVerificationChallenge`, `validateAndConsumeChallenge`, `getGuardianBinding`, `isGuardian` |
-| `src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel                                               |
-| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation                                             |
-| `src/contacts/contact-store.ts`                 | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                |
-| `src/memory/invite-store.ts`                    | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                   |
-| `src/memory/channel-guardian-store.ts`          | Persistence for guardian bindings, verification challenges, and approval requests                                     |
-| `src/runtime/guardian-outbound-actions.ts`      | Shared business logic for outbound verification (start/resend/cancel)                                                 |
-| `src/runtime/routes/integration-routes.ts`      | HTTP route handlers for outbound guardian verification endpoints                                                      |
+| File                                            | Purpose                                                                                                                     |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/channel-verification-service.ts`   | Verification lifecycle: `createVerificationChallenge`, `validateAndConsumeVerification`, `getGuardianBinding`, `isGuardian` |
+| `src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel                                                     |
+| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation                                                   |
+| `src/contacts/contact-store.ts`                 | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                      |
+| `src/memory/invite-store.ts`                    | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                         |
+| `src/memory/channel-guardian-store.ts`          | Persistence for guardian bindings, verification challenges, and approval requests                                           |
+| `src/runtime/verification-outbound-actions.ts`  | Shared business logic for outbound verification (start/resend/cancel)                                                       |
+| `src/runtime/routes/integration-routes.ts`      | HTTP route handlers for outbound guardian verification endpoints                                                            |
 
 ### Chat-Initiated Guardian Verification
 
@@ -360,7 +360,7 @@ Guardian verification can also be initiated through normal desktop chat. When th
 | `/v1/integrations/guardian/sessions`        | DELETE | Cancel all active sessions (inbound + outbound) for a channel. Body: `{ channel }`                                                                                        |
 | `/v1/integrations/guardian/revoke`          | POST   | Cancel all active sessions and revoke the guardian binding. Body: `{ channel? }`                                                                                          |
 
-These endpoints share the same business logic as the IPC-based verification flow via `guardian-outbound-actions.ts`. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly.
+These endpoints share the same business logic as the IPC-based verification flow via `verification-outbound-actions.ts`. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly.
 
 **Security constraint:** Guardian verification control-plane endpoints are restricted to guardian and desktop (trusted) actors only. Non-guardian and unverified-channel actors cannot invoke these endpoints conversationally via tools. Attempts are denied with a message explaining that guardian verification actions are restricted to guardian users.
 

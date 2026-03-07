@@ -95,7 +95,7 @@ import {
 } from "../contacts/contacts-write.js";
 import { createApprovalRequest } from "../memory/channel-guardian-store.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { createOutboundSession } from "../runtime/channel-guardian-service.js";
+import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
@@ -487,7 +487,7 @@ describe("trusted contact activated notification signal", () => {
   test("guardian verification does NOT emit activated signal", async () => {
     // Create an inbound challenge (guardian flow, not trusted contact)
     const { createVerificationChallenge } =
-      await import("../runtime/channel-guardian-service.js");
+      await import("../runtime/channel-verification-service.js");
     const { secret } = createVerificationChallenge("telegram");
 
     // "Guardian" enters the verification code

@@ -54,7 +54,7 @@ import { initializeDb } from "../memory/db-init.js";
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../runtime/guardian-verification-templates.js";
+} from "../runtime/verification-templates.js";
 
 // ---------------------------------------------------------------------------
 // DB initialization
@@ -235,13 +235,13 @@ describe("Verification control messages are deterministic (guard)", () => {
     const { createHash } = await import("node:crypto");
     const { handleChannelInbound } =
       await import("../runtime/routes/inbound-message-handler.js");
-    const { createChallenge } =
+    const { createInboundSession } =
       await import("../memory/channel-guardian-store.js");
 
     // Set up a pending challenge
     const secret = "123456";
     const challengeHash = createHash("sha256").update(secret).digest("hex");
-    createChallenge({
+    createInboundSession({
       id: "challenge-guard-test",
       channel: "telegram",
       challengeHash,
@@ -319,7 +319,7 @@ describe("Verification control messages are deterministic (guard)", () => {
     const { handleChannelInbound } =
       await import("../runtime/routes/inbound-message-handler.js");
     const { createOutboundSession } =
-      await import("../runtime/channel-guardian-service.js");
+      await import("../runtime/channel-verification-service.js");
 
     // Generate a bootstrap token and create a pending_bootstrap session
     const bootstrapToken = randomBytes(16).toString("hex");
