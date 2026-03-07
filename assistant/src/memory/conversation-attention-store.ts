@@ -9,6 +9,7 @@
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { UserError } from "../util/errors.js";
 import { getDb } from "./db.js";
 import {
   conversationAssistantAttentionState,
@@ -301,6 +302,149 @@ export function recordConversationSeenSignal(params: {
   });
 
   return rowToEvent(event as typeof conversationAttentionEvents.$inferSelect);
+}
+
+// ── markConversationUnread ───────────────────────────────────────────
+
+function resolveAssistantCursor(params: {
+  db: Pick<ReturnType<typeof getDb>, "select">;
+  conversationId: string;
+  latestAssistantMessageId?: string | null;
+  latestAssistantMessageAt?: number | null;
+}): {
+  latestAssistantMessageId: string;
+  latestAssistantMessageAt: number;
+  previousAssistantMessageId: string | null;
+  previousAssistantMessageAt: number | null;
+} | null {
+  const {
+    db,
+    conversationId,
+    latestAssistantMessageId,
+    latestAssistantMessageAt,
+  } = params;
+
+  if (latestAssistantMessageId && latestAssistantMessageAt != null) {
+    const previousMessage = db
+      .select({ id: messages.id, createdAt: messages.createdAt })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.role, "assistant"),
+          lt(messages.createdAt, latestAssistantMessageAt),
+        ),
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(1)
+      .get();
+
+    return {
+      latestAssistantMessageId,
+      latestAssistantMessageAt,
+      previousAssistantMessageId: previousMessage?.id ?? null,
+      previousAssistantMessageAt: previousMessage?.createdAt ?? null,
+    };
+  }
+
+  const assistantMessages = db
+    .select({ id: messages.id, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.role, "assistant"),
+      ),
+    )
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(2)
+    .all();
+
+  if (assistantMessages.length === 0) {
+    return null;
+  }
+
+  const [latestMessage, previousMessage] = assistantMessages;
+  return {
+    latestAssistantMessageId: latestMessage.id,
+    latestAssistantMessageAt: latestMessage.createdAt,
+    previousAssistantMessageId: previousMessage?.id ?? null,
+    previousAssistantMessageAt: previousMessage?.createdAt ?? null,
+  };
+}
+
+/**
+ * Rewind the seen cursor so the current latest assistant reply becomes unread.
+ * This uses the existing attention projection instead of adding a separate
+ * manual-unread state machine.
+ */
+export function markConversationUnread(conversationId: string): void {
+  const db = getDb();
+  const now = Date.now();
+
+  db.transaction((tx) => {
+    const state = tx
+      .select()
+      .from(conversationAssistantAttentionState)
+      .where(
+        eq(conversationAssistantAttentionState.conversationId, conversationId),
+      )
+      .get();
+
+    const cursor = resolveAssistantCursor({
+      db: tx,
+      conversationId,
+      latestAssistantMessageId: state?.latestAssistantMessageId,
+      latestAssistantMessageAt: state?.latestAssistantMessageAt,
+    });
+
+    if (!cursor) {
+      throw new UserError(
+        "Conversation has no assistant message to mark unread",
+      );
+    }
+
+    const isAlreadyUnread =
+      state != null &&
+      (state.lastSeenAssistantMessageAt == null ||
+        state.lastSeenAssistantMessageAt < cursor.latestAssistantMessageAt);
+
+    if (isAlreadyUnread) {
+      return;
+    }
+
+    if (!state) {
+      tx.insert(conversationAssistantAttentionState)
+        .values({
+          conversationId,
+          latestAssistantMessageId: cursor.latestAssistantMessageId,
+          latestAssistantMessageAt: cursor.latestAssistantMessageAt,
+          lastSeenAssistantMessageId: cursor.previousAssistantMessageId,
+          lastSeenAssistantMessageAt: cursor.previousAssistantMessageAt,
+          lastSeenEventAt: null,
+          lastSeenConfidence: null,
+          lastSeenSignalType: null,
+          lastSeenSourceChannel: null,
+          lastSeenSource: null,
+          lastSeenEvidenceText: null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      return;
+    }
+
+    tx.update(conversationAssistantAttentionState)
+      .set({
+        lastSeenAssistantMessageId: cursor.previousAssistantMessageId,
+        lastSeenAssistantMessageAt: cursor.previousAssistantMessageAt,
+        updatedAt: now,
+      })
+      .where(
+        eq(conversationAssistantAttentionState.conversationId, conversationId),
+      )
+      .run();
+  });
 }
 
 // ── getAttentionStateByConversationIds ───────────────────────────────
