@@ -49,7 +49,7 @@ describe("local gateway health", () => {
             : input.url,
       );
       return new Response("ok", { status: 200 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const result = await probeLocalGatewayHealth({
       fetchImpl,
@@ -67,7 +67,7 @@ describe("local gateway health", () => {
   test("probeLocalGatewayHealth returns an unhealthy result when /healthz fails", async () => {
     const fetchImpl: typeof fetch = (async (): Promise<Response> => {
       return new Response("unavailable", { status: 503 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const result = await probeLocalGatewayHealth({
       fetchImpl,
@@ -87,7 +87,7 @@ describe("local gateway health", () => {
     const fetchImpl: typeof fetch = (async (): Promise<Response> => {
       const status = healthStatuses.shift() ?? 200;
       return new Response(status === 200 ? "ok" : "unavailable", { status });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const wakeCalls: number[] = [];
     const result = await ensureLocalGatewayReady({
@@ -126,7 +126,7 @@ describe("local gateway health", () => {
 
     const fetchImpl: typeof fetch = (async (): Promise<Response> => {
       return new Response("unavailable", { status: 503 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     let wakeCallCount = 0;
     const result = await ensureLocalGatewayReady({

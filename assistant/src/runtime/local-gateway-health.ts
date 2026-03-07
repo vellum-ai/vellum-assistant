@@ -10,9 +10,9 @@ const DEFAULT_RECOVERY_POLL_INTERVAL_MS = 250;
 const DEFAULT_WAKE_TIMEOUT_MS = 90_000;
 
 interface LockfileAssistantEntry {
-  assistantId?: unknown;
-  cloud?: unknown;
-  hatchedAt?: unknown;
+  assistantId?: string;
+  cloud?: string;
+  hatchedAt?: string | number | Date;
 }
 
 export interface WakeCommandResult {
