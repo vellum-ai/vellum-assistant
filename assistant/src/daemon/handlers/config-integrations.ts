@@ -113,19 +113,18 @@ export async function handleTwitterIntegrationConfig(
     if (msg.action === "get") {
       const raw = loadRawConfig();
       const mode =
-        ((getNestedValue(raw, "twitter.integrationMode") ??
-          raw.twitterIntegrationMode) as "local_byo" | "managed" | undefined) ??
-        "local_byo";
+        (getNestedValue(raw, "twitter.integrationMode") as
+          | "local_byo"
+          | "managed"
+          | undefined) ?? "local_byo";
       const strategy =
-        ((getNestedValue(raw, "twitter.operationStrategy") ??
-          raw.twitterOperationStrategy) as
+        (getNestedValue(raw, "twitter.operationStrategy") as
           | "oauth"
           | "browser"
           | "auto"
           | undefined) ?? "auto";
       const strategyConfigured =
-        (getNestedValue(raw, "twitter.operationStrategy") ??
-          raw.twitterOperationStrategy) !== undefined;
+        getNestedValue(raw, "twitter.operationStrategy") !== undefined;
       const localClientConfigured = hasTwitterClientId();
       const connected = !!getSecureKey(
         "credential:integration:twitter:access_token",
@@ -145,15 +144,13 @@ export async function handleTwitterIntegrationConfig(
     } else if (msg.action === "get_strategy") {
       const raw = loadRawConfig();
       const strategy =
-        ((getNestedValue(raw, "twitter.operationStrategy") ??
-          raw.twitterOperationStrategy) as
+        (getNestedValue(raw, "twitter.operationStrategy") as
           | "oauth"
           | "browser"
           | "auto"
           | undefined) ?? "auto";
       const strategyConfigured =
-        (getNestedValue(raw, "twitter.operationStrategy") ??
-          raw.twitterOperationStrategy) !== undefined;
+        getNestedValue(raw, "twitter.operationStrategy") !== undefined;
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: true,
@@ -181,8 +178,6 @@ export async function handleTwitterIntegrationConfig(
       }
       const raw = loadRawConfig();
       setNestedValue(raw, "twitter.operationStrategy", value);
-      // Migrate: remove legacy flat key if present
-      delete raw.twitterOperationStrategy;
       saveRawConfig(raw);
       ctx.send(socket, {
         type: "twitter_integration_config_response",
@@ -198,8 +193,6 @@ export async function handleTwitterIntegrationConfig(
     } else if (msg.action === "set_mode") {
       const raw = loadRawConfig();
       setNestedValue(raw, "twitter.integrationMode", msg.mode ?? "local_byo");
-      // Migrate: remove legacy flat key if present
-      delete raw.twitterIntegrationMode;
       saveRawConfig(raw);
       ctx.send(socket, {
         type: "twitter_integration_config_response",
