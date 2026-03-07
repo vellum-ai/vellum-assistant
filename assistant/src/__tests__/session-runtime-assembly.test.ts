@@ -648,7 +648,7 @@ describe("injectInboundActorContext", () => {
     const text = (injected as { type: "text"; text: string }).text;
     expect(text).toContain("<inbound_actor_context>");
     expect(text).toContain("trust_class: guardian");
-    expect(text).toContain("source_channel: sms");
+    expect(text).toContain("source_channel: voice");
     expect(text).toContain("canonical_actor_identity: guardian-user-1");
     expect(text).toContain("actor_display_name: Guardian Name");
     expect(text).toContain("actor_sender_display_name: Guardian Name");

@@ -1044,11 +1044,11 @@ describe("SMS channel approval decisions", () => {
 // 16. SMS guardian verify intercept
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("SMS guardian verify intercept", () => {
-  test("verification code reply works with sourceChannel sms", async () => {
+describe("telegram guardian verify intercept", () => {
+  test("verification code reply works with sourceChannel telegram", async () => {
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
-    const { secret } = createVerificationChallenge("sms");
+    const { secret } = createVerificationChallenge("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1061,12 +1061,12 @@ describe("SMS guardian verify intercept", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sourceChannel: "sms",
-        interface: "sms",
-        conversationExternalId: "sms-chat-verify",
+        sourceChannel: "telegram",
+        interface: "telegram",
+        conversationExternalId: "tg-chat-verify",
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: secret,
-        actorExternalId: "sms-user-42",
+        actorExternalId: "tg-user-42",
         replyCallbackUrl: "https://gateway.test/deliver",
       }),
     });
@@ -1080,7 +1080,7 @@ describe("SMS guardian verify intercept", () => {
     expect(deliverSpy).toHaveBeenCalled();
     const replyArgs = deliverSpy.mock.calls[0];
     const replyPayload = replyArgs[1] as { chatId: string; text: string };
-    expect(replyPayload.chatId).toBe("sms-chat-verify");
+    expect(replyPayload.chatId).toBe("tg-chat-verify");
     expect(typeof replyPayload.text).toBe("string");
     expect(replyPayload.text.toLowerCase()).toContain("guardian");
     expect(replyPayload.text.toLowerCase()).toContain("verif");
@@ -1088,11 +1088,11 @@ describe("SMS guardian verify intercept", () => {
     deliverSpy.mockRestore();
   });
 
-  test("invalid verification code returns failed via SMS", async () => {
+  test("invalid verification code returns failed via telegram", async () => {
     const { createVerificationChallenge } =
       await import("../runtime/channel-guardian-service.js");
     // Ensure there is a pending challenge so bare-code verification is intercepted.
-    createVerificationChallenge("sms");
+    createVerificationChallenge("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1105,12 +1105,12 @@ describe("SMS guardian verify intercept", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sourceChannel: "sms",
-        interface: "sms",
-        conversationExternalId: "sms-chat-verify-fail",
+        sourceChannel: "telegram",
+        interface: "telegram",
+        conversationExternalId: "tg-chat-verify-fail",
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: "000000",
-        actorExternalId: "sms-user-43",
+        actorExternalId: "tg-user-43",
         replyCallbackUrl: "https://gateway.test/deliver",
       }),
     });
@@ -1140,7 +1140,7 @@ describe("SMS guardian verify intercept", () => {
     const challengeHash = createHash("sha256").update(secret).digest("hex");
     createChallenge({
       id: `challenge-hex-${Date.now()}`,
-      channel: "sms",
+      channel: "telegram",
       challengeHash,
       expiresAt: Date.now() + 600_000,
     });
@@ -1157,12 +1157,12 @@ describe("SMS guardian verify intercept", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sourceChannel: "sms",
-        interface: "sms",
-        conversationExternalId: "sms-chat-hex-message",
+        sourceChannel: "telegram",
+        interface: "telegram",
+        conversationExternalId: "tg-chat-hex-message",
         externalMessageId: `msg-${Date.now()}-${Math.random()}`,
         content: secret,
-        actorExternalId: "sms-user-hex",
+        actorExternalId: "tg-user-hex",
         replyCallbackUrl: "https://gateway.test/deliver",
       }),
     });

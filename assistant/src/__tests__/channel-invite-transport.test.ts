@@ -111,7 +111,6 @@ describe("createInviteAdapterRegistry", () => {
   const builtInChannels = [
     "email",
     "slack",
-    "voice",
     "telegram",
     "voice",
     "whatsapp",

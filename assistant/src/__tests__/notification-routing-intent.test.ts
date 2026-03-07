@@ -104,13 +104,9 @@ describe("routing intent enforcement", () => {
       expect(enforced.selectedChannels).toEqual(["vellum"]);
     });
 
-    test("includes SMS when SMS is among connected channels", () => {
+    test("includes all connected channels in all_channels mode", () => {
       const decision = makeDecision({ selectedChannels: ["vellum"] });
-      const connected: NotificationChannel[] = [
-        "vellum",
-        "telegram",
-        "telegram",
-      ];
+      const connected: NotificationChannel[] = ["vellum", "telegram", "slack"];
 
       const enforced = enforceRoutingIntent(
         decision,
@@ -121,14 +117,14 @@ describe("routing intent enforcement", () => {
       expect(enforced.selectedChannels).toEqual([
         "vellum",
         "telegram",
-        "telegram",
+        "slack",
       ]);
       expect(enforced.reasoningSummary).toContain(
         "routing_intent=all_channels",
       );
     });
 
-    test("excludes SMS when SMS is not among connected channels", () => {
+    test("excludes disconnected channels from all_channels", () => {
       const decision = makeDecision({ selectedChannels: ["vellum"] });
       const connected: NotificationChannel[] = ["vellum", "telegram"];
 
@@ -139,7 +135,7 @@ describe("routing intent enforcement", () => {
       );
 
       expect(enforced.selectedChannels).toEqual(["vellum", "telegram"]);
-      expect(enforced.selectedChannels).not.toContain("telegram");
+      expect(enforced.selectedChannels).not.toContain("slack");
     });
   });
 

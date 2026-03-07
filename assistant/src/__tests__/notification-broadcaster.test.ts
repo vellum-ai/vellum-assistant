@@ -417,26 +417,26 @@ describe("notification broadcaster", () => {
 
   // ── Destination binding context ────────────────────────────────────
 
-  test("SMS delivery carries destination binding context into pairing", async () => {
-    const smsAdapter = new MockAdapter("telegram");
-    const broadcaster = new NotificationBroadcaster([smsAdapter]);
+  test("Telegram delivery carries destination binding context into pairing (additional)", async () => {
+    const telegramAdapter2 = new MockAdapter("telegram");
+    const broadcaster = new NotificationBroadcaster([telegramAdapter2]);
 
     const signal = makeSignal();
     const decision = makeDecision({
       selectedChannels: ["telegram"],
       renderedCopy: {
-        telegram: { title: "SMS Alert", body: "Something happened" },
+        telegram: { title: "Telegram Alert", body: "Something happened" },
       },
     });
 
     await broadcaster.broadcastDecision(signal, decision);
 
-    const smsCall = pairingCalls.find((c) => c.channel === "telegram");
-    expect(smsCall).toBeDefined();
-    expect(smsCall!.options?.bindingContext).toEqual({
+    const telegramCall = pairingCalls.find((c) => c.channel === "telegram");
+    expect(telegramCall).toBeDefined();
+    expect(telegramCall!.options?.bindingContext).toEqual({
       sourceChannel: "telegram",
-      externalChatId: "ext-chat-sms",
-      externalUserId: "ext-user-sms",
+      externalChatId: "ext-chat-telegram",
+      externalUserId: "ext-user-telegram",
     });
   });
 

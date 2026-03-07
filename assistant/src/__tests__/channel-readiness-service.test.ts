@@ -190,7 +190,7 @@ describe("ChannelReadinessService", () => {
       service as unknown as {
         snapshots: Map<string, { checkedAt: number }>;
       }
-    ).snapshots.get("sms::__default__")!;
+    ).snapshots.get("voice::__default__")!;
     cached.checkedAt = Date.now() - REMOTE_TTL_MS - 1;
 
     // Second call should re-run remote checks
@@ -283,7 +283,7 @@ describe("ChannelReadinessService", () => {
 
     expect(snapshots).toHaveLength(2);
     const channels = snapshots.map((s) => s.channel).sort();
-    expect(channels).toEqual(["voice", "telegram"]);
+    expect(channels).toEqual(["telegram", "voice"]);
   });
 
   test("cached remote checks preserve original checkedAt (TTL not reset on reuse)", async () => {
@@ -379,7 +379,7 @@ describe("ChannelReadinessService", () => {
       service as unknown as {
         snapshots: Map<string, { checkedAt: number }>;
       }
-    ).snapshots.get("sms::__default__")!;
+    ).snapshots.get("voice::__default__")!;
     cached.checkedAt = Date.now() - REMOTE_TTL_MS - 1;
 
     // Local-only call should not be blocked by stale remote failure

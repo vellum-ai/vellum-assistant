@@ -750,7 +750,7 @@ describe("gateway-only ingress enforcement", () => {
       expect(res.status).toBe(401);
     });
 
-    test("POST /v1/channels/inbound with SMS and actor JWT returns 403", async () => {
+    test("POST /v1/channels/inbound with slack and actor JWT returns 403", async () => {
       const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
         method: "POST",
         headers: {
@@ -758,13 +758,13 @@ describe("gateway-only ingress enforcement", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sourceChannel: "sms",
-          externalChatId: "+15551234567",
-          externalMessageId: "SM-test-gw-1",
-          content: "hello via SMS",
+          sourceChannel: "slack",
+          externalChatId: "C0123ABCDEF",
+          externalMessageId: "slack-test-gw-1",
+          content: "hello via Slack",
         }),
       });
-      // SMS messages also require svc_gateway principal type.
+      // Channel inbound messages require svc_gateway principal type.
       expect(res.status).toBe(403);
       const body = (await res.json()) as {
         error: { code: string; message: string };
@@ -772,7 +772,7 @@ describe("gateway-only ingress enforcement", () => {
       expect(body.error.code).toBe("FORBIDDEN");
     });
 
-    test("POST /v1/channels/inbound with SMS and gateway JWT passes", async () => {
+    test("POST /v1/channels/inbound with slack and gateway JWT passes", async () => {
       const res = await fetch(`http://127.0.0.1:${port}/v1/channels/inbound`, {
         method: "POST",
         headers: {
@@ -780,10 +780,10 @@ describe("gateway-only ingress enforcement", () => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sourceChannel: "sms",
-          externalChatId: "+15551234567",
-          externalMessageId: "SM-test-gw-2",
-          content: "hello via SMS",
+          sourceChannel: "slack",
+          externalChatId: "C0123ABCDEF",
+          externalMessageId: "slack-test-gw-2",
+          content: "hello via Slack",
         }),
       });
       // Should NOT be 403 — the svc_gateway principal type passes.

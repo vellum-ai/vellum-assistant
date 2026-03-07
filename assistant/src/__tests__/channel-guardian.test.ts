@@ -32,25 +32,6 @@ mock.module("../util/logger.js", () => ({
 
 import type * as net from "node:net";
 
-// SMS client mock — outbound SMS delivery is fire-and-forget, so we just track calls.
-const smsSendCalls: Array<{
-  to: string;
-  text: string;
-  assistantId?: string;
-}> = [];
-mock.module("../messaging/providers/sms/client.js", () => ({
-  sendMessage: async (
-    _gatewayUrl: string,
-    _bearerToken: string,
-    to: string,
-    text: string,
-    assistantId?: string,
-  ) => {
-    smsSendCalls.push({ to, text, assistantId });
-    return { messageSid: "SM-mock", status: "queued" };
-  },
-}));
-
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
@@ -189,7 +170,6 @@ function resetTables(): void {
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   db.run("DELETE FROM external_conversation_bindings");
-  smsSendCalls.length = 0;
   telegramDeliverCalls.length = 0;
   voiceCallInitCalls.length = 0;
   mockBotUsername = "test_bot";
@@ -2937,7 +2917,7 @@ describe("outbound SMS verification", () => {
     expect(resp!.error).toBe("invalid_destination");
   });
 
-  test("start_outbound normalizes formatted phone number for SMS", async () => {
+  test("start_outbound normalizes formatted phone number for voice", async () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
@@ -2962,13 +2942,13 @@ describe("outbound SMS verification", () => {
     expect(session!.expectedPhoneE164).toBe("+15551234567");
     expect(session!.destinationAddress).toBe("+15551234567");
 
-    // Allow fire-and-forget SMS delivery to complete
+    // Allow fire-and-forget voice call delivery to complete
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    // Verify SMS was sent to the normalized number
-    expect(smsSendCalls.length).toBeGreaterThanOrEqual(1);
-    const lastSms = smsSendCalls[smsSendCalls.length - 1];
-    expect(lastSms.to).toBe("+15551234567");
+    // Verify voice call was initiated to the normalized number
+    expect(voiceCallInitCalls.length).toBeGreaterThanOrEqual(1);
+    const lastCall = voiceCallInitCalls[voiceCallInitCalls.length - 1];
+    expect(lastCall.phoneNumber).toBe("+15551234567");
   });
 
   test("template composer includes Vellum assistant prefix", () => {

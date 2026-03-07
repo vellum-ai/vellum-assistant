@@ -2,8 +2,8 @@
  * Tests verifying the trusted contact flow is channel-agnostic.
  *
  * The access request -> guardian notification -> verification -> activation
- * flow should work identically across Telegram, SMS, and voice channels.
- * These tests confirm no Telegram-specific assumptions leaked into the
+ * flow should work identically across all channels.
+ * These tests confirm no channel-specific assumptions leaked into the
  * trusted contact code paths.
  */
 import { mkdtempSync, rmSync } from "node:fs";
@@ -140,9 +140,8 @@ function resetState(): void {
 }
 
 interface ChannelTestConfig {
-  channel: "telegram" | "sms" | "voice";
+  channel: "telegram" | "slack";
   deliverEndpoint: string;
-  /** SMS/voice use phone E.164 as identifiers */
   senderExternalUserId: string;
   externalChatId: string;
   guardianExternalUserId: string;
@@ -159,12 +158,12 @@ const CHANNEL_CONFIGS: ChannelTestConfig[] = [
     guardianChatId: "tg-guardian-chat-789",
   },
   {
-    channel: "sms",
-    deliverEndpoint: "/deliver/sms",
-    senderExternalUserId: "+15551234567",
-    externalChatId: "+15551234567",
-    guardianExternalUserId: "+15559876543",
-    guardianChatId: "+15559876543",
+    channel: "slack",
+    deliverEndpoint: "/deliver/slack",
+    senderExternalUserId: "U0123ABCDEF",
+    externalChatId: "C0123ABCDEF",
+    guardianExternalUserId: "U9876ZYXWVU",
+    guardianChatId: "C9876ZYXWVU",
   },
 ];
 
@@ -318,7 +317,7 @@ for (const config of CHANNEL_CONFIGS) {
       expect(sameChanResult).not.toBeNull();
 
       // Should NOT be found on a different channel
-      const otherChannel = config.channel === "telegram" ? "sms" : "telegram";
+      const otherChannel = config.channel === "telegram" ? "slack" : "telegram";
       const crossChanResult = findContactChannel({
         channelType: otherChannel,
         externalUserId: config.senderExternalUserId,
@@ -329,18 +328,18 @@ for (const config of CHANNEL_CONFIGS) {
 }
 
 // ---------------------------------------------------------------------------
-// SMS-specific: phone E.164 identity binding
+// Voice-specific: phone E.164 identity binding
 // ---------------------------------------------------------------------------
 
-describe("SMS identity binding with E.164 phone numbers", () => {
+describe("voice identity binding with E.164 phone numbers", () => {
   beforeEach(() => {
     resetState();
   });
 
-  test("SMS verification session binds to phone E.164", () => {
+  test("voice verification session binds to phone E.164", () => {
     const phone = "+15551234567";
     const session = createOutboundSession({
-      channel: "sms",
+      channel: "voice",
       expectedExternalUserId: phone,
       expectedPhoneE164: phone,
       expectedChatId: phone,
@@ -351,7 +350,7 @@ describe("SMS identity binding with E.164 phone numbers", () => {
 
     // Verify with matching phone identity
     const result = validateAndConsumeChallenge(
-      "sms",
+      "voice",
       session.secret,
       phone,
       phone,
@@ -362,12 +361,12 @@ describe("SMS identity binding with E.164 phone numbers", () => {
     }
   });
 
-  test("SMS verification rejects mismatched phone identity", () => {
+  test("voice verification rejects mismatched phone identity", () => {
     const expectedPhone = "+15551234567";
     const wrongPhone = "+15559999999";
 
     const session = createOutboundSession({
-      channel: "sms",
+      channel: "voice",
       expectedExternalUserId: expectedPhone,
       expectedPhoneE164: expectedPhone,
       expectedChatId: expectedPhone,
@@ -377,7 +376,7 @@ describe("SMS identity binding with E.164 phone numbers", () => {
 
     // Try to verify with a different phone (anti-oracle: same error message)
     const result = validateAndConsumeChallenge(
-      "sms",
+      "voice",
       session.secret,
       wrongPhone,
       wrongPhone,
@@ -405,30 +404,29 @@ describe("cross-channel isolation", () => {
       destinationAddress: "chat-123",
     });
 
-    const smsSession = createOutboundSession({
-      channel: "sms",
-      expectedExternalUserId: "+15551234567",
-      expectedPhoneE164: "+15551234567",
-      expectedChatId: "+15551234567",
+    const slackSession = createOutboundSession({
+      channel: "slack",
+      expectedExternalUserId: "U0123ABCDEF",
+      expectedChatId: "C0123ABCDEF",
       identityBindingStatus: "bound",
-      destinationAddress: "+15551234567",
+      destinationAddress: "C0123ABCDEF",
     });
 
-    // Telegram code should not work on SMS channel
+    // Telegram code should not work on Slack channel
     const wrongChannelResult = validateAndConsumeChallenge(
-      "sms",
+      "slack",
       telegramSession.secret,
-      "+15551234567",
-      "+15551234567",
+      "U0123ABCDEF",
+      "C0123ABCDEF",
     );
     expect(wrongChannelResult.success).toBe(false);
 
-    // SMS code should work on SMS channel
+    // Slack code should work on Slack channel
     const correctChannelResult = validateAndConsumeChallenge(
-      "sms",
-      smsSession.secret,
-      "+15551234567",
-      "+15551234567",
+      "slack",
+      slackSession.secret,
+      "U0123ABCDEF",
+      "C0123ABCDEF",
     );
     expect(correctChannelResult.success).toBe(true);
   });
