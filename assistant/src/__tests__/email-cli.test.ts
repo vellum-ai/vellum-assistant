@@ -60,7 +60,7 @@ describe("email provider factory", () => {
 // ---------------------------------------------------------------------------
 describe("email guardrails", () => {
   test("pause blocks sends (returns outbound_paused)", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
 
     guardrails.setOutboundPaused(true);
     expect(guardrails.isOutboundPaused()).toBe(true);
@@ -71,7 +71,7 @@ describe("email guardrails", () => {
   });
 
   test("resume allows sends", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
 
     guardrails.setOutboundPaused(true);
     guardrails.setOutboundPaused(false);
@@ -81,7 +81,7 @@ describe("email guardrails", () => {
   });
 
   test("daily cap enforced", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
 
     guardrails.setDailySendCap(2);
     guardrails.incrementDailySendCount();
@@ -95,7 +95,7 @@ describe("email guardrails", () => {
   });
 
   test("blocklist checked", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
 
     guardrails.addAddressRule("block", "*@spam.com");
 
@@ -106,7 +106,7 @@ describe("email guardrails", () => {
   });
 
   test("allowlist enforcement", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
 
     guardrails.addAddressRule("allow", "*@trusted.com");
 
@@ -119,7 +119,7 @@ describe("email guardrails", () => {
   });
 
   test("rule lifecycle: add, list, remove", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
 
     const rule = guardrails.addAddressRule("block", "*@evil.com");
     expect(rule.id).toBeTruthy();
@@ -134,17 +134,17 @@ describe("email guardrails", () => {
   });
 
   test("remove non-existent rule returns false", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
     expect(guardrails.removeAddressRule("non-existent")).toBe(false);
   });
 
   test("default cap is 25", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
     expect(guardrails.getDailySendCap()).toBe(25);
   });
 
   test("incrementDailySendCount returns new count", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
 
     expect(guardrails.incrementDailySendCount()).toBe(1);
     expect(guardrails.incrementDailySendCount()).toBe(2);
@@ -152,7 +152,7 @@ describe("email guardrails", () => {
   });
 
   test("guardrails check priority: pause > cap > blocklist", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
 
     guardrails.setOutboundPaused(true);
     guardrails.setDailySendCap(0);
@@ -227,7 +227,7 @@ describe("email service guardrails integration", () => {
 // ---------------------------------------------------------------------------
 describe("email JSON contract", () => {
   test("guardrails status has expected shape", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
     const status = guardrails.getGuardrailsStatus();
     const json = JSON.stringify(status);
     const parsed = JSON.parse(json);
@@ -243,7 +243,7 @@ describe("email JSON contract", () => {
   });
 
   test("address rule has expected JSON fields", async () => {
-    const guardrails = await import("../cli/email-guardrails.js");
+    const guardrails = await import("../email/guardrails.js");
     const rule = guardrails.addAddressRule("block", "*@test.com");
     const parsed = JSON.parse(JSON.stringify(rule));
 
