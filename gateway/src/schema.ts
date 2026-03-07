@@ -1402,6 +1402,14 @@ export function buildSchema(): Record<string, unknown> {
           description: "Cancel the active guardian verification session.",
           operationId: "guardianSessionCancel",
           security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
           responses: {
             "200": { description: "Session cancelled" },
             "400": { description: "Invalid request payload" },
