@@ -177,40 +177,55 @@ interface DetectedProcess {
   pid: string | null;
   port: number;
   running: boolean;
+  watch: boolean;
+}
+
+async function isWatchMode(pid: string): Promise<boolean> {
+  try {
+    const args = await execOutput("ps", ["-p", pid, "-o", "args="]);
+    return args.includes("--watch");
+  } catch {
+    return false;
+  }
 }
 
 async function detectProcess(spec: ProcessSpec): Promise<DetectedProcess> {
   // Tier 1: pgrep by process title
   const pids = await pgrepExact(spec.pgrepName);
   if (pids.length > 0) {
-    return { name: spec.name, pid: pids[0], port: spec.port, running: true };
+    const watch = await isWatchMode(pids[0]);
+    return { name: spec.name, pid: pids[0], port: spec.port, running: true, watch };
   }
 
   // Tier 2: TCP port probe (skip for processes without a port)
   const listening = spec.port > 0 && (await probePort(spec.port));
   if (listening) {
     const filePid = readPidFile(spec.pidFile);
+    const watch = filePid ? await isWatchMode(filePid) : false;
     return {
       name: spec.name,
       pid: filePid,
       port: spec.port,
       running: true,
+      watch,
     };
   }
 
   // Tier 3: PID file fallback
   const filePid = readPidFile(spec.pidFile);
   if (filePid && isProcessAlive(filePid)) {
-    return { name: spec.name, pid: filePid, port: spec.port, running: true };
+    const watch = await isWatchMode(filePid);
+    return { name: spec.name, pid: filePid, port: spec.port, running: true, watch };
   }
 
-  return { name: spec.name, pid: null, port: spec.port, running: false };
+  return { name: spec.name, pid: null, port: spec.port, running: false, watch: false };
 }
 
 function formatDetectionInfo(proc: DetectedProcess): string {
   const parts: string[] = [];
   if (proc.pid) parts.push(`PID ${proc.pid}`);
   if (proc.port > 0) parts.push(`port ${proc.port}`);
+  if (proc.watch) parts.push("watch");
   return parts.join(" | ");
 }
 
