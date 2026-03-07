@@ -569,7 +569,7 @@ struct ThreadListView: View {
                                 .accessibilityLabel("Pinned")
                         }
                         if scheduleGroupHasUnread(group) {
-                            VBadge(style: .dot, color: VColor.accent)
+                            VBadge(style: .dot, color: VColor.warning)
                                 .accessibilityLabel("Unread")
                         }
                         Text("\(group.threads.count)")
@@ -609,7 +609,7 @@ struct ThreadListView: View {
                         .accessibilityLabel("Pinned")
                 }
                 if store.isConnectedMode && thread.hasUnseenLatestAssistantMessage {
-                    VBadge(style: .dot, color: VColor.accent)
+                    VBadge(style: .dot, color: VColor.warning)
                         .accessibilityLabel("Unread")
                 }
                 Spacer()
