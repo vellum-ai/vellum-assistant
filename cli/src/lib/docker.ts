@@ -67,6 +67,36 @@ function findDockerRoot(): DockerRoot {
   );
 }
 
+/**
+ * Creates a line-buffered output prefixer that prepends `[docker]` to each
+ * line from the container's stdout/stderr. Calls `onLine` for each complete
+ * line so the caller can detect sentinel output (e.g. hatch completion).
+ */
+function createLinePrefixer(
+  stream: NodeJS.WritableStream,
+  onLine?: (line: string) => void,
+): { write(data: Buffer): void; flush(): void } {
+  let remainder = "";
+  return {
+    write(data: Buffer) {
+      const text = remainder + data.toString();
+      const lines = text.split("\n");
+      remainder = lines.pop() ?? "";
+      for (const line of lines) {
+        stream.write(`   [docker] ${line}\n`);
+        onLine?.(line);
+      }
+    },
+    flush() {
+      if (remainder) {
+        stream.write(`   [docker] ${remainder}\n`);
+        onLine?.(remainder);
+        remainder = "";
+      }
+    },
+  };
+}
+
 export async function hatchDocker(
   species: Species,
   detached: boolean,
@@ -111,6 +141,7 @@ export async function hatchDocker(
   const gatewayPort = DEFAULT_GATEWAY_PORT;
   const runArgs: string[] = [
     "run",
+    "--init",
     "--name",
     instanceName,
     "-p",
@@ -128,6 +159,10 @@ export async function hatchDocker(
       runArgs.push("-e", `${envVar}=${process.env[envVar]}`);
     }
   }
+
+  // Pass the instance name so the inner hatch uses the same assistant ID
+  // instead of generating a new random one.
+  runArgs.push("-e", `VELLUM_ASSISTANT_NAME=${instanceName}`);
 
   // Mount source volumes in watch mode for hot reloading
   if (watch) {
@@ -152,10 +187,16 @@ export async function hatchDocker(
   };
   saveAssistantEntry(dockerEntry);
 
+  // The inner hatch spawns daemon and gateway as background processes, then
+  // exits. Keep the container alive afterward so those processes continue
+  // running and the container stays visible in `docker ps`.
+  const hatchArgs = watch ? "hatch --watch" : "hatch";
+  const containerCmd = ["sh", "-c", `vellum ${hatchArgs}; exec sleep infinity`];
+
   if (detached) {
     runArgs.push("-d");
     console.log("🚀 Starting Docker container...");
-    await exec("docker", [...runArgs, imageTag], { cwd: repoRoot });
+    await exec("docker", [...runArgs, imageTag, ...containerCmd], { cwd: repoRoot });
 
     console.log("\n✅ Docker assistant hatched!\n");
     console.log("Instance details:");
@@ -170,12 +211,37 @@ export async function hatchDocker(
     console.log(`  Runtime: ${runtimeUrl}`);
     console.log("  Press Ctrl+C to stop\n");
 
-    // Run attached with inherited stdio so the user sees container output
+    // Run attached with piped stdio so we can prefix container output with
+    // [docker] to distinguish inner hatch logs from the outer CLI output.
     await new Promise<void>((resolve, reject) => {
-      const child = nodeSpawn("docker", [...runArgs, imageTag], {
+      const child = nodeSpawn("docker", [...runArgs, imageTag, ...containerCmd], {
         cwd: repoRoot,
-        stdio: "inherit",
+        stdio: ["ignore", "pipe", "pipe"],
       });
+
+      let innerHatchComplete = false;
+
+      const handleLine = (line: string): void => {
+        if (!innerHatchComplete && line.includes("Local assistant hatched!")) {
+          innerHatchComplete = true;
+          process.nextTick(() => {
+            console.log("");
+            console.log(`\u2705 Docker container is up and running!`);
+            console.log(`   Name: ${instanceName}`);
+            console.log(`   Runtime: ${runtimeUrl}`);
+            console.log("");
+          });
+        }
+      };
+
+      const stdoutPrefixer = createLinePrefixer(process.stdout, handleLine);
+      const stderrPrefixer = createLinePrefixer(process.stderr, handleLine);
+
+      child.stdout?.on("data", (data: Buffer) => stdoutPrefixer.write(data));
+      child.stderr?.on("data", (data: Buffer) => stderrPrefixer.write(data));
+      child.stdout?.on("end", () => stdoutPrefixer.flush());
+      child.stderr?.on("end", () => stderrPrefixer.flush());
+
       child.on("close", (code) => {
         if (code === 0 || code === null) {
           resolve();
