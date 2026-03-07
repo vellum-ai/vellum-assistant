@@ -16,17 +16,8 @@ export function isChannelId(value: unknown): value is ChannelId {
   );
 }
 
-/** Legacy channel IDs that were renamed but may still arrive from pre-rename clients. */
-const LEGACY_CHANNEL_ALIASES: Record<string, ChannelId> = {
-  macos: "vellum",
-  ios: "vellum",
-};
-
 export function parseChannelId(value: unknown): ChannelId | null {
   if (isChannelId(value)) return value;
-  if (typeof value === "string" && value in LEGACY_CHANNEL_ALIASES) {
-    return LEGACY_CHANNEL_ALIASES[value]!;
-  }
   return null;
 }
 
