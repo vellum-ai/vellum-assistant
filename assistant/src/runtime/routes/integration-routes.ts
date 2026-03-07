@@ -23,9 +23,9 @@
 
 import type { ChannelId } from "../../channels/types.js";
 import {
-  createGuardianChallenge,
-  getGuardianStatus,
-  revokeGuardianForChannel,
+  createInboundChallenge,
+  getVerificationStatus,
+  revokeVerificationForChannel,
 } from "../../daemon/handlers/config-channels.js";
 import {
   clearSlackChannelConfig,
@@ -212,7 +212,7 @@ export async function handleCreateGuardianSession(
   }
 
   // Inbound challenge path
-  const result = createGuardianChallenge(
+  const result = createInboundChallenge(
     body.channel,
     body.rebind,
     body.sessionId,
@@ -229,7 +229,7 @@ export async function handleCreateGuardianSession(
 export function handleGetGuardianStatus(url: URL): Response {
   const channel =
     (url.searchParams.get("channel") as ChannelId | null) ?? undefined;
-  const result = getGuardianStatus(channel);
+  const result = getVerificationStatus(channel);
   return Response.json(result);
 }
 
@@ -299,8 +299,8 @@ export async function handleRevokeGuardianBinding(
     channel?: ChannelId;
   };
 
-  // revokeGuardianForChannel already handles cancelOutbound + revokePendingSessions + binding revocation
-  const result = revokeGuardianForChannel(body.channel);
+  // revokeVerificationForChannel already handles cancelOutbound + revokePendingSessions + binding revocation
+  const result = revokeVerificationForChannel(body.channel);
   const status = result.success ? 200 : 400;
   return Response.json(result, { status });
 }
