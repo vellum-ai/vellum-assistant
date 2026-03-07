@@ -1425,7 +1425,7 @@ graph TB
     end
 
     subgraph "Per-Turn Projection (session-skill-tools.ts)"
-        DERIVE["deriveActiveSkillIds(history)<br/>scan all messages for markers"]
+        DERIVE["deriveActiveSkills(history)<br/>scan all messages for markers"]
         UNION["Union: context-derived ∪ preactivated"]
         DIFF["Diff vs previous turn"]
         UNREGISTER["unregisterSkillTools(removedId)<br/>tear down stale tools"]
@@ -1497,7 +1497,7 @@ graph TB
 | `assistant/src/config/skills.ts`                    | Skill catalog loading: bundled, managed, workspace, extra directories                      |
 | `assistant/src/config/bundled-skills/`              | Bundled skill directories (browser, gmail, claude-code, computer-use, weather, etc.)       |
 | `assistant/src/skills/tool-manifest.ts`             | `TOOLS.json` parser and validator                                                          |
-| `assistant/src/skills/active-skill-tools.ts`        | `deriveActiveSkillIds()` — scans history for `<loaded_skill>` markers                      |
+| `assistant/src/skills/active-skill-tools.ts`        | `deriveActiveSkills()` — scans history for `<loaded_skill>` markers                        |
 | `assistant/src/skills/include-graph.ts`             | Include graph builder: `indexCatalogById()`, `validateIncludes()`, cycle/missing detection |
 | `assistant/src/daemon/session-skill-tools.ts`       | `projectSkillTools()` — per-turn projection, register/unregister lifecycle                 |
 | `assistant/src/tools/skills/skill-tool-factory.ts`  | `createSkillToolsFromManifest()` — manifest entries to Tool objects                        |
