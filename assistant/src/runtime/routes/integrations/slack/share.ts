@@ -14,8 +14,8 @@ import {
 import type { SlackConversation } from "../../../../messaging/providers/slack/types.js";
 import { getSecureKey } from "../../../../security/secure-keys.js";
 import { getLogger } from "../../../../util/logger.js";
-import { httpError } from "../../http-errors.js";
-import type { RouteDefinition } from "../../http-router.js";
+import { httpError } from "../../../http-errors.js";
+import type { RouteDefinition } from "../../../http-router.js";
 
 const log = getLogger("slack-share");
 
