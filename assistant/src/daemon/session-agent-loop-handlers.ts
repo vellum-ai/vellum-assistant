@@ -13,8 +13,12 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import * as conversationStore from "../memory/conversation-store.js";
-import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import {
+  addMessage,
+  getMessageById,
+  provenanceFromTrustContext,
+  updateMessageContent,
+} from "../memory/conversation-crud.js";
 import { recordRequestLog } from "../memory/llm-request-log-store.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
@@ -491,7 +495,7 @@ function annotatePersistedAssistantMessage(state: EventHandlerState): void {
   const messageId = state.lastAssistantMessageId;
   if (!messageId) return;
 
-  const row = conversationStore.getMessageById(messageId);
+  const row = getMessageById(messageId);
   if (!row) return;
 
   let content: ContentBlock[];
@@ -526,7 +530,7 @@ function annotatePersistedAssistantMessage(state: EventHandlerState): void {
   }
 
   if (modified) {
-    conversationStore.updateMessageContent(messageId, JSON.stringify(content));
+    updateMessageContent(messageId, JSON.stringify(content));
   }
 
   // Clear for the next turn
@@ -599,7 +603,7 @@ export async function handleMessageComplete(
       assistantMessageInterface:
         deps.turnInterfaceContext.assistantMessageInterface,
     };
-    await conversationStore.addMessage(
+    await addMessage(
       deps.ctx.conversationId,
       "user",
       JSON.stringify(toolResultBlocks),
@@ -661,7 +665,7 @@ export async function handleMessageComplete(
     assistantMessageInterface:
       deps.turnInterfaceContext.assistantMessageInterface,
   };
-  const assistantMsg = await conversationStore.addMessage(
+  const assistantMsg = await addMessage(
     deps.ctx.conversationId,
     "assistant",
     JSON.stringify(contentWithSurfaces),

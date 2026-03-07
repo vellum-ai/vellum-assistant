@@ -8,7 +8,7 @@ import {
   linkAttachmentToMessage,
   uploadFileBackedAttachment,
 } from "../../memory/attachments-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import { addMessage } from "../../memory/conversation-crud.js";
 import type { RecordingOptions, RecordingStatus } from "../ipc-protocol.js";
 import {
   defineHandlers,
@@ -524,7 +524,7 @@ export async function finalizeAndPublishRecording(params: {
     );
     const errorText = "Recording stopped but no file was produced.";
     try {
-      await conversationStore.addMessage(
+      await addMessage(
         conversationId,
         "assistant",
         JSON.stringify([{ type: "text", text: errorText }]),
@@ -577,7 +577,7 @@ export async function finalizeAndPublishRecording(params: {
     );
     const errorText = "Recording file is unavailable or expired.";
     try {
-      await conversationStore.addMessage(
+      await addMessage(
         conversationId,
         "assistant",
         JSON.stringify([{ type: "text", text: errorText }]),
@@ -605,7 +605,7 @@ export async function finalizeAndPublishRecording(params: {
       log.error({ recordingId, filePath }, "Recording file does not exist");
       const errorText = "Recording failed to save.";
       try {
-        await conversationStore.addMessage(
+        await addMessage(
           conversationId,
           "assistant",
           JSON.stringify([{ type: "text", text: errorText }]),
@@ -638,7 +638,7 @@ export async function finalizeAndPublishRecording(params: {
       );
       const errorText = "Recording failed to save.";
       try {
-        await conversationStore.addMessage(
+        await addMessage(
           conversationId,
           "assistant",
           JSON.stringify([{ type: "text", text: errorText }]),
@@ -688,7 +688,7 @@ export async function finalizeAndPublishRecording(params: {
     // Reusing the last assistant message would attach the recording to an
     // unrelated older message after reload.
     const msgText = "Screen recording complete. Your recording has been saved.";
-    const newMsg = await conversationStore.addMessage(
+    const newMsg = await addMessage(
       conversationId,
       "assistant",
       JSON.stringify([{ type: "text", text: msgText }]),
@@ -740,7 +740,7 @@ export async function finalizeAndPublishRecording(params: {
     );
     const errorText = "Recording saved but failed to attach to conversation.";
     try {
-      await conversationStore.addMessage(
+      await addMessage(
         conversationId,
         "assistant",
         JSON.stringify([{ type: "text", text: errorText }]),

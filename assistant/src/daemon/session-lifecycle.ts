@@ -9,7 +9,11 @@ import type { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import {
+  getConversation,
+  getMessages,
+  type MessageRow,
+} from "../memory/conversation-crud.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -50,9 +54,7 @@ function parseProvenanceTrustClass(
   return undefined;
 }
 
-function filterMessagesForUntrustedActor(
-  messages: conversationStore.MessageRow[],
-): conversationStore.MessageRow[] {
+function filterMessagesForUntrustedActor(messages: MessageRow[]): MessageRow[] {
   return messages.filter((m) => {
     const provenanceTrustClass = parseProvenanceTrustClass(m.metadata);
     return (
@@ -105,12 +107,12 @@ export interface DisposeContext extends AbortContext {
 
 export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
   const trustClass = ctx.trustContext?.trustClass;
-  const allDbMessages = conversationStore.getMessages(ctx.conversationId);
+  const allDbMessages = getMessages(ctx.conversationId);
   const dbMessages = isUntrustedTrustClass(trustClass)
     ? filterMessagesForUntrustedActor(allDbMessages)
     : allDbMessages;
 
-  const conv = conversationStore.getConversation(ctx.conversationId);
+  const conv = getConversation(ctx.conversationId);
   const contextSummary = !isUntrustedTrustClass(trustClass)
     ? conv?.contextSummary?.trim() || null
     : null;

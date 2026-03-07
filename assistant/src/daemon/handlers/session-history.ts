@@ -5,7 +5,12 @@ import {
   getFilePathForAttachment,
   setAttachmentThumbnail,
 } from "../../memory/attachments-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import { getMessageById } from "../../memory/conversation-crud.js";
+import {
+  getMessagesPaginated,
+  getNextMessage,
+  searchConversations,
+} from "../../memory/conversation-queries.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { truncate } from "../../util/truncate.js";
 import type {
@@ -41,13 +46,12 @@ export function handleHistoryRequest(
   const includeToolImages = msg.includeToolImages ?? isFullMode;
   const includeSurfaceData = msg.includeSurfaceData ?? isFullMode;
 
-  const { messages: dbMessages, hasMore } =
-    conversationStore.getMessagesPaginated(
-      msg.sessionId,
-      limit,
-      msg.beforeTimestamp,
-      msg.beforeMessageId,
-    );
+  const { messages: dbMessages, hasMore } = getMessagesPaginated(
+    msg.sessionId,
+    limit,
+    msg.beforeTimestamp,
+    msg.beforeMessageId,
+  );
 
   const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
     let text = "";
@@ -299,7 +303,7 @@ export function handleConversationSearch(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const results = conversationStore.searchConversations(msg.query, {
+  const results = searchConversations(msg.query, {
     limit: msg.limit,
     maxMessagesPerConversation: msg.maxMessagesPerConversation,
   });
@@ -315,10 +319,7 @@ export function handleMessageContentRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const dbMessage = conversationStore.getMessageById(
-    msg.messageId,
-    msg.sessionId,
-  );
+  const dbMessage = getMessageById(msg.messageId, msg.sessionId);
   if (!dbMessage) {
     ctx.send(socket, {
       type: "error",
@@ -345,7 +346,7 @@ export function handleMessageContentRequest(
       dbMessage.role === "assistant" &&
       mergedToolCalls.some((tc) => tc.result === undefined)
     ) {
-      const nextMsg = conversationStore.getNextMessage(
+      const nextMsg = getNextMessage(
         msg.sessionId,
         dbMessage.createdAt,
         dbMessage.id,

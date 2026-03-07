@@ -1,5 +1,5 @@
 import { getConfig } from "../config/loader.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import { updateConversationUsage } from "../memory/conversation-crud.js";
 import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import type { UsageActor } from "../usage/actors.js";
 import type {
@@ -144,7 +144,7 @@ export function recordUsage(
   ctx.usageStats.outputTokens += outputTokens;
   ctx.usageStats.estimatedCost += estimatedCost;
 
-  conversationStore.updateConversationUsage(
+  updateConversationUsage(
     ctx.conversationId,
     ctx.usageStats.inputTokens,
     ctx.usageStats.outputTokens,

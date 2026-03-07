@@ -5,7 +5,12 @@ import * as net from "node:net";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import {
+  addMessage,
+  createConversation,
+  deleteConversation,
+  getMessages,
+} from "../../memory/conversation-crud.js";
 import {
   GENERATING_TITLE,
   queueGenerateConversationTitle,
@@ -80,9 +85,7 @@ export async function handleTaskSubmit(
       // Create an ephemeral session so the secret_response lifecycle works
       // end-to-end. The conversation is deleted after the prompt resolves
       // to avoid accumulating placeholder entries in session history.
-      const conversation = conversationStore.createConversation(
-        "(blocked — secret detected)",
-      );
+      const conversation = createConversation("(blocked — secret detected)");
       ctx.socketToSession.set(socket, conversation.id);
       const session = await ctx.getOrCreateSession(
         conversation.id,
@@ -91,7 +94,7 @@ export async function handleTaskSubmit(
       );
       session.redirectToSecurePrompt(taskIngressCheck.detectedTypes, {
         onComplete: () => {
-          conversationStore.deleteConversation(conversation.id);
+          deleteConversation(conversation.id);
           // Clean up in-memory session and socket binding so the ephemeral
           // session doesn't accumulate in the daemon's session map.
           const s = ctx.sessions.get(conversation.id);
@@ -121,9 +124,7 @@ export async function handleTaskSubmit(
         "Recording command intent received",
       );
       if (action === "start") {
-        const conversation = conversationStore.createConversation(
-          msg.task || "Screen Recording",
-        );
+        const conversation = createConversation(msg.task || "Screen Recording");
         ctx.socketToSession.set(socket, conversation.id);
         const recordingId = handleRecordingStart(
           conversation.id,
@@ -148,12 +149,12 @@ export async function handleTaskSubmit(
           type: "message_complete",
           sessionId: conversation.id,
         });
-        await conversationStore.addMessage(
+        await addMessage(
           conversation.id,
           "user",
           JSON.stringify([{ type: "text", text: msg.task || "" }]),
         );
-        await conversationStore.addMessage(
+        await addMessage(
           conversation.id,
           "assistant",
           JSON.stringify([{ type: "text", text: responseText }]),
@@ -175,9 +176,7 @@ export async function handleTaskSubmit(
       } else if (action === "stop") {
         let activeSessionId = ctx.socketToSession.get(socket);
         if (!activeSessionId) {
-          const conversation = conversationStore.createConversation(
-            msg.task || "Stop Recording",
-          );
+          const conversation = createConversation(msg.task || "Stop Recording");
           activeSessionId = conversation.id;
           ctx.socketToSession.set(socket, activeSessionId);
         }
@@ -199,12 +198,12 @@ export async function handleTaskSubmit(
           type: "message_complete",
           sessionId: activeSessionId,
         });
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "user",
           JSON.stringify([{ type: "text", text: msg.task || "" }]),
         );
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "assistant",
           JSON.stringify([{ type: "text", text: responseText }]),
@@ -224,7 +223,7 @@ export async function handleTaskSubmit(
       } else if (action === "restart") {
         let activeSessionId = ctx.socketToSession.get(socket);
         if (!activeSessionId) {
-          const conversation = conversationStore.createConversation(
+          const conversation = createConversation(
             msg.task || "Restart Recording",
           );
           activeSessionId = conversation.id;
@@ -249,12 +248,12 @@ export async function handleTaskSubmit(
           type: "message_complete",
           sessionId: activeSessionId,
         });
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "user",
           JSON.stringify([{ type: "text", text: msg.task || "" }]),
         );
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "assistant",
           JSON.stringify([{ type: "text", text: restartResult.responseText }]),
@@ -274,7 +273,7 @@ export async function handleTaskSubmit(
       } else if (action === "pause") {
         let activeSessionId = ctx.socketToSession.get(socket);
         if (!activeSessionId) {
-          const conversation = conversationStore.createConversation(
+          const conversation = createConversation(
             msg.task || "Pause Recording",
           );
           activeSessionId = conversation.id;
@@ -298,12 +297,12 @@ export async function handleTaskSubmit(
           type: "message_complete",
           sessionId: activeSessionId,
         });
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "user",
           JSON.stringify([{ type: "text", text: msg.task || "" }]),
         );
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "assistant",
           JSON.stringify([{ type: "text", text: responseText }]),
@@ -323,7 +322,7 @@ export async function handleTaskSubmit(
       } else if (action === "resume") {
         let activeSessionId = ctx.socketToSession.get(socket);
         if (!activeSessionId) {
-          const conversation = conversationStore.createConversation(
+          const conversation = createConversation(
             msg.task || "Resume Recording",
           );
           activeSessionId = conversation.id;
@@ -348,12 +347,12 @@ export async function handleTaskSubmit(
           type: "message_complete",
           sessionId: activeSessionId,
         });
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "user",
           JSON.stringify([{ type: "text", text: msg.task || "" }]),
         );
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "assistant",
           JSON.stringify([{ type: "text", text: responseText }]),
@@ -395,7 +394,7 @@ export async function handleTaskSubmit(
 
       if (intentResult.kind === "start_only") {
         // Create a conversation so the recording can be attached later
-        const conversation = conversationStore.createConversation(msg.task);
+        const conversation = createConversation(msg.task);
         ctx.socketToSession.set(socket, conversation.id);
 
         const execResult = executeRecordingIntent(intentResult, {
@@ -418,12 +417,12 @@ export async function handleTaskSubmit(
           type: "message_complete",
           sessionId: conversation.id,
         });
-        await conversationStore.addMessage(
+        await addMessage(
           conversation.id,
           "user",
           JSON.stringify([{ type: "text", text: msg.task || "" }]),
         );
-        await conversationStore.addMessage(
+        await addMessage(
           conversation.id,
           "assistant",
           JSON.stringify([{ type: "text", text: execResult.responseText! }]),
@@ -455,7 +454,7 @@ export async function handleTaskSubmit(
       if (intentResult.kind === "stop_only") {
         let activeSessionId = ctx.socketToSession.get(socket);
         if (!activeSessionId) {
-          const conversation = conversationStore.createConversation(msg.task);
+          const conversation = createConversation(msg.task);
           activeSessionId = conversation.id;
           ctx.socketToSession.set(socket, activeSessionId);
         }
@@ -481,12 +480,12 @@ export async function handleTaskSubmit(
           type: "message_complete",
           sessionId: activeSessionId,
         });
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "user",
           JSON.stringify([{ type: "text", text: msg.task || "" }]),
         );
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "assistant",
           JSON.stringify([{ type: "text", text: execResult.responseText! }]),
@@ -508,7 +507,7 @@ export async function handleTaskSubmit(
       if (intentResult.kind === "start_and_stop_only") {
         let activeSessionId = ctx.socketToSession.get(socket);
         if (!activeSessionId) {
-          const conversation = conversationStore.createConversation(msg.task);
+          const conversation = createConversation(msg.task);
           activeSessionId = conversation.id;
           ctx.socketToSession.set(socket, activeSessionId);
         }
@@ -534,12 +533,12 @@ export async function handleTaskSubmit(
           type: "message_complete",
           sessionId: activeSessionId,
         });
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "user",
           JSON.stringify([{ type: "text", text: msg.task || "" }]),
         );
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "assistant",
           JSON.stringify([{ type: "text", text: execResult.responseText! }]),
@@ -566,7 +565,7 @@ export async function handleTaskSubmit(
       ) {
         let activeSessionId = ctx.socketToSession.get(socket);
         if (!activeSessionId) {
-          const conversation = conversationStore.createConversation(msg.task);
+          const conversation = createConversation(msg.task);
           activeSessionId = conversation.id;
           ctx.socketToSession.set(socket, activeSessionId);
         }
@@ -592,12 +591,12 @@ export async function handleTaskSubmit(
           type: "message_complete",
           sessionId: activeSessionId,
         });
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "user",
           JSON.stringify([{ type: "text", text: msg.task || "" }]),
         );
-        await conversationStore.addMessage(
+        await addMessage(
           activeSessionId,
           "assistant",
           JSON.stringify([{ type: "text", text: execResult.responseText! }]),
@@ -677,9 +676,7 @@ export async function handleTaskSubmit(
           if (mapped) {
             let activeSessionId = ctx.socketToSession.get(socket);
             if (!activeSessionId) {
-              const conversation = conversationStore.createConversation(
-                msg.task,
-              );
+              const conversation = createConversation(msg.task);
               activeSessionId = conversation.id;
               ctx.socketToSession.set(socket, activeSessionId);
             }
@@ -709,12 +706,12 @@ export async function handleTaskSubmit(
                 type: "message_complete",
                 sessionId: activeSessionId,
               });
-              await conversationStore.addMessage(
+              await addMessage(
                 activeSessionId,
                 "user",
                 JSON.stringify([{ type: "text", text: msg.task || "" }]),
               );
-              await conversationStore.addMessage(
+              await addMessage(
                 activeSessionId,
                 "assistant",
                 JSON.stringify([
@@ -781,8 +778,7 @@ export async function handleTaskSubmit(
         pendingRecordingStop ||
         pendingRecordingRestart
       ) {
-        const recConversation =
-          conversationStore.createConversation("Screen Recording");
+        const recConversation = createConversation("Screen Recording");
         if (pendingRecordingStop) handleRecordingStop(recConversation.id, ctx);
         if (pendingRecordingStart)
           handleRecordingStart(
@@ -822,8 +818,7 @@ export async function handleTaskSubmit(
       });
     } else {
       // Create text QA session and immediately start processing
-      const conversation =
-        conversationStore.createConversation(GENERATING_TITLE);
+      const conversation = createConversation(GENERATING_TITLE);
       queueGenerateConversationTitle({
         conversationId: conversation.id,
         context: { origin: "task_submit" },
@@ -938,7 +933,7 @@ export async function handleSuggestionRequest(
     });
   };
 
-  const rawMessages = conversationStore.getMessages(msg.sessionId);
+  const rawMessages = getMessages(msg.sessionId);
   if (rawMessages.length === 0) {
     noSuggestion();
     return;

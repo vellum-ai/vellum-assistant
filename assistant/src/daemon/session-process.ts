@@ -17,8 +17,12 @@ import type {
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
-import { provenanceFromTrustContext } from "../memory/conversation-store.js";
+import {
+  addMessage,
+  provenanceFromTrustContext,
+  setConversationOriginChannelIfUnset,
+  setConversationOriginInterfaceIfUnset,
+} from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import type { Message } from "../providers/types.js";
@@ -290,7 +294,7 @@ export async function drainQueue(
             createUserMessage(next.displayContent, next.attachments).content,
           )
         : JSON.stringify(userMsg.content);
-      await conversationStore.addMessage(
+      await addMessage(
         session.conversationId,
         "user",
         contentToPersist,
@@ -299,7 +303,7 @@ export async function drainQueue(
       session.messages.push(userMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
-      await conversationStore.addMessage(
+      await addMessage(
         session.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -308,13 +312,13 @@ export async function drainQueue(
       session.messages.push(assistantMsg);
 
       if (queuedTurnCtx) {
-        conversationStore.setConversationOriginChannelIfUnset(
+        setConversationOriginChannelIfUnset(
           session.conversationId,
           queuedTurnCtx.userMessageChannel,
         );
       }
       if (queuedInterfaceCtx) {
-        conversationStore.setConversationOriginInterfaceIfUnset(
+        setConversationOriginInterfaceIfUnset(
           session.conversationId,
           queuedInterfaceCtx.userMessageInterface,
         );
@@ -570,7 +574,7 @@ export async function processMessage(
       };
 
       const userMsg = createUserMessage(content, attachments);
-      const persisted = await conversationStore.addMessage(
+      const persisted = await addMessage(
         session.conversationId,
         "user",
         JSON.stringify(userMsg.content),
@@ -584,7 +588,7 @@ export async function processMessage(
           ? "Decision applied."
           : "Request already resolved.");
       const assistantMsg = createAssistantMessage(replyText);
-      await conversationStore.addMessage(
+      await addMessage(
         session.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
@@ -640,7 +644,7 @@ export async function processMessage(
     const contentToPersist = displayContent
       ? JSON.stringify(createUserMessage(displayContent, attachments).content)
       : JSON.stringify(userMsg.content);
-    const persisted = await conversationStore.addMessage(
+    const persisted = await addMessage(
       session.conversationId,
       "user",
       contentToPersist,
@@ -649,7 +653,7 @@ export async function processMessage(
     session.messages.push(userMsg);
 
     const assistantMsg = createAssistantMessage(slashResult.message);
-    await conversationStore.addMessage(
+    await addMessage(
       session.conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
@@ -658,13 +662,13 @@ export async function processMessage(
     session.messages.push(assistantMsg);
 
     if (pmTurnCtx) {
-      conversationStore.setConversationOriginChannelIfUnset(
+      setConversationOriginChannelIfUnset(
         session.conversationId,
         pmTurnCtx.userMessageChannel,
       );
     }
     if (pmInterfaceCtx) {
-      conversationStore.setConversationOriginInterfaceIfUnset(
+      setConversationOriginInterfaceIfUnset(
         session.conversationId,
         pmInterfaceCtx.userMessageInterface,
       );

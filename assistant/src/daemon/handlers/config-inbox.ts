@@ -9,7 +9,7 @@ import {
   listPendingApprovalRequests,
   resolveApprovalRequest,
 } from "../../memory/channel-guardian-store.js";
-import { addMessage, getMessages } from "../../memory/conversation-store.js";
+import { addMessage, getMessages } from "../../memory/conversation-crud.js";
 import { getLatestStoredPayload } from "../../memory/delivery-crud.js";
 import { getBindingByConversation } from "../../memory/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";

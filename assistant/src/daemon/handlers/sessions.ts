@@ -15,7 +15,20 @@ import {
   resolveCanonicalGuardianRequest,
 } from "../../memory/canonical-guardian-store.js";
 import { getAttentionStateByConversationIds } from "../../memory/conversation-attention-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import {
+  clearAll,
+  createConversation,
+  getConversation,
+  updateConversationTitle,
+} from "../../memory/conversation-crud.js";
+import {
+  countConversations,
+  listConversations,
+} from "../../memory/conversation-queries.js";
+import {
+  batchSetDisplayOrders,
+  getDisplayMetaForConversations,
+} from "../../memory/conversation-store.js";
 import {
   GENERATING_TITLE,
   queueGenerateConversationTitle,
@@ -252,18 +265,13 @@ export function handleSessionList(
   offset = 0,
   limit = 50,
 ): void {
-  const conversations = conversationStore.listConversations(
-    limit,
-    false,
-    offset,
-  );
-  const totalCount = conversationStore.countConversations();
+  const conversations = listConversations(limit, false, offset);
+  const totalCount = countConversations();
   const conversationIds = conversations.map((c) => c.id);
   const bindings =
     externalConversationStore.getBindingsForConversations(conversationIds);
   const attentionStates = getAttentionStateByConversationIds(conversationIds);
-  const displayMetas =
-    conversationStore.getDisplayMetaForConversations(conversationIds);
+  const displayMetas = getDisplayMetaForConversations(conversationIds);
   ctx.send(socket, {
     type: "session_list_response",
     sessions: conversations.map((c) => {
@@ -338,7 +346,7 @@ export function handleSessionsClear(
   // sendInitialSession, it auto-creates a conversation if none exist.
   // Without this DB clear, that auto-created row survives, contradicting
   // the "clear all conversations" intent.
-  conversationStore.clearAll();
+  clearAll();
   ctx.send(socket, { type: "sessions_clear_response", cleared });
 }
 
@@ -350,7 +358,7 @@ export async function handleSessionCreate(
   const threadType = normalizeThreadType(msg.threadType);
   const title =
     msg.title ?? (msg.initialMessage ? GENERATING_TITLE : "New Conversation");
-  const conversation = conversationStore.createConversation({
+  const conversation = createConversation({
     title,
     threadType,
   });
@@ -435,13 +443,10 @@ export async function handleSessionCreate(
         // Replace stuck loading placeholder with a stable fallback title
         // if title generation hasn't already completed or been renamed.
         try {
-          const current = conversationStore.getConversation(conversation.id);
+          const current = getConversation(conversation.id);
           if (current && current.title === GENERATING_TITLE) {
             const fallback = UNTITLED_FALLBACK;
-            conversationStore.updateConversationTitle(
-              conversation.id,
-              fallback,
-            );
+            updateConversationTitle(conversation.id, fallback);
             ctx.send(socket, {
               type: "session_title_updated",
               sessionId: conversation.id,
@@ -460,7 +465,7 @@ export async function handleSessionSwitch(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const conversation = conversationStore.getConversation(msg.sessionId);
+  const conversation = getConversation(msg.sessionId);
   if (!conversation) {
     ctx.send(socket, {
       type: "error",
@@ -502,7 +507,7 @@ export function handleSessionRename(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const conversation = conversationStore.getConversation(msg.sessionId);
+  const conversation = getConversation(msg.sessionId);
   if (!conversation) {
     ctx.send(socket, {
       type: "error",
@@ -510,7 +515,7 @@ export function handleSessionRename(
     });
     return;
   }
-  conversationStore.updateConversationTitle(msg.sessionId, msg.title, 0);
+  updateConversationTitle(msg.sessionId, msg.title, 0);
   ctx.send(socket, {
     type: "session_title_updated",
     sessionId: msg.sessionId,
@@ -613,7 +618,7 @@ export function handleUsageRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const conversation = conversationStore.getConversation(msg.sessionId);
+  const conversation = getConversation(msg.sessionId);
   if (!conversation) {
     ctx.send(socket, { type: "error", message: "No active session" });
     return;
@@ -664,7 +669,7 @@ export function handleReorderThreads(
   if (!Array.isArray(msg.updates)) {
     return;
   }
-  conversationStore.batchSetDisplayOrders(
+  batchSetDisplayOrders(
     msg.updates.map((u) => ({
       id: u.sessionId,
       displayOrder: u.displayOrder ?? null,

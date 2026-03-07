@@ -26,7 +26,11 @@ import { closeSentry, initSentry } from "../instrument.js";
 import { initLogfire } from "../logfire.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import {
+  deleteMessageById,
+  getConversationThreadType,
+  getMessages,
+} from "../memory/conversation-crud.js";
 import { initializeDb } from "../memory/db.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
@@ -445,8 +449,7 @@ export async function runDaemon(): Promise<void> {
           data: a.dataBase64,
         })),
       deriveDefaultStrictSideEffects: (conversationId) => {
-        const threadType =
-          conversationStore.getConversationThreadType(conversationId);
+        const threadType = getConversationThreadType(conversationId);
         return threadType === "private";
       },
     });
@@ -483,13 +486,13 @@ export async function runDaemon(): Promise<void> {
             // messages array during runAgentLoop.
             const rollback = async (extraMessageIds?: string[]) => {
               try {
-                conversationStore.deleteMessageById(messageId);
+                deleteMessageById(messageId);
               } catch {
                 /* best effort */
               }
               for (const id of extraMessageIds ?? []) {
                 try {
-                  conversationStore.deleteMessageById(id);
+                  deleteMessageById(id);
                 } catch {
                   /* best effort */
                 }
@@ -516,7 +519,7 @@ export async function runDaemon(): Promise<void> {
             // improvement could tag messages with a per-run correlation
             // ID so rollback only targets its own output.
             const preRunMessageIds = new Set(
-              conversationStore.getMessages(conversationId).map((m) => m.id),
+              getMessages(conversationId).map((m) => m.id),
             );
 
             let agentLoopError: string | undefined;
@@ -546,8 +549,7 @@ export async function runDaemon(): Promise<void> {
             // the pre-run snapshot. This captures all messages added to the
             // conversation during the loop window, which may include messages
             // from concurrent pointer events (see over-capture caveat above).
-            const postRunMessages =
-              conversationStore.getMessages(conversationId);
+            const postRunMessages = getMessages(conversationId);
             const createdMessageIds = postRunMessages
               .filter((m) => !preRunMessageIds.has(m.id) && m.id !== messageId)
               .map((m) => m.id);
