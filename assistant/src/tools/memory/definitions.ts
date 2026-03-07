@@ -29,7 +29,7 @@ export const memorySearchDefinition: ToolDefinition = {
 export const memoryRecallDefinition: ToolDefinition = {
   name: "memory_recall",
   description:
-    "Deep search across all memory sources (semantic, lexical, entity graph, recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context. Prefer this over memory_search for richer, multi-source retrieval.",
+    "Deep search across all memory sources (semantic, lexical, entity graph, recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context with item IDs for use with memory_update/memory_delete.",
   input_schema: {
     type: "object",
     properties: {
@@ -104,7 +104,7 @@ export const memoryUpdateDefinition: ToolDefinition = {
       memory_id: {
         type: "string",
         description:
-          "ID of the memory item to update (from memory_search results)",
+          "ID of the memory item to update (from memory_recall results)",
       },
       statement: {
         type: "string",
@@ -130,7 +130,7 @@ export const memoryDeleteDefinition: ToolDefinition = {
       memory_id: {
         type: "string",
         description:
-          "ID of the memory item to delete (from memory_search results)",
+          "ID of the memory item to delete (from memory_recall results)",
       },
       reason: {
         type: "string",
