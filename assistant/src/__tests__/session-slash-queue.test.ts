@@ -161,6 +161,7 @@ mock.module("../config/skills.js", () => ({
     {
       id: "start-the-day",
       name: "Start the Day",
+      displayName: "Start the Day",
       description: "Morning routine skill",
       directoryPath: "/skills/start-the-day",
       skillFilePath: "/skills/start-the-day/SKILL.md",

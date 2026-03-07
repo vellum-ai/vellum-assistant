@@ -685,7 +685,7 @@ public struct IPCChannelVerificationSessionRequest: Codable, Sendable {
     public let channel: String?
     public let sessionId: String?
     public let rebind: Bool?
-    /// E.164 phone number for voice, Telegram handle/chat-id. Used by outbound actions.
+    /// E.164 phone number for phone, Telegram handle/chat-id. Used by outbound actions.
     public let destination: String?
     /// Origin conversation ID so completion/failure pointers can route back.
     public let originConversationId: String?
