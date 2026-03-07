@@ -187,11 +187,13 @@ export async function hatchDocker(
   };
   saveAssistantEntry(dockerEntry);
 
-  // The inner hatch spawns daemon and gateway as background processes, then
-  // exits. Keep the container alive afterward so those processes continue
-  // running and the container stays visible in `docker ps`.
-  const hatchArgs = watch ? `hatch ${species} --watch` : `hatch ${species}`;
-  const containerCmd = ["sh", "-c", `vellum ${hatchArgs}; exec sleep infinity`];
+  // The Dockerfiles already define a CMD that runs `vellum hatch` and keeps
+  // the container alive with `exec sleep infinity`. Only override CMD when
+  // a non-default species is specified, since that requires an extra argument.
+  const containerCmd: string[] =
+    species !== "vellum"
+      ? ["sh", "-c", `vellum hatch ${species}${watch ? " --watch" : ""} && exec sleep infinity`]
+      : [];
 
   if (detached) {
     runArgs.push("-d");
