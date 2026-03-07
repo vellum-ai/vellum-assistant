@@ -3,6 +3,7 @@ import XCTest
 
 #if canImport(UIKit)
 import SwiftUI
+import UIKit
 @testable import vellum_assistant_ios
 #endif
 
@@ -79,6 +80,8 @@ final class UsageDashboardViewTests: XCTestCase {
         if case .loaded(let totals) = populatedStore.totalsState {
             XCTAssertEqual(totals.totalInputTokens, 1000)
             XCTAssertEqual(totals.totalOutputTokens, 500)
+            XCTAssertEqual(totals.totalCacheCreationTokens, 450)
+            XCTAssertEqual(totals.totalCacheReadTokens, 12_300)
             XCTAssertEqual(totals.totalEstimatedCostUsd, 0.0042, accuracy: 0.0001)
             XCTAssertEqual(totals.eventCount, 3)
         } else {
@@ -96,6 +99,12 @@ final class UsageDashboardViewTests: XCTestCase {
         if case .loaded(let breakdown) = populatedStore.breakdownState {
             XCTAssertEqual(breakdown.breakdown.count, 2)
             XCTAssertEqual(breakdown.breakdown[0].group, "claude-sonnet-4-20250514")
+            XCTAssertEqual(breakdown.breakdown[0].totalCacheCreationTokens, 120)
+            XCTAssertEqual(breakdown.breakdown[0].totalCacheReadTokens, 9_876)
+            XCTAssertEqual(
+                UsageFormatting.formatBreakdownSummary(breakdown.breakdown[0]),
+                "700 direct / 120 cache created / 9,876 cache read / 350 out"
+            )
         } else {
             XCTFail("Expected breakdownState to be .loaded, got \(populatedStore.breakdownState)")
         }
@@ -159,7 +168,12 @@ final class UsageDashboardViewTests: XCTestCase {
         }
 
         let view = UsageDashboardView(store: store)
-        let _ = view.body
+        let renderedText = Self.renderedText(from: view)
+
+        XCTAssertTrue(renderedText.contains(UsageFormatting.directInputTokensLabel))
+        XCTAssertTrue(renderedText.contains("Cache Created"))
+        XCTAssertTrue(renderedText.contains("Cache Read"))
+        XCTAssertTrue(renderedText.contains("700 direct / 120 cache created / 9,876 cache read / 350 out"))
     }
 
     #endif
@@ -192,6 +206,58 @@ final class UsageDashboardViewTests: XCTestCase {
 
 // MARK: - Stub Client
 
+#if canImport(UIKit)
+private extension UsageDashboardViewTests {
+    static func renderedText(from view: UsageDashboardView) -> String {
+        let hostingController = UIHostingController(rootView: view)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = hostingController
+        window.isHidden = false
+
+        hostingController.view.frame = window.bounds
+        hostingController.view.setNeedsLayout()
+        hostingController.view.layoutIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        return collectText(from: hostingController.view).joined(separator: "\n")
+    }
+
+    static func collectText(from view: UIView) -> [String] {
+        var strings: [String] = []
+
+        if let label = view as? UILabel, let text = normalizedText(label.text) {
+            strings.append(text)
+        }
+        if let button = view as? UIButton {
+            if let title = normalizedText(button.currentTitle) {
+                strings.append(title)
+            }
+            if let title = normalizedText(button.titleLabel?.text) {
+                strings.append(title)
+            }
+        }
+        if let textField = view as? UITextField, let text = normalizedText(textField.text) {
+            strings.append(text)
+        }
+        if let textView = view as? UITextView, let text = normalizedText(textView.text) {
+            strings.append(text)
+        }
+
+        for subview in view.subviews {
+            strings.append(contentsOf: collectText(from: subview))
+        }
+
+        return strings
+    }
+
+    static func normalizedText(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let normalized = text.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+}
+#endif
+
 /// A stub that returns canned usage data for populated-state tests.
 /// Implements `DaemonClientProtocol` directly since `MockDaemonClient` is final.
 @MainActor
@@ -213,8 +279,8 @@ private final class StubUsageDaemonClient: DaemonClientProtocol {
         UsageTotalsResponse(
             totalInputTokens: 1000,
             totalOutputTokens: 500,
-            totalCacheCreationTokens: 200,
-            totalCacheReadTokens: 100,
+            totalCacheCreationTokens: 450,
+            totalCacheReadTokens: 12_300,
             totalEstimatedCostUsd: 0.0042,
             eventCount: 3,
             pricedEventCount: 2,
@@ -231,8 +297,24 @@ private final class StubUsageDaemonClient: DaemonClientProtocol {
 
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse? {
         UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "claude-sonnet-4-20250514", totalInputTokens: 700, totalOutputTokens: 350, totalEstimatedCostUsd: 0.003, eventCount: 2),
-            UsageGroupBreakdownEntry(group: "claude-haiku-3-20240307", totalInputTokens: 300, totalOutputTokens: 150, totalEstimatedCostUsd: 0.0012, eventCount: 1),
+            UsageGroupBreakdownEntry(
+                group: "claude-sonnet-4-20250514",
+                totalInputTokens: 700,
+                totalOutputTokens: 350,
+                totalCacheCreationTokens: 120,
+                totalCacheReadTokens: 9_876,
+                totalEstimatedCostUsd: 0.003,
+                eventCount: 2
+            ),
+            UsageGroupBreakdownEntry(
+                group: "claude-haiku-3-20240307",
+                totalInputTokens: 300,
+                totalOutputTokens: 150,
+                totalCacheCreationTokens: 330,
+                totalCacheReadTokens: 2_424,
+                totalEstimatedCostUsd: 0.0012,
+                eventCount: 1
+            ),
         ])
     }
 }
