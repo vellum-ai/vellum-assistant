@@ -37,7 +37,7 @@ extension AppDelegate {
         let filePath = pendingBundleFilePaths.isEmpty ? "" : pendingBundleFilePaths.removeFirst()
 
         // Check format version compatibility (1 = legacy single-HTML, 2 = multi-file TSX)
-        if response.manifest.formatVersion > 2 {
+        if response.manifest.format_version > 2 {
             let alert = NSAlert()
             alert.messageText = "Incompatible App"
             alert.informativeText = "This app requires a newer version of vellum-assistant."

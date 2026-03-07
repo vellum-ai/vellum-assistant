@@ -1702,15 +1702,6 @@ extension IPCOpenBundleResponse {
     public typealias SignatureResult = IPCOpenBundleResponseSignatureResult
 }
 
-// camelCase computed properties on the generated Manifest type so existing
-// call sites (e.g. `manifest.formatVersion`, `manifest.createdAt`) keep working.
-// The generated struct uses snake_case property names that match the wire format.
-extension IPCOpenBundleResponseManifest {
-    public var formatVersion: Int { format_version }
-    public var createdAt: String { created_at }
-    public var createdBy: String { created_by }
-}
-
 
 // MARK: - Publish / Unpublish Page Messages
 
