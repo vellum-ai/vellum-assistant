@@ -12,8 +12,12 @@ import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
-import type { MessageRow } from "./conversation-store.js";
-import * as conversationStore from "./conversation-store.js";
+import {
+  getConversation,
+  getMessages,
+  type MessageRow,
+  updateConversationTitle,
+} from "./conversation-crud.js";
 
 const log = getLogger("conversation-title-service");
 
@@ -110,7 +114,7 @@ export async function generateAndPersistConversationTitle(
   } = params;
 
   // Check current title is replaceable
-  const conversation = conversationStore.getConversation(conversationId);
+  const conversation = getConversation(conversationId);
   if (conversation && !isReplaceableTitle(conversation.title)) {
     return { title: conversation.title!, updated: false };
   }
@@ -119,7 +123,7 @@ export async function generateAndPersistConversationTitle(
   if (!provider) {
     // No provider available — fall back to context-derived title or untitled
     const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
-    conversationStore.updateConversationTitle(conversationId, fallback, 1);
+    updateConversationTitle(conversationId, fallback, 1);
     onTitleUpdated?.(fallback);
     return { title: fallback, updated: true };
   }
@@ -149,12 +153,12 @@ export async function generateAndPersistConversationTitle(
     }
 
     // Re-check replaceability before persisting (race guard)
-    const current = conversationStore.getConversation(conversationId);
+    const current = getConversation(conversationId);
     if (current && !isReplaceableTitle(current.title)) {
       return { title: current.title!, updated: false };
     }
 
-    conversationStore.updateConversationTitle(conversationId, title, 1);
+    updateConversationTitle(conversationId, title, 1);
     onTitleUpdated?.(title);
     log.info({ conversationId, title }, "Auto-generated conversation title");
     return { title, updated: true };
@@ -165,13 +169,13 @@ export async function generateAndPersistConversationTitle(
   // text-response path above). A concurrent custom rename may have landed
   // while the LLM request was in-flight; writing unconditionally would
   // clobber the user's intent.
-  const currentForFallback = conversationStore.getConversation(conversationId);
+  const currentForFallback = getConversation(conversationId);
   if (currentForFallback && !isReplaceableTitle(currentForFallback.title)) {
     return { title: currentForFallback.title!, updated: false };
   }
 
   const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
-  conversationStore.updateConversationTitle(conversationId, fallback, 1);
+  updateConversationTitle(conversationId, fallback, 1);
   onTitleUpdated?.(fallback);
   return { title: fallback, updated: true };
 }
@@ -191,16 +195,11 @@ export function queueGenerateConversationTitle(
     );
     // Replace loading placeholder with stable fallback
     try {
-      const conversation = conversationStore.getConversation(
-        params.conversationId,
-      );
+      const conversation = getConversation(params.conversationId);
       if (conversation && conversation.title === GENERATING_TITLE) {
         const fallback =
           deriveFallbackTitle(params.context) ?? UNTITLED_FALLBACK;
-        conversationStore.updateConversationTitle(
-          params.conversationId,
-          fallback,
-        );
+        updateConversationTitle(params.conversationId, fallback);
         params.onTitleUpdated?.(fallback);
       }
     } catch {
@@ -228,7 +227,7 @@ export async function regenerateConversationTitle(
 ): Promise<{ title: string; updated: boolean }> {
   const { conversationId, onTitleUpdated, signal } = params;
 
-  const conversation = conversationStore.getConversation(conversationId);
+  const conversation = getConversation(conversationId);
   if (!conversation || !conversation.isAutoTitle) {
     return { title: conversation?.title ?? UNTITLED_FALLBACK, updated: false };
   }
@@ -238,7 +237,7 @@ export async function regenerateConversationTitle(
     return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
   }
 
-  const allMessages = conversationStore.getMessages(conversationId);
+  const allMessages = getMessages(conversationId);
   const recentMessages = allMessages.slice(-3);
   if (recentMessages.length === 0) {
     return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
@@ -269,12 +268,12 @@ export async function regenerateConversationTitle(
     }
 
     // Re-check isAutoTitle before persisting (race guard against manual rename)
-    const current = conversationStore.getConversation(conversationId);
+    const current = getConversation(conversationId);
     if (!current || !current.isAutoTitle) {
       return { title: current?.title ?? UNTITLED_FALLBACK, updated: false };
     }
 
-    conversationStore.updateConversationTitle(conversationId, title, 1);
+    updateConversationTitle(conversationId, title, 1);
     onTitleUpdated?.(title);
     log.info(
       { conversationId, title },

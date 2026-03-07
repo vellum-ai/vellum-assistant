@@ -8,7 +8,7 @@ import {
   mapGeminiError,
 } from "../../../../media/gemini-image-service.js";
 import { getAttachmentsByIds } from "../../../../memory/attachments-store.js";
-import { getConversationThreadType } from "../../../../memory/conversation-store.js";
+import { getConversationThreadType } from "../../../../memory/conversation-crud.js";
 import type { ImageContent } from "../../../../providers/types.js";
 import { getAttachmentSourceConversations } from "../../../../tools/assets/search.js";
 import type {

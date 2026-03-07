@@ -9,8 +9,8 @@ import {
   clearAll as clearAllConversations,
   getConversation,
   getMessages,
-  listConversations,
-} from "../memory/conversation-store.js";
+} from "../memory/conversation-crud.js";
+import { listConversations } from "../memory/conversation-queries.js";
 import { initializeDb } from "../memory/db.js";
 import { initQdrantClient } from "../memory/qdrant-client.js";
 import { getCliLogger } from "../util/logger.js";
