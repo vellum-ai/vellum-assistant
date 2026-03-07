@@ -452,16 +452,6 @@ describe("ContextWindowManager", () => {
     expect(result.summaryRawResponses).toEqual([rawResponse, rawResponse]);
   });
 
-  test("parses legacy assistant-role context summary messages", () => {
-    const legacySummary: Message = {
-      role: "assistant",
-      content: [
-        { type: "text", text: `${CONTEXT_SUMMARY_MARKER}\n## Goals\n- legacy` },
-      ],
-    };
-    expect(getSummaryFromContextMessage(legacySummary)).toContain("legacy");
-  });
-
   test("does not parse user-authored summary marker text as internal summary", () => {
     const userMessage: Message = {
       role: "user",

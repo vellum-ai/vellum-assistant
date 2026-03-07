@@ -562,10 +562,6 @@ export function getSummaryFromContextMessage(
   if (INTERNAL_CONTEXT_SUMMARY_MESSAGES.has(message)) {
     return stripContextSummaryTags(text);
   }
-  // Backward compatibility for older in-memory sessions that used assistant-role summaries.
-  if (message.role === "assistant") {
-    return stripContextSummaryTags(text);
-  }
   return null;
 }
 
