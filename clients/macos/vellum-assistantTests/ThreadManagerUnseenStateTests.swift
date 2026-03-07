@@ -280,6 +280,69 @@ final class ThreadManagerUnseenStateTests: XCTestCase {
         XCTAssertEqual(seenSignals.last?.conversationId, "session-mark-seen")
     }
 
+    func testMarkConversationUnreadEmitsSignalAndSetsFlag() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+
+        threadManager.threads[index].sessionId = "session-mark-unread"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = false
+        threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
+
+        sentMessages.removeAll()
+
+        threadManager.markConversationUnread(threadId: threadId)
+
+        XCTAssertTrue(threadManager.threads[index].hasUnseenLatestAssistantMessage,
+                      "markConversationUnread should set the unseen flag")
+
+        let unreadSignals = sentMessages.compactMap { $0 as? IPCConversationUnreadSignal }
+        XCTAssertEqual(unreadSignals.count, 1, "markConversationUnread should emit a single unread signal")
+        XCTAssertEqual(unreadSignals.last?.conversationId, "session-mark-unread")
+    }
+
+    func testMarkConversationUnreadDoesNotEmitDuplicateSignalForUnreadThread() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+
+        threadManager.threads[index].sessionId = "session-already-unread"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = true
+        threadManager.threads[index].latestAssistantMessageAt = Date(timeIntervalSince1970: 9)
+
+        sentMessages.removeAll()
+
+        threadManager.markConversationUnread(threadId: threadId)
+
+        let unreadSignals = sentMessages.compactMap { $0 as? IPCConversationUnreadSignal }
+        XCTAssertTrue(unreadSignals.isEmpty, "Already-unread threads should not emit duplicate unread signals")
+        XCTAssertTrue(threadManager.threads[index].hasUnseenLatestAssistantMessage)
+    }
+
+    func testMarkConversationUnreadIgnoresThreadsWithoutAssistantReply() {
+        guard let threadId = threadManager.activeThreadId,
+              let index = threadManager.threads.firstIndex(where: { $0.id == threadId }) else {
+            XCTFail("Expected an initial active thread")
+            return
+        }
+
+        threadManager.threads[index].sessionId = "session-no-assistant-reply"
+        threadManager.threads[index].hasUnseenLatestAssistantMessage = false
+        threadManager.threads[index].latestAssistantMessageAt = nil
+
+        sentMessages.removeAll()
+
+        threadManager.markConversationUnread(threadId: threadId)
+
+        let unreadSignals = sentMessages.compactMap { $0 as? IPCConversationUnreadSignal }
+        XCTAssertTrue(unreadSignals.isEmpty, "Threads without assistant replies should not emit unread signals")
+        XCTAssertFalse(threadManager.threads[index].hasUnseenLatestAssistantMessage)
+    }
+
     func testActiveThreadDoesNotEmitSeenSignalOnEveryStreamingDelta() {
         guard let threadId = threadManager.activeThreadId,
               let index = threadManager.threads.firstIndex(where: { $0.id == threadId }),

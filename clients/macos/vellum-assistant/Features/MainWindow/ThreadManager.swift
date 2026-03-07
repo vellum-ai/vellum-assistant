@@ -1121,6 +1121,16 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
     }
 
+    internal func markConversationUnread(threadId: UUID) {
+        guard let idx = threads.firstIndex(where: { $0.id == threadId }),
+              let sessionId = threads[idx].sessionId,
+              !threads[idx].hasUnseenLatestAssistantMessage,
+              threads[idx].latestAssistantMessageAt != nil else { return }
+
+        threads[idx].hasUnseenLatestAssistantMessage = true
+        emitConversationUnreadSignal(conversationId: sessionId)
+    }
+
     /// Set a pending anchor message for scroll-to behavior on notification deep links.
     /// Only takes effect when the specified thread is currently active.
     func setPendingAnchorMessage(threadId: UUID, messageId: UUID) {
@@ -1218,6 +1228,22 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             try daemonClient.send(signal)
         } catch {
             log.warning("Failed to send conversation_seen_signal for \(conversationId): \(error.localizedDescription)")
+        }
+    }
+
+    private func emitConversationUnreadSignal(conversationId: String) {
+        let signal = IPCConversationUnreadSignal(
+            conversationId: conversationId,
+            sourceChannel: "vellum",
+            signalType: "macos_conversation_opened",
+            confidence: "explicit",
+            source: "ui-navigation",
+            evidenceText: "User selected Mark as unread"
+        )
+        do {
+            try daemonClient.send(signal)
+        } catch {
+            log.warning("Failed to send conversation_unread_signal for \(conversationId): \(error.localizedDescription)")
         }
     }
 
