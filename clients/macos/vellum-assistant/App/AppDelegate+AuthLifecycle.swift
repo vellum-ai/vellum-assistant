@@ -176,9 +176,10 @@ extension AppDelegate {
         guard let assistantId = storedId,
               let assistant = LockfileAssistant.loadByName(assistantId) else { return }
 
-        // Resolve daemon HTTP endpoint
-        let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
-        let daemonPort = Int(portString) ?? 7821
+        // Resolve daemon HTTP endpoint from lockfile, with env override and fallback
+        let daemonPort = assistant.daemonPort
+            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
+            ?? 7821
         let daemonBaseURL = "http://localhost:\(daemonPort)"
 
         Task {

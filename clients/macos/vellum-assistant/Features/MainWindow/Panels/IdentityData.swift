@@ -241,6 +241,8 @@ struct LockfileAssistant {
     let zone: String?
     let instanceId: String?
     let hatchedAt: String?
+    let baseDataDir: String?
+    let daemonPort: Int?
     let gatewayPort: Int?
     let socketPath: String?
     let instanceDir: String?
@@ -324,6 +326,8 @@ struct LockfileAssistant {
                 zone: entry["zone"] as? String,
                 instanceId: entry["instanceId"] as? String,
                 hatchedAt: entry["hatchedAt"] as? String,
+                baseDataDir: entry["baseDataDir"] as? String,
+                daemonPort: resources?["daemonPort"] as? Int,
                 gatewayPort: resources?["gatewayPort"] as? Int,
                 socketPath: resources?["socketPath"] as? String,
                 instanceDir: resources?["instanceDir"] as? String
