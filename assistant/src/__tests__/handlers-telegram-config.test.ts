@@ -8,11 +8,12 @@ const testDir = mkdtempSync(join(tmpdir(), "handlers-telegram-cfg-test-"));
 
 // Track loadRawConfig / saveRawConfig calls
 let rawConfigStore: Record<string, unknown> = {};
+let mockBotUsername = "";
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    telegram: { botUsername: "" },
+    telegram: { botUsername: mockBotUsername },
   }),
   loadConfig: () => ({}),
   loadRawConfig: () => ({ ...rawConfigStore }),
@@ -217,6 +218,7 @@ function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
 describe("Telegram config handler", () => {
   beforeEach(() => {
     rawConfigStore = {};
+    mockBotUsername = "";
     secureKeyStore = {};
     setSecureKeyOverride = null;
     credentialMetadataStore = [];
@@ -253,6 +255,7 @@ describe("Telegram config handler", () => {
     secureKeyStore["credential:telegram:bot_token"] = "test-bot-token";
     secureKeyStore["credential:telegram:webhook_secret"] =
       "test-webhook-secret";
+    mockBotUsername = "my_test_bot";
     credentialMetadataStore.push({
       service: "telegram",
       field: "bot_token",
