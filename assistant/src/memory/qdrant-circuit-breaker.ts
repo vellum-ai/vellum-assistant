@@ -96,6 +96,11 @@ export async function withQdrantBreaker<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Check whether the circuit breaker is currently open (failing fast). */
+export function isQdrantBreakerOpen(): boolean {
+  return breakerState === "open";
+}
+
 /** @internal Test-only: reset circuit breaker state */
 export function _resetQdrantBreaker(): void {
   breakerState = "closed";

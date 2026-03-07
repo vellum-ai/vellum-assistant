@@ -15,6 +15,7 @@ import {
   getMemoryBackendStatus,
   logMemoryEmbeddingWarning,
 } from "./embedding-backend.js";
+import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
 import {
   getCachedRecall,
   getMemoryVersion,
@@ -176,18 +177,35 @@ async function collectAndMergeCandidates(
 
   let semanticSearchFailed = false;
 
+  // Detect when semantic search won't be available so we can compensate
+  // by boosting lexical/recency/direct item limits.
+  const semanticUnavailable = !queryVector || isQdrantBreakerOpen();
+  if (semanticUnavailable) {
+    log.debug("Semantic search unavailable — boosting lexical limits");
+  }
+
   // -- Phase 1: cheap local searches (always run) --
+  const lexicalTopK = semanticUnavailable
+    ? config.memory.retrieval.lexicalTopK * 2
+    : config.memory.retrieval.lexicalTopK;
   const lexical = lexicalSearch(
     query,
-    config.memory.retrieval.lexicalTopK,
+    lexicalTopK,
     excludeMessageIds,
     scopeIds,
   );
 
+  const baseRecencyLimit = Math.max(
+    10,
+    Math.floor(config.memory.retrieval.semanticTopK / 2),
+  );
+  const recencyLimit = semanticUnavailable
+    ? Math.ceil(baseRecencyLimit * 1.5)
+    : baseRecencyLimit;
   const recency = opts?.conversationId
     ? recencySearch(
         opts.conversationId,
-        Math.max(10, Math.floor(config.memory.retrieval.semanticTopK / 2)),
+        recencyLimit,
         excludeMessageIds,
         scopeIds,
       )
@@ -196,7 +214,10 @@ async function collectAndMergeCandidates(
   // Direct item search supplements FTS with LIKE-based matching.
   // When exclusions are present, adaptively increase the fetch size until
   // we collect directLimit valid (non-excluded) items or exhaust the DB.
-  const directLimit = Math.max(10, config.memory.retrieval.lexicalTopK);
+  const baseDirectLimit = Math.max(10, config.memory.retrieval.lexicalTopK);
+  const directLimit = semanticUnavailable
+    ? baseDirectLimit * 2
+    : baseDirectLimit;
 
   // Helper: filter fetched direct items to those with at least one non-excluded source.
   const filterDirectItems = (items: Candidate[]): Candidate[] => {
