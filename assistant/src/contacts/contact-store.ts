@@ -416,6 +416,12 @@ export function searchContacts(params: {
     const contactIds = [...new Set(channelRows.map((r) => r.contactId))];
     if (contactIds.length === 0) return [];
 
+    // Pre-compute the sanitized query for display-name filtering so the
+    // loop body stays cheap.
+    const sanitizedQuery = params.query
+      ? escapeLike(params.query).toLowerCase()
+      : undefined;
+
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
       if (results.length >= limit) break;
@@ -423,7 +429,10 @@ export function searchContacts(params: {
       if (
         contact &&
         (!params.role || contact.role === params.role) &&
-        (!params.contactType || contact.contactType === params.contactType)
+        (!params.contactType || contact.contactType === params.contactType) &&
+        (!sanitizedQuery ||
+          (contact.displayName &&
+            contact.displayName.toLowerCase().includes(sanitizedQuery)))
       ) {
         results.push(contact);
       }
