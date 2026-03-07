@@ -227,17 +227,10 @@ export function validateAndConsumeVerification(
   }
 
   // ── Expected-identity check (outbound sessions) ──
-  // If the session has identity binding fields set and is in 'bound' state,
-  // verify the actor matches the expected identity. If identity_binding_status
-  // is 'pending_bootstrap', allow consumption (bootstrap path handles binding
-  // separately). If no expected identity fields are set (legacy/inbound-only),
-  // skip identity check for backward compatibility.
-  const hasExpectedIdentity =
-    challenge.expectedExternalUserId != null ||
-    challenge.expectedChatId != null ||
-    challenge.expectedPhoneE164 != null;
-
-  if (hasExpectedIdentity && challenge.identityBindingStatus === "bound") {
+  // If the session is in 'bound' state, verify the actor matches the expected
+  // identity. If identity_binding_status is 'pending_bootstrap', allow
+  // consumption (bootstrap path handles binding separately).
+  if (challenge.identityBindingStatus === "bound") {
     let identityMatch = false;
 
     // For voice: verify actorExternalUserId matches expectedPhoneE164
@@ -300,7 +293,6 @@ export function validateAndConsumeVerification(
     }
   }
   // pending_bootstrap: allow consumption without identity check
-  // no expected identity: legacy/inbound-only, skip identity check
 
   // Consume the challenge so it cannot be reused
   consumeSession(challenge.id, actorExternalUserId, actorChatId);
@@ -323,7 +315,7 @@ export function validateAndConsumeVerification(
 /**
  * Look up the active guardian binding for a given assistant and channel.
  * Reads from the contacts table via findGuardianForChannel and
- * synthesizes a GuardianBinding-shaped object for backward compatibility.
+ * synthesizes a GuardianBinding-shaped object.
  * Returns null when no contacts match.
  */
 export function getGuardianBinding(
