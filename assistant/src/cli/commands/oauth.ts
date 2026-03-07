@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 
-import { withValidToken } from "../security/token-manager.js";
-import { shouldOutputJson, writeOutput } from "./utils.js";
+import { withValidToken } from "../../security/token-manager.js";
+import { shouldOutputJson, writeOutput } from "../utils.js";
 
 export function registerOAuthCommand(program: Command): void {
   const oauth = program

@@ -11,8 +11,8 @@ import { Command } from "commander";
 import {
   SUPPORTED_PROVIDERS,
   type SupportedProvider,
-} from "../email/providers/index.js";
-import { getEmailService, GuardrailError } from "../email/service.js";
+} from "../../email/providers/index.js";
+import { getEmailService, GuardrailError } from "../../email/service.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

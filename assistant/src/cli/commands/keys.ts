@@ -1,12 +1,12 @@
 import type { Command } from "commander";
 
-import { API_KEY_PROVIDERS } from "../config/loader.js";
+import { API_KEY_PROVIDERS } from "../../config/loader.js";
 import {
   deleteSecureKey,
   getSecureKey,
   setSecureKey,
-} from "../security/secure-keys.js";
-import { getCliLogger } from "../util/logger.js";
+} from "../../security/secure-keys.js";
+import { getCliLogger } from "../../util/logger.js";
 
 const log = getCliLogger("cli");
 

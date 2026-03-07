@@ -168,7 +168,8 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 // Import the module under test (after mocks are registered)
 // ---------------------------------------------------------------------------
 
-const { registerCredentialsCommand } = await import("../cli/credentials.js");
+const { registerCredentialsCommand } =
+  await import("../cli/commands/credentials.js");
 
 // ---------------------------------------------------------------------------
 // Test helper

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { uninstallSkillLocally } from "../cli/skills.js";
+import { uninstallSkillLocally } from "../cli/commands/skills.js";
 
 let tempDir: string;
 let originalBaseDataDir: string | undefined;

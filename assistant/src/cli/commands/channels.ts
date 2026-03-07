@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 
-import { gatewayGet, runRead, toQueryString } from "./utils.js";
+import { gatewayGet, runRead, toQueryString } from "../utils.js";
 
 export function registerChannelsCommand(program: Command): void {
   const channels = program

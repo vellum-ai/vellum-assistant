@@ -15,12 +15,12 @@ import { gunzipSync } from "node:zlib";
 
 import type { Command } from "commander";
 
-import { getCliLogger } from "../util/logger.js";
+import { getCliLogger } from "../../util/logger.js";
 import {
   getWorkspaceConfigPath,
   getWorkspaceSkillsDir,
   readPlatformToken,
-} from "../util/platform.js";
+} from "../../util/platform.js";
 
 const log = getCliLogger("cli");
 

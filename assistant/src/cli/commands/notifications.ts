@@ -1,18 +1,18 @@
 import type { Command } from "commander";
 
-import { getDeliverableChannels } from "../channels/config.js";
-import { initializeDb } from "../memory/db.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
-import { listEvents } from "../notifications/events-store.js";
+import { getDeliverableChannels } from "../../channels/config.js";
+import { initializeDb } from "../../memory/db.js";
+import { emitNotificationSignal } from "../../notifications/emit-signal.js";
+import { listEvents } from "../../notifications/events-store.js";
 import {
   isNotificationSourceChannel,
   isNotificationSourceEventName,
   NOTIFICATION_SOURCE_CHANNELS,
   NOTIFICATION_SOURCE_EVENT_NAMES,
-} from "../notifications/signal.js";
-import type { NotificationChannel } from "../notifications/types.js";
-import { getCliLogger } from "../util/logger.js";
-import { shouldOutputJson, writeOutput } from "./utils.js";
+} from "../../notifications/signal.js";
+import type { NotificationChannel } from "../../notifications/types.js";
+import { getCliLogger } from "../../util/logger.js";
+import { shouldOutputJson, writeOutput } from "../utils.js";
 
 const log = getCliLogger("cli");
 

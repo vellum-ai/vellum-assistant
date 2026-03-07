@@ -4,7 +4,7 @@ import {
   deleteSecureKeyAsync,
   getSecureKey,
   setSecureKeyAsync,
-} from "../security/secure-keys.js";
+} from "../../security/secure-keys.js";
 import {
   assertMetadataWritable,
   type CredentialMetadata,
@@ -13,9 +13,9 @@ import {
   getCredentialMetadataById,
   listCredentialMetadata,
   upsertCredentialMetadata,
-} from "../tools/credentials/metadata-store.js";
-import { getCliLogger } from "../util/logger.js";
-import { shouldOutputJson, writeOutput } from "./utils.js";
+} from "../../tools/credentials/metadata-store.js";
+import { getCliLogger } from "../../util/logger.js";
+import { shouldOutputJson, writeOutput } from "../utils.js";
 
 const log = getCliLogger("cli");
 

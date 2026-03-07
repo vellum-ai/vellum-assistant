@@ -4,13 +4,13 @@ import * as net from "node:net";
 
 import type { Command } from "commander";
 
-import { loadRawConfig } from "../config/loader.js";
+import { loadRawConfig } from "../../config/loader.js";
 import {
   hasSocketOverride,
   shouldAutoStartDaemon,
-} from "../daemon/connection-policy.js";
-import { IpcError } from "../util/errors.js";
-import { getCliLogger } from "../util/logger.js";
+} from "../../daemon/connection-policy.js";
+import { IpcError } from "../../util/errors.js";
+import { getCliLogger } from "../../util/logger.js";
 import {
   getDataDir,
   getDbPath,
@@ -20,7 +20,7 @@ import {
   getWorkspaceDir,
   getWorkspaceHooksDir,
   getWorkspaceSkillsDir,
-} from "../util/platform.js";
+} from "../../util/platform.js";
 
 const log = getCliLogger("cli");
 
@@ -362,7 +362,7 @@ Examples:
 
       // 12. Browser runtime (Playwright + Chromium)
       const { checkBrowserRuntime } =
-        await import("../tools/browser/runtime-check.js");
+        await import("../../tools/browser/runtime-check.js");
       const browserStatus = await checkBrowserRuntime();
       if (
         browserStatus.playwrightAvailable &&
@@ -380,7 +380,7 @@ Examples:
 
       // 13. Sandbox backend diagnostics
       const { runSandboxDiagnostics } =
-        await import("../tools/terminal/sandbox-diagnostics.js");
+        await import("../../tools/terminal/sandbox-diagnostics.js");
       const sandbox = runSandboxDiagnostics();
       log.info(
         `\n  Sandbox:   ${sandbox.config.enabled ? "enabled" : "disabled"}`,

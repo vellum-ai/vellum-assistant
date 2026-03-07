@@ -14,7 +14,7 @@ mock.module("../mcp/client.js", () => ({
   },
 }));
 
-const { checkServerHealth } = await import("../cli/mcp.js");
+const { checkServerHealth } = await import("../cli/commands/mcp.js");
 
 const serverConfig = (overrides = {}) => ({
   transport: {

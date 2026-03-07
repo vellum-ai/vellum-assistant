@@ -6,8 +6,8 @@ import {
   saveRawConfig,
   setNestedValue,
   syncConfigToLockfile,
-} from "../config/loader.js";
-import { getCliLogger } from "../util/logger.js";
+} from "../../config/loader.js";
+import { getCliLogger } from "../../util/logger.js";
 
 const log = getCliLogger("cli");
 
@@ -192,7 +192,7 @@ Examples:
     .action(() => {
       const { validateAllowlistFile } =
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        require("../security/secret-allowlist.js") as typeof import("../security/secret-allowlist.js");
+        require("../../security/secret-allowlist.js") as typeof import("../../security/secret-allowlist.js");
       try {
         const errors = validateAllowlistFile();
         if (errors == null) {

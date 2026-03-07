@@ -9,22 +9,22 @@ import {
   searchContacts,
   updateChannelStatus,
   upsertContact,
-} from "../contacts/contact-store.js";
+} from "../../contacts/contact-store.js";
 import type {
   ChannelPolicy,
   ChannelStatus,
   ContactRole,
   ContactType,
-} from "../contacts/types.js";
-import { initializeDb } from "../memory/db.js";
+} from "../../contacts/types.js";
+import { initializeDb } from "../../memory/db.js";
 import {
   createIngressInvite,
   listIngressInvites,
   redeemIngressInvite,
   redeemVoiceInviteCode,
   revokeIngressInvite,
-} from "../runtime/invite-service.js";
-import { writeOutput } from "./utils.js";
+} from "../../runtime/invite-service.js";
+import { writeOutput } from "../utils.js";
 
 export function registerContactsCommand(program: Command): void {
   const contacts = program

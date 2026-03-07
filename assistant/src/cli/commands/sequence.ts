@@ -6,11 +6,11 @@
 
 import { Command } from "commander";
 
-import { initializeDb } from "../memory/db.js";
+import { initializeDb } from "../../memory/db.js";
 import {
   getGuardrailConfig,
   setGuardrailConfig,
-} from "../sequence/guardrails.js";
+} from "../../sequence/guardrails.js";
 import {
   countActiveEnrollments,
   exitEnrollment,
@@ -18,7 +18,7 @@ import {
   listEnrollments,
   listSequences,
   updateSequence,
-} from "../sequence/store.js";
+} from "../../sequence/store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

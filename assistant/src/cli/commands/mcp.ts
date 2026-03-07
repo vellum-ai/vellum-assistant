@@ -4,14 +4,14 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Command } from "commander";
 
-import { loadRawConfig, saveRawConfig } from "../config/loader.js";
-import type { McpConfig, McpServerConfig } from "../config/mcp-schema.js";
-import { McpClient } from "../mcp/client.js";
+import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
+import type { McpConfig, McpServerConfig } from "../../config/mcp-schema.js";
+import { McpClient } from "../../mcp/client.js";
 import {
   deleteMcpOAuthCredentials,
   McpOAuthProvider,
-} from "../mcp/mcp-oauth-provider.js";
-import { getCliLogger } from "../util/logger.js";
+} from "../../mcp/mcp-oauth-provider.js";
+import { getCliLogger } from "../../util/logger.js";
 
 const log = getCliLogger("cli");
 

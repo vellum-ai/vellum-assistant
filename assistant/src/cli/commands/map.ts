@@ -10,16 +10,16 @@ import * as net from "node:net";
 import { Command } from "commander";
 import { parse as parseTld } from "tldts";
 
-import { createMessageParser, serialize } from "../daemon/ipc-protocol.js";
+import { createMessageParser, serialize } from "../../daemon/ipc-protocol.js";
 import {
   analyzeApiMap,
   printApiMapTable,
   saveApiMap,
-} from "../tools/browser/api-map.js";
-import { ensureChromeWithCdp } from "../tools/browser/chrome-cdp.js";
-import { loadRecording } from "../tools/browser/recording-store.js";
-import { getCliLogger } from "../util/logger.js";
-import { getSocketPath, readSessionToken } from "../util/platform.js";
+} from "../../tools/browser/api-map.js";
+import { ensureChromeWithCdp } from "../../tools/browser/chrome-cdp.js";
+import { loadRecording } from "../../tools/browser/recording-store.js";
+import { getCliLogger } from "../../util/logger.js";
+import { getSocketPath, readSessionToken } from "../../util/platform.js";
 
 const log = getCliLogger("cli:map");
 
@@ -201,7 +201,7 @@ async function startLearnSession(
           targetDomain: recordDomain,
           navigateDomain,
           autoNavigate,
-        } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
+        } as unknown as import("../../daemon/ipc-protocol.js").ClientMessage),
       );
     };
 
@@ -256,7 +256,7 @@ async function startLearnSession(
           serialize({
             type: "auth",
             token: sessionToken,
-          } as unknown as import("../daemon/ipc-protocol.js").ClientMessage),
+          } as unknown as import("../../daemon/ipc-protocol.js").ClientMessage),
         );
       } else {
         sendStartCommand();

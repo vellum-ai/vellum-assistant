@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 
-import { getCliLogger } from "../util/logger.js";
+import { getCliLogger } from "../../util/logger.js";
 
 const log = getCliLogger("cli");
 

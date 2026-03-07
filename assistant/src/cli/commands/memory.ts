@@ -7,11 +7,11 @@ import {
   requestMemoryBackfill,
   requestMemoryCleanup,
   requestMemoryRebuildIndex,
-} from "../memory/admin.js";
-import { listPendingConflictDetails } from "../memory/conflict-store.js";
-import { listConversations } from "../memory/conversation-queries.js";
-import { initializeDb, rawGet } from "../memory/db.js";
-import { getCliLogger } from "../util/logger.js";
+} from "../../memory/admin.js";
+import { listPendingConflictDetails } from "../../memory/conflict-store.js";
+import { listConversations } from "../../memory/conversation-queries.js";
+import { initializeDb, rawGet } from "../../memory/db.js";
+import { getCliLogger } from "../../util/logger.js";
 
 const log = getCliLogger("cli");
 

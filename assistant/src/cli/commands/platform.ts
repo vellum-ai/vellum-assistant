@@ -4,14 +4,14 @@ import {
   getPlatformAssistantId,
   getPlatformBaseUrl,
   getPlatformInternalApiKey,
-} from "../config/env.js";
-import { getIsContainerized } from "../config/env-registry.js";
+} from "../../config/env.js";
+import { getIsContainerized } from "../../config/env-registry.js";
 import {
   registerCallbackRoute,
   shouldUsePlatformCallbacks,
-} from "../inbound/platform-callback-registration.js";
-import { getCliLogger } from "../util/logger.js";
-import { shouldOutputJson, writeOutput } from "./utils.js";
+} from "../../inbound/platform-callback-registration.js";
+import { getCliLogger } from "../../util/logger.js";
+import { shouldOutputJson, writeOutput } from "../utils.js";
 
 const log = getCliLogger("cli");
 

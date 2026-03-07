@@ -20,13 +20,13 @@ import {
   selectFreshDeliverySlot,
   SessionExpiredError,
   viewCart,
-} from "../amazon/client.js";
+} from "../../amazon/client.js";
 import {
   clearSession,
   importFromRecording,
   loadSession,
   saveSession,
-} from "../amazon/session.js";
+} from "../../amazon/session.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -802,7 +802,7 @@ function decryptChromeCookie(
  *   - macOS Keychain access for 'Chrome Safe Storage' (will prompt once)
  */
 async function extractSessionFromChromeCookies(): Promise<
-  import("../amazon/session.js").AmazonSession
+  import("../../amazon/session.js").AmazonSession
 > {
   // 1. Get Chrome Safe Storage key from macOS Keychain
   let keychainPassword: string;
@@ -873,7 +873,7 @@ async function extractSessionFromChromeCookies(): Promise<
   }
 
   // 4. Decrypt each cookie
-  const cookies: import("../tools/browser/network-recording-types.js").ExtractedCredential[] =
+  const cookies: import("../../tools/browser/network-recording-types.js").ExtractedCredential[] =
     [];
   for (const line of rawOutput.split("\n")) {
     const parts = line.split("|");

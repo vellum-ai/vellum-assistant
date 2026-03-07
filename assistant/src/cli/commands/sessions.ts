@@ -1,21 +1,21 @@
 import type { Command } from "commander";
 
-import { getQdrantUrlEnv } from "../config/env.js";
-import { getConfig } from "../config/loader.js";
-import { shouldAutoStartDaemon } from "../daemon/connection-policy.js";
-import { ensureDaemonRunning } from "../daemon/lifecycle.js";
-import { formatJson, formatMarkdown } from "../export/formatter.js";
+import { getQdrantUrlEnv } from "../../config/env.js";
+import { getConfig } from "../../config/loader.js";
+import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
+import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
+import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import {
   clearAll as clearAllConversations,
   getConversation,
   getMessages,
-} from "../memory/conversation-crud.js";
-import { listConversations } from "../memory/conversation-queries.js";
-import { initializeDb } from "../memory/db.js";
-import { initQdrantClient } from "../memory/qdrant-client.js";
-import { getCliLogger } from "../util/logger.js";
-import { timeAgo } from "../util/time.js";
-import { sendOneMessage } from "./ipc-client.js";
+} from "../../memory/conversation-crud.js";
+import { listConversations } from "../../memory/conversation-queries.js";
+import { initializeDb } from "../../memory/db.js";
+import { initQdrantClient } from "../../memory/qdrant-client.js";
+import { getCliLogger } from "../../util/logger.js";
+import { timeAgo } from "../../util/time.js";
+import { sendOneMessage } from "../ipc-client.js";
 
 const log = getCliLogger("cli");
 

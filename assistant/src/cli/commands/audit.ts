@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 
-import { getRecentInvocations } from "../memory/tool-usage-store.js";
-import { getCliLogger } from "../util/logger.js";
+import { getRecentInvocations } from "../../memory/tool-usage-store.js";
+import { getCliLogger } from "../../util/logger.js";
 
 const log = getCliLogger("cli");
 

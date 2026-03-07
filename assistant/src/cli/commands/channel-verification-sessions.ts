@@ -1,24 +1,24 @@
 import type { Command } from "commander";
 
-import { CHANNEL_IDS, type ChannelId, isChannelId } from "../channels/types.js";
+import { CHANNEL_IDS, type ChannelId, isChannelId } from "../../channels/types.js";
 import {
   createInboundChallenge,
   getVerificationStatus,
   revokeVerificationForChannel,
   verifyTrustedContact,
-} from "../daemon/handlers/config-channels.js";
-import { initializeDb } from "../memory/db.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { revokePendingSessions } from "../runtime/channel-verification-service.js";
+} from "../../daemon/handlers/config-channels.js";
+import { initializeDb } from "../../memory/db.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
+import { revokePendingSessions } from "../../runtime/channel-verification-service.js";
 import {
   cancelOutbound,
   normalizeTelegramDestination,
   resendOutbound,
   startOutbound,
-} from "../runtime/verification-outbound-actions.js";
-import { verificationRateLimiter } from "../runtime/verification-rate-limiter.js";
-import { normalizePhoneNumber } from "../util/phone.js";
-import { writeOutput } from "./utils.js";
+} from "../../runtime/verification-outbound-actions.js";
+import { verificationRateLimiter } from "../../runtime/verification-rate-limiter.js";
+import { normalizePhoneNumber } from "../../util/phone.js";
+import { writeOutput } from "../utils.js";
 
 /**
  * Validate the --channel option. Returns the validated ChannelId or writes an

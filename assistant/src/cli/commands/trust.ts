@@ -4,8 +4,8 @@ import {
   clearAllRules,
   getAllRules,
   removeRule,
-} from "../permissions/trust-store.js";
-import { getCliLogger } from "../util/logger.js";
+} from "../../permissions/trust-store.js";
+import { getCliLogger } from "../../util/logger.js";
 
 const log = getCliLogger("cli");
 
