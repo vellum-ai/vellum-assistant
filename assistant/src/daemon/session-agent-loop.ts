@@ -432,7 +432,7 @@ export async function runAgentLoopImpl(
       "thinking_delta",
       "assistant_turn",
       reqId,
-      "Compacting context...",
+      "Compacting context",
     );
     const compacted = await ctx.contextWindowManager.maybeCompact(
       ctx.messages,
@@ -682,7 +682,7 @@ export async function runAgentLoopImpl(
           "thinking_delta",
           "assistant_turn",
           reqId,
-          "Compacting context...",
+          "Compacting context",
         );
         const step = await reduceContextOverflow(
           ctx.messages,
@@ -879,7 +879,7 @@ export async function runAgentLoopImpl(
           "thinking_delta",
           "assistant_turn",
           reqId,
-          "Compacting context...",
+          "Compacting context",
         );
         const step = await reduceContextOverflow(
           ctx.messages,
@@ -1071,7 +1071,7 @@ export async function runAgentLoopImpl(
             "thinking_delta",
             "assistant_turn",
             reqId,
-            "Compacting context...",
+            "Compacting context",
           );
           const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
             ctx.messages,
