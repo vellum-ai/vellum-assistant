@@ -84,8 +84,8 @@ describe("guardian control-plane proxy", () => {
 
     const handler = createGuardianControlPlaneProxyHandler(makeConfig());
 
-    await handler.handleCreateGuardianChallenge(
-      new Request("http://localhost:7830/v1/integrations/guardian/challenge", {
+    await handler.handleCreateGuardianSession(
+      new Request("http://localhost:7830/v1/integrations/guardian/sessions", {
         method: "POST",
       }),
     );
@@ -95,31 +95,29 @@ describe("guardian control-plane proxy", () => {
         { method: "GET" },
       ),
     );
-    await handler.handleStartGuardianOutbound(
+    await handler.handleCreateGuardianSession(
+      new Request("http://localhost:7830/v1/integrations/guardian/sessions", {
+        method: "POST",
+      }),
+    );
+    await handler.handleResendGuardianSession(
       new Request(
-        "http://localhost:7830/v1/integrations/guardian/outbound/start",
+        "http://localhost:7830/v1/integrations/guardian/sessions/resend",
         { method: "POST" },
       ),
     );
-    await handler.handleResendGuardianOutbound(
-      new Request(
-        "http://localhost:7830/v1/integrations/guardian/outbound/resend",
-        { method: "POST" },
-      ),
-    );
-    await handler.handleCancelGuardianOutbound(
-      new Request(
-        "http://localhost:7830/v1/integrations/guardian/outbound/cancel",
-        { method: "POST" },
-      ),
+    await handler.handleCancelGuardianSession(
+      new Request("http://localhost:7830/v1/integrations/guardian/sessions", {
+        method: "DELETE",
+      }),
     );
 
     expect(captured).toEqual([
-      "http://localhost:7821/v1/integrations/guardian/challenge",
+      "http://localhost:7821/v1/integrations/guardian/sessions",
       "http://localhost:7821/v1/integrations/guardian/status?channel=voice",
-      "http://localhost:7821/v1/integrations/guardian/outbound/start",
-      "http://localhost:7821/v1/integrations/guardian/outbound/resend",
-      "http://localhost:7821/v1/integrations/guardian/outbound/cancel",
+      "http://localhost:7821/v1/integrations/guardian/sessions",
+      "http://localhost:7821/v1/integrations/guardian/sessions/resend",
+      "http://localhost:7821/v1/integrations/guardian/sessions",
     ]);
   });
 
@@ -137,22 +135,19 @@ describe("guardian control-plane proxy", () => {
     );
 
     const handler = createGuardianControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleStartGuardianOutbound(
-      new Request(
-        "http://localhost:7830/v1/integrations/guardian/outbound/start",
-        {
-          method: "POST",
-          headers: {
-            authorization: "Bearer caller-token",
-            "content-type": "application/json",
-            host: "localhost:7830",
-          },
-          body: JSON.stringify({
-            channel: "voice",
-            destination: "+15551234567",
-          }),
+    const res = await handler.handleCreateGuardianSession(
+      new Request("http://localhost:7830/v1/integrations/guardian/sessions", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer caller-token",
+          "content-type": "application/json",
+          host: "localhost:7830",
         },
-      ),
+        body: JSON.stringify({
+          channel: "voice",
+          destination: "+15551234567",
+        }),
+      }),
     );
 
     expect(res.status).toBe(200);
@@ -175,13 +170,10 @@ describe("guardian control-plane proxy", () => {
     });
 
     const handler = createGuardianControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleStartGuardianOutbound(
-      new Request(
-        "http://localhost:7830/v1/integrations/guardian/outbound/start",
-        {
-          method: "POST",
-        },
-      ),
+    const res = await handler.handleCreateGuardianSession(
+      new Request("http://localhost:7830/v1/integrations/guardian/sessions", {
+        method: "POST",
+      }),
     );
 
     expect(res.status).toBe(400);

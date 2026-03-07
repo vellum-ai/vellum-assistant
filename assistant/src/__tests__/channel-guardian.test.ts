@@ -2899,14 +2899,14 @@ describe("outbound SMS verification", () => {
     expect(resp!.error).toBe("unsupported_channel");
   });
 
-  test("start_outbound rejects missing destination", async () => {
+  test("create_session without destination falls through to inbound challenge", async () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
         type: "guardian_verification",
         action: "create_session",
         channel: "sms",
-        // no destination
+        // no destination — unified create_session creates an inbound challenge
       },
       mockSocket,
       ctx,
@@ -2914,8 +2914,8 @@ describe("outbound SMS verification", () => {
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe("missing_destination");
+    expect(resp!.success).toBe(true);
+    expect(resp!.secret).toBeDefined();
   });
 
   test("start_outbound rejects unparseable phone number", async () => {
@@ -2981,7 +2981,7 @@ describe("outbound SMS verification", () => {
     expect(sms).not.toContain("999999");
   });
 
-  test("cancel_outbound returns error when no active session", async () => {
+  test("cancel_session succeeds even when no active session (idempotent)", async () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
@@ -2995,8 +2995,7 @@ describe("outbound SMS verification", () => {
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe("no_active_session");
+    expect(resp!.success).toBe(true);
   });
 });
 
@@ -3438,7 +3437,7 @@ describe("outbound Telegram verification", () => {
     expect(msg).not.toContain("999999");
   });
 
-  test("start_outbound for telegram with missing destination fails", async () => {
+  test("create_session for telegram without destination falls through to inbound challenge", async () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
@@ -3452,8 +3451,8 @@ describe("outbound Telegram verification", () => {
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe("missing_destination");
+    expect(resp!.success).toBe(true);
+    expect(resp!.secret).toBeDefined();
   });
 
   test("rate limits apply to telegram outbound (per-session send cap)", async () => {
@@ -3773,7 +3772,7 @@ describe("outbound voice verification", () => {
     expect(resp!.error).toBe("rate_limited");
   });
 
-  test("start_outbound for voice requires destination", async () => {
+  test("create_session for voice without destination falls through to inbound challenge", async () => {
     const { ctx, lastResponse } = createMockCtx();
     await handleGuardianVerification(
       {
@@ -3787,8 +3786,8 @@ describe("outbound voice verification", () => {
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
-    expect(resp!.success).toBe(false);
-    expect(resp!.error).toBe("missing_destination");
+    expect(resp!.success).toBe(true);
+    expect(resp!.secret).toBeDefined();
   });
 });
 

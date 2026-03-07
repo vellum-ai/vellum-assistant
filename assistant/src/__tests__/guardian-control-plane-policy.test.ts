@@ -149,11 +149,10 @@ afterAll(() => {
 
 describe("isGuardianControlPlaneInvocation", () => {
   const guardianPaths = [
-    "/v1/integrations/guardian/challenge",
+    "/v1/integrations/guardian/sessions",
     "/v1/integrations/guardian/status",
-    "/v1/integrations/guardian/outbound/start",
-    "/v1/integrations/guardian/outbound/resend",
-    "/v1/integrations/guardian/outbound/cancel",
+    "/v1/integrations/guardian/sessions/resend",
+    "/v1/integrations/guardian/revoke",
   ];
 
   describe("bash tool with guardian endpoint in command", () => {
@@ -217,7 +216,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("host_bash", {
           command:
-            'curl -H "Authorization: Bearer token" https://internal:8080/v1/integrations/guardian/outbound/start',
+            'curl -H "Authorization: Bearer token" https://internal:8080/v1/integrations/guardian/sessions',
         }),
       ).toBe(true);
     });
@@ -237,7 +236,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects proxied local URL", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "http://127.0.0.1:3000/v1/integrations/guardian/challenge",
+          url: "http://127.0.0.1:3000/v1/integrations/guardian/sessions",
         }),
       ).toBe(true);
     });
@@ -261,7 +260,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects guardian endpoint", () => {
       expect(
         isGuardianControlPlaneInvocation("web_fetch", {
-          url: "https://api.example.com/v1/integrations/guardian/outbound/cancel",
+          url: "https://api.example.com/v1/integrations/guardian/sessions",
         }),
       ).toBe(true);
     });
@@ -289,7 +288,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("file_read is never a guardian invocation", () => {
       expect(
         isGuardianControlPlaneInvocation("file_read", {
-          path: "/v1/integrations/guardian/challenge",
+          path: "/v1/integrations/guardian/sessions",
         }),
       ).toBe(false);
     });
@@ -298,7 +297,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("file_write", {
           path: "/tmp/test.txt",
-          content: "curl /v1/integrations/guardian/outbound/start",
+          content: "curl /v1/integrations/guardian/sessions",
         }),
       ).toBe(false);
     });
@@ -316,7 +315,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("matches endpoint with query string", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "https://api.example.com/v1/integrations/guardian/challenge?token=abc",
+          url: "https://api.example.com/v1/integrations/guardian/sessions?token=abc",
         }),
       ).toBe(true);
     });
@@ -324,7 +323,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("matches endpoint with trailing slash", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "https://api.example.com/v1/integrations/guardian/outbound/start/",
+          url: "https://api.example.com/v1/integrations/guardian/sessions/resend/",
         }),
       ).toBe(true);
     });
@@ -333,7 +332,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            'echo \'{"phone":"+1234567890"}\' | curl -X POST -d @- http://localhost:3000/v1/integrations/guardian/outbound/resend',
+            'echo \'{"phone":"+1234567890"}\' | curl -X POST -d @- http://localhost:3000/v1/integrations/guardian/sessions/resend',
         }),
       ).toBe(true);
     });
@@ -344,7 +343,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            "curl http://localhost:3000/v1/integrations%2Fguardian%2Foutbound%2Fstart",
+            "curl http://localhost:3000/v1/integrations%2Fguardian%2Fsessions",
         }),
       ).toBe(true);
     });
@@ -352,7 +351,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects double-encoded path (%252F encoding)", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "http://localhost:3000/v1/integrations%252Fguardian%252Fchallenge",
+          url: "http://localhost:3000/v1/integrations%252Fguardian%252Fsessions",
         }),
       ).toBe(true);
     });
@@ -361,7 +360,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            "curl http://localhost:3000/v1/integrations//guardian/outbound/start",
+            "curl http://localhost:3000/v1/integrations//guardian/sessions",
         }),
       ).toBe(true);
     });
@@ -386,7 +385,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects ALL CAPS path", () => {
       expect(
         isGuardianControlPlaneInvocation("network_request", {
-          url: "http://localhost:3000/V1/INTEGRATIONS/GUARDIAN/CHALLENGE",
+          url: "http://localhost:3000/V1/INTEGRATIONS/GUARDIAN/SESSIONS",
         }),
       ).toBe(true);
     });
@@ -395,7 +394,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            "curl http://localhost:3000/V1/Integrations%2FGuardian%2FOutbound%2FCancel",
+            "curl http://localhost:3000/V1/Integrations%2FGuardian%2FSessions",
         }),
       ).toBe(true);
     });
@@ -411,7 +410,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects URL-encoded path in web_fetch tool", () => {
       expect(
         isGuardianControlPlaneInvocation("web_fetch", {
-          url: "http://localhost:3000/v1/integrations%2Fguardian%2Foutbound%2Fresend",
+          url: "http://localhost:3000/v1/integrations%2Fguardian%2Fsessions%2Fresend",
         }),
       ).toBe(true);
     });
@@ -428,7 +427,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     test("detects guardian endpoint despite malformed percent-encoding elsewhere in command", () => {
       const result = isGuardianControlPlaneInvocation("bash", {
         command:
-          'curl -H "X: %ZZ" http://localhost:3000/v1/integrations%2Fguardian%2Foutbound%2Fstart -d \'{"channel":"sms"}\'',
+          'curl -H "X: %ZZ" http://localhost:3000/v1/integrations%2Fguardian%2Fsessions -d \'{"channel":"sms"}\'',
       });
       expect(result).toBe(true);
     });
@@ -448,7 +447,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            'API=/v1/integrations; curl "http://localhost:3000${API}/guardian/outbound/start"',
+            'API=/v1/integrations; curl "http://localhost:3000${API}/guardian/sessions"',
         }),
       ).toBe(true);
     });
@@ -457,7 +456,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            'HOST=http://localhost:7821; PATH_PREFIX=/v1/integrations; SVC=guardian; curl "$HOST$PATH_PREFIX/$SVC/challenge"',
+            'HOST=http://localhost:7821; PATH_PREFIX=/v1/integrations; SVC=guardian; curl "$HOST$PATH_PREFIX/$SVC/sessions"',
         }),
       ).toBe(true);
     });
@@ -466,7 +465,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       expect(
         isGuardianControlPlaneInvocation("bash", {
           command:
-            'url="http://localhost:3000/v1/integrations"; curl "${url}/guardian/outbound/resend"',
+            'url="http://localhost:3000/v1/integrations"; curl "${url}/guardian/sessions/resend"',
         }),
       ).toBe(true);
     });
@@ -508,8 +507,7 @@ describe("enforceGuardianOnlyPolicy", () => {
     const result = enforceGuardianOnlyPolicy(
       "bash",
       {
-        command:
-          "curl http://localhost:3000/v1/integrations/guardian/outbound/start",
+        command: "curl http://localhost:3000/v1/integrations/guardian/sessions",
       },
       "trusted_contact",
     );
@@ -521,7 +519,7 @@ describe("enforceGuardianOnlyPolicy", () => {
     const result = enforceGuardianOnlyPolicy(
       "network_request",
       {
-        url: "https://api.example.com/v1/integrations/guardian/challenge",
+        url: "https://api.example.com/v1/integrations/guardian/sessions",
       },
       "unknown",
     );
@@ -533,8 +531,7 @@ describe("enforceGuardianOnlyPolicy", () => {
     const result = enforceGuardianOnlyPolicy(
       "bash",
       {
-        command:
-          "curl http://localhost:3000/v1/integrations/guardian/outbound/start",
+        command: "curl http://localhost:3000/v1/integrations/guardian/sessions",
       },
       "guardian",
     );
@@ -546,8 +543,7 @@ describe("enforceGuardianOnlyPolicy", () => {
     const result = enforceGuardianOnlyPolicy(
       "bash",
       {
-        command:
-          "curl http://localhost:3000/v1/integrations/guardian/outbound/start",
+        command: "curl http://localhost:3000/v1/integrations/guardian/sessions",
       },
       "guardian",
     );
@@ -558,8 +554,7 @@ describe("enforceGuardianOnlyPolicy", () => {
     const result = enforceGuardianOnlyPolicy(
       "bash",
       {
-        command:
-          "curl http://localhost:3000/v1/integrations/guardian/outbound/start",
+        command: "curl http://localhost:3000/v1/integrations/guardian/sessions",
       },
       "some_future_role",
     );
@@ -599,13 +594,13 @@ describe("ToolExecutor guardian-only policy gate", () => {
     fakeToolResult = { content: "ok", isError: false };
   });
 
-  test("non-guardian actor blocked from bash curl to guardian outbound/start", async () => {
+  test("non-guardian actor blocked from bash curl to guardian sessions", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "bash",
       {
         command:
-          "curl -X POST http://localhost:3000/v1/integrations/guardian/outbound/start",
+          "curl -X POST http://localhost:3000/v1/integrations/guardian/sessions",
       },
       makeContext({ trustClass: "trusted_contact" }),
     );
@@ -617,7 +612,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "network_request",
-      { url: "https://api.example.com/v1/integrations/guardian/challenge" },
+      { url: "https://api.example.com/v1/integrations/guardian/sessions" },
       makeContext({ trustClass: "unknown" }),
     );
     expect(result.isError).toBe(true);
@@ -630,7 +625,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
       "bash",
       {
         command:
-          "curl -X POST http://localhost:3000/v1/integrations/guardian/outbound/start",
+          "curl -X POST http://localhost:3000/v1/integrations/guardian/sessions",
       },
       makeContext({ trustClass: "guardian" }),
     );
@@ -678,7 +673,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
       "bash",
       {
         command:
-          "curl http://localhost:3000/v1/integrations/guardian/outbound/cancel",
+          "curl -X DELETE http://localhost:3000/v1/integrations/guardian/sessions",
       },
       makeContext({
         trustClass: "trusted_contact",
@@ -698,7 +693,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "web_fetch",
-      { url: "http://localhost:3000/v1/integrations/guardian/outbound/resend" },
+      { url: "http://localhost:3000/v1/integrations/guardian/sessions/resend" },
       makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);
@@ -722,7 +717,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
       "host_bash",
       {
         command:
-          "curl -X POST https://internal:8080/v1/integrations/guardian/challenge",
+          "curl -X POST https://internal:8080/v1/integrations/guardian/sessions",
       },
       makeContext({ trustClass: "trusted_contact" }),
     );
@@ -730,13 +725,12 @@ describe("ToolExecutor guardian-only policy gate", () => {
     expect(result.content).toContain("restricted to guardian users");
   });
 
-  test("all five guardian endpoints are blocked for non-guardian via network_request", async () => {
+  test("all guardian endpoints are blocked for non-guardian via network_request", async () => {
     const endpoints = [
-      "/v1/integrations/guardian/challenge",
+      "/v1/integrations/guardian/sessions",
       "/v1/integrations/guardian/status",
-      "/v1/integrations/guardian/outbound/start",
-      "/v1/integrations/guardian/outbound/resend",
-      "/v1/integrations/guardian/outbound/cancel",
+      "/v1/integrations/guardian/sessions/resend",
+      "/v1/integrations/guardian/revoke",
     ];
 
     for (const path of endpoints) {

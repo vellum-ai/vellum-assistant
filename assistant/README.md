@@ -292,7 +292,7 @@ This section documents the end-to-end flow from guardian verification through in
 
 Guardian verification establishes a cryptographic trust binding between a human identity and an `(assistantId, channel)` pair. The flow is:
 
-1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_challenge` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
+1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a guardian-verification IPC message (`create_session` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
 2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram or SMS).
 3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided code, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
 4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `actorExternalId` and `chatId` (DB columns: `externalUserId`, `chatId`). The verifier receives a confirmation message.
@@ -353,11 +353,11 @@ Guardian verification can also be initiated through normal desktop chat. When th
 
 **Outbound HTTP Endpoints** (exposed via the gateway API and forwarded to the runtime):
 
-| Endpoint                                    | Method | Description                                                                           |
-| ------------------------------------------- | ------ | ------------------------------------------------------------------------------------- |
-| `/v1/integrations/guardian/outbound/start`  | POST   | Start outbound verification. Body: `{ channel, destination?, assistantId?, rebind? }` |
-| `/v1/integrations/guardian/outbound/resend` | POST   | Resend verification code. Body: `{ channel, assistantId? }`                           |
-| `/v1/integrations/guardian/outbound/cancel` | POST   | Cancel active session. Body: `{ channel, assistantId? }`                              |
+| Endpoint                                    | Method | Description                                                                                                                                                               |
+| ------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/integrations/guardian/sessions`        | POST   | Create a guardian session. If `destination` is provided, starts outbound verification; otherwise creates an inbound challenge. Body: `{ channel, destination?, rebind? }` |
+| `/v1/integrations/guardian/sessions/resend` | POST   | Resend verification code for an active outbound session. Body: `{ channel }`                                                                                              |
+| `/v1/integrations/guardian/sessions`        | DELETE | Cancel all active sessions (inbound + outbound) for a channel. Body: `{ channel }`                                                                                        |
 
 These endpoints share the same business logic as the IPC-based verification flow via `guardian-outbound-actions.ts`. Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly.
 

@@ -110,8 +110,7 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 
 **When AppKit bridges are still needed** (keep them minimal — only AppKit-specific logic, no business logic or layout):
 - Intercepting `Cmd+V` for image paste detection (pasteboard inspection not available in SwiftUI)
-- Intercepting `Cmd+Enter` as a key equivalent before the field editor consumes it
-- Intercepting `Shift+Return` to insert a newline before `.onSubmit` fires (SwiftUI cannot distinguish modifier+Return combos)
+- Intercepting return-key shortcuts that SwiftUI cannot route precisely before `.onSubmit` fires, including `Cmd+Enter` send, `Shift+Return` newline, and default-mode `Option+Return` send
 - Registering window-level event monitors (`NSEvent.addLocalMonitorForEvents`)
 - Accessing `NSWindow` properties (e.g., typing redirect handlers, container view registration)
 

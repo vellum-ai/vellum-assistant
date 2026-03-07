@@ -214,11 +214,10 @@ The gateway serves as the single public ingress point for all external callbacks
 | `/webhooks/twilio/sms`                      | POST            | Twilio SMS webhook — validates X-Twilio-Signature (HMAC-SHA1), normalizes into `GatewayInboundEvent` with `sourceChannel: "sms"`, deduplicates by `MessageSid`, and forwards to runtime |
 | `/deliver/sms`                              | POST            | Internal endpoint for the assistant runtime to deliver outbound SMS messages via the Twilio Messages API                                                                                |
 | `/webhooks/oauth/callback`                  | GET             | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime                                           |
-| `/v1/integrations/guardian/challenge`       | POST            | Authenticated control-plane proxy for creating guardian verification challenges                                                                                                         |
+| `/v1/integrations/guardian/sessions`        | POST            | Authenticated control-plane proxy for creating guardian sessions (inbound challenge or outbound verification)                                                                           |
+| `/v1/integrations/guardian/sessions`        | DELETE          | Authenticated control-plane proxy for cancelling active guardian sessions                                                                                                               |
+| `/v1/integrations/guardian/sessions/resend` | POST            | Authenticated control-plane proxy for resending outbound guardian verification code                                                                                                     |
 | `/v1/integrations/guardian/status`          | GET             | Authenticated control-plane proxy for guardian binding status                                                                                                                           |
-| `/v1/integrations/guardian/outbound/start`  | POST            | Authenticated control-plane proxy for starting outbound guardian verification                                                                                                           |
-| `/v1/integrations/guardian/outbound/resend` | POST            | Authenticated control-plane proxy for resending outbound guardian verification                                                                                                          |
-| `/v1/integrations/guardian/outbound/cancel` | POST            | Authenticated control-plane proxy for cancelling outbound guardian verification                                                                                                         |
 | `/v1/integrations/telegram/config`          | GET/POST/DELETE | Authenticated control-plane proxy for Telegram integration config                                                                                                                       |
 | `/v1/integrations/telegram/commands`        | POST            | Authenticated control-plane proxy for Telegram command registration                                                                                                                     |
 | `/v1/integrations/telegram/setup`           | POST            | Authenticated control-plane proxy for Telegram setup orchestration                                                                                                                      |
@@ -299,7 +298,7 @@ When `INGRESS_PUBLIC_BASE_URL` is configured, the gateway prioritizes it as the 
 
 ## Default Mode: Dedicated Routes Only
 
-By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, explicit control-plane proxies such as `/v1/integrations/guardian/*`, `/v1/integrations/telegram/*`, and `/v1/contacts/invites/*`, plus the authenticated runtime health route `/v1/health`) remain available, but arbitrary runtime passthrough routes return `404` unless `GATEWAY_RUNTIME_PROXY_ENABLED=true`.
+By default, the broad runtime proxy is disabled. Dedicated gateway-managed routes (webhooks, delivery endpoints, explicit control-plane proxies such as `/v1/integrations/guardian/*`, `/v1/integrations/telegram/*`, `/v1/integrations/slack/*`, and `/v1/contacts/invites/*`, plus the authenticated runtime health route `/v1/health`) remain available, but arbitrary runtime passthrough routes return `404` unless `GATEWAY_RUNTIME_PROXY_ENABLED=true`.
 
 ## Runtime Proxy Mode
 

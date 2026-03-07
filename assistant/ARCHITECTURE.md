@@ -207,11 +207,11 @@ Guardian verification can be initiated through gateway HTTP endpoints (which for
 
 **HTTP Endpoints:**
 
-| Endpoint                                    | Method | Description                                                                                         |
-| ------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- |
-| `/v1/integrations/guardian/outbound/start`  | POST   | Start a new outbound verification session. Body: `{ channel, destination?, assistantId?, rebind? }` |
-| `/v1/integrations/guardian/outbound/resend` | POST   | Resend the verification code for an active session. Body: `{ channel, assistantId? }`               |
-| `/v1/integrations/guardian/outbound/cancel` | POST   | Cancel an active outbound verification session. Body: `{ channel, assistantId? }`                   |
+| Endpoint                                    | Method | Description                                                                                                                                                               |
+| ------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/integrations/guardian/sessions`        | POST   | Create a guardian session. If `destination` is provided, starts outbound verification; otherwise creates an inbound challenge. Body: `{ channel, destination?, rebind? }` |
+| `/v1/integrations/guardian/sessions/resend` | POST   | Resend the verification code for an active outbound session. Body: `{ channel }`                                                                                          |
+| `/v1/integrations/guardian/sessions`        | DELETE | Cancel all active sessions (inbound + outbound) for a channel. Body: `{ channel }`                                                                                        |
 
 All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`. Skills and user-facing tooling should target the gateway URL (default `http://localhost:7830`), not the runtime port.
 

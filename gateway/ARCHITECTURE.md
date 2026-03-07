@@ -83,11 +83,10 @@ Guardian verification endpoints are exposed directly by the gateway and forwarde
 
 | Method | Path                                        |
 | ------ | ------------------------------------------- |
-| POST   | `/v1/integrations/guardian/challenge`       |
+| POST   | `/v1/integrations/guardian/sessions`        |
+| DELETE | `/v1/integrations/guardian/sessions`        |
+| POST   | `/v1/integrations/guardian/sessions/resend` |
 | GET    | `/v1/integrations/guardian/status`          |
-| POST   | `/v1/integrations/guardian/outbound/start`  |
-| POST   | `/v1/integrations/guardian/outbound/resend` |
-| POST   | `/v1/integrations/guardian/outbound/cancel` |
 | POST   | `/v1/integrations/guardian/vellum/refresh`  |
 
 The `/vellum/refresh` endpoint is the only public ingress for rotating JWT access + refresh token credentials. Clients must call this through the gateway; the runtime endpoint is not directly exposed. The gateway validates the caller's JWT and forwards to the runtime, which handles refresh token validation, rotation, and replay detection (see [`assistant/ARCHITECTURE.md`](../assistant/ARCHITECTURE.md) for the JWT auth lifecycle).
@@ -136,15 +135,15 @@ Telegram integration setup/config endpoints and contacts/invites endpoints are a
 
 **Forwarded contact & invite endpoints:**
 
-| Method   | Path                             |
-| -------- | -------------------------------- |
-| GET/POST | `/v1/contacts`                   |
-| GET      | `/v1/contacts/:contactId`        |
-| POST     | `/v1/contacts/merge`             |
+| Method   | Path                                     |
+| -------- | ---------------------------------------- |
+| GET/POST | `/v1/contacts`                           |
+| GET      | `/v1/contacts/:contactId`                |
+| POST     | `/v1/contacts/merge`                     |
 | PATCH    | `/v1/contact-channels/:contactChannelId` |
-| GET/POST | `/v1/contacts/invites`           |
-| DELETE   | `/v1/contacts/invites/:inviteId` |
-| POST     | `/v1/contacts/invites/redeem`    |
+| GET/POST | `/v1/contacts/invites`                   |
+| DELETE   | `/v1/contacts/invites/:inviteId`         |
+| POST     | `/v1/contacts/invites/redeem`            |
 
 **Authentication boundary:**
 
@@ -390,7 +389,7 @@ sequenceDiagram
     participant GW as Gateway
     participant Daemon as Daemon (Runtime)
 
-    Desktop->>Daemon: guardian_verify IPC (action: create_challenge)
+    Desktop->>Daemon: guardian_verify IPC (action: create_session)
     Daemon->>Daemon: Generate random secret, hash (SHA-256), store challenge (10min TTL)
     Daemon-->>Desktop: Return secret + instruction
     Desktop-->>User: Display verification code
@@ -407,7 +406,7 @@ sequenceDiagram
     GW->>TG: sendMessage: "You are now the guardian"
 ```
 
-The raw secret is shown only once in the desktop UI and must be sent by the user in-channel to complete verification. (Outbound `start_outbound` verification flows separately send template messages/calls with the code.) Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
+The raw secret is shown only once in the desktop UI and must be sent by the user in-channel to complete verification. (Outbound session creation via `POST /v1/integrations/guardian/sessions` with a `destination` separately sends template messages/calls with the code.) Only the SHA-256 hash is persisted. Challenges expire after 10 minutes. Consumed challenges cannot be reused. Rate limiting (5 invalid attempts per 15-minute window, 30-minute lockout) protects against brute-force attacks.
 
 #### Inbound Message Decision Chain
 
