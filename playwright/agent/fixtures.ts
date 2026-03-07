@@ -171,9 +171,12 @@ function preApproveScreenCapture(): void {
 
   for (const target of targets) {
     try {
+      // macOS 15.1+ requires both kScreenCaptureApprovalLastAlerted AND
+      // kScreenCaptureApprovalLastUsed in the dict for each entry.
       execSync(
         `defaults write ${JSON.stringify(approvalsPlist)} ${JSON.stringify(target)} ` +
-          `-dict kScreenCaptureApprovalLastAlerted -date "4321-01-01 00:00:00 +0000"`,
+          `-dict kScreenCaptureApprovalLastAlerted -date "4321-01-01 00:00:00 +0000" ` +
+          `kScreenCaptureApprovalLastUsed -date "4321-01-01 00:00:00 +0000"`,
         { timeout: 5_000 },
       );
     } catch {
