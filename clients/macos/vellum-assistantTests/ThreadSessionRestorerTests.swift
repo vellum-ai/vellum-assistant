@@ -94,6 +94,17 @@ private func makeSessionListResponse(sessions: [(id: String, title: String, crea
     return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
 }
 
+private func makeSessionListResponse(
+    sessionDicts: [[String: Any]]
+) -> SessionListResponseMessage {
+    let dict: [String: Any] = [
+        "type": "session_list_response",
+        "sessions": sessionDicts,
+    ]
+    let data = try! JSONSerialization.data(withJSONObject: dict)
+    return try! JSONDecoder().decode(SessionListResponseMessage.self, from: data)
+}
+
 /// Convenience overload with threadType and optional channelBinding.
 private func makeSessionListResponse(sessions: [(id: String, title: String, updatedAt: Int, threadType: String?, channelBinding: [String: Any]?)]) -> SessionListResponseMessage {
     makeSessionListResponse(sessions: sessions.map { ($0.id, $0.title, $0.updatedAt, $0.updatedAt, $0.threadType, $0.channelBinding) })
@@ -305,6 +316,41 @@ struct ThreadSessionRestorerTests {
 
         // Most recent thread should be activated
         #expect(delegate.activatedThreadId == delegate.threads[0].id)
+    }
+
+    @Test @MainActor
+    func sessionListPreservesAssistantAttentionTimestamps() {
+        let dc = DaemonClient()
+        let restorer = ThreadSessionRestorer(daemonClient: dc)
+        let delegate = MockThreadRestorerDelegate(daemonClient: dc)
+        restorer.delegate = delegate
+
+        let defaultThread = ThreadModel()
+        delegate.threads = [defaultThread]
+        delegate.viewModels[defaultThread.id] = delegate.makeViewModel()
+
+        let response = makeSessionListResponse(sessionDicts: [[
+            "id": "s-attention",
+            "title": "Attention thread",
+            "createdAt": 1000,
+            "updatedAt": 2000,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": true,
+                "latestAssistantMessageAt": 4000,
+                "lastSeenAssistantMessageAt": 3000,
+            ],
+        ]])
+
+        restorer.handleSessionListResponse(response)
+
+        guard let restoredThread = delegate.threads.first(where: { $0.sessionId == "s-attention" }) else {
+            Issue.record("Expected restored attention thread")
+            return
+        }
+
+        #expect(restoredThread.hasUnseenLatestAssistantMessage)
+        #expect(restoredThread.latestAssistantMessageAt?.timeIntervalSince1970 == 4.0)
+        #expect(restoredThread.lastSeenAssistantMessageAt?.timeIntervalSince1970 == 3.0)
     }
 
     @Test @MainActor
