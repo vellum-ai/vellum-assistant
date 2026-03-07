@@ -167,14 +167,6 @@ final class UsageDashboardViewTests: XCTestCase {
         }
 
         let view = UsageDashboardView(store: store)
-        let renderedText = Self.renderedText(from: view)
-
-        XCTAssertTrue(renderedText.contains(UsageFormatting.directInputTokensLabel),
-                      "Expected rendered text to contain direct input tokens label")
-        XCTAssertTrue(renderedText.contains("Cache Created"),
-                      "Expected rendered text to contain 'Cache Created'")
-        XCTAssertTrue(renderedText.contains("Cache Read"),
-                      "Expected rendered text to contain 'Cache Read'")
 
         let expectedSummary = UsageFormatting.formatBreakdownSummary(UsageGroupBreakdownEntry(
             group: "claude-sonnet-4-20250514",
@@ -185,8 +177,25 @@ final class UsageDashboardViewTests: XCTestCase {
             totalEstimatedCostUsd: 0.003,
             eventCount: 2
         ))
+
+        // Poll until SwiftUI's lazy List materialises all UILabels. Each
+        // iteration gives the RunLoop a short window; we retry up to a
+        // timeout so CI timing variations don't cause flaky failures.
+        let renderedText = Self.pollRenderedText(from: view) { text in
+            text.contains(UsageFormatting.directInputTokensLabel)
+                && text.contains("Cache Created")
+                && text.contains("Cache Read")
+                && text.contains(expectedSummary)
+        }
+
+        XCTAssertTrue(renderedText.contains(UsageFormatting.directInputTokensLabel),
+                       "Expected rendered text to contain direct input tokens label")
+        XCTAssertTrue(renderedText.contains("Cache Created"),
+                       "Expected rendered text to contain 'Cache Created'")
+        XCTAssertTrue(renderedText.contains("Cache Read"),
+                       "Expected rendered text to contain 'Cache Read'")
         XCTAssertTrue(renderedText.contains(expectedSummary),
-                      "Expected rendered text to contain breakdown summary")
+                       "Expected rendered text to contain breakdown summary")
     }
 
     #endif
@@ -221,6 +230,8 @@ final class UsageDashboardViewTests: XCTestCase {
 
 #if canImport(UIKit)
 private extension UsageDashboardViewTests {
+    /// Snapshot the visible text from a hosted SwiftUI view after a single
+    /// RunLoop tick. Used by `pollRenderedText` for each polling iteration.
     static func renderedText(from view: UsageDashboardView) -> String {
         let hostingController = UIHostingController(rootView: view)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
@@ -230,10 +241,27 @@ private extension UsageDashboardViewTests {
         hostingController.view.frame = window.bounds
         hostingController.view.setNeedsLayout()
         hostingController.view.layoutIfNeeded()
-        // Give SwiftUI List time to materialise LabeledContent UILabels on CI.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
 
         return collectText(from: hostingController.view).joined(separator: "\n")
+    }
+
+    /// Poll `renderedText(from:)` until `condition` is satisfied or `timeout`
+    /// elapses. Returns the last captured text so callers can hard-assert on it.
+    static func pollRenderedText(
+        from view: UsageDashboardView,
+        timeout: TimeInterval = 3.0,
+        interval: TimeInterval = 0.1,
+        until condition: (String) -> Bool
+    ) -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        var text = ""
+        while Date() < deadline {
+            text = renderedText(from: view)
+            if condition(text) { return text }
+            RunLoop.main.run(until: Date().addingTimeInterval(interval))
+        }
+        return text
     }
 
     static func collectText(from view: UIView) -> [String] {
