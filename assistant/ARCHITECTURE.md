@@ -630,7 +630,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 2. Defaults registry `defaultEnabled` — from the unified registry (`meta/feature-flags/feature-flag-registry.json`, filtered to `scope: "assistant"`)
 3. `true` — unknown/undeclared flags with no persisted override default to enabled
 
-**Storage:** Flags are persisted in `~/.vellum/workspace/config.json`. New writes go to the `assistantFeatureFlagValues` section (managed by the gateway's `/v1/feature-flags` API — see [`gateway/ARCHITECTURE.md`](../gateway/ARCHITECTURE.md)). The legacy `featureFlags` section is still read for backward compatibility. The daemon's config watcher hot-reloads this file, so flag changes take effect on the next tool resolution or session.
+**Storage:** Flags are persisted in `~/.vellum/workspace/config.json` in the `assistantFeatureFlagValues` section (managed by the gateway's `/v1/feature-flags` API — see [`gateway/ARCHITECTURE.md`](../gateway/ARCHITECTURE.md)). The daemon's config watcher hot-reloads this file, so flag changes take effect on the next tool resolution or session.
 
 **Public API:**
 
@@ -660,8 +660,7 @@ All five enforcement points use `isAssistantFeatureFlagEnabled(skillFlagKey(skil
 | `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                      |
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                  |
 | `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                        |
-| `src/config/schema.ts`                          | `featureFlags` and `assistantFeatureFlagValues` field definitions in `AssistantConfig` (Zod schema)                |
-| `src/config/types.ts`                           | Type definitions for `FeatureFlags` (legacy) and `AssistantFeatureFlagValues` (canonical)                          |
+| `src/config/schema.ts`                          | `assistantFeatureFlagValues` field definition in `AssistantConfig` (Zod schema)                                    |
 | `src/daemon/handlers/skills.ts`                 | `handleSkillsList()` — uses `resolveSkillStates()` for IPC client responses                                        |
 | `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
 | `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                |
@@ -726,7 +725,7 @@ graph LR
     end
 
     subgraph "~/.vellum/workspace/ (Workspace Files)"
-        CONFIG["config files<br/>Hot-reloaded by daemon<br/>(includes featureFlags)"]
+        CONFIG["config files<br/>Hot-reloaded by daemon<br/>(includes assistantFeatureFlagValues)"]
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
         APPS_STORE["data/apps/<br/><app-id>.json + pages/*.html<br/>prebuilt Home Base seeded here"]

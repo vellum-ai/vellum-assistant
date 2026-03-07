@@ -62,7 +62,7 @@ The assistant feature flags API uses a dedicated feature-flag token stored at `~
 
 The feature-flag token is auto-generated on first gateway startup if the file does not exist. The gateway watches the token file for changes and hot-reloads without restart.
 
-**`assistantFeatureFlagValues` config section:** This is the canonical storage location for assistant feature flag overrides. It is a `Record<string, boolean>` keyed by canonical flag keys (`feature_flags.<id>.enabled`). The gateway's PATCH handler writes exclusively to this section. The daemon's resolver reads it with highest priority, falling back to the legacy `featureFlags` section and then the defaults registry. Undeclared keys are ignored by the resolver.
+**`assistantFeatureFlagValues` config section:** This is the canonical storage location for assistant feature flag overrides. It is a `Record<string, boolean>` keyed by canonical flag keys (`feature_flags.<id>.enabled`). The gateway's PATCH handler writes exclusively to this section. The daemon's resolver reads it with highest priority, falling back to the defaults registry. Undeclared keys are ignored by the resolver.
 
 **Key source files:**
 
