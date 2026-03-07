@@ -171,33 +171,6 @@ curl -s -u "$TWILIO_SID:$TWILIO_TOKEN" -X POST \
   -d "StatusCallback=$PUBLIC_URL/webhooks/twilio/status"
 ```
 
-## Step 5: Verify and Enable
-
-Re-run the checks from Step 1 to confirm everything is set. Then enable voice calls:
-
-```bash
-assistant config set calls.enabled true
-```
-
-Tell the user: **"Twilio is configured. Your assistant's phone number is {phoneNumber}."**
-
-## Step 6: Guardian Verification (Optional)
-
-Link the user's phone number as the trusted voice guardian so the assistant can verify inbound callers.
-
-Load the guardian-verify-setup skill with `channel: "phone"`:
-
-```
-skill_load skill=guardian-verify-setup
-```
-
-The skill handles the full verification flow (outbound call, code entry, confirmation). If the user declines, skip this step.
-
-To re-check guardian status later:
-
-```bash
-assistant integrations guardian status --channel phone --json
-```
 
 ## Clearing Credentials
 

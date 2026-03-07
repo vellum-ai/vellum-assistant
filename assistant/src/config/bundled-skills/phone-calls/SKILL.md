@@ -2,7 +2,7 @@
 name: phone-calls
 description: Set up Twilio for AI-powered voice calls — both outgoing calls on behalf of the user and incoming calls where the assistant answers as a receptionist
 compatibility: "Designed for Vellum personal assistants"
-metadata: {"emoji":"📞","vellum":{"display-name":"Phone Calls","user-invocable":true,"includes":["public-ingress","elevenlabs-voice"],"requires":{"config":["calls.enabled"]}}}
+metadata: {"emoji":"📞","vellum":{"display-name":"Phone Calls","user-invocable":true,"includes":["twilio-setup", "public-ingress","elevenlabs-voice"]}}
 ---
 
 You are helping the user set up and manage phone calls via Twilio. This skill covers enabling the calls feature, placing outbound calls, receiving inbound calls, and interacting with live calls. Twilio credential storage, phone number provisioning, and public ingress are handled by the **twilio-setup** skill.
@@ -10,29 +10,6 @@ You are helping the user set up and manage phone calls via Twilio. This skill co
 # Overview
 
 The calling system uses Twilio's ConversationRelay for both **outbound** and **inbound** voice calls with **ElevenLabs** providing the text-to-speech voice. After Twilio setup, the assistant configures ElevenLabs as the TTS provider and prompts the user to choose a voice from a curated list of supported options.
-
-## Outbound calls
-
-When a call is placed:
-
-1. The assistant initiates an outbound call via the Twilio REST API
-2. Twilio connects to the gateway's voice webhook, which returns TwiML
-3. Twilio opens a ConversationRelay WebSocket for real-time voice streaming
-4. An LLM-driven orchestrator manages the conversation — receiving caller speech (transcribed by Deepgram), generating responses via Claude, and streaming text back for TTS playback
-5. The full transcript is stored in the database for later retrieval
-
-## Inbound calls
-
-When someone dials the assistant's Twilio phone number:
-
-1. Twilio sends a voice webhook to the gateway at `/webhooks/twilio/voice` (no `callSessionId` in the URL)
-2. The gateway resolves which assistant owns the dialed number via `resolveAssistantByPhoneNumber`, falling back to the standard routing chain (chat_id, user_id, default/reject). Unmapped numbers are rejected with TwiML `<Reject>`.
-3. The runtime creates a new session keyed by the Twilio CallSid (`createInboundVoiceSession`)
-4. Twilio opens a ConversationRelay WebSocket. The relay detects the call is inbound when `initiatedFromConversationId == null` and optionally gates the call behind **guardian voice verification** if a pending challenge exists.
-5. Once verified (or if no challenge is pending), the LLM orchestrator greets the caller in a receptionist style: "Hello, this is [user]'s assistant. How can I help you today?"
-6. The assistant converses naturally, using ASK_GUARDIAN to consult the user when needed, just like outbound calls.
-
-The user's assistant gets its own personal phone number through Twilio. All implicit calls (without an explicit mode) always use this assistant number. Optionally, users can call from their own phone number if it's authorized with the Twilio account — this must be explicitly requested per call via `caller_identity_mode="user_number"`.
 
 # Initial Setup
 
@@ -58,7 +35,7 @@ assistant config get calls.enabled
 
 ## Step 3: Choose a Voice
 
-Voice selection and tuning are handled by the included **ElevenLabs Voice** skill (automatically appended below via `includes`). Follow the instructions there to pick a curated voice, set up an ElevenLabs API key for advanced selection, or tune voice parameters.
+Voice selection and tuning are handled by the `elevenlabs-voice` skill. Follow the instructions there to pick a curated voice, optionally set up an ElevenLabs API key for advanced selection, or tune voice parameters.
 
 ## Step 4: Verify Setup (Test Call)
 
@@ -68,7 +45,7 @@ If they agree, ask for their personal phone number and place a test call with a 
 
 ## Step 5: Guardian Verification (Optional)
 
-Link the user's phone number as the trusted voice guardian so the assistant can verify inbound callers.
+By going through Guardian Verification, the user will be recognized any time they call the assistant and will be able to interact with the assistant with elevated privileges. You should encourage the user to go through the guardian verification process, but not force it.
 
 Load the `guardian-verify-setup` skill with `channel: "phone"`. The skill handles the full verification flow (outbound call, code entry, confirmation).
 

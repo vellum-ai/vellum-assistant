@@ -11,7 +11,7 @@ ElevenLabs provides text-to-speech voices for both **in-app TTS** and **phone ca
 
 ## Choose a Voice
 
-Pick a voice that matches the user's identity and preferences. Offer to show the full list if they want to choose themselves.
+Pick a voice that matches the your identity and the user's preferences. Offer to show the full list if they want to choose themselves.
 
 ### Female voices
 
