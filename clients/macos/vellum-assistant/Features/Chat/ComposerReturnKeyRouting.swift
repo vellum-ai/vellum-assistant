@@ -2,7 +2,8 @@
 import AppKit
 
 /// Routes Return key presses in the composer based on modifier keys and the user's send-mode preference.
-/// Only Shift+Return (default mode) and Cmd+Return (cmd-enter mode) are intercepted;
+/// In default mode, Shift+Return is the only newline shortcut and Option+Return
+/// is treated as send via the bridge. In cmd-enter mode, only Cmd+Return sends;
 /// all other combinations defer to SwiftUI's `.onSubmit` handler.
 enum ComposerReturnKeyRouting {
     enum Action: Equatable {
@@ -17,8 +18,13 @@ enum ComposerReturnKeyRouting {
         // equality checks.
         let keys = modifiers.intersection([.shift, .command, .control, .option])
 
-        if !cmdEnterToSend && keys == .shift {
-            return .bridgeInsertNewline
+        if !cmdEnterToSend {
+            if keys == .shift {
+                return .bridgeInsertNewline
+            }
+            if keys == .option {
+                return .bridgeSend
+            }
         }
         if cmdEnterToSend && keys == .command {
             return .bridgeSend

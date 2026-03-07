@@ -27,8 +27,9 @@ extension EnvironmentValues {
 /// - Intercepts Cmd+V when the pasteboard contains image content.
 /// - Intercepts Cmd+Return when `cmdEnterToSend` is enabled to trigger send
 ///   before SwiftUI's `.onSubmit` fires.
-/// - Intercepts Shift+Return in default send mode to insert a newline
-///   before SwiftUI's `.onSubmit` fires.
+/// - Intercepts Shift+Return in default send mode to insert a newline, and
+///   routes default-mode Option+Return through the same bridge send path used
+///   by Cmd+Return, before SwiftUI's `.onSubmit` fires.
 struct ComposerFocusBridge: NSViewRepresentable {
     let isFocused: Bool
     let cmdEnterToSend: Bool
@@ -103,7 +104,9 @@ struct ComposerFocusBridge: NSViewRepresentable {
                 }
 
                 // Return-key routing. The bridge handles modifier-specific
-                // interception (Shift+Enter newline, Cmd+Enter send).
+                // interception for its dedicated paths: Shift+Enter newline in
+                // default mode, Option+Enter send in default mode, and
+                // Cmd+Enter send when the preference is enabled.
                 // Plain Enter flows through to SwiftUI's .onSubmit which
                 // calls performSendAction() — the canonical send path that
                 // handles slash-menu, ghost-text, and pending-confirmation.
