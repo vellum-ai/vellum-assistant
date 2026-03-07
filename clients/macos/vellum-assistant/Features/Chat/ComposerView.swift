@@ -130,6 +130,7 @@ struct ComposerView: View {
             avatarSeed = identity?.name ?? "default"
         }
         .onChange(of: threadId) {
+            guard !hasPendingConfirmation else { return }
             composerFocus = true
         }
     }
