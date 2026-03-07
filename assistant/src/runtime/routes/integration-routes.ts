@@ -175,6 +175,14 @@ export async function handleCreateVerificationSession(
 
   const purpose = body.purpose ?? "guardian";
 
+  if (purpose === "trusted_contact" && !body.contactChannelId) {
+    return httpError(
+      "BAD_REQUEST",
+      "contactChannelId is required for trusted_contact purpose",
+      400,
+    );
+  }
+
   // Trusted contact verification path — delegates to the shared transport-agnostic
   // function and wraps the result in an HTTP response.
   if (purpose === "trusted_contact" && body.contactChannelId) {
