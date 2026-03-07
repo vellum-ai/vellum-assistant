@@ -117,14 +117,14 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
 
 ## 3. Inspect Pending Verification Sessions
 
-Verification challenges are stored in `channel_guardian_verification_challenges`. Active sessions have `status = 'awaiting_response'` and `expires_at > now`.
+Verification challenges are stored in `channel_verification_sessions`. Active sessions have `status = 'awaiting_response'` and `expires_at > now`.
 
 ```bash
 sqlite3 ~/.vellum/workspace/data/db/assistant.db \
   "SELECT id, channel, status, identity_binding_status, \
    expected_external_user_id, expected_chat_id, expected_phone_e164, \
    expires_at, created_at \
-   FROM channel_guardian_verification_challenges \
+   FROM channel_verification_sessions \
    WHERE status IN ('awaiting_response', 'pending_bootstrap') \
    AND expires_at > $(date +%s)000 \
    ORDER BY created_at DESC;"
@@ -200,7 +200,7 @@ sqlite3 ~/.vellum/workspace/data/db/assistant.db \
   "SELECT id, channel, status, identity_binding_status, \
    expected_external_user_id, expected_chat_id, expected_phone_e164, \
    expires_at, consumed_by_external_user_id \
-   FROM channel_guardian_verification_challenges \
+   FROM channel_verification_sessions \
    WHERE expected_external_user_id = 'TARGET_USER_ID' \
    OR expected_chat_id = 'TARGET_CHAT_ID' \
    ORDER BY created_at DESC LIMIT 5;"
@@ -302,7 +302,7 @@ Expired sessions are already invisible to the verification flow (filtered by `ex
 
 ```bash
 sqlite3 ~/.vellum/workspace/data/db/assistant.db \
-  "DELETE FROM channel_guardian_verification_challenges \
+  "DELETE FROM channel_verification_sessions \
    WHERE expires_at < $(date +%s)000 \
    AND status IN ('awaiting_response', 'pending_bootstrap');"
 ```

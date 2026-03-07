@@ -82,6 +82,7 @@ export { migrateDropAssistantIdColumns } from "./136-drop-assistant-id-columns.j
 export { migrateUsageDashboardIndexes } from "./137-usage-dashboard-indexes.js";
 export { migrateDropUsageCompositeIndexes } from "./139-drop-usage-composite-indexes.js";
 export { migrateBackfillUsageCacheAccounting } from "./140-backfill-usage-cache-accounting.js";
+export { migrateRenameVerificationTable } from "./141-rename-verification-table.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

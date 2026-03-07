@@ -9,7 +9,7 @@
 import { and, count, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
 
 import { getDb } from "./db.js";
-import { channelGuardianVerificationChallenges } from "./schema.js";
+import { channelVerificationSessions } from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,7 +63,7 @@ export interface VerificationChallenge {
 // ---------------------------------------------------------------------------
 
 function rowToChallenge(
-  row: typeof channelGuardianVerificationChallenges.$inferSelect,
+  row: typeof channelVerificationSessions.$inferSelect,
 ): VerificationChallenge {
   return {
     id: row.id,
@@ -109,12 +109,12 @@ export function createChallenge(params: {
 
   // Revoke any prior pending challenges for the same channel
   // to close the replay window — only the latest challenge should be valid.
-  db.update(channelGuardianVerificationChallenges)
+  db.update(channelVerificationSessions)
     .set({ status: "revoked", updatedAt: now })
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.channel, params.channel),
-        eq(channelGuardianVerificationChallenges.status, "pending"),
+        eq(channelVerificationSessions.channel, params.channel),
+        eq(channelVerificationSessions.status, "pending"),
       ),
     )
     .run();
@@ -144,19 +144,19 @@ export function createChallenge(params: {
     updatedAt: now,
   };
 
-  db.insert(channelGuardianVerificationChallenges).values(row).run();
+  db.insert(channelVerificationSessions).values(row).run();
 
   return rowToChallenge(row);
 }
 
 export function revokePendingChallenges(channel: string): void {
   const db = getDb();
-  db.update(channelGuardianVerificationChallenges)
+  db.update(channelVerificationSessions)
     .set({ status: "revoked", updatedAt: Date.now() })
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.channel, channel),
-        eq(channelGuardianVerificationChallenges.status, "pending"),
+        eq(channelVerificationSessions.channel, channel),
+        eq(channelVerificationSessions.status, "pending"),
       ),
     )
     .run();
@@ -172,17 +172,17 @@ export function findPendingChallengeByHash(
   // Match any consumable status: 'pending' (inbound), 'pending_bootstrap', 'awaiting_response' (outbound)
   const row = db
     .select()
-    .from(channelGuardianVerificationChallenges)
+    .from(channelVerificationSessions)
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.channel, channel),
-        eq(channelGuardianVerificationChallenges.challengeHash, challengeHash),
-        inArray(channelGuardianVerificationChallenges.status, [
+        eq(channelVerificationSessions.channel, channel),
+        eq(channelVerificationSessions.challengeHash, challengeHash),
+        inArray(channelVerificationSessions.status, [
           "pending",
           "pending_bootstrap",
           "awaiting_response",
         ]),
-        gt(channelGuardianVerificationChallenges.expiresAt, now),
+        gt(channelVerificationSessions.expiresAt, now),
       ),
     )
     .get();
@@ -206,12 +206,12 @@ export function findPendingChallengeForChannel(
 
   const row = db
     .select()
-    .from(channelGuardianVerificationChallenges)
+    .from(channelVerificationSessions)
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.channel, channel),
-        eq(channelGuardianVerificationChallenges.status, "pending"),
-        gt(channelGuardianVerificationChallenges.expiresAt, now),
+        eq(channelVerificationSessions.channel, channel),
+        eq(channelVerificationSessions.status, "pending"),
+        gt(channelVerificationSessions.expiresAt, now),
       ),
     )
     .get();
@@ -227,14 +227,14 @@ export function consumeChallenge(
   const db = getDb();
   const now = Date.now();
 
-  db.update(channelGuardianVerificationChallenges)
+  db.update(channelVerificationSessions)
     .set({
       status: "consumed",
       consumedByExternalUserId,
       consumedByChatId,
       updatedAt: now,
     })
-    .where(eq(channelGuardianVerificationChallenges.id, id))
+    .where(eq(channelVerificationSessions.id, id))
     .run();
 }
 
@@ -268,12 +268,12 @@ export function createVerificationSession(params: {
   const now = Date.now();
 
   // Revoke any prior pending/awaiting_response sessions for the same channel
-  db.update(channelGuardianVerificationChallenges)
+  db.update(channelVerificationSessions)
     .set({ status: "revoked", updatedAt: now })
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.channel, params.channel),
-        inArray(channelGuardianVerificationChallenges.status, [
+        eq(channelVerificationSessions.channel, params.channel),
+        inArray(channelVerificationSessions.status, [
           "pending",
           "pending_bootstrap",
           "awaiting_response",
@@ -307,7 +307,7 @@ export function createVerificationSession(params: {
     updatedAt: now,
   };
 
-  db.insert(channelGuardianVerificationChallenges).values(row).run();
+  db.insert(channelVerificationSessions).values(row).run();
 
   return rowToChallenge(row);
 }
@@ -324,18 +324,18 @@ export function findActiveSession(
 
   const row = db
     .select()
-    .from(channelGuardianVerificationChallenges)
+    .from(channelVerificationSessions)
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.channel, channel),
-        inArray(channelGuardianVerificationChallenges.status, [
+        eq(channelVerificationSessions.channel, channel),
+        inArray(channelVerificationSessions.status, [
           "pending_bootstrap",
           "awaiting_response",
         ]),
-        gt(channelGuardianVerificationChallenges.expiresAt, now),
+        gt(channelVerificationSessions.expiresAt, now),
       ),
     )
-    .orderBy(desc(channelGuardianVerificationChallenges.createdAt))
+    .orderBy(desc(channelVerificationSessions.createdAt))
     .get();
 
   return row ? rowToChallenge(row) : null;
@@ -354,13 +354,13 @@ export function findSessionByBootstrapTokenHash(
 
   const row = db
     .select()
-    .from(channelGuardianVerificationChallenges)
+    .from(channelVerificationSessions)
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.channel, channel),
-        eq(channelGuardianVerificationChallenges.bootstrapTokenHash, tokenHash),
-        eq(channelGuardianVerificationChallenges.status, "pending_bootstrap"),
-        gt(channelGuardianVerificationChallenges.expiresAt, now),
+        eq(channelVerificationSessions.channel, channel),
+        eq(channelVerificationSessions.bootstrapTokenHash, tokenHash),
+        eq(channelVerificationSessions.status, "pending_bootstrap"),
+        gt(channelVerificationSessions.expiresAt, now),
       ),
     )
     .get();
@@ -388,32 +388,29 @@ export function findSessionByIdentity(
   const now = Date.now();
 
   const conditions = [
-    eq(channelGuardianVerificationChallenges.channel, channel),
-    inArray(channelGuardianVerificationChallenges.status, [
+    eq(channelVerificationSessions.channel, channel),
+    inArray(channelVerificationSessions.status, [
       "pending_bootstrap",
       "awaiting_response",
     ]),
-    gt(channelGuardianVerificationChallenges.expiresAt, now),
+    gt(channelVerificationSessions.expiresAt, now),
   ];
 
   // Build identity match conditions
   const identityConditions = [];
   if (externalUserId) {
     identityConditions.push(
-      eq(
-        channelGuardianVerificationChallenges.expectedExternalUserId,
-        externalUserId,
-      ),
+      eq(channelVerificationSessions.expectedExternalUserId, externalUserId),
     );
   }
   if (chatId) {
     identityConditions.push(
-      eq(channelGuardianVerificationChallenges.expectedChatId, chatId),
+      eq(channelVerificationSessions.expectedChatId, chatId),
     );
   }
   if (phoneE164) {
     identityConditions.push(
-      eq(channelGuardianVerificationChallenges.expectedPhoneE164, phoneE164),
+      eq(channelVerificationSessions.expectedPhoneE164, phoneE164),
     );
   }
 
@@ -423,9 +420,9 @@ export function findSessionByIdentity(
 
   const row = db
     .select()
-    .from(channelGuardianVerificationChallenges)
+    .from(channelVerificationSessions)
     .where(and(...conditions))
-    .orderBy(desc(channelGuardianVerificationChallenges.createdAt))
+    .orderBy(desc(channelVerificationSessions.createdAt))
     .get();
 
   return row ? rowToChallenge(row) : null;
@@ -445,7 +442,7 @@ export function updateSessionStatus(
   const db = getDb();
   const now = Date.now();
 
-  db.update(channelGuardianVerificationChallenges)
+  db.update(channelVerificationSessions)
     .set({
       status,
       updatedAt: now,
@@ -456,7 +453,7 @@ export function updateSessionStatus(
         ? { consumedByChatId: extraFields.consumedByChatId }
         : {}),
     })
-    .where(eq(channelGuardianVerificationChallenges.id, id))
+    .where(eq(channelVerificationSessions.id, id))
     .run();
 }
 
@@ -472,14 +469,14 @@ export function updateSessionDelivery(
   const db = getDb();
   const now = Date.now();
 
-  db.update(channelGuardianVerificationChallenges)
+  db.update(channelVerificationSessions)
     .set({
       lastSentAt,
       sendCount,
       nextResendAt,
       updatedAt: now,
     })
-    .where(eq(channelGuardianVerificationChallenges.id, id))
+    .where(eq(channelVerificationSessions.id, id))
     .run();
 }
 
@@ -500,15 +497,12 @@ export function countRecentSendsToDestination(
 
   const result = db
     .select({ total: count() })
-    .from(channelGuardianVerificationChallenges)
+    .from(channelVerificationSessions)
     .where(
       and(
-        eq(channelGuardianVerificationChallenges.channel, channel),
-        eq(
-          channelGuardianVerificationChallenges.destinationAddress,
-          destinationAddress,
-        ),
-        gte(channelGuardianVerificationChallenges.lastSentAt, cutoff),
+        eq(channelVerificationSessions.channel, channel),
+        eq(channelVerificationSessions.destinationAddress, destinationAddress),
+        gte(channelVerificationSessions.lastSentAt, cutoff),
       ),
     )
     .get();
@@ -528,13 +522,13 @@ export function bindSessionIdentity(
   const db = getDb();
   const now = Date.now();
 
-  db.update(channelGuardianVerificationChallenges)
+  db.update(channelVerificationSessions)
     .set({
       expectedExternalUserId: externalUserId,
       expectedChatId: chatId,
       identityBindingStatus: "bound",
       updatedAt: now,
     })
-    .where(eq(channelGuardianVerificationChallenges.id, id))
+    .where(eq(channelVerificationSessions.id, id))
     .run();
 }

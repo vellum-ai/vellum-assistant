@@ -44,18 +44,18 @@ Design doc defining how unknown users gain access to a Vellum assistant via chan
 requested -> pending_guardian -> verification_pending -> active | denied | expired
 ```
 
-| State                  | Description                                                                                                        | Store representation                                                                                                                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `requested`            | Unknown user messaged the assistant and was rejected. The system records the access attempt.                       | No member record exists. The rejection is logged in `channel_inbound_events`. A notification signal is emitted via `emitNotificationSignal()`.                                                              |
-| `pending_guardian`     | The guardian has been notified and a decision is pending.                                                          | A `channel_guardian_approval_requests` record exists with `status: 'pending'`, `toolName: 'ingress_access_request'`.                                                                                        |
-| `verification_pending` | The guardian approved. A verification session is active with a 6-digit code waiting for the requester to enter.    | `channel_guardian_verification_challenges` record with `status: 'awaiting_response'`, identity-bound to the requester's expected channel identity. The approval request is updated to `status: 'approved'`. |
-| `active`               | The requester entered the correct code. They are now a trusted contact.                                            | `contact_channels` record with `status: 'active'`, `policy: 'allow'`. The verification session is `status: 'consumed'`.                                                                                     |
-| `denied`               | The guardian explicitly denied the request.                                                                        | The approval request has `status: 'denied'`. No member record is created (or if one existed, it remains unchanged).                                                                                         |
-| `expired`              | The guardian never responded (approval TTL elapsed) or the requester never entered the code (session TTL elapsed). | Approval request: `status: 'expired'` (set by `sweepExpiredGuardianApprovals()`). Verification session: expires naturally when `expiresAt < Date.now()`.                                                    |
+| State                  | Description                                                                                                        | Store representation                                                                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `requested`            | Unknown user messaged the assistant and was rejected. The system records the access attempt.                       | No member record exists. The rejection is logged in `channel_inbound_events`. A notification signal is emitted via `emitNotificationSignal()`.                                                   |
+| `pending_guardian`     | The guardian has been notified and a decision is pending.                                                          | A `channel_guardian_approval_requests` record exists with `status: 'pending'`, `toolName: 'ingress_access_request'`.                                                                             |
+| `verification_pending` | The guardian approved. A verification session is active with a 6-digit code waiting for the requester to enter.    | `channel_verification_sessions` record with `status: 'awaiting_response'`, identity-bound to the requester's expected channel identity. The approval request is updated to `status: 'approved'`. |
+| `active`               | The requester entered the correct code. They are now a trusted contact.                                            | `contact_channels` record with `status: 'active'`, `policy: 'allow'`. The verification session is `status: 'consumed'`.                                                                          |
+| `denied`               | The guardian explicitly denied the request.                                                                        | The approval request has `status: 'denied'`. No member record is created (or if one existed, it remains unchanged).                                                                              |
+| `expired`              | The guardian never responded (approval TTL elapsed) or the requester never entered the code (session TTL elapsed). | Approval request: `status: 'expired'` (set by `sweepExpiredGuardianApprovals()`). Verification session: expires naturally when `expiresAt < Date.now()`.                                         |
 
 ## Identity Binding Rules
 
-Identity binding ensures the verification code can only be consumed by the intended recipient on the intended channel. The binding fields are set on the `channel_guardian_verification_challenges` record when the session is created.
+Identity binding ensures the verification code can only be consumed by the intended recipient on the intended channel. The binding fields are set on the `channel_verification_sessions` record when the session is created.
 
 | Channel  | Identity fields                                                                  | Binding behavior                                                                                                                                                                                                                          |
 | -------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,18 +85,18 @@ Identity binding ensures the verification code can only be consumed by the inten
 
 ### Stage: `verification_pending` (guardian approved, code issued)
 
-| Store                       | Table                                      | Record                                                                                                                                                                                                                                                                              |
-| --------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `channel-guardian-store.ts` | `channel_guardian_approval_requests`       | Updated to `status: 'approved'`, `decidedByExternalUserId` set.                                                                                                                                                                                                                     |
-| `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | New record: `status: 'awaiting_response'`, `identityBindingStatus: 'bound'`, `expectedExternalUserId`/`expectedChatId`/`expectedPhoneE164` set to the requester's identity, `challengeHash` = SHA-256 of the 6-digit code, `expiresAt` = 10 minutes from creation, `codeDigits: 6`. |
+| Store                       | Table                                | Record                                                                                                                                                                                                                                                                              |
+| --------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `channel-guardian-store.ts` | `channel_guardian_approval_requests` | Updated to `status: 'approved'`, `decidedByExternalUserId` set.                                                                                                                                                                                                                     |
+| `channel-guardian-store.ts` | `channel_verification_sessions`      | New record: `status: 'awaiting_response'`, `identityBindingStatus: 'bound'`, `expectedExternalUserId`/`expectedChatId`/`expectedPhoneE164` set to the requester's identity, `challengeHash` = SHA-256 of the 6-digit code, `expiresAt` = 10 minutes from creation, `codeDigits: 6`. |
 
 ### Stage: `active` (code verified, trusted contact created)
 
-| Store                       | Table                                      | Record                                                                                                                                                                                                      |
-| --------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `contacts-write.ts`         | `contacts` / `contact_channels`            | Upserted via `upsertContactChannel()`: creates a contact record and a `contact_channels` entry with `status: 'active'`, `policy: 'allow'`, channel type, `externalUserId`, `externalChatId`, `displayName`. |
-| `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | Updated to `status: 'consumed'`, `consumedByExternalUserId`, `consumedByChatId` set.                                                                                                                        |
-| `channel-guardian-store.ts` | `channel_guardian_rate_limits`             | Reset via `resetRateLimit()` on successful verification.                                                                                                                                                    |
+| Store                       | Table                           | Record                                                                                                                                                                                                      |
+| --------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contacts-write.ts`         | `contacts` / `contact_channels` | Upserted via `upsertContactChannel()`: creates a contact record and a `contact_channels` entry with `status: 'active'`, `policy: 'allow'`, channel type, `externalUserId`, `externalChatId`, `displayName`. |
+| `channel-guardian-store.ts` | `channel_verification_sessions` | Updated to `status: 'consumed'`, `consumedByExternalUserId`, `consumedByChatId` set.                                                                                                                        |
+| `channel-guardian-store.ts` | `channel_guardian_rate_limits`  | Reset via `resetRateLimit()` on successful verification.                                                                                                                                                    |
 
 ### Stage: `denied` (guardian rejected)
 
@@ -108,10 +108,10 @@ No member record is created. No verification session is created.
 
 ### Stage: `expired`
 
-| Store                       | Table                                      | Record                                                                                            |
-| --------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `channel-guardian-store.ts` | `channel_guardian_approval_requests`       | Updated to `status: 'expired'` by `sweepExpiredGuardianApprovals()` (runs every 60s).             |
-| `channel-guardian-store.ts` | `channel_guardian_verification_challenges` | Expires naturally: `expiresAt < Date.now()` makes it invisible to `findPendingChallengeByHash()`. |
+| Store                       | Table                                | Record                                                                                            |
+| --------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `channel-guardian-store.ts` | `channel_guardian_approval_requests` | Updated to `status: 'expired'` by `sweepExpiredGuardianApprovals()` (runs every 60s).             |
+| `channel-guardian-store.ts` | `channel_verification_sessions`      | Expires naturally: `expiresAt < Date.now()` makes it invisible to `findPendingChallengeByHash()`. |
 
 ### Invites (alternative path)
 
@@ -250,7 +250,7 @@ sequenceDiagram
 
 ### Code reuse prevention
 
-- Each verification session creates a single `channel_guardian_verification_challenges` record.
+- Each verification session creates a single `channel_verification_sessions` record.
 - `consumeChallenge()` atomically sets `status: 'consumed'`, making the code permanently unusable.
 - `findPendingChallengeByHash()` only matches challenges with `status IN ('pending', 'pending_bootstrap', 'awaiting_response')`, so consumed challenges are invisible.
 

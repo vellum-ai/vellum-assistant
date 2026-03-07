@@ -127,7 +127,7 @@ import {
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { upsertBinding as upsertExternalBinding } from "../memory/external-conversation-store.js";
 import {
-  channelGuardianVerificationChallenges,
+  channelVerificationSessions,
   conversations,
 } from "../memory/schema.js";
 import {
@@ -164,7 +164,7 @@ afterAll(() => {
 
 function resetTables(): void {
   const db = getDb();
-  db.run("DELETE FROM channel_guardian_verification_challenges");
+  db.run("DELETE FROM channel_verification_sessions");
   db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM contact_channels");
@@ -2358,8 +2358,8 @@ describe("outbound verification sessions", () => {
     const db = getDb();
     const firstRow = db
       .select()
-      .from(channelGuardianVerificationChallenges)
-      .where(eq(channelGuardianVerificationChallenges.id, firstId))
+      .from(channelVerificationSessions)
+      .where(eq(channelVerificationSessions.id, firstId))
       .get();
     expect(firstRow).toBeDefined();
     expect(firstRow!.status).toBe("revoked");
@@ -3718,7 +3718,7 @@ describe("outbound voice verification", () => {
     const now = Date.now();
     for (let i = 0; i < 10; i++) {
       // Insert sessions with recent lastSentAt to simulate sends
-      db.insert(channelGuardianVerificationChallenges)
+      db.insert(channelVerificationSessions)
         .values({
           id: `rate-limit-voice-${i}`,
           channel: "voice",

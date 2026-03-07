@@ -115,7 +115,7 @@ function resetTables(): void {
     "canonical_guardian_deliveries",
     "canonical_guardian_requests",
     "channel_guardian_approval_requests",
-    "channel_guardian_verification_challenges",
+    "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
     "channel_inbound_events",

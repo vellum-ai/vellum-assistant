@@ -76,7 +76,7 @@ function resetTables(): void {
     "conversation_attention_events",
     "conversation_assistant_attention_state",
     "channel_guardian_approval_requests",
-    "channel_guardian_verification_challenges",
+    "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
     "channel_inbound_events",

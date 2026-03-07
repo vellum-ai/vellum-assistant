@@ -85,8 +85,8 @@ export const externalConversationBindings = sqliteTable(
   },
 );
 
-export const channelGuardianVerificationChallenges = sqliteTable(
-  "channel_guardian_verification_challenges",
+export const channelVerificationSessions = sqliteTable(
+  "channel_verification_sessions",
   {
     id: text("id").primaryKey(),
     channel: text("channel").notNull(),

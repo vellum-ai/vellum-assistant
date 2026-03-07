@@ -64,6 +64,7 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
+  migrateRenameVerificationTable,
   migrateSchemaIndexesAndColumns,
   migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
@@ -307,6 +308,9 @@ export function initializeDb(): void {
 
   // 44. Backfill historical Anthropic usage rows from request-log truth before dashboard reads
   migrateBackfillUsageCacheAccounting(database);
+
+  // 45. Rename channel_guardian_verification_challenges → channel_verification_sessions
+  migrateRenameVerificationTable(database);
 
   validateMigrationState(database);
 

@@ -280,7 +280,7 @@ function resetTables() {
     "messages",
     "conversations",
     "assistant_ingress_invites",
-    "channel_guardian_verification_challenges",
+    "channel_verification_sessions",
     "channel_guardian_rate_limits",
     "canonical_guardian_requests",
     "canonical_guardian_deliveries",

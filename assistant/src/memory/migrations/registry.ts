@@ -147,6 +147,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Backfill historical Anthropic llm_usage_events rows from llm_request_logs with cache-aware pricing",
   },
+  {
+    key: "migration_rename_verification_table_v1",
+    version: 21,
+    description:
+      "Rename channel_guardian_verification_challenges table to channel_verification_sessions and update indexes",
+  },
 ];
 
 export interface MigrationValidationResult {
