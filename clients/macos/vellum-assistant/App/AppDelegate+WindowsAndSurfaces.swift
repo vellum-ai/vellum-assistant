@@ -228,6 +228,13 @@ extension AppDelegate {
         // once the daemon is connected.
         if isBootstrapping { return true }
 
+        // No assistant hatched yet — re-show onboarding so the user
+        // can complete setup instead of landing on a broken main window.
+        if !lockfileHasAssistants() && mainWindow == nil {
+            showOnboarding()
+            return true
+        }
+
         showMainWindow()
         return true
     }
@@ -260,6 +267,9 @@ extension AppDelegate {
             UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
             self?.showMainWindow()
+        }
+        onboarding.onDismiss = { [weak self] in
+            self?.onboardingWindow = nil
         }
         onboarding.show()
         onboardingWindow = onboarding
@@ -334,6 +344,9 @@ extension AppDelegate {
             // or authenticated via Vellum Account (WorkOS). Proceed directly —
             // don't re-check auth, which would show the auth gate again.
             self?.proceedToApp(isFirstLaunch: true)
+        }
+        onboarding.onDismiss = { [weak self] in
+            self?.onboardingWindow = nil
         }
         onboarding.show()
         onboardingWindow = onboarding
