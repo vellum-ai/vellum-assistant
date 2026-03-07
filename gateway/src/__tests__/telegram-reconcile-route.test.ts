@@ -1,5 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 
@@ -59,27 +61,15 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
     telegramApiBaseUrl: "https://api.telegram.org",
-    telegramBotToken: "bot-token",
     telegramDeliverAuthBypass: false,
     telegramInitialBackoffMs: 1000,
     telegramMaxRetries: 0,
     telegramTimeoutMs: 15000,
-    telegramWebhookSecret: "webhook-secret",
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    ingressPublicBaseUrl: "https://example.com",
     unmappedPolicy: "reject",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
     whatsappDeliverAuthBypass: false,
     whatsappTimeoutMs: 15000,
     whatsappMaxRetries: 3,
     whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
     slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
@@ -103,6 +93,28 @@ function makeRequest(
     headers,
     body: body ? JSON.stringify(body) : undefined,
   });
+}
+
+/** Create mock caches for reconcile handler (provides bot token, secret, ingress). */
+function makeCaches() {
+  const credentialMap: Record<string, string | undefined> = {
+    "credential:telegram:bot_token": "test-bot-token",
+    "credential:telegram:webhook_secret": "test-webhook-secret",
+  };
+  const credentials = {
+    get: async (key: string) => credentialMap[key],
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  const configFile = {
+    getString: (section: string, key: string) => {
+      if (section === "ingress" && key === "publicBaseUrl")
+        return "https://example.ngrok.io";
+      return undefined;
+    },
+    getRecord: () => undefined,
+    refreshNow: () => {},
+  } as unknown as ConfigFileCache;
+  return { credentials, configFile };
 }
 
 /** Default fetch mock that handles Telegram API calls with success responses. */
@@ -139,7 +151,7 @@ describe("POST /internal/telegram/reconcile", () => {
 
   test("rejects non-POST methods", async () => {
     const config = makeConfig();
-    const handler = createTelegramReconcileHandler(config);
+    const handler = createTelegramReconcileHandler(config, makeCaches());
     const res = await handler(
       new Request("http://localhost:7830/internal/telegram/reconcile", {
         method: "GET",
@@ -150,21 +162,21 @@ describe("POST /internal/telegram/reconcile", () => {
 
   test("returns 401 for missing auth header", async () => {
     const config = makeConfig();
-    const handler = createTelegramReconcileHandler(config);
+    const handler = createTelegramReconcileHandler(config, makeCaches());
     const res = await handler(makeRequest("POST"));
     expect(res.status).toBe(401);
   });
 
   test("returns 401 for wrong token", async () => {
     const config = makeConfig();
-    const handler = createTelegramReconcileHandler(config);
+    const handler = createTelegramReconcileHandler(config, makeCaches());
     const res = await handler(makeRequest("POST", "wrong-token"));
     expect(res.status).toBe(401);
   });
 
   test("triggers reconcile with correct auth", async () => {
     const config = makeConfig();
-    const handler = createTelegramReconcileHandler(config);
+    const handler = createTelegramReconcileHandler(config, makeCaches());
     const res = await handler(makeRequest("POST", TOKEN));
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -173,38 +185,20 @@ describe("POST /internal/telegram/reconcile", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
-  test("updates ingressPublicBaseUrl when provided", async () => {
-    const config = makeConfig({
-      ingressPublicBaseUrl: "https://old.example.com",
-    });
-    const handler = createTelegramReconcileHandler(config);
+  test("accepts body with ingressPublicBaseUrl for backward compatibility", async () => {
+    const config = makeConfig();
+    const handler = createTelegramReconcileHandler(config, makeCaches());
     const res = await handler(
       makeRequest("POST", TOKEN, {
         ingressPublicBaseUrl: "https://new.example.com/",
       }),
     );
     expect(res.status).toBe(200);
-    // Trailing slash should be normalized
-    expect(config.ingressPublicBaseUrl).toBe("https://new.example.com");
   });
 
-  test("clears ingressPublicBaseUrl when empty string is provided", async () => {
-    const config = makeConfig({
-      ingressPublicBaseUrl: "https://old.example.com",
-    });
-    const handler = createTelegramReconcileHandler(config);
-    const res = await handler(
-      makeRequest("POST", TOKEN, {
-        ingressPublicBaseUrl: "",
-      }),
-    );
-    expect(res.status).toBe(200);
-    expect(config.ingressPublicBaseUrl).toBeUndefined();
-  });
-
-  test("works with empty body (no URL update)", async () => {
+  test("works with empty body", async () => {
     const config = makeConfig();
-    const handler = createTelegramReconcileHandler(config);
+    const handler = createTelegramReconcileHandler(config, makeCaches());
     const req = new Request(
       "http://localhost:7830/internal/telegram/reconcile",
       {
@@ -216,7 +210,6 @@ describe("POST /internal/telegram/reconcile", () => {
     );
     const res = await handler(req);
     expect(res.status).toBe(200);
-    expect(config.ingressPublicBaseUrl).toBe("https://example.com");
   });
 
   test("returns 502 when reconcile throws", async () => {
@@ -224,7 +217,7 @@ describe("POST /internal/telegram/reconcile", () => {
       throw new Error("Telegram API error");
     });
     const config = makeConfig();
-    const handler = createTelegramReconcileHandler(config);
+    const handler = createTelegramReconcileHandler(config, makeCaches());
     const res = await handler(makeRequest("POST", TOKEN));
     expect(res.status).toBe(502);
     const body = await res.json();
@@ -233,7 +226,7 @@ describe("POST /internal/telegram/reconcile", () => {
 
   test("returns 400 for invalid JSON body", async () => {
     const config = makeConfig();
-    const handler = createTelegramReconcileHandler(config);
+    const handler = createTelegramReconcileHandler(config, makeCaches());
     const req = new Request(
       "http://localhost:7830/internal/telegram/reconcile",
       {
@@ -249,65 +242,44 @@ describe("POST /internal/telegram/reconcile", () => {
     expect(res.status).toBe(400);
   });
 
-  test("serializes concurrent requests so the last URL wins", async () => {
-    const setWebhookUrls: string[] = [];
+  test("serializes concurrent reconcile requests", async () => {
+    let reconcileCount = 0;
 
     // Make reconcile slow enough that the first call is still in-flight
     // when the second one arrives.
-    fetchMock = mock(
-      async (input: string | URL | Request, init?: RequestInit) => {
-        const url =
-          typeof input === "string"
-            ? input
-            : input instanceof URL
-              ? input.toString()
-              : input.url;
-        if (url.includes("/getWebhookInfo")) {
-          return makeTelegramResponse({
-            url: "",
-            has_custom_certificate: false,
-            pending_update_count: 0,
-          });
-        }
-        if (url.includes("/setWebhook")) {
-          const body = init?.body ? JSON.parse(init.body as string) : {};
-          setWebhookUrls.push(body.url);
-          await new Promise((r) => setTimeout(r, 50));
-          return makeTelegramResponse(true);
-        }
-        return new Response("Not found", { status: 404 });
-      },
-    );
+    fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.includes("/getWebhookInfo")) {
+        return makeTelegramResponse({
+          url: "",
+          has_custom_certificate: false,
+          pending_update_count: 0,
+        });
+      }
+      if (url.includes("/setWebhook")) {
+        reconcileCount++;
+        await new Promise((r) => setTimeout(r, 50));
+        return makeTelegramResponse(true);
+      }
+      return new Response("Not found", { status: 404 });
+    });
 
-    const config = makeConfig({ ingressPublicBaseUrl: "https://original.com" });
-    const handler = createTelegramReconcileHandler(config);
+    const config = makeConfig();
+    const handler = createTelegramReconcileHandler(config, makeCaches());
 
-    // Fire two requests concurrently — without serialization the second
-    // would mutate config.ingressPublicBaseUrl while the first reconcile
-    // is still running, leaving Telegram pointed at the first URL.
     const [res1, res2] = await Promise.all([
-      handler(
-        makeRequest("POST", TOKEN, {
-          ingressPublicBaseUrl: "https://first.com",
-        }),
-      ),
-      handler(
-        makeRequest("POST", TOKEN, {
-          ingressPublicBaseUrl: "https://second.com",
-        }),
-      ),
+      handler(makeRequest("POST", TOKEN)),
+      handler(makeRequest("POST", TOKEN)),
     ]);
 
     expect(res1.status).toBe(200);
     expect(res2.status).toBe(200);
-
-    // The first reconcile should register with "first" and the second with
-    // "second" — proving that config mutation + reconcile are atomic.
-    expect(setWebhookUrls).toEqual([
-      "https://first.com/webhooks/telegram",
-      "https://second.com/webhooks/telegram",
-    ]);
-    // After both complete, the config should reflect the last write.
-    expect(config.ingressPublicBaseUrl).toBe("https://second.com");
+    // Both reconciles should have run
+    expect(reconcileCount).toBe(2);
   });
 });

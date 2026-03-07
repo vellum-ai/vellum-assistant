@@ -17,8 +17,6 @@ const { callTelegramApi } = await import("../telegram/api.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
-    telegramBotToken: "test-bot-token",
-    telegramWebhookSecret: "test-webhook-secret",
     telegramApiBaseUrl: "https://api.telegram.org",
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
@@ -39,21 +37,11 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    ingressPublicBaseUrl: "https://example.ngrok.io",
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
     whatsappDeliverAuthBypass: false,
     whatsappTimeoutMs: 15000,
     whatsappMaxRetries: 3,
     whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
     slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
@@ -86,7 +74,6 @@ describe("callTelegramApi transport error redaction", () => {
     });
 
     const config = makeConfig({
-      telegramBotToken: tgToken,
       telegramMaxRetries: 0,
     });
 
@@ -126,7 +113,6 @@ describe("callTelegramApi transport error redaction", () => {
     });
 
     const config = makeConfig({
-      telegramBotToken: tgToken,
       telegramMaxRetries: 0,
     });
 
@@ -165,7 +151,6 @@ describe("callTelegramApi transport error redaction", () => {
     });
 
     const config = makeConfig({
-      telegramBotToken: tgToken,
       telegramMaxRetries: 0,
     });
 

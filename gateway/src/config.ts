@@ -1,14 +1,4 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { getLogger, type LogFileConfig } from "./logger.js";
-import { readConfigFileDefaults } from "./config-file-mappings.js";
-import {
-  getRootDir,
-  readCredential,
-  readTwilioCredentials,
-  readWhatsAppCredentials,
-  readSlackChannelCredentials,
-} from "./credential-reader.js";
 
 const log = getLogger("config");
 
@@ -35,7 +25,6 @@ export type GatewayConfig = {
   runtimeTimeoutMs: number;
   shutdownDrainMs: number;
   telegramApiBaseUrl: string;
-  telegramBotToken: string | undefined;
   /**
    * When true, the /deliver/telegram endpoint allows unauthenticated access
    * even when no bearer token is configured. Intended for local development only.
@@ -44,28 +33,7 @@ export type GatewayConfig = {
   telegramInitialBackoffMs: number;
   telegramMaxRetries: number;
   telegramTimeoutMs: number;
-  telegramWebhookSecret: string | undefined;
-  /** Twilio auth token for validating webhook signatures at the gateway boundary. */
-  twilioAuthToken: string | undefined;
-  /** Twilio account SID for API calls (voice, compliance). */
-  twilioAccountSid: string | undefined;
-  /** Twilio phone number (E.164) used as the "From" for outbound voice calls. */
-  twilioPhoneNumber: string | undefined;
-  /** Per-assistant phone number mapping (assistantId -> E.164 phone number). */
-  assistantPhoneNumbers?: Record<string, string>;
-  /** Canonical public ingress base URL, used for webhook signature reconstruction. */
-  ingressPublicBaseUrl: string | undefined;
-  /** The assistant's own email address, persisted by the email setup skill. */
-  assistantEmail?: string | undefined;
   unmappedPolicy: "reject" | "default";
-  /** WhatsApp Business phone number ID (numeric string, e.g. "123456789012345"). */
-  whatsappPhoneNumberId: string | undefined;
-  /** WhatsApp access token (System User token or temporary token from Meta developer portal). */
-  whatsappAccessToken: string | undefined;
-  /** WhatsApp app secret used to verify X-Hub-Signature-256 on incoming webhooks. */
-  whatsappAppSecret: string | undefined;
-  /** Webhook verify token used during the Meta webhook subscription handshake. */
-  whatsappWebhookVerifyToken: string | undefined;
   /**
    * When true, the /deliver/whatsapp endpoint allows unauthenticated access
    * even when no bearer token is configured. Intended for local development only.
@@ -74,10 +42,6 @@ export type GatewayConfig = {
   whatsappTimeoutMs: number;
   whatsappMaxRetries: number;
   whatsappInitialBackoffMs: number;
-  /** Slack Bot User OAuth Token (xoxb-...) for Slack as a channel. */
-  slackChannelBotToken: string | undefined;
-  /** Slack App-Level Token (xapp-...) for Socket Mode. */
-  slackChannelAppToken: string | undefined;
   /**
    * When true, the /deliver/slack endpoint allows unauthenticated access
    * even when no bearer token is configured. Intended for local development only.
@@ -120,11 +84,7 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
   return entries;
 }
 
-export async function loadConfig(): Promise<GatewayConfig> {
-  const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || undefined;
-  const telegramWebhookSecret =
-    process.env.TELEGRAM_WEBHOOK_SECRET || undefined;
-
+export function loadConfig(): GatewayConfig {
   const telegramApiBaseUrl =
     process.env.TELEGRAM_API_BASE_URL || "https://api.telegram.org";
 
@@ -300,60 +260,6 @@ export async function loadConfig(): Promise<GatewayConfig> {
     );
   }
 
-  // Twilio credentials: env var > credential store (encrypted file)
-  const twilioCreds = await readTwilioCredentials();
-  const twilioAuthToken =
-    process.env.TWILIO_AUTH_TOKEN || twilioCreds?.authToken || undefined;
-  let twilioAccountSid =
-    process.env.TWILIO_ACCOUNT_SID || twilioCreds?.accountSid || undefined;
-
-  // Read config.json defaults for fields that can come from the config file
-  let configFileData: Record<string, unknown> = {};
-  try {
-    const cfgPath = join(getRootDir(), "workspace", "config.json");
-    const raw = readFileSync(cfgPath, "utf-8");
-    const data = JSON.parse(raw);
-    if (data && typeof data === "object" && !Array.isArray(data)) {
-      configFileData = data as Record<string, unknown>;
-    }
-  } catch {
-    // config file may not exist yet
-  }
-  const configDefaults = readConfigFileDefaults(configFileData);
-
-  // Phone number: env var > config file > credential store
-  let twilioPhoneNumber: string | undefined =
-    process.env.TWILIO_PHONE_NUMBER ||
-    (configDefaults.twilioPhoneNumber as string | undefined);
-  if (!twilioAccountSid) {
-    twilioAccountSid = configDefaults.twilioAccountSid as string | undefined;
-  }
-  const assistantPhoneNumbers = configDefaults.assistantPhoneNumbers as
-    | Record<string, string>
-    | undefined;
-  const assistantEmail = configDefaults.assistantEmail as string | undefined;
-  if (!twilioPhoneNumber) {
-    twilioPhoneNumber =
-      (await readCredential("credential:twilio:phone_number")) || undefined;
-  }
-
-  // WhatsApp credentials: env var > credential store (encrypted file)
-  const whatsappCreds = await readWhatsAppCredentials();
-  const whatsappPhoneNumberId =
-    process.env.WHATSAPP_PHONE_NUMBER_ID ||
-    whatsappCreds?.phoneNumberId ||
-    undefined;
-  const whatsappAccessToken =
-    process.env.WHATSAPP_ACCESS_TOKEN ||
-    whatsappCreds?.accessToken ||
-    undefined;
-  const whatsappAppSecret =
-    process.env.WHATSAPP_APP_SECRET || whatsappCreds?.appSecret || undefined;
-  const whatsappWebhookVerifyToken =
-    process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ||
-    whatsappCreds?.webhookVerifyToken ||
-    undefined;
-
   const whatsappDeliverAuthBypassRaw =
     process.env.GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS;
   if (
@@ -394,17 +300,6 @@ export async function loadConfig(): Promise<GatewayConfig> {
       "GATEWAY_WHATSAPP_INITIAL_BACKOFF_MS must be a positive number",
     );
   }
-
-  // Slack channel credentials: env var > credential store (encrypted file)
-  const slackChannelCreds = await readSlackChannelCredentials();
-  const slackChannelBotToken =
-    process.env.SLACK_CHANNEL_BOT_TOKEN ||
-    slackChannelCreds?.botToken ||
-    undefined;
-  const slackChannelAppToken =
-    process.env.SLACK_CHANNEL_APP_TOKEN ||
-    slackChannelCreds?.appToken ||
-    undefined;
 
   const slackDeliverAuthBypassRaw =
     process.env.GATEWAY_SLACK_DELIVER_AUTH_BYPASS;
@@ -460,10 +355,6 @@ export async function loadConfig(): Promise<GatewayConfig> {
   }
   const trustProxy = trustProxyRaw === "true";
 
-  const ingressPublicBaseUrl =
-    process.env.INGRESS_PUBLIC_BASE_URL ||
-    (configDefaults.ingressPublicBaseUrl as string | undefined);
-
   const logFileDir = process.env.GATEWAY_LOG_DIR || undefined;
 
   const logFileRetentionDays = Number(
@@ -490,20 +381,7 @@ export async function loadConfig(): Promise<GatewayConfig> {
       runtimeProxyEnabled,
       runtimeProxyRequireAuth,
       telegramDeliverAuthBypass,
-      hasTwilioAuthToken: !!twilioAuthToken,
-      hasTwilioAccountSid: !!twilioAccountSid,
-      hasTwilioPhoneNumber: !!twilioPhoneNumber,
-      assistantPhoneNumberCount: assistantPhoneNumbers
-        ? Object.keys(assistantPhoneNumbers).length
-        : 0,
-      ingressPublicBaseUrl,
-      hasWhatsAppPhoneNumberId: !!whatsappPhoneNumberId,
-      hasWhatsAppAccessToken: !!whatsappAccessToken,
-      hasWhatsAppAppSecret: !!whatsappAppSecret,
-      hasWhatsAppWebhookVerifyToken: !!whatsappWebhookVerifyToken,
       whatsappDeliverAuthBypass,
-      hasSlackChannelBotToken: !!slackChannelBotToken,
-      hasSlackChannelAppToken: !!slackChannelAppToken,
       slackDeliverAuthBypass,
       trustProxy,
     },
@@ -527,35 +405,16 @@ export async function loadConfig(): Promise<GatewayConfig> {
     runtimeTimeoutMs,
     shutdownDrainMs,
     telegramApiBaseUrl,
-    telegramBotToken,
     telegramDeliverAuthBypass,
     telegramInitialBackoffMs,
     telegramMaxRetries,
     telegramTimeoutMs,
-    telegramWebhookSecret,
-    twilioAuthToken,
-    twilioAccountSid,
-    twilioPhoneNumber,
-    assistantPhoneNumbers,
-    ingressPublicBaseUrl,
-    assistantEmail,
     unmappedPolicy,
-    whatsappPhoneNumberId,
-    whatsappAccessToken,
-    whatsappAppSecret,
-    whatsappWebhookVerifyToken,
     whatsappDeliverAuthBypass,
     whatsappTimeoutMs,
     whatsappMaxRetries,
     whatsappInitialBackoffMs,
-    slackChannelBotToken,
-    slackChannelAppToken,
     slackDeliverAuthBypass,
     trustProxy,
   };
-}
-
-/** Returns true when both Slack channel tokens are present. */
-export function isSlackChannelConfigured(config: GatewayConfig): boolean {
-  return !!config.slackChannelBotToken && !!config.slackChannelAppToken;
 }

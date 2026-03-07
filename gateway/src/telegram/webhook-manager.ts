@@ -34,7 +34,7 @@ export async function reconcileTelegramWebhook(
   config: GatewayConfig,
   caches?: WebhookManagerCaches,
 ): Promise<void> {
-  // Resolve credentials — prefer cache, fall back to config
+  // Resolve credentials from cache
   let botToken: string | undefined;
   let webhookSecret: string | undefined;
   if (caches?.credentials) {
@@ -43,8 +43,6 @@ export async function reconcileTelegramWebhook(
       "credential:telegram:webhook_secret",
     );
   }
-  botToken ??= config.telegramBotToken;
-  webhookSecret ??= config.telegramWebhookSecret;
 
   if (!botToken || !webhookSecret) {
     log.debug(
@@ -53,12 +51,11 @@ export async function reconcileTelegramWebhook(
     return;
   }
 
-  // Resolve ingress URL — prefer cache, fall back to config
+  // Resolve ingress URL from cache
   let ingressUrl: string | undefined;
   if (caches?.configFile) {
     ingressUrl = caches.configFile.getString("ingress", "publicBaseUrl");
   }
-  ingressUrl ??= config.ingressPublicBaseUrl;
 
   if (!ingressUrl) {
     log.debug(

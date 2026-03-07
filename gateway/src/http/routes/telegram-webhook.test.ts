@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../../config.js";
+import type { CredentialCache } from "../../credential-cache.js";
 
 // --- Mocks ----------------------------------------------------------------
 
@@ -70,27 +71,15 @@ const baseConfig: GatewayConfig = {
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
   telegramApiBaseUrl: "https://api.telegram.org",
-  telegramBotToken: "test-token",
   telegramDeliverAuthBypass: true,
   telegramInitialBackoffMs: 1000,
   telegramMaxRetries: 3,
   telegramTimeoutMs: 15000,
-  telegramWebhookSecret: "test-secret",
-  twilioAuthToken: undefined,
-  twilioAccountSid: undefined,
-  twilioPhoneNumber: undefined,
-  ingressPublicBaseUrl: undefined,
   unmappedPolicy: "default",
-  whatsappPhoneNumberId: undefined,
-  whatsappAccessToken: undefined,
-  whatsappAppSecret: undefined,
-  whatsappWebhookVerifyToken: undefined,
   whatsappDeliverAuthBypass: false,
   whatsappTimeoutMs: 15000,
   whatsappMaxRetries: 3,
   whatsappInitialBackoffMs: 1000,
-  slackChannelBotToken: undefined,
-  slackChannelAppToken: undefined,
   slackDeliverAuthBypass: false,
   trustProxy: false,
 };
@@ -121,6 +110,18 @@ function postRequest(body: string): Request {
   });
 }
 
+/** Create mock caches for the telegram webhook handler. */
+function makeCaches() {
+  const credentials = {
+    get: async (key: string) => {
+      if (key === "credential:telegram:webhook_secret") return "test-secret";
+      return undefined;
+    },
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  return { credentials };
+}
+
 // --- Tests -----------------------------------------------------------------
 
 describe("telegram-webhook callback query acknowledgment", () => {
@@ -143,7 +144,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
   });
 
   it("acknowledges callback query after successful forwarding", async () => {
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 300);
     const res = await handler(postRequest(body));
 
@@ -166,7 +167,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
       }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 301);
     const res = await handler(postRequest(body));
 
@@ -185,7 +186,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
       Promise.resolve({ forwarded: false, rejected: false }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 304);
     const res = await handler(postRequest(body));
 
@@ -204,7 +205,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
       Promise.reject(new Error("boom")),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 305);
     const res = await handler(postRequest(body));
 
@@ -219,7 +220,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
   });
 
   it("acknowledges callback query when /new command is triggered via callback", async () => {
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("/new", 302);
     const res = await handler(postRequest(body));
 
@@ -234,7 +235,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
   });
 
   it("acknowledges callback query when /start command is triggered via callback", async () => {
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("/start", 313);
     const res = await handler(postRequest(body));
 
@@ -250,7 +251,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
   });
 
   it("forwards /start as channel command-intent metadata and sends start acknowledgement", async () => {
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = JSON.stringify({
       update_id: 314,
       message: {
@@ -284,7 +285,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
   });
 
   it("does not call answerCallbackQuery for regular text messages", async () => {
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = JSON.stringify({
       update_id: 303,
       message: {
@@ -317,7 +318,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
       }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 306);
     const res = await handler(postRequest(body));
 
@@ -347,7 +348,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
       }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:stale:approve", 307);
     const res = await handler(postRequest(body));
 
@@ -372,7 +373,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
       }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve", 308);
     const res = await handler(postRequest(body));
 
@@ -396,7 +397,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
       }),
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve_once", 310);
     const res = await handler(postRequest(body));
 
@@ -444,7 +445,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
       },
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve_once", 311);
     const res = await handler(postRequest(body));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -492,7 +493,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
       },
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("gapr:run1:approve", 309);
     const res = await handler(postRequest(body));
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -534,7 +535,7 @@ describe("telegram-webhook callback query acknowledgment", () => {
       },
     );
 
-    const { handler } = createTelegramWebhookHandler(baseConfig);
+    const { handler } = createTelegramWebhookHandler(baseConfig, makeCaches());
     const body = makeCallbackQueryBody("apr:run1:approve_once", 312);
     const res = await handler(postRequest(body));
     await new Promise((resolve) => setTimeout(resolve, 0));

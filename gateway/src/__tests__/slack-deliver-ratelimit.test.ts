@@ -1,5 +1,6 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -34,27 +35,15 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
     telegramApiBaseUrl: "https://api.telegram.org",
-    telegramBotToken: undefined,
     telegramDeliverAuthBypass: false,
     telegramInitialBackoffMs: 1000,
     telegramMaxRetries: 3,
     telegramTimeoutMs: 15000,
-    telegramWebhookSecret: undefined,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    ingressPublicBaseUrl: undefined,
     unmappedPolicy: "reject",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
     whatsappDeliverAuthBypass: false,
     whatsappTimeoutMs: 15000,
     whatsappMaxRetries: 3,
     whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: "xoxb-test-bot-token",
-    slackChannelAppToken: undefined,
     slackDeliverAuthBypass: true,
     trustProxy: false,
     ...overrides,
@@ -68,6 +57,19 @@ function makeRequest(body: unknown): Request {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+/** Create a mock CredentialCache that returns a bot token. */
+function makeCaches() {
+  const credentials = {
+    get: async (key: string) => {
+      if (key === "credential:slack_channel:bot_token")
+        return "xoxb-test-bot-token";
+      return undefined;
+    },
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  return { credentials };
 }
 
 let fetchCallCount: number;
@@ -92,7 +94,11 @@ describe("slack-deliver rate limit handling", () => {
       });
     });
 
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const res = await handler(makeRequest({ chatId: "C123", text: "hello" }));
     expect(res.status).toBe(200);
     expect(fetchCallCount).toBe(2);
@@ -107,7 +113,11 @@ describe("slack-deliver rate limit handling", () => {
       });
     });
 
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const res = await handler(makeRequest({ chatId: "C123", text: "hello" }));
     expect(res.status).toBe(429);
     // 1 initial + 3 retries = 4 total
@@ -129,7 +139,11 @@ describe("slack-deliver rate limit handling", () => {
       });
     });
 
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const res = await handler(makeRequest({ chatId: "C123", text: "hello" }));
     expect(res.status).toBe(200);
     expect(fetchCallCount).toBe(2);
@@ -144,7 +158,11 @@ describe("slack-deliver rate limit handling", () => {
       );
     });
 
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const res = await handler(makeRequest({ chatId: "C123", text: "hello" }));
     expect(res.status).toBe(429);
     // 1 initial + 3 retries = 4 total
@@ -159,7 +177,11 @@ describe("slack-deliver rate limit handling", () => {
       );
     });
 
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const res = await handler(makeRequest({ chatId: "C123", text: "hello" }));
     expect(res.status).toBe(502);
   });
@@ -172,7 +194,11 @@ describe("slack-deliver rate limit handling", () => {
       );
     });
 
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const res = await handler(makeRequest({ chatId: "C123", text: "hello" }));
     expect(res.status).toBe(404);
   });
@@ -185,7 +211,11 @@ describe("slack-deliver rate limit handling", () => {
       );
     });
 
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const res = await handler(makeRequest({ chatId: "C123", text: "hello" }));
     expect(res.status).toBe(403);
   });

@@ -12,7 +12,7 @@ import {
 } from "./auth/token-exchange.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
-import { loadConfig, isSlackChannelConfigured } from "./config.js";
+import { loadConfig } from "./config.js";
 import { CredentialCache } from "./credential-cache.js";
 import {
   buildCredentialServiceMappings,
@@ -68,7 +68,6 @@ import {
   type RouteDefinition,
   type GetClientIp,
 } from "./http/router.js";
-import { applyConfigFileMappings } from "./config-file-mappings.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 
@@ -110,7 +109,7 @@ function getClientIp(
 }
 
 async function main() {
-  const config = await loadConfig();
+  const config = loadConfig();
   initLogger(config.logFile);
 
   log.info("Starting Vellum Gateway...");
@@ -123,12 +122,18 @@ async function main() {
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
-  // These are passed into handler factories so handlers read from cached
-  // values with automatic TTL refresh instead of the mutable GatewayConfig.
-  // During the compatibility phase, both cache reads and legacy config field
-  // reads coexist — caches are preferred, with config as fallback.
+  // Handlers read dynamic credentials and config.json values from these
+  // caches at call time, with automatic TTL refresh.
   const credentialCache = new CredentialCache();
   const configFileCache = new ConfigFileCache();
+
+  // ── Integration readiness flags ──
+  // Track whether each integration has valid credentials so route
+  // preconditions can gate requests synchronously. Updated by the
+  // credential watcher callback whenever credentials change.
+  let telegramReady = false;
+  let whatsappReady = false;
+  let slackReady = false;
 
   const twilioValidationCaches = {
     credentials: credentialCache,
@@ -138,14 +143,17 @@ async function main() {
   const { handler: handleTelegramWebhook, dedupCache: telegramDedupCache } =
     createTelegramWebhookHandler(config, { credentials: credentialCache });
   const handleTelegramDeliver = createTelegramDeliverHandler(config);
-  const handleTelegramReconcile = createTelegramReconcileHandler(config);
-  const handleTwilioReconcile = createTwilioReconcileHandler(config);
+  const handleTelegramReconcile = createTelegramReconcileHandler(config, {
+    credentials: credentialCache,
+    configFile: configFileCache,
+  });
+  const handleTwilioReconcile = createTwilioReconcileHandler(config, {
+    credentials: credentialCache,
+    configFile: configFileCache,
+  });
 
-  const isTelegramConfigured = () =>
-    !!(config.telegramBotToken && config.telegramWebhookSecret);
-
-  const isWhatsAppConfigured = () =>
-    !!(config.whatsappPhoneNumberId && config.whatsappAccessToken);
+  const isTelegramConfigured = () => telegramReady;
+  const isWhatsAppConfigured = () => whatsappReady;
 
   const handleTwilioVoiceWebhook = createTwilioVoiceWebhookHandler(
     config,
@@ -164,9 +172,13 @@ async function main() {
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config, { credentials: credentialCache });
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
-  const handleSlackDeliver = createSlackDeliverHandler(config, (threadTs) => {
-    slackSocketClient?.trackThread(threadTs);
-  });
+  const handleSlackDeliver = createSlackDeliverHandler(
+    config,
+    (threadTs) => {
+      slackSocketClient?.trackThread(threadTs);
+    },
+    { credentials: credentialCache },
+  );
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
   const channelVerificationSessionProxy =
@@ -205,10 +217,7 @@ async function main() {
 
   const requireTelegram = requireConfigured(isTelegramConfigured, "Telegram");
   const requireWhatsApp = requireConfigured(isWhatsAppConfigured, "WhatsApp");
-  const requireSlack = requireConfigured(
-    () => !!config.slackChannelBotToken,
-    "Slack",
-  );
+  const requireSlack = requireConfigured(() => slackReady, "Slack");
 
   // ── Route table ──
   // Routes are matched top-to-bottom. The first match wins.
@@ -578,7 +587,9 @@ async function main() {
       auth: "edge",
       handler: () =>
         Response.json({
-          email: { address: config.assistantEmail ?? null },
+          email: {
+            address: configFileCache.getString("email", "address") ?? null,
+          },
         }),
     },
 
@@ -783,17 +794,24 @@ async function main() {
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
 
-  function startSlackSocket(): void {
+  async function startSlackSocket(): Promise<void> {
     if (slackSocketClient) {
       slackSocketClient.stop();
       slackSocketClient = null;
     }
-    if (!isSlackChannelConfigured(config)) return;
+
+    const botToken = await credentialCache.get(
+      "credential:slack_channel:bot_token",
+    );
+    const appToken = await credentialCache.get(
+      "credential:slack_channel:app_token",
+    );
+    if (!botToken || !appToken) return;
 
     slackSocketClient = createSlackSocketModeClient(
       {
-        appToken: config.slackChannelAppToken!,
-        botToken: config.slackChannelBotToken!,
+        appToken,
+        botToken,
         gatewayConfig: config,
       },
       (normalized) => {
@@ -818,35 +836,38 @@ async function main() {
     log.info("Slack Socket Mode client started");
   }
 
-  if (isSlackChannelConfigured(config)) {
-    startSlackSocket();
+  if (slackReady) {
+    startSlackSocket().catch((err) => {
+      log.error({ err }, "Failed to start Slack Socket Mode on startup");
+    });
   }
 
-  const telegramFromEnv = isTelegramConfigured();
-  const slackFromEnv = !!(
-    process.env.SLACK_CHANNEL_BOT_TOKEN && process.env.SLACK_CHANNEL_APP_TOKEN
-  );
-
-  const credentialMappings = buildCredentialServiceMappings({
-    telegramFromEnv,
-    slackFromEnv,
-  });
+  const credentialMappings = buildCredentialServiceMappings();
 
   const credentialWatcher = new CredentialWatcher((event) => {
-    const changed = applyCredentialChanges(
-      event,
-      config,
-      credentialMappings,
-      log,
-    );
+    const changed = applyCredentialChanges(event, credentialMappings, log);
 
     // Invalidate the credential cache so subsequent reads pick up fresh values
     if (changed.size > 0) {
       credentialCache.invalidate();
     }
 
+    // Update integration readiness flags from the credential event
+    telegramReady = !!(
+      event.telegramCredentials?.botToken &&
+      event.telegramCredentials?.webhookSecret
+    );
+    whatsappReady = !!(
+      event.whatsappCredentials?.phoneNumberId &&
+      event.whatsappCredentials?.accessToken
+    );
+    slackReady = !!(
+      event.slackChannelCredentials?.botToken &&
+      event.slackChannelCredentials?.appToken
+    );
+
     // Side effects keyed by service name
-    if (changed.has("telegram") && isTelegramConfigured()) {
+    if (changed.has("telegram") && telegramReady) {
       registerTelegramCommands();
       reconcileTelegramWebhook(config, telegramCaches).catch((err) => {
         log.error(
@@ -856,15 +877,18 @@ async function main() {
       });
     }
     if (changed.has("slackChannel")) {
-      startSlackSocket();
+      startSlackSocket().catch((err) => {
+        log.error(
+          { err },
+          "Failed to restart Slack Socket Mode after credential change",
+        );
+      });
     }
   });
 
   credentialWatcher.start();
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
-    applyConfigFileMappings(event.data, event.changedKeys, config);
-
     // Invalidate the config file cache so subsequent reads pick up fresh values
     configFileCache.invalidate();
 

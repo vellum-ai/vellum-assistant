@@ -36,14 +36,8 @@ export function createWhatsAppDeliverHandler(config: GatewayConfig) {
     );
     if (authResponse) return authResponse;
 
-    // Verify WhatsApp sending is configured
-    if (!config.whatsappPhoneNumberId || !config.whatsappAccessToken) {
-      tlog.error("WhatsApp credentials not configured");
-      return Response.json(
-        { error: "WhatsApp integration not configured" },
-        { status: 503 },
-      );
-    }
+    // WhatsApp credential availability is gated by the route precondition
+    // (isWhatsAppConfigured) — no config check needed here.
 
     let body: {
       chatId?: string;
