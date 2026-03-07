@@ -15,8 +15,8 @@ import type {
   GuardianBinding,
   IdentityBindingStatus,
   SessionStatus,
-  VerificationSession,
   VerificationPurpose,
+  VerificationSession,
 } from "../memory/channel-guardian-store.js";
 import {
   bindSessionIdentity as storeBindSessionIdentity,
@@ -387,9 +387,7 @@ export function revokePendingSessions(channel: string): void {
  * channel. Used by relay setup to detect whether an active
  * voice verification session exists.
  */
-export function getPendingSession(
-  channel: string,
-): VerificationSession | null {
+export function getPendingSession(channel: string): VerificationSession | null {
   return findPendingSessionForChannel(channel);
 }
 
@@ -470,9 +468,7 @@ export function createOutboundSession(params: {
 /**
  * Find the most recent active outbound session for a given channel.
  */
-export function findActiveSession(
-  channel: string,
-): VerificationSession | null {
+export function findActiveSession(channel: string): VerificationSession | null {
   return storeFindActiveSession(channel);
 }
 

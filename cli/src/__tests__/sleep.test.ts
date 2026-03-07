@@ -11,26 +11,19 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-// Create a temp directory that acts as a fake home so the real
-// assistant-config module reads/writes here instead of ~/.vellum.
+// Create a temp directory and set BASE_DATA_DIR so the real assistant-config
+// module reads the lockfile from here instead of ~/.vellum. The lockfile
+// includes full resources, so we never need to mock homedir() — avoiding
+// process-global os mocks that leak into other test files (e.g. multi-local).
 const testDir = mkdtempSync(join(tmpdir(), "sleep-command-test-"));
 const assistantRootDir = join(testDir, ".vellum");
 process.env.BASE_DATA_DIR = testDir;
 
-// Mock homedir() so defaultLocalResources() resolves to testDir.
-const realOs = await import("node:os");
-mock.module("node:os", () => ({
-  ...realOs,
-  homedir: () => testDir,
-}));
-mock.module("os", () => ({
-  ...realOs,
-  homedir: () => testDir,
-}));
-
 const stopProcessByPidFileMock = mock(async () => true);
+const isProcessAliveMock = mock(() => ({ alive: false, pid: null }));
 
 mock.module("../lib/process.js", () => ({
+  isProcessAlive: isProcessAliveMock,
   stopProcessByPidFile: stopProcessByPidFileMock,
 }));
 
@@ -66,8 +59,8 @@ function writeLockfile(): void {
         activeAssistant: "sleep-test",
       },
       null,
-      2,
-    ),
+      2
+    )
   );
 }
 
@@ -85,8 +78,8 @@ function writeLeaseFile(callSessionIds: string[]): void {
         })),
       },
       null,
-      2,
-    ),
+      2
+    )
   );
 }
 
@@ -95,6 +88,8 @@ describe("sleep command", () => {
 
   beforeEach(() => {
     originalArgv = [...process.argv];
+    isProcessAliveMock.mockReset();
+    isProcessAliveMock.mockReturnValue({ alive: false, pid: null });
     stopProcessByPidFileMock.mockReset();
     stopProcessByPidFileMock.mockResolvedValue(true);
     rmSync(assistantRootDir, { recursive: true, force: true });
@@ -108,6 +103,7 @@ describe("sleep command", () => {
   });
 
   test("refuses normal sleep while an active call lease exists", async () => {
+    isProcessAliveMock.mockReturnValue({ alive: true, pid: 12345 });
     writeLeaseFile(["call-active-1", "call-active-2"]);
     process.argv = ["bun", "vellum", "sleep", "sleep-test"];
 
@@ -116,12 +112,12 @@ describe("sleep command", () => {
       throw new Error(`process.exit:${code}`);
     });
     const originalExit = process.exit;
-    process.exit = exitMock as unknown as typeof process.exit;
+    process.exit = (exitMock as unknown) as typeof process.exit;
 
     try {
       await expect(sleep()).rejects.toThrow("process.exit:1");
       expect(consoleError).toHaveBeenCalledWith(
-        expect.stringContaining("vellum sleep --force"),
+        expect.stringContaining("vellum sleep --force")
       );
     } finally {
       process.exit = originalExit;
@@ -129,6 +125,22 @@ describe("sleep command", () => {
     }
 
     expect(stopProcessByPidFileMock).not.toHaveBeenCalled();
+  });
+
+  test("proceeds when assistant is not running even with stale lease file", async () => {
+    isProcessAliveMock.mockReturnValue({ alive: false, pid: null });
+    writeLeaseFile(["call-stale-1"]);
+    process.argv = ["bun", "vellum", "sleep", "sleep-test"];
+
+    const consoleLog = spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      await sleep();
+    } finally {
+      consoleLog.mockRestore();
+    }
+
+    expect(stopProcessByPidFileMock).toHaveBeenCalledTimes(2);
   });
 
   test("force stops the assistant even when an active call lease exists", async () => {
@@ -148,14 +160,14 @@ describe("sleep command", () => {
       1,
       join(assistantRootDir, "vellum.pid"),
       "assistant",
-      [join(assistantRootDir, "vellum.sock")],
+      [join(assistantRootDir, "vellum.sock")]
     );
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
       2,
       join(assistantRootDir, "gateway.pid"),
       "gateway",
       undefined,
-      7000,
+      7000
     );
   });
 });

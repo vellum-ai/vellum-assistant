@@ -520,41 +520,43 @@ struct ThreadListView: View {
                 }
             }
         } else {
-            // Multi-thread group: DisclosureGroup with fully-tappable label
-            maybeConnectedScheduleGroupContextMenu(group: group) {
-                DisclosureGroup {
-                    ForEach(group.threads) { thread in
-                        maybeConnectedContextMenu(thread: thread) {
-                            NavigationLink(value: thread.id) {
-                                threadRow(thread)
-                            }
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    store.deleteThread(thread)
-                                    if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                                        selectedThreadId = activeThreads.first?.id
-                                    }
-                                } label: {
-                                    Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
+            // Multi-thread group: DisclosureGroup with fully-tappable label.
+            // Context menu is on the label only so tap-to-expand (on the disclosure chevron)
+            // and long-press-for-menu remain distinct gestures.
+            DisclosureGroup {
+                ForEach(group.threads) { thread in
+                    maybeConnectedContextMenu(thread: thread) {
+                        NavigationLink(value: thread.id) {
+                            threadRow(thread)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                store.deleteThread(thread)
+                                if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                                    selectedThreadId = activeThreads.first?.id
                                 }
-                                Button {
-                                    archiveActiveThread(thread)
-                                } label: {
-                                    Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
-                                }
-                                .tint(VColor.warning)
+                            } label: {
+                                Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                             }
-                            .swipeActions(edge: .leading) {
-                                Button {
-                                    beginRenaming(thread)
-                                } label: {
-                                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-                                }
-                                .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+                            Button {
+                                archiveActiveThread(thread)
+                            } label: {
+                                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                             }
+                            .tint(VColor.warning)
+                        }
+                        .swipeActions(edge: .leading) {
+                            Button {
+                                beginRenaming(thread)
+                            } label: {
+                                Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+                            }
+                            .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                         }
                     }
-                } label: {
+                }
+            } label: {
+                maybeConnectedScheduleGroupContextMenu(group: group) {
                     HStack(spacing: 8) {
                         VIconView(.messageCircle, size: 12)
                             .foregroundStyle(.secondary)

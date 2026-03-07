@@ -207,7 +207,14 @@ export function updateCallSession(
   opts?.beforeLeaseSync?.();
 
   if (shouldSyncActiveLease) {
-    syncActiveCallLeaseFromSession(getCallSession(id));
+    try {
+      syncActiveCallLeaseFromSession(getCallSession(id));
+    } catch (err) {
+      log.warn(
+        { callSessionId: id, err },
+        "Failed to sync active call lease from session update",
+      );
+    }
   }
 }
 

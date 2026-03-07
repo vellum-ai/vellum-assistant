@@ -44,7 +44,7 @@ import {
   createFeatureFlagsGetHandler,
   createFeatureFlagsPatchHandler,
 } from "./http/routes/feature-flags.js";
-import { createGuardianControlPlaneProxyHandler } from "./http/routes/guardian-control-plane-proxy.js";
+import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { createTwilioControlPlaneProxyHandler } from "./http/routes/twilio-control-plane-proxy.js";
@@ -147,8 +147,8 @@ async function main() {
   });
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
-  const guardianControlPlaneProxy =
-    createGuardianControlPlaneProxyHandler(config);
+  const channelVerificationSessionProxy =
+    createChannelVerificationSessionProxyHandler(config);
   const telegramControlPlaneProxy =
     createTelegramControlPlaneProxyHandler(config);
   const contactsControlPlaneProxy =
@@ -376,14 +376,6 @@ async function main() {
       handler: (req, params) =>
         contactsControlPlaneProxy.handleUpdateContactChannel(req, params[0]),
     },
-    {
-      path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
-      method: "POST",
-      auth: "edge",
-      handler: (req, params) =>
-        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
-    },
-
     // ── Contacts/invites control plane ──
     {
       path: "/v1/contacts/invites",
@@ -427,46 +419,47 @@ async function main() {
         contactsControlPlaneProxy.handleGetContact(req, params[0]),
     },
 
-    // ── Guardian control plane ──
+    // ── Channel verification sessions ──
     {
       path: "/v1/guardian/init",
       method: "POST",
       auth: "edge",
-      handler: (req) => guardianControlPlaneProxy.handleGuardianInit(req),
+      handler: (req) => channelVerificationSessionProxy.handleGuardianInit(req),
     },
     {
-      path: "/v1/integrations/guardian/sessions",
+      path: "/v1/channel-verification-sessions",
       method: "POST",
       auth: "edge",
       handler: (req) =>
-        guardianControlPlaneProxy.handleCreateGuardianSession(req),
+        channelVerificationSessionProxy.handleCreateVerificationSession(req),
     },
     {
-      path: "/v1/integrations/guardian/sessions",
+      path: "/v1/channel-verification-sessions",
       method: "DELETE",
       auth: "edge",
       handler: (req) =>
-        guardianControlPlaneProxy.handleCancelGuardianSession(req),
+        channelVerificationSessionProxy.handleCancelVerificationSession(req),
     },
     {
-      path: "/v1/integrations/guardian/sessions/resend",
+      path: "/v1/channel-verification-sessions/resend",
       method: "POST",
       auth: "edge",
       handler: (req) =>
-        guardianControlPlaneProxy.handleResendGuardianSession(req),
+        channelVerificationSessionProxy.handleResendVerificationSession(req),
     },
     {
-      path: "/v1/integrations/guardian/status",
+      path: "/v1/channel-verification-sessions/status",
       method: "GET",
       auth: "edge",
-      handler: (req) => guardianControlPlaneProxy.handleGetGuardianStatus(req),
+      handler: (req) =>
+        channelVerificationSessionProxy.handleGetVerificationStatus(req),
     },
     {
-      path: "/v1/integrations/guardian/revoke",
+      path: "/v1/channel-verification-sessions/revoke",
       method: "POST",
       auth: "edge",
       handler: (req) =>
-        guardianControlPlaneProxy.handleRevokeGuardianBinding(req),
+        channelVerificationSessionProxy.handleRevokeVerificationBinding(req),
     },
 
     // ── Guardian refresh (custom auth: accepts expired JWTs) ──
@@ -490,7 +483,7 @@ async function main() {
           authRateLimiter.recordFailure(getClientIp());
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
-        return guardianControlPlaneProxy.handleGuardianRefresh(req);
+        return channelVerificationSessionProxy.handleGuardianRefresh(req);
       },
     },
 

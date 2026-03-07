@@ -101,10 +101,17 @@ final class UsageDashboardViewTests: XCTestCase {
             XCTAssertEqual(breakdown.breakdown[0].group, "claude-sonnet-4-20250514")
             XCTAssertEqual(breakdown.breakdown[0].totalCacheCreationTokens, 120)
             XCTAssertEqual(breakdown.breakdown[0].totalCacheReadTokens, 9_876)
-            XCTAssertEqual(
-                UsageFormatting.formatBreakdownSummary(breakdown.breakdown[0]),
-                "700 direct / 120 cache created / 9,876 cache read / 350 out"
-            )
+            let entry = breakdown.breakdown[0]
+            let expectedSummary = UsageFormatting.formatBreakdownSummary(UsageGroupBreakdownEntry(
+                group: "claude-sonnet-4-20250514",
+                totalInputTokens: 700,
+                totalOutputTokens: 350,
+                totalCacheCreationTokens: 120,
+                totalCacheReadTokens: 9_876,
+                totalEstimatedCostUsd: 0.003,
+                eventCount: 2
+            ))
+            XCTAssertEqual(UsageFormatting.formatBreakdownSummary(entry), expectedSummary)
         } else {
             XCTFail("Expected breakdownState to be .loaded, got \(populatedStore.breakdownState)")
         }
@@ -170,22 +177,10 @@ final class UsageDashboardViewTests: XCTestCase {
         let view = UsageDashboardView(store: store)
         let renderedText = Self.renderedText(from: view)
 
-        // LabeledContent inside a SwiftUI List renders lazily; the UILabel
-        // hierarchy may not be fully materialised within the RunLoop window on
-        // CI runners.  Fall back to verifying the body can be created (smoke
-        // test) plus at least one known label appears, rather than asserting
-        // every label — the underlying formatting is already covered by the
-        // unit tests above.
-        let hasAnyExpectedLabel = renderedText.contains(UsageFormatting.directInputTokensLabel)
-            || renderedText.contains("Cache Created")
-            || renderedText.contains("Cache Read")
-            || renderedText.contains("Estimated Cost")
-        if !hasAnyExpectedLabel {
-            // Not a hard failure — SwiftUI lazy rendering on CI may not
-            // produce UILabels.  Log for visibility but don't block the build.
-            print("[UsageDashboardViewTests] Warning: rendered text did not contain expected labels — likely lazy List rendering on CI."
-                + " Rendered text: \(renderedText.prefix(500))")
-        }
+        XCTAssertTrue(renderedText.contains(UsageFormatting.directInputTokensLabel))
+        XCTAssertTrue(renderedText.contains("Cache Created"))
+        XCTAssertTrue(renderedText.contains("Cache Read"))
+        XCTAssertTrue(renderedText.contains("700 direct / 120 cache created / 9,876 cache read / 350 out"))
     }
 
     #endif
@@ -229,7 +224,8 @@ private extension UsageDashboardViewTests {
         hostingController.view.frame = window.bounds
         hostingController.view.setNeedsLayout()
         hostingController.view.layoutIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        // Give SwiftUI List time to materialise LabeledContent UILabels on CI.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
 
         return collectText(from: hostingController.view).joined(separator: "\n")
     }

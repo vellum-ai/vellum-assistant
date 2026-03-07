@@ -167,7 +167,15 @@ struct UsageDashboardPanelPopulatedTests {
     func groupByDimensionAffectsBreakdownHeadings() async {
         let client = MockPanelClient()
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "anthropic", totalInputTokens: 100, totalOutputTokens: 50, totalEstimatedCostUsd: 0.01, eventCount: 1)
+            UsageGroupBreakdownEntry(
+                group: "anthropic",
+                totalInputTokens: 100,
+                totalOutputTokens: 50,
+                totalCacheCreationTokens: 0,
+                totalCacheReadTokens: 0,
+                totalEstimatedCostUsd: 0.01,
+                eventCount: 1
+            )
         ])
 
         let store = UsageDashboardStore(client: client)
@@ -373,7 +381,15 @@ struct UsageDashboardPanelViewPopulatedTests {
         )
         client.stubbedDaily = UsageDailyResponse(buckets: [])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "anthropic", totalInputTokens: 100, totalOutputTokens: 50, totalEstimatedCostUsd: 0.01, eventCount: 1)
+            UsageGroupBreakdownEntry(
+                group: "anthropic",
+                totalInputTokens: 100,
+                totalOutputTokens: 50,
+                totalCacheCreationTokens: 0,
+                totalCacheReadTokens: 0,
+                totalEstimatedCostUsd: 0.01,
+                eventCount: 1
+            )
         ])
 
         let store = UsageDashboardStore(client: client)

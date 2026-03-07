@@ -192,17 +192,23 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
     endpoint: "integrations/slack/channel/config:DELETE",
     scopes: ["settings.write"],
   },
-  { endpoint: "integrations/guardian/sessions", scopes: ["settings.write"] },
+  { endpoint: "channel-verification-sessions", scopes: ["settings.write"] },
   {
-    endpoint: "integrations/guardian/sessions:DELETE",
+    endpoint: "channel-verification-sessions:DELETE",
     scopes: ["settings.write"],
   },
   {
-    endpoint: "integrations/guardian/sessions/resend",
+    endpoint: "channel-verification-sessions/resend",
     scopes: ["settings.write"],
   },
-  { endpoint: "integrations/guardian/status", scopes: ["settings.read"] },
-  { endpoint: "integrations/guardian/revoke", scopes: ["settings.write"] },
+  {
+    endpoint: "channel-verification-sessions/status",
+    scopes: ["settings.read"],
+  },
+  {
+    endpoint: "channel-verification-sessions/revoke",
+    scopes: ["settings.write"],
+  },
   { endpoint: "integrations/twilio/config", scopes: ["settings.read"] },
   {
     endpoint: "integrations/twilio/credentials:POST",

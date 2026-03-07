@@ -17,8 +17,8 @@ mock.module("../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createGuardianControlPlaneProxyHandler } =
-  await import("../http/routes/guardian-control-plane-proxy.js");
+const { createChannelVerificationSessionProxyHandler } =
+  await import("../http/routes/channel-verification-session-proxy.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
@@ -70,8 +70,8 @@ afterEach(() => {
   fetchMock = mock(async () => new Response());
 });
 
-describe("guardian control-plane proxy", () => {
-  test("forwards all guardian control-plane endpoints to the runtime", async () => {
+describe("channel verification session proxy", () => {
+  test("forwards all verification session endpoints to the runtime", async () => {
     const captured: string[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {
       captured.push(String(input));
@@ -81,42 +81,42 @@ describe("guardian control-plane proxy", () => {
       });
     });
 
-    const handler = createGuardianControlPlaneProxyHandler(makeConfig());
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
-    await handler.handleCreateGuardianSession(
-      new Request("http://localhost:7830/v1/integrations/guardian/sessions", {
+    await handler.handleCreateVerificationSession(
+      new Request("http://localhost:7830/v1/channel-verification-sessions", {
         method: "POST",
       }),
     );
-    await handler.handleGetGuardianStatus(
+    await handler.handleGetVerificationStatus(
       new Request(
-        "http://localhost:7830/v1/integrations/guardian/status?channel=voice",
+        "http://localhost:7830/v1/channel-verification-sessions/status?channel=voice",
         { method: "GET" },
       ),
     );
-    await handler.handleCreateGuardianSession(
-      new Request("http://localhost:7830/v1/integrations/guardian/sessions", {
+    await handler.handleCreateVerificationSession(
+      new Request("http://localhost:7830/v1/channel-verification-sessions", {
         method: "POST",
       }),
     );
-    await handler.handleResendGuardianSession(
+    await handler.handleResendVerificationSession(
       new Request(
-        "http://localhost:7830/v1/integrations/guardian/sessions/resend",
+        "http://localhost:7830/v1/channel-verification-sessions/resend",
         { method: "POST" },
       ),
     );
-    await handler.handleCancelGuardianSession(
-      new Request("http://localhost:7830/v1/integrations/guardian/sessions", {
+    await handler.handleCancelVerificationSession(
+      new Request("http://localhost:7830/v1/channel-verification-sessions", {
         method: "DELETE",
       }),
     );
 
     expect(captured).toEqual([
-      "http://localhost:7821/v1/integrations/guardian/sessions",
-      "http://localhost:7821/v1/integrations/guardian/status?channel=voice",
-      "http://localhost:7821/v1/integrations/guardian/sessions",
-      "http://localhost:7821/v1/integrations/guardian/sessions/resend",
-      "http://localhost:7821/v1/integrations/guardian/sessions",
+      "http://localhost:7821/v1/channel-verification-sessions",
+      "http://localhost:7821/v1/channel-verification-sessions/status?channel=voice",
+      "http://localhost:7821/v1/channel-verification-sessions",
+      "http://localhost:7821/v1/channel-verification-sessions/resend",
+      "http://localhost:7821/v1/channel-verification-sessions",
     ]);
   });
 
@@ -133,9 +133,9 @@ describe("guardian control-plane proxy", () => {
       },
     );
 
-    const handler = createGuardianControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCreateGuardianSession(
-      new Request("http://localhost:7830/v1/integrations/guardian/sessions", {
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleCreateVerificationSession(
+      new Request("http://localhost:7830/v1/channel-verification-sessions", {
         method: "POST",
         headers: {
           authorization: "Bearer caller-token",
@@ -168,9 +168,9 @@ describe("guardian control-plane proxy", () => {
       );
     });
 
-    const handler = createGuardianControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCreateGuardianSession(
-      new Request("http://localhost:7830/v1/integrations/guardian/sessions", {
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleCreateVerificationSession(
+      new Request("http://localhost:7830/v1/channel-verification-sessions", {
         method: "POST",
       }),
     );
@@ -190,12 +190,12 @@ describe("guardian control-plane proxy", () => {
       );
     });
 
-    const handler = createGuardianControlPlaneProxyHandler(
+    const handler = createChannelVerificationSessionProxyHandler(
       makeConfig({ runtimeTimeoutMs: 100 }),
     );
-    const res = await handler.handleGetGuardianStatus(
+    const res = await handler.handleGetVerificationStatus(
       new Request(
-        "http://localhost:7830/v1/integrations/guardian/status?channel=voice",
+        "http://localhost:7830/v1/channel-verification-sessions/status?channel=voice",
       ),
     );
 
@@ -208,10 +208,10 @@ describe("guardian control-plane proxy", () => {
       throw new Error("Connection refused");
     });
 
-    const handler = createGuardianControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleGetGuardianStatus(
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGetVerificationStatus(
       new Request(
-        "http://localhost:7830/v1/integrations/guardian/status?channel=voice",
+        "http://localhost:7830/v1/channel-verification-sessions/status?channel=voice",
       ),
     );
 

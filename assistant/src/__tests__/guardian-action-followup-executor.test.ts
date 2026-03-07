@@ -285,6 +285,30 @@ describe("guardian-action-followup-executor", () => {
     });
   });
 
+  // ── message_back (unsupported) error path ─────────────────────────────
+
+  describe("message_back", () => {
+    test("returns failure and finalizes as failed when message_back is dispatched", async () => {
+      const { request } = createDispatchingRequest(
+        "exec-msg-1",
+        "message_back",
+      );
+
+      const result = await executeFollowupAction(request.id, "message_back");
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error).toContain("Unsupported action");
+        expect(result.error).toContain("message_back");
+      }
+      expect(result.guardianReplyText.length).toBeGreaterThan(0);
+
+      const updated = getGuardianActionRequest(request.id);
+      expect(updated!.followupState).toBe("failed");
+      expect(updated!.followupCompletedAt).toBeGreaterThan(0);
+    });
+  });
+
   // ── Error handling ──────────────────────────────────────────────────
 
   describe("error handling", () => {

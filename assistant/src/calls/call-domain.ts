@@ -932,6 +932,12 @@ export async function startGuardianVerificationCall(
       return { ok: false, error: identityResult.error, status: 400 };
     }
 
+    const preflightResult = await preflightVoiceIngress();
+    if (!preflightResult.ok) {
+      return preflightResult;
+    }
+    const ingressConfig = preflightResult.ingressConfig;
+
     // Create a minimal conversation so the call session has a valid FK,
     // and bind it to the voice channel so it never appears as an unbound
     // desktop thread.
@@ -956,13 +962,13 @@ export async function startGuardianVerificationCall(
     sessionId = session.id;
 
     const webhookUrl = await resolveCallbackUrl(
-      () => getTwilioVoiceWebhookUrl(config, session.id),
+      () => getTwilioVoiceWebhookUrl(ingressConfig, session.id),
       "webhooks/twilio/voice",
       "twilio_voice",
       { callSessionId: session.id },
     );
     const statusCallbackUrl = await resolveCallbackUrl(
-      () => getTwilioStatusCallbackUrl(config),
+      () => getTwilioStatusCallbackUrl(ingressConfig),
       "webhooks/twilio/status",
       "twilio_status",
     );

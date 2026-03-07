@@ -28,9 +28,9 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-// Mock guardian control-plane policy — not targeting control-plane by default
-mock.module("../tools/guardian-control-plane-policy.js", () => ({
-  enforceGuardianOnlyPolicy: () => ({ denied: false }),
+// Mock verification control-plane policy -- not targeting control-plane by default
+mock.module("../tools/verification-control-plane-policy.js", () => ({
+  enforceVerificationControlPlanePolicy: () => ({ denied: false }),
 }));
 
 // Mock task run rules — no task run rules by default
