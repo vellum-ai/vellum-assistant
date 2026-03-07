@@ -539,9 +539,16 @@ export async function handleChannelVerificationSession(
 
   try {
     if (msg.action === "create_session") {
-      if (msg.purpose === "trusted_contact" && msg.contactChannelId) {
+      if (msg.purpose === "trusted_contact" && !msg.contactChannelId) {
+        ctx.send(socket, {
+          type: "channel_verification_session_response",
+          success: false,
+          error: "contactChannelId is required for trusted_contact purpose",
+          channel,
+        });
+      } else if (msg.purpose === "trusted_contact") {
         const result = await verifyTrustedContact(
-          msg.contactChannelId,
+          msg.contactChannelId!,
           DAEMON_INTERNAL_ASSISTANT_ID,
         );
         ctx.send(socket, {
