@@ -264,10 +264,6 @@ export function notifyGuardianOfAccessRequest(
           continue;
         }
 
-        if (result.channel !== "telegram") {
-          continue;
-        }
-
         const delivery = createCanonicalGuardianDelivery({
           requestId: canonicalRequest.id,
           destinationChannel: result.channel,
