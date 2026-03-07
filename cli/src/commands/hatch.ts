@@ -25,6 +25,7 @@ import {
   findAssistantByName,
   loadAllAssistants,
   saveAssistantEntry,
+  setActiveAssistant,
   syncConfigToLockfile,
 } from "../lib/assistant-config";
 import type {
@@ -772,6 +773,7 @@ async function hatchLocal(
   };
   if (!daemonOnly && !restart) {
     saveAssistantEntry(localEntry);
+    setActiveAssistant(instanceName);
     syncConfigToLockfile();
 
     if (process.env.VELLUM_DESKTOP_APP) {

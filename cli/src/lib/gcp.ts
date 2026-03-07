@@ -3,7 +3,7 @@ import { unlinkSync, writeFileSync } from "fs";
 import { tmpdir, userInfo } from "os";
 import { join } from "path";
 
-import { saveAssistantEntry } from "./assistant-config";
+import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { FIREWALL_TAG, GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
@@ -599,6 +599,7 @@ export async function hatchGcp(
       hatchedAt: new Date().toISOString(),
     };
     saveAssistantEntry(gcpEntry);
+    setActiveAssistant(instanceName);
 
     if (detached) {
       console.log("\ud83d\ude80 Startup script is running on the instance...");

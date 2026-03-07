@@ -3,7 +3,7 @@ import { existsSync } from "fs";
 import { createRequire } from "module";
 import { dirname, join } from "path";
 
-import { saveAssistantEntry } from "./assistant-config";
+import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
@@ -208,6 +208,7 @@ export async function hatchDocker(
     hatchedAt: new Date().toISOString(),
   };
   saveAssistantEntry(dockerEntry);
+  setActiveAssistant(instanceName);
 
   // The Dockerfiles already define a CMD that runs `vellum hatch --keep-alive`.
   // Only override CMD when a non-default species is specified, since that

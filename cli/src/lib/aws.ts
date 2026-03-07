@@ -5,7 +5,7 @@ import { join } from "path";
 
 import { buildStartupScript, watchHatching } from "../commands/hatch";
 import type { PollResult } from "../commands/hatch";
-import { saveAssistantEntry } from "./assistant-config";
+import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
@@ -500,6 +500,7 @@ export async function hatchAws(
       hatchedAt: new Date().toISOString(),
     };
     saveAssistantEntry(awsEntry);
+    setActiveAssistant(instanceName);
 
     if (detached) {
       console.log("\u{1F680} Startup script is running on the instance...");
