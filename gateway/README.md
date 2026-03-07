@@ -234,17 +234,6 @@ The gateway serves as the single public ingress point for all external callbacks
 | `/readyz`                                  | GET             | Readiness probe                                                                                                                                                                         |
 | `/schema`                                  | GET             | Returns the OpenAPI 3.1 schema for this gateway                                                                                                                                         |
 
-#### Backward-Compatibility Paths
-
-The following legacy paths are aliases that map to their canonical equivalents above:
-
-| Legacy Path                       | Canonical Path                    |
-| --------------------------------- | --------------------------------- |
-| `/v1/calls/twilio/voice-webhook`  | `/webhooks/twilio/voice`          |
-| `/v1/calls/twilio/status`         | `/webhooks/twilio/status`         |
-| `/v1/calls/twilio/connect-action` | `/webhooks/twilio/connect-action` |
-| `/v1/calls/relay`                 | `/webhooks/twilio/relay`          |
-
 ### Tunnel Setup
 
 To receive external callbacks during local development, point a tunnel service at the local gateway (default `http://127.0.0.1:7830`) and configure the resulting public URL:

@@ -296,7 +296,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio voice webhook",
           description:
-            "Receives inbound Twilio voice webhooks, validates the X-Twilio-Signature, and forwards to the assistant runtime. Also available at /v1/calls/twilio/voice-webhook for backward compatibility.",
+            "Receives inbound Twilio voice webhooks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
           operationId: "twilioVoiceWebhook",
           security: [{ TwilioSignature: [] }],
           requestBody: {
@@ -354,7 +354,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio status webhook",
           description:
-            "Receives Twilio call status callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime. Also available at /v1/calls/twilio/status for backward compatibility.",
+            "Receives Twilio call status callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
           operationId: "twilioStatusWebhook",
           security: [{ TwilioSignature: [] }],
           requestBody: {
@@ -411,7 +411,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Twilio connect-action webhook",
           description:
-            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime. Also available at /v1/calls/twilio/connect-action for backward compatibility.",
+            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
           operationId: "twilioConnectActionWebhook",
           security: [{ TwilioSignature: [] }],
           requestBody: {
@@ -660,7 +660,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Twilio ConversationRelay WebSocket",
           description:
-            "Accepts a WebSocket upgrade from Twilio ConversationRelay and bidirectionally proxies frames to the assistant runtime's /v1/calls/relay endpoint. Requires a callSessionId query parameter. Also available at /v1/calls/relay for backward compatibility.",
+            "Accepts a WebSocket upgrade from Twilio ConversationRelay and bidirectionally proxies frames to the assistant runtime's /v1/calls/relay endpoint. Requires a callSessionId query parameter.",
           operationId: "twilioRelayWebsocket",
           parameters: [
             {

@@ -25,24 +25,15 @@ function firstHeaderValue(value: string | null): string | undefined {
 function inferWebhookKind(reqUrl: string): TwilioWebhookKind {
   const pathname = new URL(reqUrl).pathname;
 
-  if (
-    pathname === "/webhooks/twilio/voice" ||
-    pathname === "/v1/calls/twilio/voice-webhook"
-  ) {
+  if (pathname === "/webhooks/twilio/voice") {
     return "voice";
   }
 
-  if (
-    pathname === "/webhooks/twilio/status" ||
-    pathname === "/v1/calls/twilio/status"
-  ) {
+  if (pathname === "/webhooks/twilio/status") {
     return "status";
   }
 
-  if (
-    pathname === "/webhooks/twilio/connect-action" ||
-    pathname === "/v1/calls/twilio/connect-action"
-  ) {
+  if (pathname === "/webhooks/twilio/connect-action") {
     return "connect-action";
   }
 

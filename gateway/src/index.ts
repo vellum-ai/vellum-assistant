@@ -214,23 +214,11 @@ async function main() {
       handler: (req) => handleTwilioVoiceWebhook(req),
     },
     {
-      path: "/v1/calls/twilio/voice-webhook",
-      handler: (req) => handleTwilioVoiceWebhook(req),
-    },
-    {
       path: "/webhooks/twilio/status",
       handler: (req) => handleTwilioStatusWebhook(req),
     },
     {
-      path: "/v1/calls/twilio/status",
-      handler: (req) => handleTwilioStatusWebhook(req),
-    },
-    {
       path: "/webhooks/twilio/connect-action",
-      handler: (req) => handleTwilioConnectActionWebhook(req),
-    },
-    {
-      path: "/v1/calls/twilio/connect-action",
       handler: (req) => handleTwilioConnectActionWebhook(req),
     },
     {
@@ -690,10 +678,7 @@ async function main() {
       // ── Pre-router: WebSocket upgrades ──
       // Bun's WS upgrade needs `server.upgrade()` which doesn't return
       // a Response, so these can't go through the route table.
-      if (
-        url.pathname === "/webhooks/twilio/relay" ||
-        url.pathname === "/v1/calls/relay"
-      ) {
+      if (url.pathname === "/webhooks/twilio/relay") {
         const upgradeResult = handleTwilioRelayWs(req, server);
         if (upgradeResult !== undefined) return upgradeResult;
         return undefined as unknown as Response;

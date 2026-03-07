@@ -44,11 +44,7 @@ function isRateLimitedRoute(url: URL): boolean {
     url.pathname.startsWith("/pairing/") ||
     url.pathname === "/webhooks/oauth/callback" ||
     (url.pathname.startsWith("/v1/") &&
-      url.pathname !== "/v1/calls/twilio/voice-webhook" &&
-      url.pathname !== "/v1/calls/twilio/status" &&
-      url.pathname !== "/v1/calls/twilio/connect-action" &&
       url.pathname !== "/v1/browser-relay" &&
-      url.pathname !== "/v1/browser-relay/token" &&
-      url.pathname !== "/v1/calls/relay")
+      url.pathname !== "/v1/browser-relay/token")
   );
 }

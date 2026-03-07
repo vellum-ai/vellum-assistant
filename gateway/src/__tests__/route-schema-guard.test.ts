@@ -128,13 +128,6 @@ const EXCLUDED_FROM_SCHEMA = new Set([
   // Internal-only route, used only for daemon-triggered Twilio refreshes
   "/internal/twilio/reconcile",
 
-  // Duplicate webhook paths for Twilio call routing — the canonical
-  // paths under /webhooks/ are documented instead
-  "/v1/calls/twilio/voice-webhook",
-  "/v1/calls/twilio/status",
-  "/v1/calls/twilio/connect-action",
-  "/v1/calls/relay",
-
   // Browser relay WebSocket upgrade — handled pre-router, not a REST endpoint
   "/v1/browser-relay",
 
