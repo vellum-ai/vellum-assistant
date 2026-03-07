@@ -179,4 +179,31 @@ describe("local gateway health", () => {
     expect(wakeCalled).toBe(true);
     expect(result.recovered).toBe(true);
   });
+
+  test("ensureLocalGatewayReady handles BASE_DATA_DIR with trailing slash", async () => {
+    mockBaseDataDir = "/home/user/.local/share/vellum/assistants/alice/";
+    mockLockfile = null;
+
+    const healthStatuses = [503, 200];
+    const fetchImpl: typeof fetch = (async (): Promise<Response> => {
+      const status = healthStatuses.shift() ?? 200;
+      return new Response(status === 200 ? "ok" : "unavailable", { status });
+    }) as unknown as typeof fetch;
+
+    let wakeCalled = false;
+    const result = await ensureLocalGatewayReady({
+      fetchImpl,
+      timeoutMs: 50,
+      pollTimeoutMs: 100,
+      pollIntervalMs: 0,
+      sleepImpl: async () => {},
+      runWakeCommand: async () => {
+        wakeCalled = true;
+        return { exitCode: 0, stdout: "Wake complete.", stderr: "" };
+      },
+    });
+
+    expect(wakeCalled).toBe(true);
+    expect(result.recovered).toBe(true);
+  });
 });
