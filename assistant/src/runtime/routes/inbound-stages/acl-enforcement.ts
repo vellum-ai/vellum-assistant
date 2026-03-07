@@ -14,7 +14,6 @@ import type {
   ChannelStatus,
   ContactChannel,
   ContactWithChannels,
-  MemberStatus,
 } from "../../../contacts/types.js";
 import * as deliveryCrud from "../../../memory/delivery-crud.js";
 import * as deliveryStatus from "../../../memory/delivery-status.js";
@@ -93,10 +92,10 @@ function parseGuardianVerifyCode(content: string): string | undefined {
   return undefined;
 }
 
-/** Map ChannelStatus to the legacy MemberStatus for API consumers. */
+/** Map ChannelStatus to the API-facing member status (excludes "unverified"). */
 export function channelStatusToMemberStatus(
   status: ChannelStatus,
-): MemberStatus {
+): Exclude<ChannelStatus, "unverified"> {
   if (status === "unverified") return "pending";
   return status;
 }

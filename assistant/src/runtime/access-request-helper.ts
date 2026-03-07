@@ -18,7 +18,7 @@ import {
   findGuardianForChannel,
   listGuardianChannels,
 } from "../contacts/contact-store.js";
-import type { MemberStatus } from "../contacts/types.js";
+import type { ChannelStatus } from "../contacts/types.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
@@ -56,7 +56,7 @@ export interface AccessRequestParams {
   actorExternalId?: string;
   actorDisplayName?: string;
   actorUsername?: string;
-  previousMemberStatus?: MemberStatus;
+  previousMemberStatus?: Exclude<ChannelStatus, "unverified">;
 }
 
 export type AccessRequestResult =
