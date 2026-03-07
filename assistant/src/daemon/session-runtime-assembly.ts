@@ -169,21 +169,16 @@ export function inboundActorContextFromTrust(
   };
 }
 
-/** Legacy push-to-talk activation key values (pre-custom-key support). */
-const PTT_KEY_LEGACY = new Set(["fn", "ctrl", "fn_shift", "none"]);
-
 /**
- * Validate a PTT activation key string. Accepts both legacy string values
- * (fn, ctrl, fn_shift, none) and JSON PTTActivator payloads from the
- * custom key feature. Returns the key as-is if valid, undefined otherwise.
+ * Validate a PTT activation key string. Accepts JSON PTTActivator payloads
+ * from the custom key feature. Returns the key as-is if valid, undefined otherwise.
  */
 export function sanitizePttActivationKey(
   key: string | undefined | null,
 ): string | undefined {
   if (key == null) return undefined;
-  if (PTT_KEY_LEGACY.has(key)) return key;
 
-  // Try parsing as a JSON PTTActivator payload
+  // Parse as a JSON PTTActivator payload
   if (key.startsWith("{")) {
     try {
       const parsed = JSON.parse(key) as { kind?: string };
@@ -247,14 +242,8 @@ const KEY_CODE_NAMES: Record<number, string> = {
   57: "Caps Lock",
 };
 
-/** Derive a human-readable label from a PTT activation key value (legacy string or JSON). */
+/** Derive a human-readable label from a PTT activation key JSON value. */
 function pttKeyLabel(raw: string): string {
-  // Legacy string values
-  if (raw === "fn") return "Fn (Globe)";
-  if (raw === "ctrl") return "Ctrl";
-  if (raw === "fn_shift") return "Fn+Shift";
-  if (raw === "none") return "none";
-
   // JSON PTTActivator payload
   if (raw.startsWith("{")) {
     try {

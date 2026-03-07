@@ -507,7 +507,7 @@ export function buildChannelAwarenessSection(): string {
     "",
     "### Push-to-talk awareness",
     "- The `<channel_capabilities>` block may include `ptt_activation_key` and `ptt_enabled` fields indicating the user's push-to-talk configuration.",
-    "- You can change the push-to-talk activation key using the `voice_config_update` tool. Valid keys: fn (Fn/Globe key), ctrl (Control key), fn_shift (Fn+Shift), none (disable PTT).",
+    '- You can change the push-to-talk activation key using the `voice_config_update` tool. The key is provided as a JSON PTTActivator payload (e.g. `{"kind":"modifierOnly","modifierFlags":8388608}` for Fn).',
     "- When the user asks about voice input or push-to-talk settings, use the tool to apply changes directly rather than directing them to settings.",
     "- When `microphone_permission_granted` is `false`, guide the user to grant microphone access in System Settings before using voice features.",
     "",

@@ -1014,11 +1014,16 @@ describe("sanitizePttActivationKey", () => {
     expect(sanitizePttActivationKey(undefined)).toBeUndefined();
   });
 
-  test("passes through valid keys", () => {
-    expect(sanitizePttActivationKey("fn")).toBe("fn");
-    expect(sanitizePttActivationKey("ctrl")).toBe("ctrl");
-    expect(sanitizePttActivationKey("fn_shift")).toBe("fn_shift");
-    expect(sanitizePttActivationKey("none")).toBe("none");
+  test("passes through valid JSON PTTActivator payloads", () => {
+    const modifierOnly = JSON.stringify({
+      kind: "modifierOnly",
+      modifierFlags: 8388608,
+    });
+    expect(sanitizePttActivationKey(modifierOnly)).toBe(modifierOnly);
+    const keyPayload = JSON.stringify({ kind: "key", keyCode: 49 });
+    expect(sanitizePttActivationKey(keyPayload)).toBe(keyPayload);
+    const nonePayload = JSON.stringify({ kind: "none" });
+    expect(sanitizePttActivationKey(nonePayload)).toBe(nonePayload);
   });
 
   test("returns undefined for invalid keys", () => {
@@ -1028,6 +1033,13 @@ describe("sanitizePttActivationKey", () => {
     expect(sanitizePttActivationKey("arbitrary_value")).toBeUndefined();
     expect(sanitizePttActivationKey("")).toBeUndefined();
   });
+
+  test("returns undefined for legacy string keys", () => {
+    expect(sanitizePttActivationKey("fn")).toBeUndefined();
+    expect(sanitizePttActivationKey("ctrl")).toBeUndefined();
+    expect(sanitizePttActivationKey("fn_shift")).toBeUndefined();
+    expect(sanitizePttActivationKey("none")).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1035,11 +1047,22 @@ describe("sanitizePttActivationKey", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveChannelCapabilities with PTT metadata", () => {
-  test("sanitizes valid pttActivationKey", () => {
+  test("sanitizes valid JSON PTTActivator pttActivationKey", () => {
+    const key = JSON.stringify({
+      kind: "modifierOnly",
+      modifierFlags: 8388608,
+    });
+    const caps = resolveChannelCapabilities("macos", "macos", {
+      pttActivationKey: key,
+    });
+    expect(caps.pttActivationKey).toBe(key);
+  });
+
+  test("sanitizes legacy string pttActivationKey to undefined", () => {
     const caps = resolveChannelCapabilities("macos", "macos", {
       pttActivationKey: "fn",
     });
-    expect(caps.pttActivationKey).toBe("fn");
+    expect(caps.pttActivationKey).toBeUndefined();
   });
 
   test("sanitizes invalid pttActivationKey to undefined", () => {
@@ -1050,8 +1073,12 @@ describe("resolveChannelCapabilities with PTT metadata", () => {
   });
 
   test("passes through microphonePermissionGranted", () => {
+    const key = JSON.stringify({
+      kind: "modifierOnly",
+      modifierFlags: 8388608,
+    });
     const caps = resolveChannelCapabilities("macos", "macos", {
-      pttActivationKey: "fn",
+      pttActivationKey: key,
       microphonePermissionGranted: true,
     });
     expect(caps.microphonePermissionGranted).toBe(true);
