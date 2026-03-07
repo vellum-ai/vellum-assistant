@@ -403,9 +403,9 @@ export function buildPhoneCallsRoutingSection(): string {
     "### Trigger phrases",
     '- "Set up phone calling" / "enable calls"',
     '- "Make a call to..." / "call [number/business]"',
-    '- "Configure Twilio" (in context of voice calls, not SMS)',
+    '- "Configure Twilio" (in context of voice calls)',
     '- "Can you make phone calls?"',
-    '- "Set up my phone number" (for calling, not SMS)',
+    '- "Set up my phone number" (for calling)',
     "",
     "### What it does",
     "The skill handles the full phone calling lifecycle:",
@@ -909,7 +909,7 @@ function buildDynamicSkillWorkflowSection(
     lines.push(
       "",
       "### Messaging Skill",
-      'When the user asks about email, messaging, inbox management, or wants to read/send/search messages on any platform (Gmail, Slack, Telegram, SMS), load the "messaging" skill using `skill_load`. The messaging skill handles connection setup, credential flows, and all messaging operations — do not improvise setup instructions from general knowledge.',
+      'When the user asks about email, messaging, inbox management, or wants to read/send/search messages on any platform (Gmail, Slack, Telegram), load the "messaging" skill using `skill_load`. The messaging skill handles connection setup, credential flows, and all messaging operations — do not improvise setup instructions from general knowledge.',
     );
   }
 
