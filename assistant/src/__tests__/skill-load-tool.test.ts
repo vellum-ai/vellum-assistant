@@ -33,6 +33,16 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getSessionTokenPath: () => join(TEST_DIR, "session-token"),
   readSessionToken: () => null,
   getClipboardCommand: () => null,
+  readLockfile: () => null,
+  normalizeAssistantId: (id: unknown) => String(id),
+  writeLockfile: () => {},
+  getEmbeddingModelsDir: () => join(TEST_DIR, "embedding-models"),
+  getTCPPort: () => 8765,
+  isTCPEnabled: () => false,
+  getTCPHost: () => "127.0.0.1",
+  isIOSPairingEnabled: () => false,
+  getPlatformTokenPath: () => join(TEST_DIR, "platform-token"),
+  readPlatformToken: () => null,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
@@ -585,6 +595,12 @@ describe("skill_load tool", () => {
     expect(result.content).toContain("Detailed guide content.");
     expect(result.content).toContain("--- Reference: Troubleshooting ---");
     expect(result.content).toContain("Fix things here.");
+    // References must be appended in alphabetical order (Guide before Troubleshooting)
+    const guideIdx = result.content.indexOf("--- Reference: Guide ---");
+    const troubleshootIdx = result.content.indexOf(
+      "--- Reference: Troubleshooting ---",
+    );
+    expect(guideIdx).toBeLessThan(troubleshootIdx);
   });
 
   test("skill without references/ directory loads normally", async () => {
