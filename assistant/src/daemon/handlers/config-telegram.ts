@@ -181,6 +181,12 @@ export async function setTelegramConfig(
         await deleteSecureKeyAsync("credential:telegram:bot_token");
         deleteCredentialMetadata("telegram", "bot_token");
       }
+      // Always revert the config write — the botUsername was written
+      // optimistically before webhook secret provisioning.
+      const rawRollback = loadRawConfig();
+      setNestedValue(rawRollback, "telegram.botUsername", "");
+      saveRawConfig(rawRollback);
+      invalidateConfigCache();
       return {
         success: false,
         hasBotToken: !isNewToken,
@@ -265,6 +271,13 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
 
   deleteCredentialMetadata("telegram", "bot_token");
   deleteCredentialMetadata("telegram", "webhook_secret");
+
+  // Clear bot username from config so getTelegramBotUsername() doesn't
+  // return a stale value after disconnect.
+  const raw = loadRawConfig();
+  setNestedValue(raw, "telegram.botUsername", "");
+  saveRawConfig(raw);
+  invalidateConfigCache();
 
   return {
     success: true,
