@@ -9,6 +9,7 @@
 import { accountManageTool } from "./credentials/account-registry.js";
 import { credentialStoreTool } from "./credentials/vault.js";
 import {
+  memoryRecallTool,
   memorySaveTool,
   memorySearchTool,
   memoryUpdateTool,
@@ -82,6 +83,7 @@ export const explicitTools: Tool[] = [
   memorySearchTool,
   memorySaveTool,
   memoryUpdateTool,
+  memoryRecallTool,
   credentialStoreTool,
   accountManageTool,
   screenWatchTool,
