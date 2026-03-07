@@ -123,14 +123,12 @@ describe("flushMemoryForMessages", () => {
   });
 
   it("handles extraction errors without crashing the flush", async () => {
-    // The implementation does NOT catch errors per-message — it will propagate.
-    // Verify that a thrown error actually propagates (the function is not
-    // silently swallowing it). This documents the current behavior.
     extractMock
       .mockImplementationOnce(() => Promise.resolve()) // msg-1 succeeds
       .mockImplementationOnce(() =>
         Promise.reject(new Error("extraction failed")),
-      ); // msg-2 fails
+      ) // msg-2 fails
+      .mockImplementationOnce(() => Promise.resolve()); // msg-3 succeeds
 
     const messages = [
       { id: "msg-1", role: "user" },
@@ -138,12 +136,14 @@ describe("flushMemoryForMessages", () => {
       { id: "msg-3", role: "user" },
     ];
 
-    await expect(
-      flushMemoryForMessages({ ...baseOpts(), messages }),
-    ).rejects.toThrow("extraction failed");
+    const result = await flushMemoryForMessages({
+      ...baseOpts(),
+      messages,
+    });
 
-    // msg-1 was extracted, msg-2 threw
-    expect(extractMock).toHaveBeenCalledTimes(2);
+    // All three messages attempted; msg-2 failed but didn't abort the flush
+    expect(extractMock).toHaveBeenCalledTimes(3);
+    expect(result).toEqual({ flushed: 2, skipped: 0 });
   });
 
   it("filters to user messages only", async () => {

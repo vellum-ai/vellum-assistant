@@ -48,12 +48,19 @@ export async function flushMemoryForMessages(
       continue;
     }
 
-    await extractAndUpsertMemoryItemsForMessage(
-      message.id,
-      scopeId,
-      conversationId,
-    );
-    flushed += 1;
+    try {
+      await extractAndUpsertMemoryItemsForMessage(
+        message.id,
+        scopeId,
+        conversationId,
+      );
+      flushed += 1;
+    } catch (err) {
+      log.error(
+        { conversationId, messageId: message.id, err },
+        "Failed to extract memory items for message, continuing flush",
+      );
+    }
   }
 
   log.info(
