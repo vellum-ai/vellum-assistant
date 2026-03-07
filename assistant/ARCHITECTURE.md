@@ -369,10 +369,10 @@ Both `GET` and `POST` endpoints report `connected: true` only when both `hasBotT
 
 **Key source files:**
 
-| File                                                | Purpose                                                       |
-| --------------------------------------------------- | ------------------------------------------------------------- |
-| `src/daemon/handlers/config-slack-channel.ts`       | Business logic for get/set/clear Slack channel config         |
-| `src/runtime/routes/channel-verification-routes.ts` | HTTP route handlers for `/v1/channel-verification-sessions/*` |
+| File                                               | Purpose                                                         |
+| -------------------------------------------------- | --------------------------------------------------------------- |
+| `src/daemon/handlers/config-slack-channel.ts`      | Business logic for get/set/clear Slack channel config           |
+| `src/runtime/routes/integrations/slack/channel.ts` | HTTP route handlers for `/v1/integrations/slack/channel/config` |
 
 ### Trusted Contact Access (Channel-Agnostic)
 
