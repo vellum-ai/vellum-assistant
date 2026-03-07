@@ -1,7 +1,7 @@
 /**
- * Guardian control-plane policy \u2014 deterministic gate that prevents non-guardian
- * and unverified_channel actors from invoking guardian verification endpoints
- * conversationally via tools.
+ * Verification control-plane policy -- deterministic gate that prevents
+ * non-guardian and unverified_channel actors from invoking channel
+ * verification endpoints conversationally via tools.
  *
  * Protected endpoints:
  *   /v1/channel-verification-sessions
@@ -10,7 +10,7 @@
  *   /v1/channel-verification-sessions/revoke
  */
 
-const GUARDIAN_ENDPOINT_PATHS = [
+const VERIFICATION_ENDPOINT_PATHS = [
   "/v1/channel-verification-sessions",
   "/v1/channel-verification-sessions/resend",
   "/v1/channel-verification-sessions/status",
@@ -18,16 +18,16 @@ const GUARDIAN_ENDPOINT_PATHS = [
 ] as const;
 
 /**
- * Broad regex that catches any path targeting the guardian control-plane,
+ * Broad regex that catches any path targeting the verification control-plane,
  * even if the exact sub-path differs from the hardcoded list above.
  * Anchored on a path separator so it won't match inside unrelated words.
  */
-const GUARDIAN_PATH_REGEX = /\/v1\/channel-verification-sessions/;
+const VERIFICATION_PATH_REGEX = /\/v1\/channel-verification-sessions/;
 
-/** Tools whose `input.command` (string) may contain guardian endpoint paths. */
+/** Tools whose `input.command` (string) may contain verification endpoint paths. */
 const COMMAND_TOOLS = new Set(["bash", "host_bash"]);
 
-/** Tools whose `input.url` (string) may contain guardian endpoint paths. */
+/** Tools whose `input.url` (string) may contain verification endpoint paths. */
 const URL_TOOLS = new Set(["network_request", "web_fetch", "browser_navigate"]);
 
 /**
@@ -58,40 +58,40 @@ function normalizeForMatching(value: string): string {
 }
 
 /**
- * Check whether a string contains any of the guardian control-plane endpoint paths.
+ * Check whether a string contains any of the verification control-plane endpoint paths.
  * Normalizes the input first to catch percent-encoding, double slashes, and case
  * variations. Also matches a broad regex pattern to catch paths that target the
- * guardian control-plane but aren't in the exact hardcoded list.
+ * verification control-plane but aren't in the exact hardcoded list.
  */
-function containsGuardianEndpointPath(value: string): boolean {
+function containsVerificationEndpointPath(value: string): boolean {
   const normalized = normalizeForMatching(value);
   // Check exact hardcoded paths against the normalized string
-  for (const path of GUARDIAN_ENDPOINT_PATHS) {
+  for (const path of VERIFICATION_ENDPOINT_PATHS) {
     if (normalized.includes(path)) return true;
   }
   // Broad pattern match to catch any /v1/channel-verification-sessions... path
-  if (GUARDIAN_PATH_REGEX.test(normalized)) return true;
+  if (VERIFICATION_PATH_REGEX.test(normalized)) return true;
   return false;
 }
 
 /**
  * Conservative fallback for shell tools: detects when a command contains the
- * key fragments of a guardian control-plane path even if they are not contiguous
- * (e.g. constructed via shell variable expansion like `base=/v1/integrations; curl "$base/guardian/status"`).
+ * key fragments of a verification control-plane path even if they are not contiguous
+ * (e.g. constructed via shell variable expansion).
  *
- * Only applied to bash/host_bash — URL tools pass structured URLs that cannot
+ * Only applied to bash/host_bash -- URL tools pass structured URLs that cannot
  * be split by shell expansion.
  */
-function containsGuardianFragments(command: string): boolean {
+function containsVerificationFragments(command: string): boolean {
   const lower = command.toLowerCase();
   return lower.includes("channel-verification-sessions");
 }
 
 /**
- * Pure function that determines whether a tool invocation targets a guardian
+ * Pure function that determines whether a tool invocation targets a verification
  * control-plane endpoint based on the tool name and its input.
  */
-export function isGuardianControlPlaneInvocation(
+export function isVerificationControlPlaneInvocation(
   toolName: string,
   input: Record<string, unknown>,
 ): boolean {
@@ -99,15 +99,15 @@ export function isGuardianControlPlaneInvocation(
     const command = input.command;
     if (typeof command === "string") {
       // Primary: exact/normalized path matching
-      if (containsGuardianEndpointPath(command)) return true;
-      // Fallback: detect shell-expanded construction of guardian paths
-      if (containsGuardianFragments(command)) return true;
+      if (containsVerificationEndpointPath(command)) return true;
+      // Fallback: detect shell-expanded construction of verification paths
+      if (containsVerificationFragments(command)) return true;
     }
   }
 
   if (URL_TOOLS.has(toolName)) {
     const url = input.url;
-    if (typeof url === "string" && containsGuardianEndpointPath(url)) {
+    if (typeof url === "string" && containsVerificationEndpointPath(url)) {
       return true;
     }
   }
@@ -116,15 +116,15 @@ export function isGuardianControlPlaneInvocation(
 }
 
 /**
- * Enforce the guardian-only policy: if the invocation targets a guardian
- * control-plane endpoint and the actor is not a guardian, deny.
+ * Enforce the verification control-plane policy: if the invocation targets a
+ * verification control-plane endpoint and the actor is not a guardian, deny.
  */
-export function enforceGuardianOnlyPolicy(
+export function enforceVerificationControlPlanePolicy(
   toolName: string,
   input: Record<string, unknown>,
   trustClass: string,
 ): { denied: boolean; reason?: string } {
-  if (!isGuardianControlPlaneInvocation(toolName, input)) {
+  if (!isVerificationControlPlaneInvocation(toolName, input)) {
     return { denied: false };
   }
 

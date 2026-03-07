@@ -14,7 +14,7 @@ import type {
   ToolPermissionDeniedEvent,
 } from "../tools/types.js";
 
-// ── Module mocks (must precede real imports) ─────────────────────────
+// -- Module mocks (must precede real imports) --
 
 const mockConfig = {
   provider: "anthropic",
@@ -103,14 +103,14 @@ mock.module("../tools/terminal/sandbox.js", () => ({
   wrapCommand: () => ({ command: "", sandboxed: false }),
 }));
 
-// ── Real imports ─────────────────────────────────────────────────────
+// -- Real imports --
 
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { ToolExecutor } from "../tools/executor.js";
 import {
-  enforceGuardianOnlyPolicy,
-  isGuardianControlPlaneInvocation,
-} from "../tools/guardian-control-plane-policy.js";
+  enforceVerificationControlPlanePolicy,
+  isVerificationControlPlaneInvocation,
+} from "../tools/verification-control-plane-policy.js";
 import type { ToolContext } from "../tools/types.js";
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
@@ -144,22 +144,22 @@ afterAll(() => {
 });
 
 // =====================================================================
-// Unit tests: isGuardianControlPlaneInvocation
+// Unit tests: isVerificationControlPlaneInvocation
 // =====================================================================
 
-describe("isGuardianControlPlaneInvocation", () => {
-  const guardianPaths = [
+describe("isVerificationControlPlaneInvocation", () => {
+  const verificationPaths = [
     "/v1/channel-verification-sessions",
     "/v1/channel-verification-sessions/status",
     "/v1/channel-verification-sessions/resend",
     "/v1/channel-verification-sessions/revoke",
   ];
 
-  describe("bash tool with guardian endpoint in command", () => {
-    for (const path of guardianPaths) {
+  describe("bash tool with verification endpoint in command", () => {
+    for (const path of verificationPaths) {
       test(`detects curl to ${path}`, () => {
         expect(
-          isGuardianControlPlaneInvocation("bash", {
+          isVerificationControlPlaneInvocation("bash", {
             command: `curl -X POST http://localhost:3000${path}`,
           }),
         ).toBe(true);
@@ -167,7 +167,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
       test(`detects wget to ${path}`, () => {
         expect(
-          isGuardianControlPlaneInvocation("bash", {
+          isVerificationControlPlaneInvocation("bash", {
             command: `wget https://api.example.com${path}`,
           }),
         ).toBe(true);
@@ -176,7 +176,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("does not match unrelated commands", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command: "git status",
         }),
       ).toBe(false);
@@ -184,16 +184,16 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("matches partial path prefix via fragment detection (fail-closed for shell tools)", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             "curl http://localhost:3000/v1/channel-verification-sessions",
         }),
       ).toBe(true);
     });
 
-    test("matches unknown sub-path under guardian control-plane (broad pattern)", () => {
+    test("matches unknown sub-path under verification control-plane (broad pattern)", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             "curl http://localhost:3000/v1/channel-verification-sessions/other",
         }),
@@ -201,20 +201,20 @@ describe("isGuardianControlPlaneInvocation", () => {
     });
 
     test("handles missing command field gracefully", () => {
-      expect(isGuardianControlPlaneInvocation("bash", {})).toBe(false);
+      expect(isVerificationControlPlaneInvocation("bash", {})).toBe(false);
     });
 
     test("handles non-string command field gracefully", () => {
-      expect(isGuardianControlPlaneInvocation("bash", { command: 42 })).toBe(
-        false,
-      );
+      expect(
+        isVerificationControlPlaneInvocation("bash", { command: 42 }),
+      ).toBe(false);
     });
   });
 
-  describe("host_bash tool with guardian endpoint in command", () => {
-    test("detects guardian endpoint", () => {
+  describe("host_bash tool with verification endpoint in command", () => {
+    test("detects verification endpoint", () => {
       expect(
-        isGuardianControlPlaneInvocation("host_bash", {
+        isVerificationControlPlaneInvocation("host_bash", {
           command:
             'curl -H "Authorization: Bearer token" https://internal:8080/v1/channel-verification-sessions',
         }),
@@ -222,11 +222,11 @@ describe("isGuardianControlPlaneInvocation", () => {
     });
   });
 
-  describe("network_request tool with guardian endpoint in url", () => {
-    for (const path of guardianPaths) {
+  describe("network_request tool with verification endpoint in url", () => {
+    for (const path of verificationPaths) {
       test(`detects ${path}`, () => {
         expect(
-          isGuardianControlPlaneInvocation("network_request", {
+          isVerificationControlPlaneInvocation("network_request", {
             url: `https://api.vellum.ai${path}`,
           }),
         ).toBe(true);
@@ -235,7 +235,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects proxied local URL", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isVerificationControlPlaneInvocation("network_request", {
           url: "http://127.0.0.1:3000/v1/channel-verification-sessions",
         }),
       ).toBe(true);
@@ -243,23 +243,23 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("does not match unrelated URLs", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isVerificationControlPlaneInvocation("network_request", {
           url: "https://api.example.com/v1/messages",
         }),
       ).toBe(false);
     });
 
     test("handles missing url field gracefully", () => {
-      expect(isGuardianControlPlaneInvocation("network_request", {})).toBe(
-        false,
-      );
+      expect(
+        isVerificationControlPlaneInvocation("network_request", {}),
+      ).toBe(false);
     });
   });
 
-  describe("web_fetch tool with guardian endpoint in url", () => {
-    test("detects guardian endpoint", () => {
+  describe("web_fetch tool with verification endpoint in url", () => {
+    test("detects verification endpoint", () => {
       expect(
-        isGuardianControlPlaneInvocation("web_fetch", {
+        isVerificationControlPlaneInvocation("web_fetch", {
           url: "https://api.example.com/v1/channel-verification-sessions",
         }),
       ).toBe(true);
@@ -267,17 +267,17 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("does not match unrelated URL", () => {
       expect(
-        isGuardianControlPlaneInvocation("web_fetch", {
+        isVerificationControlPlaneInvocation("web_fetch", {
           url: "https://docs.example.com/api/v1/help",
         }),
       ).toBe(false);
     });
   });
 
-  describe("browser_navigate tool with guardian endpoint in url", () => {
-    test("detects guardian endpoint", () => {
+  describe("browser_navigate tool with verification endpoint in url", () => {
+    test("detects verification endpoint", () => {
       expect(
-        isGuardianControlPlaneInvocation("browser_navigate", {
+        isVerificationControlPlaneInvocation("browser_navigate", {
           url: "http://localhost:3000/v1/channel-verification-sessions/status",
         }),
       ).toBe(true);
@@ -285,26 +285,26 @@ describe("isGuardianControlPlaneInvocation", () => {
   });
 
   describe("unrelated tools are not flagged", () => {
-    test("file_read is never a guardian invocation", () => {
+    test("file_read is never a verification invocation", () => {
       expect(
-        isGuardianControlPlaneInvocation("file_read", {
+        isVerificationControlPlaneInvocation("file_read", {
           path: "/v1/channel-verification-sessions",
         }),
       ).toBe(false);
     });
 
-    test("file_write is never a guardian invocation", () => {
+    test("file_write is never a verification invocation", () => {
       expect(
-        isGuardianControlPlaneInvocation("file_write", {
+        isVerificationControlPlaneInvocation("file_write", {
           path: "/tmp/test.txt",
           content: "curl /v1/channel-verification-sessions",
         }),
       ).toBe(false);
     });
 
-    test("web_search is never a guardian invocation", () => {
+    test("web_search is never a verification invocation", () => {
       expect(
-        isGuardianControlPlaneInvocation("web_search", {
+        isVerificationControlPlaneInvocation("web_search", {
           query: "/v1/channel-verification-sessions/status",
         }),
       ).toBe(false);
@@ -314,7 +314,7 @@ describe("isGuardianControlPlaneInvocation", () => {
   describe("path matching covers proxied and local variants", () => {
     test("matches endpoint with query string", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isVerificationControlPlaneInvocation("network_request", {
           url: "https://api.example.com/v1/channel-verification-sessions?token=abc",
         }),
       ).toBe(true);
@@ -322,7 +322,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("matches endpoint with trailing slash", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isVerificationControlPlaneInvocation("network_request", {
           url: "https://api.example.com/v1/channel-verification-sessions/resend/",
         }),
       ).toBe(true);
@@ -330,7 +330,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("matches endpoint in piped bash command", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             'echo \'{"phone":"+1234567890"}\' | curl -X POST -d @- http://localhost:3000/v1/channel-verification-sessions/resend',
         }),
@@ -341,7 +341,7 @@ describe("isGuardianControlPlaneInvocation", () => {
   describe("obfuscation resistance", () => {
     test("detects URL-encoded path (%2F encoding)", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             "curl http://localhost:3000/v1/channel%2Dverification%2Dsessions",
         }),
@@ -350,7 +350,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects double slashes in path", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             "curl http://localhost:3000/v1//channel-verification-sessions",
         }),
@@ -359,7 +359,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects triple slashes in path", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isVerificationControlPlaneInvocation("network_request", {
           url: "http://localhost:3000/v1///channel-verification-sessions///status",
         }),
       ).toBe(true);
@@ -367,7 +367,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects mixed case path", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             "curl http://localhost:3000/V1/Channel-Verification-Sessions/Status",
         }),
@@ -376,7 +376,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects ALL CAPS path", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isVerificationControlPlaneInvocation("network_request", {
           url: "http://localhost:3000/V1/CHANNEL-VERIFICATION-SESSIONS",
         }),
       ).toBe(true);
@@ -384,7 +384,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects combined obfuscation: double slashes + mixed case", () => {
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isVerificationControlPlaneInvocation("network_request", {
           url: "http://localhost:3000/v1//Channel-Verification-Sessions/status",
         }),
       ).toBe(true);
@@ -392,7 +392,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("does not false-positive on unrelated encoded paths", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             "curl http://localhost:3000/v1/integrations%2Fother%2Fservice",
         }),
@@ -400,7 +400,7 @@ describe("isGuardianControlPlaneInvocation", () => {
     });
 
     test("detects endpoint despite malformed percent-encoding elsewhere in command", () => {
-      const result = isGuardianControlPlaneInvocation("bash", {
+      const result = isVerificationControlPlaneInvocation("bash", {
         command:
           'curl -H "X: %ZZ" http://localhost:3000/v1/channel-verification-sessions -d \'{"channel":"sms"}\'',
       });
@@ -411,7 +411,7 @@ describe("isGuardianControlPlaneInvocation", () => {
   describe("shell expansion resistance", () => {
     test("detects endpoint constructed via shell variable concatenation", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             'base=http://localhost:7821/v1; seg=channel-verification-sessions; curl "$base/$seg/status"',
         }),
@@ -420,7 +420,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects endpoint with split variable assignment", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             'API=channel-verification-sessions; curl "http://localhost:3000/v1/${API}"',
         }),
@@ -429,7 +429,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects endpoint with path built across multiple variables", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             'HOST=http://localhost:7821; ENDPOINT=channel-verification-sessions; curl "$HOST/v1/$ENDPOINT"',
         }),
@@ -438,7 +438,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("detects endpoint via heredoc-style construction", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command:
             'url="http://localhost:3000/v1/channel-verification-sessions"; curl "${url}/resend"',
         }),
@@ -447,7 +447,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("does not false-positive on unrelated paths", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command: "curl http://localhost:3000/v1/integrations/other/service",
         }),
       ).toBe(false);
@@ -455,7 +455,7 @@ describe("isGuardianControlPlaneInvocation", () => {
 
     test("does not false-positive when only guardian is present without verification path", () => {
       expect(
-        isGuardianControlPlaneInvocation("bash", {
+        isVerificationControlPlaneInvocation("bash", {
           command: 'echo "guardian notification sent"',
         }),
       ).toBe(false);
@@ -465,7 +465,7 @@ describe("isGuardianControlPlaneInvocation", () => {
       // URL tools pass structured URLs, not shell commands. The fragment detector
       // is bash/host_bash only. For URL tools, we rely on exact/normalized matching.
       expect(
-        isGuardianControlPlaneInvocation("network_request", {
+        isVerificationControlPlaneInvocation("network_request", {
           url: "https://api.example.com/v1/messages",
         }),
       ).toBe(false);
@@ -474,12 +474,12 @@ describe("isGuardianControlPlaneInvocation", () => {
 });
 
 // =====================================================================
-// Unit tests: enforceGuardianOnlyPolicy
+// Unit tests: enforceVerificationControlPlanePolicy
 // =====================================================================
 
-describe("enforceGuardianOnlyPolicy", () => {
-  test("non-guardian actor denied for guardian endpoint", () => {
-    const result = enforceGuardianOnlyPolicy(
+describe("enforceVerificationControlPlanePolicy", () => {
+  test("non-guardian actor denied for verification endpoint", () => {
+    const result = enforceVerificationControlPlanePolicy(
       "bash",
       {
         command: "curl http://localhost:3000/v1/channel-verification-sessions",
@@ -490,8 +490,8 @@ describe("enforceGuardianOnlyPolicy", () => {
     expect(result.reason).toContain("restricted to guardian users");
   });
 
-  test("unverified_channel actor denied for guardian endpoint", () => {
-    const result = enforceGuardianOnlyPolicy(
+  test("unverified_channel actor denied for verification endpoint", () => {
+    const result = enforceVerificationControlPlanePolicy(
       "network_request",
       {
         url: "https://api.example.com/v1/channel-verification-sessions",
@@ -502,8 +502,8 @@ describe("enforceGuardianOnlyPolicy", () => {
     expect(result.reason).toContain("restricted to guardian users");
   });
 
-  test("guardian actor is NOT denied for guardian endpoint", () => {
-    const result = enforceGuardianOnlyPolicy(
+  test("guardian actor is NOT denied for verification endpoint", () => {
+    const result = enforceVerificationControlPlanePolicy(
       "bash",
       {
         command: "curl http://localhost:3000/v1/channel-verification-sessions",
@@ -514,8 +514,8 @@ describe("enforceGuardianOnlyPolicy", () => {
     expect(result.reason).toBeUndefined();
   });
 
-  test("guardian actor role is NOT denied for guardian endpoint (explicit)", () => {
-    const result = enforceGuardianOnlyPolicy(
+  test("guardian actor role is NOT denied for verification endpoint (explicit)", () => {
+    const result = enforceVerificationControlPlanePolicy(
       "bash",
       {
         command: "curl http://localhost:3000/v1/channel-verification-sessions",
@@ -525,8 +525,8 @@ describe("enforceGuardianOnlyPolicy", () => {
     expect(result.denied).toBe(false);
   });
 
-  test("unknown actor role is denied for guardian endpoint (allowlist, not denylist)", () => {
-    const result = enforceGuardianOnlyPolicy(
+  test("unknown actor role is denied for verification endpoint (allowlist, not denylist)", () => {
+    const result = enforceVerificationControlPlanePolicy(
       "bash",
       {
         command: "curl http://localhost:3000/v1/channel-verification-sessions",
@@ -538,7 +538,7 @@ describe("enforceGuardianOnlyPolicy", () => {
   });
 
   test("non-guardian actor is NOT denied for unrelated endpoint", () => {
-    const result = enforceGuardianOnlyPolicy(
+    const result = enforceVerificationControlPlanePolicy(
       "bash",
       {
         command: "curl http://localhost:3000/v1/messages",
@@ -549,7 +549,7 @@ describe("enforceGuardianOnlyPolicy", () => {
   });
 
   test("non-guardian actor is NOT denied for unrelated tool", () => {
-    const result = enforceGuardianOnlyPolicy(
+    const result = enforceVerificationControlPlanePolicy(
       "file_read",
       {
         path: "README.md",
@@ -561,15 +561,15 @@ describe("enforceGuardianOnlyPolicy", () => {
 });
 
 // =====================================================================
-// Integration tests: ToolExecutor guardian-only policy gate
+// Integration tests: ToolExecutor verification control-plane policy gate
 // =====================================================================
 
-describe("ToolExecutor guardian-only policy gate", () => {
+describe("ToolExecutor verification control-plane policy gate", () => {
   beforeEach(() => {
     fakeToolResult = { content: "ok", isError: false };
   });
 
-  test("non-guardian actor blocked from bash curl to guardian sessions", async () => {
+  test("non-guardian actor blocked from bash curl to verification sessions", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "bash",
@@ -583,7 +583,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     expect(result.content).toContain("restricted to guardian users");
   });
 
-  test("unverified_channel actor blocked from network_request to guardian endpoint", async () => {
+  test("unverified_channel actor blocked from network_request to verification endpoint", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "network_request",
@@ -608,7 +608,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     expect(result.content).toBe("ok");
   });
 
-  test("guardian trust class is NOT blocked from guardian endpoint (default)", async () => {
+  test("guardian trust class is NOT blocked from verification endpoint (default)", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "bash",
@@ -644,7 +644,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     expect(result.content).toBe("ok");
   });
 
-  test("permission_denied lifecycle event is emitted on guardian policy block", async () => {
+  test("permission_denied lifecycle event is emitted on verification policy block", async () => {
     let capturedEvent: ToolPermissionDeniedEvent | undefined;
     const executor = new ToolExecutor(makePrompter());
     await executor.execute(
@@ -667,7 +667,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     expect(capturedEvent!.reason).toContain("restricted to guardian users");
   });
 
-  test("non-guardian blocked from web_fetch to guardian endpoint", async () => {
+  test("non-guardian blocked from web_fetch to verification endpoint", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "web_fetch",
@@ -678,7 +678,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     expect(result.content).toContain("restricted to guardian users");
   });
 
-  test("non-guardian blocked from browser_navigate to guardian endpoint", async () => {
+  test("non-guardian blocked from browser_navigate to verification endpoint", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "browser_navigate",
@@ -689,7 +689,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     expect(result.content).toContain("restricted to guardian users");
   });
 
-  test("non-guardian blocked from host_bash with guardian endpoint", async () => {
+  test("non-guardian blocked from host_bash with verification endpoint", async () => {
     const executor = new ToolExecutor(makePrompter());
     const result = await executor.execute(
       "host_bash",
@@ -703,7 +703,7 @@ describe("ToolExecutor guardian-only policy gate", () => {
     expect(result.content).toContain("restricted to guardian users");
   });
 
-  test("all guardian endpoints are blocked for non-guardian via network_request", async () => {
+  test("all verification endpoints are blocked for non-guardian via network_request", async () => {
     const endpoints = [
       "/v1/channel-verification-sessions",
       "/v1/channel-verification-sessions/status",
