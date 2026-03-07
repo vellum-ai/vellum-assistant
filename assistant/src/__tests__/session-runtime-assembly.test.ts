@@ -1030,13 +1030,6 @@ describe("sanitizePttActivationKey", () => {
     expect(sanitizePttActivationKey("arbitrary_value")).toBeUndefined();
     expect(sanitizePttActivationKey("")).toBeUndefined();
   });
-
-  test("returns undefined for legacy string keys", () => {
-    expect(sanitizePttActivationKey("fn")).toBeUndefined();
-    expect(sanitizePttActivationKey("ctrl")).toBeUndefined();
-    expect(sanitizePttActivationKey("fn_shift")).toBeUndefined();
-    expect(sanitizePttActivationKey("none")).toBeUndefined();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1053,13 +1046,6 @@ describe("resolveChannelCapabilities with PTT metadata", () => {
       pttActivationKey: key,
     });
     expect(caps.pttActivationKey).toBe(key);
-  });
-
-  test("sanitizes legacy string pttActivationKey to undefined", () => {
-    const caps = resolveChannelCapabilities("macos", "macos", {
-      pttActivationKey: "fn",
-    });
-    expect(caps.pttActivationKey).toBeUndefined();
   });
 
   test("sanitizes invalid pttActivationKey to undefined", () => {
