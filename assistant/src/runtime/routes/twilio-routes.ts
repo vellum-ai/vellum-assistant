@@ -179,6 +179,7 @@ export async function handleSetTwilioCredentials(
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   twilio.accountSid = body.accountSid;
+  twilio.authToken = body.authToken;
   saveRawConfig({ ...raw, twilio });
 
   upsertCredentialMetadata("twilio", "account_sid", {
@@ -236,6 +237,7 @@ export async function handleClearTwilioCredentials(): Promise<Response> {
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   delete twilio.accountSid;
+  delete twilio.authToken;
   saveRawConfig({ ...raw, twilio });
 
   deleteCredentialMetadata("twilio", "account_sid");
