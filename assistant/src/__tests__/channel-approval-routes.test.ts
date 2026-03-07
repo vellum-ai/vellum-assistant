@@ -1046,9 +1046,9 @@ describe("plain-text channel approval decisions", () => {
 
 describe("telegram guardian verify intercept", () => {
   test("verification code reply works with sourceChannel telegram", async () => {
-    const { createVerificationChallenge } =
+    const { createInboundVerificationSession } =
       await import("../runtime/channel-verification-service.js");
-    const { secret } = createVerificationChallenge("telegram");
+    const { secret } = createInboundVerificationSession("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1089,10 +1089,10 @@ describe("telegram guardian verify intercept", () => {
   });
 
   test("invalid verification code returns failed via telegram", async () => {
-    const { createVerificationChallenge } =
+    const { createInboundVerificationSession } =
       await import("../runtime/channel-verification-service.js");
     // Ensure there is a pending challenge so bare-code verification is intercepted.
-    createVerificationChallenge("telegram");
+    createInboundVerificationSession("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1497,9 +1497,9 @@ describe("deliver-once idempotency guard", () => {
 
 describe("assistant-scoped guardian verification via handleChannelInbound", () => {
   test("verification code uses the threaded assistantId (default: self)", async () => {
-    const { createVerificationChallenge } =
+    const { createInboundVerificationSession } =
       await import("../runtime/channel-verification-service.js");
-    const { secret } = createVerificationChallenge("telegram");
+    const { secret } = createInboundVerificationSession("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1521,13 +1521,13 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
   });
 
   test("verification code with explicit assistantId resolves against canonical scope", async () => {
-    const { createVerificationChallenge } =
+    const { createInboundVerificationSession } =
       await import("../runtime/channel-verification-service.js");
     const { getGuardianBinding } =
       await import("../runtime/channel-verification-service.js");
 
     // All assistant IDs canonicalize to 'self' in the single-tenant daemon
-    const { secret } = createVerificationChallenge("telegram");
+    const { secret } = createInboundVerificationSession("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,
@@ -1557,11 +1557,11 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
   });
 
   test("all assistant IDs share canonical scope for verification", async () => {
-    const { createVerificationChallenge } =
+    const { createInboundVerificationSession } =
       await import("../runtime/channel-verification-service.js");
 
     // Both IDs canonicalize to 'self', so the challenge is found
-    const { secret } = createVerificationChallenge("telegram");
+    const { secret } = createInboundVerificationSession("telegram");
 
     const deliverSpy = spyOn(
       gatewayClient,

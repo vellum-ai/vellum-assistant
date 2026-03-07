@@ -15,7 +15,7 @@ import {
   createReadinessService,
 } from "../../runtime/channel-readiness-service.js";
 import {
-  createVerificationChallenge,
+  createInboundVerificationSession,
   findActiveSession,
   getGuardianBinding,
   getPendingSession,
@@ -91,7 +91,7 @@ export function createInboundChallenge(
     };
   }
 
-  const result = createVerificationChallenge(resolvedChannel, sessionId);
+  const result = createInboundVerificationSession(resolvedChannel, sessionId);
 
   return {
     success: true,
