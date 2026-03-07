@@ -48,14 +48,13 @@ export const mcpHandlers = defineHandlers({
             tools: toolNames,
           });
         }
-        serverCount = serverToolInfos.length;
-
         // Include servers that were configured but failed to connect (not in serverToolInfos)
         for (const id of serverIds) {
           if (!servers.some((s) => s.id === id)) {
             servers.push({ id, connected: false, toolCount: 0, tools: [] });
           }
         }
+        serverCount = servers.length;
       }
 
       // Sessions pick up new MCP tools automatically on their next turn

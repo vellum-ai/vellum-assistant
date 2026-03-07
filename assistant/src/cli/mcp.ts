@@ -249,9 +249,21 @@ Examples:
 
   mcp
     .command("reload")
-    .description("Reload MCP server connections in the running daemon")
+    .description("Reload MCP server connections in the running assistant")
+    .addHelpText(
+      "after",
+      `
+Sends a message to the running assistant to disconnect and reconnect all MCP
+servers using the current configuration from disk. Active sessions pick up
+new tools on their next turn automatically. The assistant must be running.
+
+Examples:
+  $ vellum mcp reload
+  $ vellum mcp reload   # after editing config.json to add a new server
+  $ vellum mcp reload   # after running "vellum mcp auth <server>"`,
+    )
     .action(async () => {
-      log.info("Sending reload request to daemon...");
+      log.info("Sending reload request to assistant...");
       try {
         const response = await sendOneMessage({ type: "mcp_reload_request" });
         if (response.type === "mcp_reload_response") {
