@@ -2,12 +2,16 @@
  * Dynamic Playwright test collection for agent-based test cases.
  *
  * Reads markdown files from the cases/ directory and creates a Playwright
- * test for each one. This lets Playwright's built-in HTML reporter, video
- * recording, and trace viewer work out of the box for agent tests.
+ * test for each one. This lets Playwright's built-in HTML reporter, trace
+ * viewer, and artifact attachment work out of the box for agent tests.
+ *
+ * Desktop video recording uses ffmpeg (avfoundation) instead of Playwright's
+ * built-in video, because Playwright records the Chromium browser tab (blank
+ * for native app tests) while ffmpeg captures the actual macOS desktop.
  */
 
-import { type ChildProcess, spawn } from "child_process";
-import { mkdirSync, readdirSync, readFileSync } from "fs";
+import { type ChildProcess, execSync, spawn } from "child_process";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 
 import { test, expect } from "@playwright/test";
@@ -56,30 +60,161 @@ function checkRequiredEnv(requiredEnv: string[] | undefined): void {
   }
 }
 
-// ── macOS Screen Recording ──────────────────────────────────────────
+// ── macOS Desktop Recording (ffmpeg) ────────────────────────────────
+//
+// We use ffmpeg with the avfoundation input device to record the macOS
+// desktop. Unlike `screencapture -V`, ffmpeg properly finalizes the
+// output file when stopped with SIGINT (writes moov atom, etc.).
+//
+// `screencapture -V <seconds>` only writes the file when the timer
+// expires naturally — killing it with any signal produces no output.
 
-function startScreenRecording(videoPath: string): ChildProcess | undefined {
+interface ScreenRecorder {
+  proc: ChildProcess;
+  videoPath: string;
+  logPath: string;
+}
+
+function logRecording(testName: string, message: string): void {
+  const ts = new Date().toISOString();
+  process.stdout.write(`[${ts}] [screen-recording] ${message}\n`);
+}
+
+/**
+ * Detect the screen capture input device index for ffmpeg's avfoundation.
+ * Returns the device index string (e.g. "1") or undefined if not found.
+ */
+function detectScreenDevice(): string | undefined {
   try {
-    mkdirSync(path.dirname(videoPath), { recursive: true });
-    const proc = spawn("screencapture", ["-V", "600", "-x", videoPath], {
-      stdio: "ignore",
-      detached: true,
-    });
-    proc.on("error", () => {}); // ignore spawn failures (e.g., not on macOS)
-    proc.unref();
-    return proc;
+    // ffmpeg -f avfoundation -list_devices true -i "" prints device list to stderr
+    const output = execSync(
+      'ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true',
+      { encoding: "utf-8", timeout: 10_000, shell: "/bin/bash" },
+    );
+    // Look for "Capture screen" in the video devices section
+    const lines = output.split("\n");
+    for (const line of lines) {
+      const match = line.match(/\[(\d+)]\s+Capture screen/);
+      if (match) {
+        return match[1];
+      }
+    }
+    return undefined;
   } catch {
     return undefined;
   }
 }
 
-async function stopScreenRecording(proc: ChildProcess | undefined): Promise<void> {
-  if (!proc || proc.killed) return;
+function startScreenRecording(videoPath: string, testName: string): ScreenRecorder | undefined {
+  try {
+    mkdirSync(path.dirname(videoPath), { recursive: true });
+
+    // Check if ffmpeg is available
+    try {
+      execSync("which ffmpeg", { timeout: 5_000 });
+    } catch {
+      logRecording(testName, "ffmpeg not found, skipping screen recording");
+      return undefined;
+    }
+
+    // Detect the screen capture device
+    const screenDevice = detectScreenDevice();
+    if (!screenDevice) {
+      logRecording(testName, "Could not detect avfoundation screen device, skipping recording");
+      return undefined;
+    }
+
+    const logPath = path.join(path.dirname(videoPath), "ffmpeg.log");
+    const logStream = createWriteStream(logPath);
+
+    // Record at 10fps using the detected screen device, no audio.
+    // Output as WebM (VP8) for universal browser playback in Playwright HTML report.
+    const args = [
+      "-f", "avfoundation",
+      "-framerate", "10",
+      "-capture_cursor", "1",
+      "-i", `${screenDevice}:none`,
+      "-c:v", "libvpx",
+      "-b:v", "1M",
+      "-crf", "30",
+      "-y",
+      videoPath,
+    ];
+
+    logRecording(testName, `Starting ffmpeg: ffmpeg ${args.join(" ")}`);
+
+    const proc = spawn("ffmpeg", args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      logStream.write(chunk);
+    });
+    proc.stderr?.on("data", (chunk: Buffer) => {
+      logStream.write(chunk);
+    });
+
+    proc.on("error", (err) => {
+      logRecording(testName, `ffmpeg spawn error: ${err.message}`);
+    });
+
+    proc.on("exit", (code, signal) => {
+      logRecording(testName, `ffmpeg exited: code=${code}, signal=${signal}`);
+      logStream.end();
+    });
+
+    logRecording(testName, `ffmpeg started with PID ${proc.pid}`);
+
+    return { proc, videoPath, logPath };
+  } catch (e) {
+    logRecording(testName, `startScreenRecording exception: ${e}`);
+    return undefined;
+  }
+}
+
+async function stopScreenRecording(recorder: ScreenRecorder | undefined, testName: string): Promise<void> {
+  if (!recorder) return;
+  const { proc, videoPath } = recorder;
+  if (proc.killed || proc.exitCode !== null) {
+    logRecording(testName, "ffmpeg already exited, skipping stop");
+    return;
+  }
+
+  // SIGINT causes ffmpeg to finalize the file (write moov atom) and exit cleanly
+  logRecording(testName, `Stopping ffmpeg (PID ${proc.pid}) with SIGINT`);
   proc.kill("SIGINT");
-  await new Promise<void>((resolve) => {
-    proc.on("exit", resolve);
-    setTimeout(resolve, 3000);
+
+  const exitResult = await new Promise<{ code: number | null; signal: string | null; timedOut: boolean }>((resolve) => {
+    let resolved = false;
+    proc.on("exit", (code, signal) => {
+      if (!resolved) {
+        resolved = true;
+        resolve({ code, signal: signal as string | null, timedOut: false });
+      }
+    });
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        resolve({ code: null, signal: null, timedOut: true });
+      }
+    }, 10_000); // ffmpeg may need time to finalize the file
   });
+
+  if (exitResult.timedOut) {
+    logRecording(testName, "ffmpeg did not exit within 10s after SIGINT, sending SIGKILL");
+    proc.kill("SIGKILL");
+    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+  } else {
+    logRecording(testName, `ffmpeg stopped: code=${exitResult.code}, signal=${exitResult.signal}`);
+  }
+
+  // Check the output file
+  if (existsSync(videoPath)) {
+    const stat = statSync(videoPath);
+    logRecording(testName, `Video file: ${videoPath}, size=${stat.size} bytes (${(stat.size / 1024 / 1024).toFixed(2)} MB)`);
+  } else {
+    logRecording(testName, `WARNING: Video file does not exist at ${videoPath}`);
+  }
 }
 
 // ── Test Discovery & Registration ───────────────────────────────────
@@ -102,7 +237,7 @@ for (const file of caseFiles) {
     checkRequiredEnv(requiredEnv);
 
     let fixtureCtx: FixtureContext | undefined;
-    let recorder: ChildProcess | undefined;
+    let recorder: ScreenRecorder | undefined;
 
     try {
       // Setup fixture if needed
@@ -110,14 +245,14 @@ for (const file of caseFiles) {
         fixtureCtx = await setupFixture(fixture, { workerIndex: testInfo.workerIndex, testName });
       }
 
-      // Start macOS screen recording (captures the desktop for native app tests)
+      // Start desktop screen recording via ffmpeg (captures actual macOS desktop)
       const videoDir = path.resolve(
         __dirname,
         "../test-results/agent-videos",
         testName,
       );
-      const videoPath = path.join(videoDir, "screen-recording.mov");
-      recorder = startScreenRecording(videoPath);
+      const videoPath = path.join(videoDir, "screen-recording.webm");
+      recorder = startScreenRecording(videoPath, testName);
 
       const screenshotDir = path.resolve(
         __dirname,
@@ -141,7 +276,8 @@ for (const file of caseFiles) {
       });
 
       // Stop the screen recording BEFORE attaching so the file is finalized
-      await stopScreenRecording(recorder);
+      await stopScreenRecording(recorder, testName);
+      const stoppedVideoPath = recorder?.videoPath;
       recorder = undefined;
 
       // Attach the trace log to the Playwright report
@@ -170,14 +306,35 @@ for (const file of caseFiles) {
         // screenshot dir may not exist
       }
 
-      // Attach the macOS screen recording if available
-      try {
-        await testInfo.attach("screen-recording.mov", {
-          path: videoPath,
-          contentType: "video/quicktime",
-        });
-      } catch {
-        // video file may not exist or be empty
+      // Attach the desktop screen recording if available
+      if (stoppedVideoPath && existsSync(stoppedVideoPath)) {
+        try {
+          await testInfo.attach("screen-recording", {
+            path: stoppedVideoPath,
+            contentType: "video/webm",
+          });
+        } catch {
+          // video file may be empty or corrupt
+        }
+      }
+
+      // Attach the ffmpeg log for debugging
+      if (stoppedVideoPath) {
+        const ffmpegLogPath = path.join(
+          path.dirname(stoppedVideoPath),
+          "ffmpeg.log",
+        );
+        try {
+          if (existsSync(ffmpegLogPath)) {
+            const ffmpegLog = readFileSync(ffmpegLogPath, "utf-8");
+            await testInfo.attach("ffmpeg-log", {
+              body: ffmpegLog,
+              contentType: "text/plain",
+            });
+          }
+        } catch {
+          // best-effort
+        }
       }
 
       // Attach the agent's reasoning to the Playwright report
@@ -195,7 +352,7 @@ for (const file of caseFiles) {
       ].join("");
       expect(result.passed, failureDetails).toBe(true);
     } finally {
-      await stopScreenRecording(recorder);
+      await stopScreenRecording(recorder, testName);
       if (fixtureCtx) await fixtureCtx.teardown().catch(() => {});
     }
   });

@@ -408,6 +408,31 @@ jobs:
           echo "--- AppleScript contents ---"
           cat "$APPLESCRIPT"
 
+      - name: Install ffmpeg
+        run: |
+          if ! command -v ffmpeg &> /dev/null; then
+            echo "ffmpeg not found, installing via brew..."
+            brew install ffmpeg
+          else
+            echo "ffmpeg already installed: $(ffmpeg -version | head -1)"
+          fi
+
+      - name: Verify ffmpeg screen recording
+        run: |
+          echo "=== ffmpeg version ==="
+          ffmpeg -version | head -3
+          echo ""
+          echo "=== avfoundation devices ==="
+          ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true
+          echo ""
+          echo "=== Test 3s recording (WebM/VP8) ==="
+          ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 -i "0:none" \
+            -c:v libvpx -b:v 1M -crf 30 \
+            -t 3 -y /tmp/test-ffmpeg.webm 2>&1 || true
+          echo ""
+          echo "=== Test video file ==="
+          ls -la /tmp/test-ffmpeg.webm 2>/dev/null || echo "No video file created"
+          file /tmp/test-ffmpeg.webm 2>/dev/null || true
       - name: Run Playwright tests
         id: tests
         working-directory: playwright
