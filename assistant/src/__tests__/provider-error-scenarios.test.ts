@@ -9,7 +9,7 @@ mock.module("../util/logger.js", () => ({
 // Only mock sleep so retries complete instantly; keep real retry logic.
 // NOTE: We must NOT use `await import()` inside mock.module — it deadlocks
 // bun's module resolver. Instead, inline the real exports and only replace sleep.
-const sleepSpy = mock(() => Promise.resolve());
+const sleepSpy = mock((_ms: number) => Promise.resolve());
 
 mock.module("../util/retry.js", () => {
   const DEFAULT_MAX_RETRIES = 3;
