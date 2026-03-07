@@ -404,7 +404,7 @@ function parseFrontmatter(
             const req = raw.requires as Record<string, unknown>;
             for (const key of ["bins", "anyBins", "env", "config"] as const) {
               if (req[key] !== undefined && !Array.isArray(req[key])) {
-                req[key] = [];
+                req[key] = typeof req[key] === "string" ? [req[key]] : [];
               }
             }
           }
