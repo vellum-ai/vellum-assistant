@@ -21,12 +21,12 @@ import {
   resolveBootstrapToken,
   updateSessionDelivery,
   updateSessionStatus,
-} from "../../channel-guardian-service.js";
-import { RESEND_COOLDOWN_MS } from "../../guardian-outbound-actions.js";
+} from "../../channel-verification-service.js";
+import { RESEND_COOLDOWN_MS } from "../../verification-outbound-actions.js";
 import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../../guardian-verification-templates.js";
+} from "../../verification-templates.js";
 
 const log = getLogger("runtime-http");
 

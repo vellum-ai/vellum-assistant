@@ -11,22 +11,22 @@ import type { ChannelStatus } from "../../contacts/types.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
-  createVerificationChallenge,
-  findActiveSession,
-  getGuardianBinding,
-  getPendingChallenge,
-  revokeBinding,
-  revokePendingChallenges,
-} from "../../runtime/channel-guardian-service.js";
-import {
   type ChannelReadinessService,
   createReadinessService,
 } from "../../runtime/channel-readiness-service.js";
 import {
+  createVerificationChallenge,
+  findActiveSession,
+  getGuardianBinding,
+  getPendingSession,
+  revokeBinding,
+  revokePendingSessions,
+} from "../../runtime/channel-verification-service.js";
+import {
   cancelOutbound,
   resendOutbound,
   startOutbound,
-} from "../../runtime/guardian-outbound-actions.js";
+} from "../../runtime/verification-outbound-actions.js";
 import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
@@ -35,7 +35,7 @@ import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 // -- Transport-agnostic result type (omits the IPC `type` discriminant) --
 
-export type GuardianVerificationResult = Omit<
+export type ChannelVerificationSessionResult = Omit<
   ChannelVerificationSessionResponse,
   "type"
 >;
@@ -50,7 +50,7 @@ export {
   MAX_SENDS_PER_DESTINATION_WINDOW,
   MAX_SENDS_PER_SESSION,
   RESEND_COOLDOWN_MS,
-} from "../../runtime/guardian-outbound-actions.js";
+} from "../../runtime/verification-outbound-actions.js";
 
 // ---------------------------------------------------------------------------
 // Readiness service singleton
@@ -69,11 +69,11 @@ export function getReadinessService(): ChannelReadinessService {
 // Extracted business logic functions
 // ---------------------------------------------------------------------------
 
-export function createGuardianChallenge(
+export function createInboundChallenge(
   channel?: ChannelId,
   rebind?: boolean,
   sessionId?: string,
-): GuardianVerificationResult {
+): ChannelVerificationSessionResult {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
@@ -101,9 +101,9 @@ export function createGuardianChallenge(
   };
 }
 
-export function getGuardianStatus(
+export function getVerificationStatus(
   channel?: ChannelId,
-): GuardianVerificationResult {
+): ChannelVerificationSessionResult {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
@@ -126,7 +126,7 @@ export function getGuardianStatus(
       guardianUsername = ext.username;
     }
   }
-  const hasPendingChallenge = getPendingChallenge(resolvedChannel) != null;
+  const hasPendingChallenge = getPendingSession(resolvedChannel) != null;
 
   // Include active outbound session state so the UI can resume
   // after app restart and detect bootstrap completion.
@@ -157,12 +157,12 @@ export function getGuardianStatus(
 }
 
 // ---------------------------------------------------------------------------
-// Revoke guardian binding
+// Revoke verification binding
 // ---------------------------------------------------------------------------
 
-export function revokeGuardianForChannel(
+export function revokeVerificationForChannel(
   channel?: ChannelId,
-): GuardianVerificationResult {
+): ChannelVerificationSessionResult {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
@@ -172,7 +172,7 @@ export function revokeGuardianForChannel(
   // Always revoke pending challenges first — the macOS app uses
   // action: "revoke" to cancel an in-flight challenge even before
   // a binding exists (e.g. during verification setup).
-  revokePendingChallenges(resolvedChannel);
+  revokePendingSessions(resolvedChannel);
 
   // Capture binding before revoking so we can revoke the guardian's
   // contact record — without this, the guardian would still pass
@@ -218,10 +218,10 @@ export function revokeGuardianForChannel(
 }
 
 // ---------------------------------------------------------------------------
-// Guardian verification handler
+// Channel verification session handler
 // ---------------------------------------------------------------------------
 
-export async function handleGuardianVerification(
+export async function handleChannelVerificationSession(
   msg: ChannelVerificationSessionRequest,
   socket: net.Socket,
   ctx: HandlerContext,
@@ -242,7 +242,7 @@ export async function handleGuardianVerification(
           ...result,
         });
       } else {
-        const result = createGuardianChallenge(
+        const result = createInboundChallenge(
           channel,
           msg.rebind,
           msg.sessionId,
@@ -253,21 +253,21 @@ export async function handleGuardianVerification(
         });
       }
     } else if (msg.action === "status") {
-      const result = getGuardianStatus(channel);
+      const result = getVerificationStatus(channel);
       ctx.send(socket, {
         type: "channel_verification_session_response",
         ...result,
       });
     } else if (msg.action === "cancel_session") {
       cancelOutbound({ channel });
-      revokePendingChallenges(channel);
+      revokePendingSessions(channel);
       ctx.send(socket, {
         type: "channel_verification_session_response",
         success: true,
         channel,
       });
     } else if (msg.action === "revoke") {
-      const result = revokeGuardianForChannel(channel);
+      const result = revokeVerificationForChannel(channel);
       ctx.send(socket, {
         type: "channel_verification_session_response",
         ...result,
@@ -291,7 +291,7 @@ export async function handleGuardianVerification(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err }, "Failed to handle guardian verification");
+    log.error({ err }, "Failed to handle channel verification session");
     ctx.send(socket, {
       type: "channel_verification_session_response",
       success: false,
@@ -302,5 +302,5 @@ export async function handleGuardianVerification(
 }
 
 export const channelHandlers = defineHandlers({
-  channel_verification_session: handleGuardianVerification,
+  channel_verification_session: handleChannelVerificationSession,
 });

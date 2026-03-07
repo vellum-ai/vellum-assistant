@@ -95,7 +95,7 @@ import { eq } from "drizzle-orm";
 
 import { createGuardianBinding } from "../contacts/contacts-write.js";
 import {
-  handleGuardianVerification,
+  handleChannelVerificationSession,
   MAX_SENDS_PER_SESSION,
   RESEND_COOLDOWN_MS,
 } from "../daemon/handlers/config-channels.js";
@@ -106,13 +106,13 @@ import type {
 } from "../daemon/ipc-contract.js";
 import {
   bindSessionIdentity as _storeBindSessionIdentity,
-  consumeChallenge,
+  consumeSession,
   createApprovalRequest,
-  createChallenge,
+  createInboundSession,
   createVerificationSession,
   findActiveSession as storeFindActiveSession,
-  findPendingChallengeByHash,
-  findPendingChallengeForChannel,
+  findPendingSessionByHash,
+  findPendingSessionForChannel,
   findSessionByBootstrapTokenHash as _storeFindSessionByBootstrapTokenHash,
   findSessionByIdentity as _storeFindSessionByIdentity,
   getPendingApprovalByGuardianChat,
@@ -137,17 +137,17 @@ import {
   findActiveSession as serviceFindActiveSession,
   findSessionByIdentity as serviceFindSessionByIdentity,
   getGuardianBinding,
-  getPendingChallenge,
+  getPendingSession,
   isGuardian,
   resolveBootstrapToken,
   revokeBinding as serviceRevokeBinding,
   updateSessionStatus as serviceUpdateSessionStatus,
-  validateAndConsumeChallenge,
-} from "../runtime/channel-guardian-service.js";
+  validateAndConsumeVerification,
+} from "../runtime/channel-verification-service.js";
 import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../runtime/guardian-verification-templates.js";
+} from "../runtime/verification-templates.js";
 
 initializeDb();
 
@@ -183,8 +183,8 @@ describe("verification challenge lifecycle", () => {
     resetTables();
   });
 
-  test("createChallenge creates a pending challenge", () => {
-    const challenge = createChallenge({
+  test("createInboundSession creates a pending challenge", () => {
+    const challenge = createInboundSession({
       id: "chal-1",
       channel: "telegram",
       challengeHash: "abc123hash",
@@ -198,60 +198,60 @@ describe("verification challenge lifecycle", () => {
     expect(challenge.consumedByChatId).toBeNull();
   });
 
-  test("findPendingChallengeByHash finds a matching pending challenge", () => {
-    createChallenge({
+  test("findPendingSessionByHash finds a matching pending challenge", () => {
+    createInboundSession({
       id: "chal-1",
       channel: "telegram",
       challengeHash: "abc123hash",
       expiresAt: Date.now() + 600_000,
     });
 
-    const found = findPendingChallengeByHash("telegram", "abc123hash");
+    const found = findPendingSessionByHash("telegram", "abc123hash");
     expect(found).not.toBeNull();
     expect(found!.id).toBe("chal-1");
   });
 
-  test("findPendingChallengeByHash returns null for wrong hash", () => {
-    createChallenge({
+  test("findPendingSessionByHash returns null for wrong hash", () => {
+    createInboundSession({
       id: "chal-1",
       channel: "telegram",
       challengeHash: "abc123hash",
       expiresAt: Date.now() + 600_000,
     });
 
-    const found = findPendingChallengeByHash("telegram", "wrong-hash");
+    const found = findPendingSessionByHash("telegram", "wrong-hash");
     expect(found).toBeNull();
   });
 
-  test("findPendingChallengeByHash returns null for expired challenge", () => {
-    createChallenge({
+  test("findPendingSessionByHash returns null for expired challenge", () => {
+    createInboundSession({
       id: "chal-1",
       channel: "telegram",
       challengeHash: "abc123hash",
       expiresAt: Date.now() - 1000, // already expired
     });
 
-    const found = findPendingChallengeByHash("telegram", "abc123hash");
+    const found = findPendingSessionByHash("telegram", "abc123hash");
     expect(found).toBeNull();
   });
 
-  test("consumeChallenge marks challenge as consumed", () => {
-    createChallenge({
+  test("consumeSession marks challenge as consumed", () => {
+    createInboundSession({
       id: "chal-1",
       channel: "telegram",
       challengeHash: "abc123hash",
       expiresAt: Date.now() + 600_000,
     });
 
-    consumeChallenge("chal-1", "user-42", "chat-42");
+    consumeSession("chal-1", "user-42", "chat-42");
 
-    // After consumption, findPendingChallengeByHash should return null
-    const found = findPendingChallengeByHash("telegram", "abc123hash");
+    // After consumption, findPendingSessionByHash should return null
+    const found = findPendingSessionByHash("telegram", "abc123hash");
     expect(found).toBeNull();
   });
 
   test("consumed challenge cannot be found again (replay prevention)", () => {
-    createChallenge({
+    createInboundSession({
       id: "chal-1",
       channel: "telegram",
       challengeHash: "abc123hash",
@@ -259,17 +259,17 @@ describe("verification challenge lifecycle", () => {
     });
 
     // First consumption succeeds
-    const found1 = findPendingChallengeByHash("telegram", "abc123hash");
+    const found1 = findPendingSessionByHash("telegram", "abc123hash");
     expect(found1).not.toBeNull();
-    consumeChallenge("chal-1", "user-42", "chat-42");
+    consumeSession("chal-1", "user-42", "chat-42");
 
     // Second lookup returns null because challenge is consumed
-    const found2 = findPendingChallengeByHash("telegram", "abc123hash");
+    const found2 = findPendingSessionByHash("telegram", "abc123hash");
     expect(found2).toBeNull();
   });
 
-  test("findPendingChallengeByHash scoped to channel", () => {
-    createChallenge({
+  test("findPendingSessionByHash scoped to channel", () => {
+    createInboundSession({
       id: "chal-1",
       channel: "telegram",
       challengeHash: "abc123hash",
@@ -277,9 +277,9 @@ describe("verification challenge lifecycle", () => {
     });
 
     // Different channel — should not find
-    expect(findPendingChallengeByHash("slack", "abc123hash")).toBeNull();
+    expect(findPendingSessionByHash("slack", "abc123hash")).toBeNull();
     // Correct channel — should find
-    expect(findPendingChallengeByHash("telegram", "abc123hash")).not.toBeNull();
+    expect(findPendingSessionByHash("telegram", "abc123hash")).not.toBeNull();
   });
 });
 
@@ -321,10 +321,10 @@ describe("guardian service challenge validation", () => {
     expect(result.instruction).toContain(`the code: ${result.secret}`);
   });
 
-  test("validateAndConsumeChallenge succeeds with correct secret", () => {
+  test("validateAndConsumeVerification succeeds with correct secret", () => {
     const { secret } = createVerificationChallenge("telegram");
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret,
       "user-42",
@@ -337,19 +337,19 @@ describe("guardian service challenge validation", () => {
     }
   });
 
-  test("validateAndConsumeChallenge does not create a guardian binding (caller responsibility)", () => {
+  test("validateAndConsumeVerification does not create a guardian binding (caller responsibility)", () => {
     const { secret } = createVerificationChallenge("telegram");
 
-    validateAndConsumeChallenge("telegram", secret, "user-42", "chat-42");
+    validateAndConsumeVerification("telegram", secret, "user-42", "chat-42");
 
     const binding = getGuardianBinding("asst-1", "telegram");
     expect(binding).toBeNull();
   });
 
-  test("validateAndConsumeChallenge fails with wrong secret", () => {
+  test("validateAndConsumeVerification fails with wrong secret", () => {
     createVerificationChallenge("telegram");
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       "wrong-secret",
       "user-42",
@@ -365,18 +365,18 @@ describe("guardian service challenge validation", () => {
     }
   });
 
-  test("validateAndConsumeChallenge fails with expired challenge", () => {
+  test("validateAndConsumeVerification fails with expired challenge", () => {
     // Create a challenge that is already expired by inserting directly
     const secret = "test-secret-expired";
     const challengeHash = createHash("sha256").update(secret).digest("hex");
-    createChallenge({
+    createInboundSession({
       id: "chal-expired",
       channel: "telegram",
       challengeHash,
       expiresAt: Date.now() - 1000, // already expired
     });
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret,
       "user-42",
@@ -396,7 +396,7 @@ describe("guardian service challenge validation", () => {
     const { secret } = createVerificationChallenge("telegram");
 
     // First use succeeds
-    const result1 = validateAndConsumeChallenge(
+    const result1 = validateAndConsumeVerification(
       "telegram",
       secret,
       "user-42",
@@ -405,7 +405,7 @@ describe("guardian service challenge validation", () => {
     expect(result1.success).toBe(true);
 
     // Second use with same secret fails (replay prevention)
-    const result2 = validateAndConsumeChallenge(
+    const result2 = validateAndConsumeVerification(
       "telegram",
       secret,
       "user-99",
@@ -414,10 +414,10 @@ describe("guardian service challenge validation", () => {
     expect(result2.success).toBe(false);
   });
 
-  test("validateAndConsumeChallenge succeeds with sms channel", () => {
+  test("validateAndConsumeVerification succeeds with sms channel", () => {
     const { secret } = createVerificationChallenge("voice");
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "phone-user-1",
@@ -429,7 +429,7 @@ describe("guardian service challenge validation", () => {
       expect(result.verificationType).toBe("guardian");
     }
 
-    // validateAndConsumeChallenge no longer creates bindings — that is
+    // validateAndConsumeVerification no longer creates bindings — that is
     // now handled by the caller (verification-intercept / relay-server).
     const binding = getGuardianBinding("asst-1", "voice");
     expect(binding).toBeNull();
@@ -440,7 +440,7 @@ describe("guardian service challenge validation", () => {
     const smsChallenge = createVerificationChallenge("voice");
 
     // Validate SMS challenge against telegram channel should fail
-    const crossResult = validateAndConsumeChallenge(
+    const crossResult = validateAndConsumeVerification(
       "telegram",
       smsChallenge.secret,
       "user-1",
@@ -449,7 +449,7 @@ describe("guardian service challenge validation", () => {
     expect(crossResult.success).toBe(false);
 
     // Validate SMS challenge against correct channel should succeed
-    const smsResult = validateAndConsumeChallenge(
+    const smsResult = validateAndConsumeVerification(
       "voice",
       smsChallenge.secret,
       "user-1",
@@ -458,7 +458,7 @@ describe("guardian service challenge validation", () => {
     expect(smsResult.success).toBe(true);
 
     // Telegram challenge should still be valid
-    const telegramResult = validateAndConsumeChallenge(
+    const telegramResult = validateAndConsumeVerification(
       "telegram",
       telegramChallenge.secret,
       "user-2",
@@ -467,7 +467,7 @@ describe("guardian service challenge validation", () => {
     expect(telegramResult.success).toBe(true);
   });
 
-  test("validateAndConsumeChallenge succeeds even with existing binding (conflict check is caller responsibility)", () => {
+  test("validateAndConsumeVerification succeeds even with existing binding (conflict check is caller responsibility)", () => {
     // Create initial guardian binding
     createGuardianBinding({
       channel: "telegram",
@@ -481,7 +481,7 @@ describe("guardian service challenge validation", () => {
     expect(oldBinding!.guardianExternalUserId).toBe("old-user");
 
     const { secret } = createVerificationChallenge("telegram");
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret,
       "new-user",
@@ -991,7 +991,7 @@ describe("guardian service rate limiting", () => {
 
     // Submit wrong codes repeatedly
     for (let i = 0; i < 5; i++) {
-      const result = validateAndConsumeChallenge(
+      const result = validateAndConsumeVerification(
         "telegram",
         `wrong-secret-${i}`,
         "user-42",
@@ -1001,7 +1001,7 @@ describe("guardian service rate limiting", () => {
     }
 
     // The 6th attempt should be rate-limited even without a new challenge
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       "another-wrong",
       "user-42",
@@ -1023,13 +1023,13 @@ describe("guardian service rate limiting", () => {
   test("valid challenge still succeeds when under threshold", () => {
     // Record a couple invalid attempts
     const { secret: _secret } = createVerificationChallenge("telegram");
-    validateAndConsumeChallenge("telegram", "wrong-1", "user-42", "chat-42");
-    validateAndConsumeChallenge("telegram", "wrong-2", "user-42", "chat-42");
+    validateAndConsumeVerification("telegram", "wrong-1", "user-42", "chat-42");
+    validateAndConsumeVerification("telegram", "wrong-2", "user-42", "chat-42");
 
     // Valid attempt should still succeed (under the 5-attempt threshold)
     // Need a new challenge since the old one is still pending but the secret was never consumed
     const { secret: secret2 } = createVerificationChallenge("telegram");
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret2,
       "user-42",
@@ -1048,7 +1048,7 @@ describe("guardian service rate limiting", () => {
     createVerificationChallenge("telegram");
 
     // Capture a normal invalid-code failure response
-    const normalFailure = validateAndConsumeChallenge(
+    const normalFailure = validateAndConsumeVerification(
       "telegram",
       "wrong-first",
       "user-42",
@@ -1059,7 +1059,7 @@ describe("guardian service rate limiting", () => {
 
     // Trigger rate limit (4 more attempts to reach 5 total)
     for (let i = 0; i < 4; i++) {
-      validateAndConsumeChallenge(
+      validateAndConsumeVerification(
         "telegram",
         `wrong-${i}`,
         "user-42",
@@ -1073,7 +1073,7 @@ describe("guardian service rate limiting", () => {
     expect(rl!.lockedUntil).toBeGreaterThan(Date.now());
 
     // The rate-limited response should be indistinguishable from normal failure
-    const rateLimitedResult = validateAndConsumeChallenge(
+    const rateLimitedResult = validateAndConsumeVerification(
       "telegram",
       "anything",
       "user-42",
@@ -1094,7 +1094,7 @@ describe("guardian service rate limiting", () => {
     // Rate-limit user-42
     createVerificationChallenge("telegram");
     for (let i = 0; i < 5; i++) {
-      validateAndConsumeChallenge(
+      validateAndConsumeVerification(
         "telegram",
         `wrong-${i}`,
         "user-42",
@@ -1104,7 +1104,7 @@ describe("guardian service rate limiting", () => {
 
     // user-99 should still be able to verify
     const { secret } = createVerificationChallenge("telegram");
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret,
       "user-99",
@@ -1191,14 +1191,14 @@ describe("channel-scoped guardian resolution", () => {
     expect(getGuardianBinding("self", "voice")).not.toBeNull();
   });
 
-  test("validateAndConsumeChallenge scoped to channel", () => {
+  test("validateAndConsumeVerification scoped to channel", () => {
     // Create challenge on telegram
     const { secret: secretTelegram } = createVerificationChallenge("telegram");
     // Create challenge on sms
     const { secret: secretSms } = createVerificationChallenge("voice");
 
     // Attempting to consume telegram challenge on sms should fail
-    const crossResult = validateAndConsumeChallenge(
+    const crossResult = validateAndConsumeVerification(
       "voice",
       secretTelegram,
       "user-1",
@@ -1207,7 +1207,7 @@ describe("channel-scoped guardian resolution", () => {
     expect(crossResult.success).toBe(false);
 
     // Consuming with correct channel should succeed
-    const resultTelegram = validateAndConsumeChallenge(
+    const resultTelegram = validateAndConsumeVerification(
       "telegram",
       secretTelegram,
       "user-1",
@@ -1215,7 +1215,7 @@ describe("channel-scoped guardian resolution", () => {
     );
     expect(resultTelegram.success).toBe(true);
 
-    const resultSms = validateAndConsumeChallenge(
+    const resultSms = validateAndConsumeVerification(
       "voice",
       secretSms,
       "user-2",
@@ -1345,7 +1345,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "telegram",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1364,7 +1364,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "voice",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1389,7 +1389,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "telegram",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1441,7 +1441,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "telegram",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1457,7 +1457,7 @@ describe("IPC handler channel-aware guardian status", () => {
       // channel omitted — should default to 'telegram'
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1474,7 +1474,7 @@ describe("IPC handler channel-aware guardian status", () => {
       // assistantId omitted — should default to 'self'
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1490,7 +1490,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "voice",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1509,7 +1509,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "voice",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1525,7 +1525,7 @@ describe("IPC handler channel-aware guardian status", () => {
       channel: "voice",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1598,10 +1598,10 @@ describe("voice guardian challenge validation", () => {
     resetTables();
   });
 
-  test("validateAndConsumeChallenge succeeds with correct voice secret", () => {
+  test("validateAndConsumeVerification succeeds with correct voice secret", () => {
     const { secret } = createVerificationChallenge("voice");
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "voice-user-1",
@@ -1614,10 +1614,10 @@ describe("voice guardian challenge validation", () => {
     }
   });
 
-  test("validateAndConsumeChallenge does not create a guardian binding for voice (caller responsibility)", () => {
+  test("validateAndConsumeVerification does not create a guardian binding for voice (caller responsibility)", () => {
     const { secret } = createVerificationChallenge("voice");
 
-    validateAndConsumeChallenge(
+    validateAndConsumeVerification(
       "voice",
       secret,
       "voice-user-1",
@@ -1628,10 +1628,10 @@ describe("voice guardian challenge validation", () => {
     expect(binding).toBeNull();
   });
 
-  test("validateAndConsumeChallenge fails with wrong voice secret", () => {
+  test("validateAndConsumeVerification fails with wrong voice secret", () => {
     createVerificationChallenge("voice");
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       "000000",
       "voice-user-1",
@@ -1651,7 +1651,7 @@ describe("voice guardian challenge validation", () => {
     const telegramChallenge = createVerificationChallenge("telegram");
 
     // Voice secret against telegram channel should fail
-    const crossResult = validateAndConsumeChallenge(
+    const crossResult = validateAndConsumeVerification(
       "telegram",
       voiceChallenge.secret,
       "user-1",
@@ -1660,7 +1660,7 @@ describe("voice guardian challenge validation", () => {
     expect(crossResult.success).toBe(false);
 
     // Voice secret against correct channel should succeed
-    const voiceResult = validateAndConsumeChallenge(
+    const voiceResult = validateAndConsumeVerification(
       "voice",
       voiceChallenge.secret,
       "voice-user-1",
@@ -1669,7 +1669,7 @@ describe("voice guardian challenge validation", () => {
     expect(voiceResult.success).toBe(true);
 
     // Telegram challenge should still be valid
-    const telegramResult = validateAndConsumeChallenge(
+    const telegramResult = validateAndConsumeVerification(
       "telegram",
       telegramChallenge.secret,
       "user-2",
@@ -1681,7 +1681,7 @@ describe("voice guardian challenge validation", () => {
   test("consumed voice challenge cannot be reused", () => {
     const { secret } = createVerificationChallenge("voice");
 
-    const result1 = validateAndConsumeChallenge(
+    const result1 = validateAndConsumeVerification(
       "voice",
       secret,
       "voice-user-1",
@@ -1689,7 +1689,7 @@ describe("voice guardian challenge validation", () => {
     );
     expect(result1.success).toBe(true);
 
-    const result2 = validateAndConsumeChallenge(
+    const result2 = validateAndConsumeVerification(
       "voice",
       secret,
       "voice-user-2",
@@ -1698,7 +1698,7 @@ describe("voice guardian challenge validation", () => {
     expect(result2.success).toBe(false);
   });
 
-  test("validateAndConsumeChallenge succeeds even with existing voice binding (conflict check is caller responsibility)", () => {
+  test("validateAndConsumeVerification succeeds even with existing voice binding (conflict check is caller responsibility)", () => {
     createGuardianBinding({
       channel: "voice",
       guardianExternalUserId: "old-voice-user",
@@ -1711,7 +1711,7 @@ describe("voice guardian challenge validation", () => {
     expect(oldBinding!.guardianExternalUserId).toBe("old-voice-user");
 
     const { secret } = createVerificationChallenge("voice");
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "new-voice-user",
@@ -1812,7 +1812,7 @@ describe("voice guardian rate limiting", () => {
     createVerificationChallenge("voice");
 
     for (let i = 0; i < 5; i++) {
-      const result = validateAndConsumeChallenge(
+      const result = validateAndConsumeVerification(
         "voice",
         `${100000 + i}`,
         "voice-user-1",
@@ -1822,7 +1822,7 @@ describe("voice guardian rate limiting", () => {
     }
 
     // The 6th attempt should be rate-limited
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       "999999",
       "voice-user-1",
@@ -1838,7 +1838,12 @@ describe("voice guardian rate limiting", () => {
   test("voice rate limit does not affect telegram rate limit", () => {
     createVerificationChallenge("voice");
     for (let i = 0; i < 5; i++) {
-      validateAndConsumeChallenge("voice", `${100000 + i}`, "user-1", "chat-1");
+      validateAndConsumeVerification(
+        "voice",
+        `${100000 + i}`,
+        "user-1",
+        "chat-1",
+      );
     }
 
     const voiceRl = getRateLimit("voice", "user-1", "chat-1");
@@ -1852,13 +1857,13 @@ describe("voice guardian rate limiting", () => {
 
   test("successful voice verification resets rate limit", () => {
     const { secret: _s } = createVerificationChallenge("voice");
-    validateAndConsumeChallenge(
+    validateAndConsumeVerification(
       "voice",
       "000000",
       "voice-user-1",
       "voice-chat-1",
     );
-    validateAndConsumeChallenge(
+    validateAndConsumeVerification(
       "voice",
       "111111",
       "voice-user-1",
@@ -1867,7 +1872,7 @@ describe("voice guardian rate limiting", () => {
 
     // Valid attempt should succeed (under the 5-attempt threshold)
     const { secret } = createVerificationChallenge("voice");
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "voice-user-1",
@@ -1891,62 +1896,62 @@ describe("pending challenge lookup", () => {
     resetTables();
   });
 
-  test("findPendingChallengeForChannel returns pending challenge", () => {
+  test("findPendingSessionForChannel returns pending challenge", () => {
     createVerificationChallenge("voice");
 
-    const pending = findPendingChallengeForChannel("voice");
+    const pending = findPendingSessionForChannel("voice");
     expect(pending).not.toBeNull();
     expect(pending!.channel).toBe("voice");
     expect(pending!.status).toBe("pending");
   });
 
-  test("findPendingChallengeForChannel returns null when no challenge exists", () => {
-    const pending = findPendingChallengeForChannel("voice");
+  test("findPendingSessionForChannel returns null when no challenge exists", () => {
+    const pending = findPendingSessionForChannel("voice");
     expect(pending).toBeNull();
   });
 
-  test("findPendingChallengeForChannel returns null for different channel", () => {
+  test("findPendingSessionForChannel returns null for different channel", () => {
     createVerificationChallenge("telegram");
 
-    const pending = findPendingChallengeForChannel("voice");
+    const pending = findPendingSessionForChannel("voice");
     expect(pending).toBeNull();
   });
 
-  test("findPendingChallengeForChannel returns null after challenge is consumed", () => {
+  test("findPendingSessionForChannel returns null after challenge is consumed", () => {
     const { secret } = createVerificationChallenge("voice");
-    validateAndConsumeChallenge(
+    validateAndConsumeVerification(
       "voice",
       secret,
       "voice-user-1",
       "voice-chat-1",
     );
 
-    const pending = findPendingChallengeForChannel("voice");
+    const pending = findPendingSessionForChannel("voice");
     expect(pending).toBeNull();
   });
 
-  test("getPendingChallenge service helper returns pending voice challenge", () => {
+  test("getPendingSession service helper returns pending voice challenge", () => {
     createVerificationChallenge("voice");
 
-    const pending = getPendingChallenge("voice");
+    const pending = getPendingSession("voice");
     expect(pending).not.toBeNull();
     expect(pending!.channel).toBe("voice");
   });
 
-  test("getPendingChallenge returns null when no challenge exists", () => {
-    const pending = getPendingChallenge("voice");
+  test("getPendingSession returns null when no challenge exists", () => {
+    const pending = getPendingSession("voice");
     expect(pending).toBeNull();
   });
 
   test("creating a new challenge revokes prior pending challenges", () => {
     createVerificationChallenge("voice");
-    const pending1 = findPendingChallengeForChannel("voice");
+    const pending1 = findPendingSessionForChannel("voice");
     expect(pending1).not.toBeNull();
     const firstId = pending1!.id;
 
     // Creating a second challenge should revoke the first
     createVerificationChallenge("voice");
-    const pending2 = findPendingChallengeForChannel("voice");
+    const pending2 = findPendingSessionForChannel("voice");
     expect(pending2).not.toBeNull();
     expect(pending2!.id).not.toBe(firstId);
   });
@@ -1969,7 +1974,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "voice",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -1989,7 +1994,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "voice",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2014,7 +2019,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "voice",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2040,7 +2045,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "voice",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2072,7 +2077,7 @@ describe("IPC handler voice guardian verification", () => {
       channel: "voice",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     expect(getGuardianBinding("self", "voice")).toBeNull();
     expect(getGuardianBinding("self", "telegram")).not.toBeNull();
@@ -2130,7 +2135,7 @@ describe("outbound verification sessions", () => {
 
   // ── Identity match: right code + right identity → success ──
 
-  test("validateAndConsumeChallenge succeeds with correct secret and matching identity (SMS)", () => {
+  test("validateAndConsumeVerification succeeds with correct secret and matching identity (SMS)", () => {
     const { secret } = createOutboundSession({
       channel: "voice",
       expectedPhoneE164: "+15551234567",
@@ -2138,7 +2143,7 @@ describe("outbound verification sessions", () => {
       destinationAddress: "+15551234567",
     });
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "+15551234567",
@@ -2148,7 +2153,7 @@ describe("outbound verification sessions", () => {
     expect(result.success).toBe(true);
   });
 
-  test("validateAndConsumeChallenge succeeds with correct secret and matching identity (Telegram)", () => {
+  test("validateAndConsumeVerification succeeds with correct secret and matching identity (Telegram)", () => {
     const { secret } = createOutboundSession({
       channel: "telegram",
       expectedExternalUserId: "tg-user-42",
@@ -2156,7 +2161,7 @@ describe("outbound verification sessions", () => {
       destinationAddress: "tg-chat-42",
     });
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret,
       "tg-user-42",
@@ -2168,7 +2173,7 @@ describe("outbound verification sessions", () => {
 
   // ── Identity mismatch: right code + wrong identity → reject ──
 
-  test("validateAndConsumeChallenge rejects correct secret with wrong identity (anti-oracle)", () => {
+  test("validateAndConsumeVerification rejects correct secret with wrong identity (anti-oracle)", () => {
     const { secret } = createOutboundSession({
       channel: "voice",
       expectedPhoneE164: "+15551234567",
@@ -2176,7 +2181,7 @@ describe("outbound verification sessions", () => {
       destinationAddress: "+15551234567",
     });
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "+15559999999",
@@ -2192,7 +2197,7 @@ describe("outbound verification sessions", () => {
     }
   });
 
-  test("validateAndConsumeChallenge rejects correct secret with wrong Telegram identity", () => {
+  test("validateAndConsumeVerification rejects correct secret with wrong Telegram identity", () => {
     const { secret } = createOutboundSession({
       channel: "telegram",
       expectedExternalUserId: "tg-user-42",
@@ -2200,7 +2205,7 @@ describe("outbound verification sessions", () => {
       destinationAddress: "tg-chat-42",
     });
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret,
       "tg-user-WRONG",
@@ -2226,7 +2231,7 @@ describe("outbound verification sessions", () => {
       identityBindingStatus: "bound",
     });
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "+15551234567",
@@ -2248,7 +2253,7 @@ describe("outbound verification sessions", () => {
     // Revoke the session
     serviceUpdateSessionStatus(sessionId, "revoked");
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "+15551234567",
@@ -2268,7 +2273,7 @@ describe("outbound verification sessions", () => {
       destinationAddress: "+15551234567",
     });
 
-    const result1 = validateAndConsumeChallenge(
+    const result1 = validateAndConsumeVerification(
       "voice",
       secret,
       "+15551234567",
@@ -2276,7 +2281,7 @@ describe("outbound verification sessions", () => {
     );
     expect(result1.success).toBe(true);
 
-    const result2 = validateAndConsumeChallenge(
+    const result2 = validateAndConsumeVerification(
       "voice",
       secret,
       "+15551234567",
@@ -2290,7 +2295,7 @@ describe("outbound verification sessions", () => {
   test("backward compat: inbound-only challenge without expected identity still works", () => {
     const { secret } = createVerificationChallenge("telegram");
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret,
       "user-42",
@@ -2467,7 +2472,7 @@ describe("outbound verification sessions", () => {
     });
 
     // Any actor can consume during pending_bootstrap
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret,
       "any-user",
@@ -2506,7 +2511,7 @@ describe("outbound verification sessions", () => {
     });
 
     // Actor has a different external user ID but matching chat ID
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       secret,
       "tg-user-DIFFERENT",
@@ -2527,7 +2532,7 @@ describe("outbound verification sessions", () => {
     });
 
     // Actor matches expectedExternalUserId
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "sms-user-42",
@@ -2556,7 +2561,7 @@ describe("outbound SMS verification", () => {
       destination: "+15551234567",
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2593,7 +2598,7 @@ describe("outbound SMS verification", () => {
       rebind: false,
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2619,7 +2624,7 @@ describe("outbound SMS verification", () => {
       rebind: true,
     };
 
-    await handleGuardianVerification(msg, mockSocket, ctx);
+    await handleChannelVerificationSession(msg, mockSocket, ctx);
 
     const resp = lastResponse();
     expect(resp).not.toBeNull();
@@ -2630,7 +2635,7 @@ describe("outbound SMS verification", () => {
   test("resend_outbound before cooldown is rejected", async () => {
     // Start an outbound session first
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -2643,7 +2648,7 @@ describe("outbound SMS verification", () => {
 
     // Immediately try to resend (before cooldown)
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
@@ -2662,7 +2667,7 @@ describe("outbound SMS verification", () => {
   test("resend_outbound after cooldown succeeds and increments sendCount", async () => {
     // Start an outbound session
     const { ctx: startCtx, lastResponse: startResp } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -2688,7 +2693,7 @@ describe("outbound SMS verification", () => {
 
     // Now resend should succeed
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
@@ -2708,7 +2713,7 @@ describe("outbound SMS verification", () => {
   test("resend_outbound exceeding max sends is rejected", async () => {
     // Start an outbound session
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -2731,7 +2736,7 @@ describe("outbound SMS verification", () => {
 
     // Resend should be rejected due to max sends
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
@@ -2750,7 +2755,7 @@ describe("outbound SMS verification", () => {
   test("cancel_outbound revokes active session", async () => {
     // Start an outbound session
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -2767,7 +2772,7 @@ describe("outbound SMS verification", () => {
 
     // Cancel it
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "cancel_session",
@@ -2797,7 +2802,7 @@ describe("outbound SMS verification", () => {
     });
 
     // Validate with matching identity
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "+15551234567",
@@ -2820,7 +2825,7 @@ describe("outbound SMS verification", () => {
     });
 
     // Try to validate with a different phone number (anti-oracle: same generic error)
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       secret,
       "+15559999999",
@@ -2838,7 +2843,7 @@ describe("outbound SMS verification", () => {
 
   test("start_outbound rejects unsupported channels", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -2857,7 +2862,7 @@ describe("outbound SMS verification", () => {
 
   test("create_session without destination falls through to inbound challenge", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -2876,7 +2881,7 @@ describe("outbound SMS verification", () => {
 
   test("start_outbound rejects unparseable phone number", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -2895,7 +2900,7 @@ describe("outbound SMS verification", () => {
 
   test("start_outbound normalizes formatted phone number for voice", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -2929,7 +2934,7 @@ describe("outbound SMS verification", () => {
 
   test("cancel_session succeeds even when no active session (idempotent)", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "cancel_session",
@@ -2956,7 +2961,7 @@ describe("outbound Telegram verification", () => {
 
   test("start_outbound for telegram with handle returns deep link URL, no outbound message", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -2991,7 +2996,7 @@ describe("outbound Telegram verification", () => {
 
   test("start_outbound for telegram with handle (no @ prefix) returns deep link", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3013,7 +3018,7 @@ describe("outbound Telegram verification", () => {
 
   test("start_outbound for telegram with known chat ID sends message, no deep link", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3054,7 +3059,7 @@ describe("outbound Telegram verification", () => {
     mockBotUsername = undefined;
 
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3080,7 +3085,7 @@ describe("outbound Telegram verification", () => {
     });
 
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3170,7 +3175,7 @@ describe("outbound Telegram verification", () => {
       destinationAddress: "chat-42",
     });
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       sessionResult.secret,
       "user-42",
@@ -3191,7 +3196,7 @@ describe("outbound Telegram verification", () => {
       destinationAddress: "chat-42",
     });
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       sessionResult.secret,
       "attacker-99",
@@ -3215,7 +3220,7 @@ describe("outbound Telegram verification", () => {
     // Revoke the session
     serviceUpdateSessionStatus(sessionResult.sessionId, "revoked");
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       sessionResult.secret,
       "user-42",
@@ -3229,7 +3234,7 @@ describe("outbound Telegram verification", () => {
     // Create an inbound-only challenge (no outbound session, no expected identity)
     const challengeResult = createVerificationChallenge("telegram");
 
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "telegram",
       challengeResult.secret,
       "user-42",
@@ -3244,7 +3249,7 @@ describe("outbound Telegram verification", () => {
   test("resend_outbound for telegram works with known chat ID", async () => {
     // Start an outbound session with a known chat ID
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3266,7 +3271,7 @@ describe("outbound Telegram verification", () => {
     );
 
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
@@ -3290,7 +3295,7 @@ describe("outbound Telegram verification", () => {
   test("resend_outbound for pending_bootstrap session is rejected", async () => {
     // Start an outbound session with a handle (pending_bootstrap)
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3302,7 +3307,7 @@ describe("outbound Telegram verification", () => {
     );
 
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
@@ -3321,7 +3326,7 @@ describe("outbound Telegram verification", () => {
   test("cancel_outbound for telegram revokes session", async () => {
     // Start an outbound session
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3336,7 +3341,7 @@ describe("outbound Telegram verification", () => {
     expect(session).not.toBeNull();
 
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "cancel_session",
@@ -3385,7 +3390,7 @@ describe("outbound Telegram verification", () => {
 
   test("create_session for telegram without destination falls through to inbound challenge", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3404,7 +3409,7 @@ describe("outbound Telegram verification", () => {
   test("rate limits apply to telegram outbound (per-session send cap)", async () => {
     // Start an outbound session with a known chat ID
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3427,7 +3432,7 @@ describe("outbound Telegram verification", () => {
 
     // Resend should be rejected due to max sends
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
@@ -3446,7 +3451,7 @@ describe("outbound Telegram verification", () => {
   test("rate limits apply to telegram outbound (cooldown)", async () => {
     // Start an outbound session with a known chat ID
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3459,7 +3464,7 @@ describe("outbound Telegram verification", () => {
 
     // Immediately try to resend (before cooldown)
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
@@ -3487,7 +3492,7 @@ describe("outbound voice verification", () => {
 
   test("start_outbound for voice creates session with 6-digit code and initiates call", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3531,7 +3536,7 @@ describe("outbound voice verification", () => {
 
   test("start_outbound for voice rejects unparseable phone number", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3550,7 +3555,7 @@ describe("outbound voice verification", () => {
 
   test("start_outbound for voice normalizes formatted phone number", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3593,7 +3598,7 @@ describe("outbound voice verification", () => {
     });
 
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3614,7 +3619,7 @@ describe("outbound voice verification", () => {
   test("resend_outbound for voice initiates a new call with cooldown check", async () => {
     // Start an outbound session first
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3627,7 +3632,7 @@ describe("outbound voice verification", () => {
 
     // Immediately try to resend (before cooldown)
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
@@ -3646,7 +3651,7 @@ describe("outbound voice verification", () => {
   test("cancel_outbound for voice cancels session", async () => {
     // Start an outbound session first
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3659,7 +3664,7 @@ describe("outbound voice verification", () => {
 
     // Cancel the session
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "cancel_session",
@@ -3701,7 +3706,7 @@ describe("outbound voice verification", () => {
     }
 
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3720,7 +3725,7 @@ describe("outbound voice verification", () => {
 
   test("create_session for voice without destination falls through to inbound challenge", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3756,7 +3761,7 @@ describe("M1–M4 hardening coverage", () => {
 
   test("start_outbound for SMS response includes secret", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3780,7 +3785,7 @@ describe("M1–M4 hardening coverage", () => {
   test("resend_outbound for SMS response includes secret", async () => {
     // Start a session first
     const { ctx: startCtx } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",
@@ -3803,7 +3808,7 @@ describe("M1–M4 hardening coverage", () => {
 
     // Resend
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "resend_session",
@@ -3825,7 +3830,7 @@ describe("M1–M4 hardening coverage", () => {
 
   test("start_outbound for Telegram bootstrap (handle) does NOT return secret", async () => {
     const { ctx, lastResponse } = createMockCtx();
-    await handleGuardianVerification(
+    await handleChannelVerificationSession(
       {
         type: "channel_verification_session",
         action: "create_session",

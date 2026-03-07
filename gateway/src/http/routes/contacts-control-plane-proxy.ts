@@ -132,17 +132,6 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       );
     },
 
-    async handleVerifyContactChannel(
-      req: Request,
-      contactChannelId: string,
-    ): Promise<Response> {
-      return proxyToRuntime(
-        req,
-        `/v1/contact-channels/${contactChannelId}/verify`,
-        "",
-      );
-    },
-
     // ── Invite routes ──
     async handleListInvites(req: Request): Promise<Response> {
       const url = new URL(req.url);

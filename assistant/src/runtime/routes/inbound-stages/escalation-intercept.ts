@@ -13,7 +13,7 @@ import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import type { NotificationSourceChannel } from "../../../notifications/signal.js";
 import { getLogger } from "../../../util/logger.js";
-import { getGuardianBinding } from "../../channel-guardian-service.js";
+import { getGuardianBinding } from "../../channel-verification-service.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "../channel-route-shared.js";
 import type { ResolvedMember } from "./acl-enforcement.js";
 

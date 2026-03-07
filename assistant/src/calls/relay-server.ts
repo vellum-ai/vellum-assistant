@@ -33,7 +33,7 @@ import {
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../runtime/guardian-verification-templates.js";
+} from "../runtime/verification-templates.js";
 import { parseJsonSafe } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import {

@@ -1,8 +1,8 @@
 /**
- * Shared outbound guardian verification action logic.
+ * Shared outbound verification action logic.
  *
  * These pure functions encapsulate the business logic for starting, resending,
- * and cancelling outbound guardian verification flows (Telegram, voice, Slack).
+ * and cancelling outbound verification flows (Telegram, voice, Slack).
  * They return transport-agnostic result objects and are consumed by both the
  * IPC handler (config-channels.ts) and the HTTP route layer (integration-routes.ts).
  */
@@ -24,14 +24,14 @@ import {
   getGuardianBinding,
   updateSessionDelivery,
   updateSessionStatus,
-} from "./channel-guardian-service.js";
+} from "./channel-verification-service.js";
 import {
   composeVerificationSlack,
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "./guardian-verification-templates.js";
+} from "./verification-templates.js";
 
-const log = getLogger("guardian-outbound-actions");
+const log = getLogger("verification-outbound-actions");
 
 // ---------------------------------------------------------------------------
 // Rate limit constants for outbound verification

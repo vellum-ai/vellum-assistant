@@ -20,7 +20,7 @@ import { queueGenerateConversationTitle } from "../memory/conversation-title-ser
 import { upsertBinding } from "../memory/external-conversation-store.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { isGuardian } from "../runtime/channel-guardian-service.js";
+import { isGuardian } from "../runtime/channel-verification-service.js";
 import { getSecureKey } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { upsertActiveCallLease } from "./active-call-lease.js";
@@ -932,6 +932,12 @@ export async function startGuardianVerificationCall(
       return { ok: false, error: identityResult.error, status: 400 };
     }
 
+    const preflightResult = await preflightVoiceIngress();
+    if (!preflightResult.ok) {
+      return preflightResult;
+    }
+    const ingressConfig = preflightResult.ingressConfig;
+
     // Create a minimal conversation so the call session has a valid FK,
     // and bind it to the voice channel so it never appears as an unbound
     // desktop thread.
@@ -956,13 +962,13 @@ export async function startGuardianVerificationCall(
     sessionId = session.id;
 
     const webhookUrl = await resolveCallbackUrl(
-      () => getTwilioVoiceWebhookUrl(config, session.id),
+      () => getTwilioVoiceWebhookUrl(ingressConfig, session.id),
       "webhooks/twilio/voice",
       "twilio_voice",
       { callSessionId: session.id },
     );
     const statusCallbackUrl = await resolveCallbackUrl(
-      () => getTwilioStatusCallbackUrl(config),
+      () => getTwilioStatusCallbackUrl(ingressConfig),
       "webhooks/twilio/status",
       "twilio_status",
     );

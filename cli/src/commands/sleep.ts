@@ -6,7 +6,7 @@ import {
   resolveTargetAssistant,
 } from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
-import { stopProcessByPidFile } from "../lib/process";
+import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 
 const ACTIVE_CALL_LEASES_FILE = "active-call-leases.json";
 
@@ -35,8 +35,7 @@ function readActiveCallLeases(vellumDir: string): ActiveCallLease[] {
 
   return raw.leases.filter(
     (lease): lease is ActiveCallLease =>
-      typeof lease?.callSessionId === "string" &&
-      lease.callSessionId.length > 0,
+      typeof lease?.callSessionId === "string" && lease.callSessionId.length > 0
   );
 }
 
@@ -49,12 +48,12 @@ export async function sleep(): Promise<void> {
     console.log("");
     console.log("Arguments:");
     console.log(
-      "  <name>    Name of the assistant to stop (default: active or only local)",
+      "  <name>    Name of the assistant to stop (default: active or only local)"
     );
     console.log("");
     console.log("Options:");
     console.log(
-      "  --force   Stop the assistant even if a phone call keepalive lease is active",
+      "  --force   Stop the assistant even if a phone call keepalive lease is active"
     );
     process.exit(0);
   }
@@ -65,7 +64,7 @@ export async function sleep(): Promise<void> {
 
   if (entry.cloud && entry.cloud !== "local") {
     console.error(
-      `Error: 'vellum sleep' only works with local assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`,
+      `Error: 'vellum sleep' only works with local assistants. '${entry.assistantId}' is a ${entry.cloud} instance.`
     );
     process.exit(1);
   }
@@ -77,31 +76,36 @@ export async function sleep(): Promise<void> {
   const gatewayPidFile = join(vellumDir, "gateway.pid");
 
   if (!force) {
-    try {
-      const activeCallLeases = readActiveCallLeases(vellumDir);
-      if (activeCallLeases.length > 0) {
-        const activeIds = activeCallLeases.map((lease) => lease.callSessionId);
+    const assistantAlive = isProcessAlive(assistantPidFile).alive;
+    if (assistantAlive) {
+      try {
+        const activeCallLeases = readActiveCallLeases(vellumDir);
+        if (activeCallLeases.length > 0) {
+          const activeIds = activeCallLeases.map(
+            (lease) => lease.callSessionId
+          );
+          console.error(
+            `Error: assistant is staying awake for active phone calls (${activeIds.join(
+              ", "
+            )}). Use 'vellum sleep --force' to stop it anyway.`
+          );
+          process.exit(1);
+        }
+      } catch (err) {
         console.error(
-          `Error: assistant is staying awake for active phone calls (${activeIds.join(
-            ", ",
-          )}). Use 'vellum sleep --force' to stop it anyway.`,
+          `Error: ${
+            err instanceof Error ? err.message : String(err)
+          }. Use 'vellum sleep --force' to override if you want to stop the assistant anyway.`
         );
         process.exit(1);
       }
-    } catch (err) {
-      console.error(
-        `Error: ${
-          err instanceof Error ? err.message : String(err)
-        }. Use 'vellum sleep --force' to override if you want to stop the assistant anyway.`,
-      );
-      process.exit(1);
     }
   }
 
   const assistantStopped = await stopProcessByPidFile(
     assistantPidFile,
     "assistant",
-    [socketFile],
+    [socketFile]
   );
   if (!assistantStopped) {
     console.log("Assistant is not running.");
@@ -115,7 +119,7 @@ export async function sleep(): Promise<void> {
     gatewayPidFile,
     "gateway",
     undefined,
-    7000,
+    7000
   );
   if (!gatewayStopped) {
     console.log("Gateway is not running.");

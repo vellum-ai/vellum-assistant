@@ -66,6 +66,14 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
   getTwilioStatusCallbackUrl: () => "https://test.example.com/status",
 }));
 
+mock.module("../calls/voice-ingress-preflight.js", () => ({
+  preflightVoiceIngress: async () => ({
+    ok: true as const,
+    ingressConfig: {},
+    publicBaseUrl: "https://test.example.com",
+  }),
+}));
+
 mock.module("../config/loader.js", () => ({
   loadConfig: () => ({
     calls: {
@@ -76,7 +84,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   isGuardian: () => false,
 }));
 

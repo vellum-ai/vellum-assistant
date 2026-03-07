@@ -50,7 +50,11 @@ function inferWebhookKind(reqUrl: string): TwilioWebhookKind {
 }
 
 function normalizeUrlForLog(url: string): string {
-  return new URL(url).toString();
+  try {
+    return new URL(url).toString();
+  } catch {
+    return "[malformed-url]";
+  }
 }
 
 function buildSignatureUrlCandidateDetails(
@@ -131,31 +135,6 @@ function buildValidationDiagnostics(
     logContext,
     signatureUrlCandidates,
   };
-}
-
-/**
- * Build URL candidates Twilio may have used when computing the webhook signature.
- *
- * Precedence:
- * 1) Canonical configured ingress URL (when present)
- * 2) Forwarded public URL headers from tunnel/proxy
- * 3) Raw request URL (last-resort fallback)
- *
- * When `ingressPublicBaseUrl` is configured, the canonical ingress URL is the
- * highest-priority candidate. The raw request URL is still included as a
- * fallback to preserve local-dev operability (e.g., when Twilio is configured
- * to call the local server directly). However, a warning is logged when the
- * raw fallback is the only candidate that validates, as this indicates a
- * potential configuration drift between the ingress URL and the actual
- * webhook registration.
- */
-function buildSignatureUrlCandidates(
-  req: Request,
-  config: GatewayConfig,
-): string[] {
-  return buildSignatureUrlCandidateDetails(req, config).map(
-    (candidate) => candidate.url,
-  );
 }
 
 /**
@@ -256,7 +235,7 @@ export async function validateTwilioWebhookRequest(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const signatureCandidateUrls = buildSignatureUrlCandidates(req, config);
+  const signatureCandidateUrls = signatureUrlCandidates.map((c) => c.url);
   const validatingIndex = findValidatingCandidateIndex(
     signatureCandidateUrls,
     params,

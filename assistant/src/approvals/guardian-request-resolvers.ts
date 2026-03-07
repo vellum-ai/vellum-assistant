@@ -27,7 +27,7 @@ import { addRule } from "../permissions/trust-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import type { ApprovalAction } from "../runtime/channel-approval-types.js";
-import { createOutboundSession } from "../runtime/channel-guardian-service.js";
+import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getTool } from "../tools/registry.js";

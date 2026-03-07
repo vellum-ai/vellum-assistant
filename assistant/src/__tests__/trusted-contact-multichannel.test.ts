@@ -103,8 +103,8 @@ import {
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   createOutboundSession,
-  validateAndConsumeChallenge,
-} from "../runtime/channel-guardian-service.js";
+  validateAndConsumeVerification,
+} from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 
 initializeDb();
@@ -273,7 +273,7 @@ for (const config of CHANNEL_CONFIGS) {
         verificationPurpose: "trusted_contact",
       });
 
-      const challengeResult = validateAndConsumeChallenge(
+      const challengeResult = validateAndConsumeVerification(
         config.channel,
         session.secret,
         config.senderExternalUserId,
@@ -358,7 +358,7 @@ describe("voice identity binding with E.164 phone numbers", () => {
     });
 
     // Verify with matching phone identity
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       session.secret,
       phone,
@@ -384,7 +384,7 @@ describe("voice identity binding with E.164 phone numbers", () => {
     });
 
     // Try to verify with a different phone (anti-oracle: same error message)
-    const result = validateAndConsumeChallenge(
+    const result = validateAndConsumeVerification(
       "voice",
       session.secret,
       wrongPhone,
@@ -422,7 +422,7 @@ describe("cross-channel isolation", () => {
     });
 
     // Telegram code should not work on Slack channel
-    const wrongChannelResult = validateAndConsumeChallenge(
+    const wrongChannelResult = validateAndConsumeVerification(
       "slack",
       telegramSession.secret,
       "U0123ABCDEF",
@@ -431,7 +431,7 @@ describe("cross-channel isolation", () => {
     expect(wrongChannelResult.success).toBe(false);
 
     // Slack code should work on Slack channel
-    const correctChannelResult = validateAndConsumeChallenge(
+    const correctChannelResult = validateAndConsumeVerification(
       "slack",
       slackSession.secret,
       "U0123ABCDEF",

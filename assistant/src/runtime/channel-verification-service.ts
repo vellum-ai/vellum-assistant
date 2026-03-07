@@ -1,9 +1,9 @@
 /**
- * Channel guardian verification service.
+ * Channel verification service.
  *
- * Encapsulates the business logic for the guardian verification challenge
- * lifecycle: creating challenges with cryptographic secrets, validating
- * and consuming them, and managing guardian bindings.
+ * Encapsulates the business logic for the verification session lifecycle:
+ * creating sessions with cryptographic secrets, validating and consuming
+ * them, and managing guardian bindings.
  */
 
 import { createHash, randomBytes } from "crypto";
@@ -15,24 +15,24 @@ import type {
   GuardianBinding,
   IdentityBindingStatus,
   SessionStatus,
-  VerificationChallenge,
   VerificationPurpose,
+  VerificationSession,
 } from "../memory/channel-guardian-store.js";
 import {
   bindSessionIdentity as storeBindSessionIdentity,
-  consumeChallenge,
+  consumeSession,
   countRecentSendsToDestination as storeCountRecentSendsToDestination,
-  createChallenge,
+  createInboundSession,
   createVerificationSession,
   findActiveSession as storeFindActiveSession,
-  findPendingChallengeByHash,
-  findPendingChallengeForChannel,
+  findPendingSessionByHash,
+  findPendingSessionForChannel,
   findSessionByBootstrapTokenHash as storeFindSessionByBootstrapTokenHash,
   findSessionByIdentity as storeFindSessionByIdentity,
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
-  revokePendingChallenges as storeRevokePendingChallenges,
+  revokePendingSessions as storeRevokePendingSessions,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
 } from "../memory/channel-guardian-store.js";
@@ -98,7 +98,7 @@ function generateNumericSecret(digits: number = 6): string {
 /**
  * Create a new verification challenge for a guardian candidate.
  *
- * Inbound challenges are not identity-bound: `validateAndConsumeChallenge`
+ * Inbound challenges are not identity-bound: `validateAndConsumeVerification`
  * skips the identity check when no expected-identity fields are set, so
  * code secrecy is the only protection against brute-force guessing during
  * the TTL window. A 32-byte hex secret provides ~2^128 entropy, making
@@ -121,7 +121,7 @@ export function createVerificationChallenge(
   const challengeId = uuid();
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;
 
-  createChallenge({
+  createInboundSession({
     id: challengeId,
     channel,
     challengeHash,
@@ -159,7 +159,7 @@ export function createVerificationChallenge(
  * exceeding the threshold the actor is locked out for a cooldown
  * period. On success the counter resets.
  */
-export function validateAndConsumeChallenge(
+export function validateAndConsumeVerification(
   channel: string,
   secret: string,
   actorExternalUserId: string,
@@ -187,7 +187,7 @@ export function validateAndConsumeChallenge(
 
   const challengeHash = hashSecret(secret);
 
-  const challenge = findPendingChallengeByHash(channel, challengeHash);
+  const challenge = findPendingSessionByHash(channel, challengeHash);
   if (!challenge) {
     recordInvalidAttempt(
       channel,
@@ -301,7 +301,7 @@ export function validateAndConsumeChallenge(
   // no expected identity: legacy/inbound-only, skip identity check
 
   // Consume the challenge so it cannot be reused
-  consumeChallenge(challenge.id, actorExternalUserId, actorChatId);
+  consumeSession(challenge.id, actorExternalUserId, actorChatId);
 
   // Reset the rate-limit counter on success
   resetRateLimit(channel, actorExternalUserId, actorChatId);
@@ -374,23 +374,21 @@ export function revokeBinding(assistantId: string, channel: string): boolean {
 }
 
 /**
- * Revoke all pending challenges for a given channel.
- * Called when the user cancels verification so that stale challenges
+ * Revoke all pending sessions for a given channel.
+ * Called when the user cancels verification so that stale sessions
  * don't gate inbound calls.
  */
-export function revokePendingChallenges(channel: string): void {
-  storeRevokePendingChallenges(channel);
+export function revokePendingSessions(channel: string): void {
+  storeRevokePendingSessions(channel);
 }
 
 /**
- * Look up a pending (non-expired) verification challenge for a given
+ * Look up a pending (non-expired) verification session for a given
  * channel. Used by relay setup to detect whether an active
  * voice verification session exists.
  */
-export function getPendingChallenge(
-  channel: string,
-): VerificationChallenge | null {
-  return findPendingChallengeForChannel(channel);
+export function getPendingSession(channel: string): VerificationSession | null {
+  return findPendingSessionForChannel(channel);
 }
 
 // ---------------------------------------------------------------------------
@@ -470,9 +468,7 @@ export function createOutboundSession(params: {
 /**
  * Find the most recent active outbound session for a given channel.
  */
-export function findActiveSession(
-  channel: string,
-): VerificationChallenge | null {
+export function findActiveSession(channel: string): VerificationSession | null {
   return storeFindActiveSession(channel);
 }
 
@@ -484,7 +480,7 @@ export function findSessionByIdentity(
   externalUserId?: string,
   chatId?: string,
   phoneE164?: string,
-): VerificationChallenge | null {
+): VerificationSession | null {
   return storeFindSessionByIdentity(channel, externalUserId, chatId, phoneE164);
 }
 
@@ -550,7 +546,7 @@ export function bindSessionIdentity(
 export function resolveBootstrapToken(
   channel: string,
   token: string,
-): VerificationChallenge | null {
+): VerificationSession | null {
   const tokenHash = hashSecret(token);
   return storeFindSessionByBootstrapTokenHash(channel, tokenHash);
 }

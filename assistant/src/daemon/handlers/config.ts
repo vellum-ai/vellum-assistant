@@ -7,7 +7,7 @@
 // Re-export individual handlers for direct import by tests and other modules
 export {
   getReadinessService,
-  handleGuardianVerification,
+  handleChannelVerificationSession,
 } from "./config-channels.js";
 export {
   handleHeartbeatChecklistRead,

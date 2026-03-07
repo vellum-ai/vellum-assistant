@@ -92,19 +92,19 @@ let mockGuardianContact: {
   channel: Record<string, unknown>;
 } | null = null;
 
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: () => null,
   // Re-export stubs for other functions to prevent import errors
   bindSessionIdentity: () => {},
   createOutboundSession: () => ({}),
   findActiveSession: () => null,
   getGuardianBindingForChannel: () => null,
-  getPendingChallenge: () => null,
+  getPendingSession: () => null,
   isGuardian: () => false,
   resolveBootstrapToken: () => null,
   updateSessionDelivery: () => {},
   updateSessionStatus: () => {},
-  validateAndConsumeChallenge: () => ({
+  validateAndConsumeVerification: () => ({
     success: false,
     reason: "no_challenge",
   }),

@@ -29,11 +29,12 @@ export const GATEWAY_SUBPATH_MAP: Record<string, string> = {
   voice: "voice-webhook",
   status: "status",
   "connect-action": "connect-action",
+  sms: "sms",
 };
 
 /**
  * Direct Twilio webhook subpaths that are blocked in gateway_only mode.
- * Includes all public-facing webhook paths (voice, status, connect-action)
+ * Includes all public-facing webhook paths (voice, status, connect-action, sms)
  * because the runtime must never serve as a direct ingress for external webhooks.
  * Internal forwarding endpoints (gateway->runtime) are unaffected.
  */
@@ -41,6 +42,7 @@ export const GATEWAY_ONLY_BLOCKED_SUBPATHS = new Set([
   "voice-webhook",
   "status",
   "connect-action",
+  "sms",
 ]);
 
 /**
