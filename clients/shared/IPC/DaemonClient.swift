@@ -225,15 +225,48 @@ public struct UsageGroupBreakdownEntry: Decodable, Equatable, Sendable {
     public let group: String
     public let totalInputTokens: Int
     public let totalOutputTokens: Int
+    public let totalCacheCreationTokens: Int
+    public let totalCacheReadTokens: Int
     public let totalEstimatedCostUsd: Double
     public let eventCount: Int
 
-    public init(group: String, totalInputTokens: Int, totalOutputTokens: Int, totalEstimatedCostUsd: Double, eventCount: Int) {
+    public init(
+        group: String,
+        totalInputTokens: Int,
+        totalOutputTokens: Int,
+        totalCacheCreationTokens: Int = 0,
+        totalCacheReadTokens: Int = 0,
+        totalEstimatedCostUsd: Double,
+        eventCount: Int
+    ) {
         self.group = group
         self.totalInputTokens = totalInputTokens
         self.totalOutputTokens = totalOutputTokens
+        self.totalCacheCreationTokens = totalCacheCreationTokens
+        self.totalCacheReadTokens = totalCacheReadTokens
         self.totalEstimatedCostUsd = totalEstimatedCostUsd
         self.eventCount = eventCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case group
+        case totalInputTokens
+        case totalOutputTokens
+        case totalCacheCreationTokens
+        case totalCacheReadTokens
+        case totalEstimatedCostUsd
+        case eventCount
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        group = try container.decode(String.self, forKey: .group)
+        totalInputTokens = try container.decode(Int.self, forKey: .totalInputTokens)
+        totalOutputTokens = try container.decode(Int.self, forKey: .totalOutputTokens)
+        totalCacheCreationTokens = try container.decodeIfPresent(Int.self, forKey: .totalCacheCreationTokens) ?? 0
+        totalCacheReadTokens = try container.decodeIfPresent(Int.self, forKey: .totalCacheReadTokens) ?? 0
+        totalEstimatedCostUsd = try container.decode(Double.self, forKey: .totalEstimatedCostUsd)
+        eventCount = try container.decode(Int.self, forKey: .eventCount)
     }
 }
 

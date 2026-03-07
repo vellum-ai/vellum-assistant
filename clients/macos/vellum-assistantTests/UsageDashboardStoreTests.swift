@@ -117,6 +117,8 @@ struct UsageDashboardStoreDecodingTests {
                     "group": "claude-sonnet-4-20250514",
                     "totalInputTokens": 800,
                     "totalOutputTokens": 400,
+                    "totalCacheCreationTokens": 120,
+                    "totalCacheReadTokens": 240,
                     "totalEstimatedCostUsd": 0.04,
                     "eventCount": 5
                 },
@@ -124,6 +126,8 @@ struct UsageDashboardStoreDecodingTests {
                     "group": "claude-haiku-3",
                     "totalInputTokens": 200,
                     "totalOutputTokens": 100,
+                    "totalCacheCreationTokens": 0,
+                    "totalCacheReadTokens": 40,
                     "totalEstimatedCostUsd": 0.01,
                     "eventCount": 5
                 }
@@ -134,8 +138,32 @@ struct UsageDashboardStoreDecodingTests {
         #expect(decoded.breakdown.count == 2)
         #expect(decoded.breakdown[0].group == "claude-sonnet-4-20250514")
         #expect(decoded.breakdown[0].totalInputTokens == 800)
+        #expect(decoded.breakdown[0].totalCacheCreationTokens == 120)
+        #expect(decoded.breakdown[0].totalCacheReadTokens == 240)
         #expect(decoded.breakdown[1].group == "claude-haiku-3")
+        #expect(decoded.breakdown[1].totalCacheReadTokens == 40)
         #expect(decoded.breakdown[1].totalEstimatedCostUsd == 0.01)
+    }
+
+    @Test
+    func decodeBreakdownResponseDefaultsMissingCacheFieldsToZero() throws {
+        let json = """
+        {
+            "breakdown": [
+                {
+                    "group": "legacy-row",
+                    "totalInputTokens": 150,
+                    "totalOutputTokens": 75,
+                    "totalEstimatedCostUsd": 0.02,
+                    "eventCount": 2
+                }
+            ]
+        }
+        """
+        let decoded = try JSONDecoder().decode(UsageBreakdownResponse.self, from: Data(json.utf8))
+        #expect(decoded.breakdown.count == 1)
+        #expect(decoded.breakdown[0].totalCacheCreationTokens == 0)
+        #expect(decoded.breakdown[0].totalCacheReadTokens == 0)
     }
 }
 
@@ -157,7 +185,15 @@ struct UsageDashboardStoreLoadingTests {
             UsageDayBucket(date: "2026-03-05", totalInputTokens: 100, totalOutputTokens: 50, totalEstimatedCostUsd: 0.01, eventCount: 3)
         ])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "model-a", totalInputTokens: 100, totalOutputTokens: 50, totalEstimatedCostUsd: 0.01, eventCount: 3)
+            UsageGroupBreakdownEntry(
+                group: "model-a",
+                totalInputTokens: 100,
+                totalOutputTokens: 50,
+                totalCacheCreationTokens: 10,
+                totalCacheReadTokens: 5,
+                totalEstimatedCostUsd: 0.01,
+                eventCount: 3
+            )
         ])
 
         let store = UsageDashboardStore(client: client)
@@ -184,6 +220,8 @@ struct UsageDashboardStoreLoadingTests {
         if case .loaded(let breakdown) = store.breakdownState {
             #expect(breakdown.breakdown.count == 1)
             #expect(breakdown.breakdown[0].group == "model-a")
+            #expect(breakdown.breakdown[0].totalCacheCreationTokens == 10)
+            #expect(breakdown.breakdown[0].totalCacheReadTokens == 5)
         } else {
             Issue.record("Expected .loaded state for breakdown")
         }
@@ -256,7 +294,15 @@ struct UsageDashboardStoreGroupTests {
         )
         client.stubbedDaily = UsageDailyResponse(buckets: [])
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "anthropic", totalInputTokens: 100, totalOutputTokens: 50, totalEstimatedCostUsd: 0.01, eventCount: 1)
+            UsageGroupBreakdownEntry(
+                group: "anthropic",
+                totalInputTokens: 100,
+                totalOutputTokens: 50,
+                totalCacheCreationTokens: 20,
+                totalCacheReadTokens: 30,
+                totalEstimatedCostUsd: 0.01,
+                eventCount: 1
+            )
         ])
 
         let store = UsageDashboardStore(client: client)
@@ -267,7 +313,15 @@ struct UsageDashboardStoreGroupTests {
 
         // Now change group-by — should only re-fetch breakdown
         client.stubbedBreakdown = UsageBreakdownResponse(breakdown: [
-            UsageGroupBreakdownEntry(group: "provider-x", totalInputTokens: 50, totalOutputTokens: 25, totalEstimatedCostUsd: 0.005, eventCount: 1)
+            UsageGroupBreakdownEntry(
+                group: "provider-x",
+                totalInputTokens: 50,
+                totalOutputTokens: 25,
+                totalCacheCreationTokens: 7,
+                totalCacheReadTokens: 11,
+                totalEstimatedCostUsd: 0.005,
+                eventCount: 1
+            )
         ])
         await store.selectGroupBy(.provider)
 
@@ -276,6 +330,8 @@ struct UsageDashboardStoreGroupTests {
 
         if case .loaded(let breakdown) = store.breakdownState {
             #expect(breakdown.breakdown[0].group == "provider-x")
+            #expect(breakdown.breakdown[0].totalCacheCreationTokens == 7)
+            #expect(breakdown.breakdown[0].totalCacheReadTokens == 11)
         } else {
             Issue.record("Expected .loaded state for breakdown after selectGroupBy")
         }
@@ -355,7 +411,11 @@ struct UsageDashboardStoreRaceTests {
     private static func makeBreakdown(group: String) -> UsageBreakdownResponse {
         UsageBreakdownResponse(breakdown: [
             UsageGroupBreakdownEntry(
-                group: group, totalInputTokens: 0, totalOutputTokens: 0,
+                group: group,
+                totalInputTokens: 0,
+                totalOutputTokens: 0,
+                totalCacheCreationTokens: 0,
+                totalCacheReadTokens: 0,
                 totalEstimatedCostUsd: 0, eventCount: 0
             )
         ])
@@ -506,6 +566,29 @@ struct UsageDashboardStoreRaceTests {
         } else {
             Issue.record("Breakdown state was overwritten by stale selectGroupBy")
         }
+    }
+}
+
+@Suite("UsageDashboardStore — Presentation Helpers")
+struct UsageDashboardStorePresentationTests {
+
+    @Test
+    func sharedDirectInputLabelAndBreakdownSummaryStayConsistent() {
+        let entry = UsageGroupBreakdownEntry(
+            group: "claude-opus-4-6",
+            totalInputTokens: 1_234,
+            totalOutputTokens: 56,
+            totalCacheCreationTokens: 78,
+            totalCacheReadTokens: 9_876,
+            totalEstimatedCostUsd: 4.15,
+            eventCount: 2
+        )
+
+        #expect(UsageFormatting.directInputTokensLabel == "Direct Input Tokens")
+        #expect(
+            UsageFormatting.formatBreakdownSummary(entry)
+                == "1,234 direct / 78 cache created / 9,876 cache read / 56 out"
+        )
     }
 }
 
