@@ -201,9 +201,9 @@ The canonical guardian request system provides a channel-agnostic, unified domai
 | `src/daemon/handlers/guardian-actions.ts`               | IPC handlers for desktop socket clients                                                                       |
 | `src/runtime/routes/canonical-guardian-expiry-sweep.ts` | Canonical request expiry sweep                                                                                |
 
-### Outbound Guardian Verification (HTTP Endpoints)
+### Outbound Channel Verification (HTTP Endpoints)
 
-Guardian verification can be initiated through gateway HTTP endpoints (which forward to runtime handlers) as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through guardian setup via normal conversation.
+Channel verification can be initiated through gateway HTTP endpoints (which forward to runtime handlers) as an alternative to the legacy IPC-only flow. This enables chat-first verification where the assistant guides the user through channel verification setup via normal conversation.
 
 **HTTP Endpoints:**
 
@@ -223,8 +223,8 @@ The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`
 
 **Chat-First Orchestration Flow:**
 
-1. The user asks the assistant (via desktop chat) to set up guardian verification for a channel.
-2. The conversational routing layer detects the guardian-setup intent and loads the `guardian-verify-setup` skill via `skill_load`.
+1. The user asks the assistant (via desktop chat) to set up channel verification.
+2. The conversational routing layer detects the verification-setup intent and loads the `guardian-verify-setup` skill via `skill_load`.
 3. The skill guides the assistant through collecting the channel and destination, then calls the outbound HTTP endpoints using `curl`.
 4. The assistant relays verification status (code sent, resend available, expiry) back to the user conversationally.
 5. On the channel side, the verification code arrives (SMS text, Telegram message, or voice call) and the recipient enters it to complete the binding.
@@ -236,7 +236,7 @@ The HTTP route handlers (`integration-routes.ts`) and the legacy IPC handlers (`
 | `src/runtime/verification-outbound-actions.ts`             | Shared business logic for start/resend/cancel outbound verification                                                  |
 | `src/runtime/routes/integration-routes.ts`                 | HTTP route handlers for unified verification session API (`/v1/channel-verification-sessions`, `/revoke`, `/status`) |
 | `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                                                                |
-| `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate guardian verification via chat                                   |
+| `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate channel verification via chat                                    |
 
 **Guardian-Only Tool Invocation Gate:**
 
@@ -244,7 +244,7 @@ Channel verification control-plane endpoints (`/v1/channel-verification-sessions
 
 The policy is implemented in `src/tools/verification-control-plane-policy.ts`, which inspects tool inputs (bash commands, URLs) for verification endpoint paths. This is a defense-in-depth measure — even if the LLM attempts to call verification endpoints on behalf of a non-guardian actor, the tool executor blocks it deterministically.
 
-The `guardian-verify-setup` skill is the exclusive handler for guardian verification intents in the system prompt. Other skills (e.g., `phone-calls`) hand off to `guardian-verify-setup` rather than orchestrating verification directly.
+The `guardian-verify-setup` skill is the exclusive handler for channel verification intents in the system prompt. Other skills (e.g., `phone-calls`) hand off to `guardian-verify-setup` rather than orchestrating verification directly.
 
 ### Guardian Action Timeout-to-Follow-Up Lifecycle
 
@@ -2201,7 +2201,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | Call sessions, events, pending questions     | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent, cascade on session delete                       |
 | Active call controllers                      | In-memory (CallState)                                             | Map<callSessionId, CallController>  | Manual lifecycle                   | Ephemeral; cleared on call end or destroy                  |
 | Guardian bindings                            | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                       |
-| Guardian verification challenges             | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired challenges retained            |
+| Channel verification sessions                | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired sessions retained              |
 | Guardian approval requests                   | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                       |
 | Contact invites                              | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted    |
 | Contacts & channels                          | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked contacts retained               |

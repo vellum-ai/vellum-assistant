@@ -75,7 +75,7 @@ The feature-flag token is auto-generated on first gateway startup if the file do
 | `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions |
 | `gateway/src/feature-flag-registry.json`        | Bundled copy of the unified registry for compiled binary resolution                                                |
 
-### Guardian Verification Control-Plane Proxy
+### Channel Verification Session Control-Plane Proxy
 
 Channel verification session endpoints are exposed directly by the gateway and forwarded to runtime integration handlers even when the broad runtime proxy is disabled. This keeps assistant skills and user-facing tooling on gateway URLs only.
 
@@ -332,20 +332,20 @@ Runtime detects needs_confirmation
 
 **Key modules:**
 
-| Module                                                | Purpose                                                                                                                                                                 |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/runtime/approval-conversation-turn.ts` | Conversational approval turn engine: LLM-based intent classification (structured output) for pending approval follow-ups, with fail-closed safety                       |
-| `assistant/src/runtime/approval-message-composer.ts`  | Centralized approval message composition: layered source selection (assistant preface → deterministic fallback) for all approval/guardian/verification user-facing copy |
-| `assistant/src/runtime/channel-approvals.ts`          | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, plain-text fallback selection                           |
-| `assistant/src/runtime/channel-approval-parser.ts`    | Legacy plain-text decision parser (phrase matching); retained as fallback when no conversational engine is injected                                                     |
-| `assistant/src/runtime/channel-approval-types.ts`     | Shared types: actions, prompts, UI metadata, decisions                                                                                                                  |
-| `assistant/src/runtime/routes/channel-routes.ts`      | Integration point: approval interception, actor role resolution, guardian approval routing, deliver-once guard, fail-closed prompt delivery                             |
-| `assistant/src/runtime/channel-guardian-service.ts`   | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()`                                                                                                        |
-| `assistant/src/memory/channel-delivery-store.ts`      | `claimRunDelivery()` — in-memory deliver-once guard for terminal reply idempotency                                                                                      |
-| `assistant/src/memory/channel-guardian-store.ts`      | CRUD for guardian approval requests: `createApprovalRequest()`, `getPendingApprovalByGuardianChat()`, `updateApprovalDecision()`                                        |
-| `assistant/src/runtime/gateway-client.ts`             | `deliverApprovalPrompt()` — sends approval payload to gateway                                                                                                           |
-| `gateway/src/telegram/send.ts`                        | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons                                                                                           |
-| `gateway/src/telegram/normalize.ts`                   | `callback_query` normalization into `GatewayInboundEvent` (DM-only, drops callbacks without data)                                                                       |
+| Module                                                  | Purpose                                                                                                                                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/runtime/approval-conversation-turn.ts`   | Conversational approval turn engine: LLM-based intent classification (structured output) for pending approval follow-ups, with fail-closed safety                       |
+| `assistant/src/runtime/approval-message-composer.ts`    | Centralized approval message composition: layered source selection (assistant preface → deterministic fallback) for all approval/guardian/verification user-facing copy |
+| `assistant/src/runtime/channel-approvals.ts`            | Orchestration: detect pending confirmations, build prompts (including guardian-aware prompts), apply decisions, plain-text fallback selection                           |
+| `assistant/src/runtime/channel-approval-parser.ts`      | Legacy plain-text decision parser (phrase matching); retained as fallback when no conversational engine is injected                                                     |
+| `assistant/src/runtime/channel-approval-types.ts`       | Shared types: actions, prompts, UI metadata, decisions                                                                                                                  |
+| `assistant/src/runtime/routes/channel-routes.ts`        | Integration point: approval interception, actor role resolution, guardian approval routing, deliver-once guard, fail-closed prompt delivery                             |
+| `assistant/src/runtime/channel-verification-service.ts` | Guardian binding lookups: `isGuardian()`, `getGuardianBinding()`                                                                                                        |
+| `assistant/src/memory/channel-delivery-store.ts`        | `claimRunDelivery()` — in-memory deliver-once guard for terminal reply idempotency                                                                                      |
+| `assistant/src/memory/channel-guardian-store.ts`        | CRUD for guardian approval requests: `createApprovalRequest()`, `getPendingApprovalByGuardianChat()`, `updateApprovalDecision()`                                        |
+| `assistant/src/runtime/gateway-client.ts`               | `deliverApprovalPrompt()` — sends approval payload to gateway                                                                                                           |
+| `gateway/src/telegram/send.ts`                          | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons                                                                                           |
+| `gateway/src/telegram/normalize.ts`                     | `callback_query` normalization into `GatewayInboundEvent` (DM-only, drops callbacks without data)                                                                       |
 
 ### Approval Message Composer
 
@@ -492,7 +492,7 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 | Module                                                    | Purpose                                                                                                                       |
 | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `assistant/src/memory/channel-guardian-store.ts`          | CRUD for guardian bindings, verification challenges, and approval requests (all scoped by `assistantId`)                      |
-| `assistant/src/runtime/channel-guardian-service.ts`       | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId`  |
+| `assistant/src/runtime/channel-verification-service.ts`   | Challenge creation/validation, guardian identity checks (`isGuardian()`, `getGuardianBinding()`) -- all accept `assistantId`  |
 | `assistant/src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity              |
 | `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation, actor role resolution                              |
 | `assistant/src/runtime/routes/channel-routes.ts`          | Approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`)            |
@@ -879,7 +879,7 @@ sequenceDiagram
 | `assistant/src/memory/guardian-action-store.ts`                  | CRUD for guardian action requests and deliveries; first-writer-wins resolution via atomic status check                                                                                                                 |
 | `assistant/src/calls/guardian-action-sweep.ts`                   | Periodic 60s sweep for expired guardian action requests; sends expiry notices to all delivery channels                                                                                                                 |
 | `assistant/src/calls/call-domain.ts:createInboundVoiceSession()` | Creates or reuses a voice session for an inbound call keyed by CallSid (idempotent replay protection)                                                                                                                  |
-| `assistant/src/runtime/channel-guardian-service.ts`              | Guardian verification challenge lifecycle: create challenge with six-digit code, find pending challenges, validate and consume on match                                                                                |
+| `assistant/src/runtime/channel-verification-service.ts`          | Channel verification session lifecycle: create session with six-digit code, find pending sessions, validate and consume on match                                                                                       |
 | `assistant/src/calls/call-state-machine.ts`                      | Deterministic state transition validator with allowed-transition table and terminal-state enforcement                                                                                                                  |
 | `assistant/src/calls/call-recovery.ts`                           | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions                                                                                                                   |
 | `assistant/src/calls/twilio-provider.ts`                         | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency                                                                                                 |
