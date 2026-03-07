@@ -175,7 +175,7 @@ import type {
   ClientMessage,
   ServerMessage,
   TwitterIntegrationConfigRequest,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 /**

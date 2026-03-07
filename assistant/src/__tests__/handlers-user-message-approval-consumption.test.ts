@@ -7,7 +7,7 @@ import type { HandlerContext } from "../daemon/handlers.js";
 import type {
   ConfirmationResponse,
   UserMessage,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 

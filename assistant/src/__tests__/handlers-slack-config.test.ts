@@ -59,7 +59,7 @@ import { handleMessage, type HandlerContext } from "../daemon/handlers.js";
 import type {
   ServerMessage,
   SlackWebhookConfigRequest,
-} from "../daemon/ipc-contract.js";
+} from "../daemon/ipc-protocol.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {

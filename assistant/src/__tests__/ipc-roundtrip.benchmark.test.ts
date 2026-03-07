@@ -21,7 +21,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import type { ClientMessage, ServerMessage } from "../daemon/ipc-contract.js";
+import type { ClientMessage, ServerMessage } from "../daemon/ipc-protocol.js";
 import { createMessageParser, serialize } from "../daemon/ipc-protocol.js";
 
 function percentile(values: number[], p: number): number {
