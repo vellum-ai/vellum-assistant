@@ -176,6 +176,7 @@ struct ThreadListView: View {
             )
             .onAppear {
                 store.loadHistoryIfNeeded(for: threadId)
+                store.markConversationSeenIfNeeded(threadId: threadId)
                 store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
             }
             .onOpenURL { _ in

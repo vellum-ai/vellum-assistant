@@ -575,6 +575,27 @@ class IOSThreadStore: ObservableObject {
         try? daemon.sendHistoryRequest(sessionId: sessionId, limit: 50, mode: "light", maxToolResultChars: 1000)
     }
 
+    /// Mark a connected conversation as seen when the user explicitly opens it.
+    func markConversationSeenIfNeeded(threadId: UUID) {
+        guard isConnectedMode,
+              let idx = threads.firstIndex(where: { $0.id == threadId }),
+              let sessionId = threads[idx].sessionId,
+              threads[idx].hasUnseenLatestAssistantMessage else { return }
+
+        threads[idx].hasUnseenLatestAssistantMessage = false
+        saveConnectedCache()
+
+        let signal = IPCConversationSeenSignal(
+            conversationId: sessionId,
+            sourceChannel: "vellum",
+            signalType: "macos_conversation_opened",
+            confidence: "explicit",
+            source: "ui-navigation",
+            evidenceText: "User opened conversation in app"
+        )
+        try? daemonClient.send(signal)
+    }
+
     /// Request an older page of history for pagination.
     private func requestPaginatedHistory(sessionId: String, beforeTimestamp: Double) {
         guard let daemon = daemonClient as? DaemonClient,
