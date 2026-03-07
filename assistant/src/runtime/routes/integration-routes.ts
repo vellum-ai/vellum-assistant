@@ -185,9 +185,9 @@ export async function handleCreateVerificationSession(
 
   // Trusted contact verification path — delegates to the shared transport-agnostic
   // function and wraps the result in an HTTP response.
-  if (purpose === "trusted_contact" && body.contactChannelId) {
+  if (purpose === "trusted_contact") {
     const result = await verifyTrustedContact(
-      body.contactChannelId,
+      body.contactChannelId!,
       assistantId,
     );
     const status = result.success
