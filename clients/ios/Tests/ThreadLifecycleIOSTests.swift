@@ -382,6 +382,48 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(cachedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
     }
 
+    func testConnectedThreadMergeAppliesMetadataWhenMatchedViaViewModelSessionId() {
+        let daemonClient = DaemonClient()
+        let store = IOSThreadStore(daemonClient: daemonClient)
+
+        guard let placeholderThread = store.threads.first else {
+            XCTFail("Expected placeholder thread")
+            return
+        }
+
+        let viewModel = store.viewModel(for: placeholderThread.id)
+        viewModel.sessionId = "connected-session-vm"
+
+        let response = makeSessionListResponse(sessions: [[
+            "id": "connected-session-vm",
+            "title": "Connected thread",
+            "createdAt": 1_000,
+            "updatedAt": 2_000,
+            "displayOrder": 9,
+            "isPinned": true,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": true,
+                "latestAssistantMessageAt": 5_000,
+                "lastSeenAssistantMessageAt": 4_000,
+            ],
+        ]])
+
+        daemonClient.onSessionListResponse?(response)
+
+        XCTAssertEqual(store.threads.count, 1)
+        guard let updatedThread = store.threads.first else {
+            XCTFail("Expected merged thread")
+            return
+        }
+
+        XCTAssertEqual(updatedThread.sessionId, "connected-session-vm")
+        XCTAssertTrue(updatedThread.isPinned)
+        XCTAssertEqual(updatedThread.displayOrder, 9)
+        XCTAssertTrue(updatedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(updatedThread.latestAssistantMessageAt?.timeIntervalSince1970, 5.0)
+        XCTAssertEqual(updatedThread.lastSeenAssistantMessageAt?.timeIntervalSince1970, 4.0)
+    }
+
     func testOpeningUnreadConnectedThreadMarksItSeenAndEmitsSignal() {
         let daemonClient = DaemonClient()
         var sentSignals: [IPCConversationSeenSignal] = []

@@ -290,4 +290,54 @@ final class HTTPDaemonClientUnreadTests: XCTestCase {
         XCTAssertEqual(metadata["view"] as? String, "inbox")
         XCTAssertEqual(metadata["attempt"] as? Int, 1)
     }
+
+    func testSessionListResponsePreservesPinMetadataFromHTTPTransport() async throws {
+        let responseExpectation = expectation(description: "session list response")
+        var capturedResponse: SessionListResponseMessage?
+
+        MockURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            let body = """
+            {
+              "sessions": [
+                {
+                  "id": "session-123",
+                  "title": "Pinned thread",
+                  "createdAt": 1000,
+                  "updatedAt": 2000,
+                  "displayOrder": 7,
+                  "isPinned": true
+                }
+              ],
+              "hasMore": false
+            }
+            """
+            return (response, Data(body.utf8))
+        }
+
+        let transport = HTTPTransport(
+            baseURL: "https://example.com",
+            bearerToken: "test-token",
+            conversationKey: "conv-local"
+        )
+        transport.onMessage = { message in
+            if case let .sessionListResponse(response) = message {
+                capturedResponse = response
+                responseExpectation.fulfill()
+            }
+        }
+
+        try transport.send(SessionListRequestMessage(offset: 0, limit: 50))
+
+        await fulfillment(of: [responseExpectation], timeout: 1.0)
+
+        let session = try XCTUnwrap(capturedResponse?.sessions.first)
+        XCTAssertEqual(session.displayOrder, 7)
+        XCTAssertEqual(session.isPinned, true)
+    }
 }

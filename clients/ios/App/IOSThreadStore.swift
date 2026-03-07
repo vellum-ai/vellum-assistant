@@ -153,6 +153,24 @@ class IOSThreadStore: ObservableObject {
         )
     }
 
+    private func existingThreadIndex(forSessionId sessionId: String) -> Int? {
+        if let threadIndex = threads.firstIndex(where: { $0.sessionId == sessionId }) {
+            return threadIndex
+        }
+        return threads.firstIndex(where: { viewModels[$0.id]?.sessionId == sessionId })
+    }
+
+    private func mergeThreadMetadata(from restored: IOSThread, into thread: inout IOSThread) {
+        thread.sessionId = restored.sessionId ?? thread.sessionId
+        thread.scheduleJobId = restored.scheduleJobId
+        thread.isPinned = restored.isPinned
+        thread.displayOrder = restored.displayOrder
+        thread.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
+        thread.latestAssistantMessageAt = restored.latestAssistantMessageAt
+        thread.lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
+        applyPendingAttentionOverride(to: &thread)
+    }
+
     private func applyPendingAttentionOverride(to thread: inout IOSThread) {
         guard let sessionId = thread.sessionId,
               let override = pendingAttentionOverrides[sessionId] else { return }
@@ -516,14 +534,9 @@ class IOSThreadStore: ObservableObject {
                 var newThreads: [IOSThread] = []
                 for restored in restoredThreads {
                     if let sid = restored.sessionId, existingSessionIds.contains(sid) {
-                        if let existingIndex = threads.firstIndex(where: { $0.sessionId == sid }) {
+                        if let existingIndex = existingThreadIndex(forSessionId: sid) {
                             var mergedThread = threads[existingIndex]
-                            mergedThread.isPinned = restored.isPinned
-                            mergedThread.displayOrder = restored.displayOrder
-                            mergedThread.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
-                            mergedThread.latestAssistantMessageAt = restored.latestAssistantMessageAt
-                            mergedThread.lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
-                            applyPendingAttentionOverride(to: &mergedThread)
+                            mergeThreadMetadata(from: restored, into: &mergedThread)
                             threads[existingIndex] = mergedThread
                         }
                         viewModels.removeValue(forKey: restored.id)
@@ -544,14 +557,9 @@ class IOSThreadStore: ObservableObject {
             })
             for restored in restoredThreads {
                 if let sid = restored.sessionId, existingSessionIds.contains(sid) {
-                    if let existingIndex = threads.firstIndex(where: { $0.sessionId == sid }) {
+                    if let existingIndex = existingThreadIndex(forSessionId: sid) {
                         var mergedThread = threads[existingIndex]
-                        mergedThread.isPinned = restored.isPinned
-                        mergedThread.displayOrder = restored.displayOrder
-                        mergedThread.hasUnseenLatestAssistantMessage = restored.hasUnseenLatestAssistantMessage
-                        mergedThread.latestAssistantMessageAt = restored.latestAssistantMessageAt
-                        mergedThread.lastSeenAssistantMessageAt = restored.lastSeenAssistantMessageAt
-                        applyPendingAttentionOverride(to: &mergedThread)
+                        mergeThreadMetadata(from: restored, into: &mergedThread)
                         threads[existingIndex] = mergedThread
                     }
                     viewModels.removeValue(forKey: restored.id)
