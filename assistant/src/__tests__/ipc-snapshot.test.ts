@@ -424,7 +424,7 @@ const clientMessages: Record<ClientMessageType, ClientMessage> = {
   },
   guardian_verification: {
     type: "guardian_verification",
-    action: "create_challenge",
+    action: "create_session",
     channel: "telegram",
     sessionId: "sess-001",
   },
