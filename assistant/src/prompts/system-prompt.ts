@@ -2,6 +2,11 @@ import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { CLI_HELP_REFERENCE } from "../cli/reference.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
+import { getConfig } from "../config/loader.js";
+import { skillFlagKey } from "../config/skill-state.js";
+import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { listCredentialMetadata } from "../tools/credentials/metadata-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -10,11 +15,6 @@ import {
   getWorkspacePromptPath,
   isMacOS,
 } from "../util/platform.js";
-import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
-import { getBaseDataDir, getIsContainerized } from "./env-registry.js";
-import { getConfig } from "./loader.js";
-import { skillFlagKey } from "./skill-state.js";
-import { loadSkillCatalog, type SkillSummary } from "./skills.js";
 import { resolveUserPronouns, resolveUserReference } from "./user-reference.js";
 
 const log = getLogger("system-prompt");
@@ -887,7 +887,7 @@ function appendSkillsCatalog(basePrompt: string): string {
 }
 
 function buildDynamicSkillWorkflowSection(
-  config: import("./schema.js").AssistantConfig,
+  config: import("../config/schema.js").AssistantConfig,
 ): string {
   const lines = [
     "## Dynamic Skill Authoring Workflow",

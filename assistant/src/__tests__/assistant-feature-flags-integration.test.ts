@@ -95,8 +95,8 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const realUserReference = require("../config/user-reference.js");
-mock.module("../config/user-reference.js", () => ({
+const realUserReference = require("../prompts/user-reference.js");
+mock.module("../prompts/user-reference.js", () => ({
   ...realUserReference,
   resolveUserReference: () => "TestUser",
   resolveUserPronouns: () => null,
@@ -109,7 +109,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => [],
 }));
 
-const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 const { isAssistantFeatureFlagEnabled } =
   await import("../config/assistant-feature-flags.js");
 const { skillFlagKey } = await import("../config/skill-state.js");

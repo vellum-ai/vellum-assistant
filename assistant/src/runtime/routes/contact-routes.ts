@@ -9,7 +9,6 @@
  * PATCH  /v1/contact-channels/:contactChannelId — update a contact channel's status/policy
  */
 
-import { resolveGuardianName } from "../../config/user-reference.js";
 import {
   deleteContact,
   getAssistantContactMetadata,
@@ -30,6 +29,7 @@ import type {
   ContactRole,
   ContactType,
 } from "../../contacts/types.js";
+import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 

@@ -68,8 +68,8 @@ mock.module("../daemon/identity-helpers.js", () => ({
 
 let mockUserReference = "my human";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const realUserReference = require("../config/user-reference.js");
-mock.module("../config/user-reference.js", () => ({
+const realUserReference = require("../prompts/user-reference.js");
+mock.module("../prompts/user-reference.js", () => ({
   ...realUserReference,
   resolveUserReference: () => mockUserReference,
   resolveUserPronouns: () => null,

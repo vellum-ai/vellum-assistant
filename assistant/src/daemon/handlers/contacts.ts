@@ -1,6 +1,5 @@
 import * as net from "node:net";
 
-import { resolveGuardianName } from "../../config/user-reference.js";
 import {
   deleteContact,
   getContact,
@@ -8,6 +7,7 @@ import {
   updateChannelStatus,
 } from "../../contacts/contact-store.js";
 import type { ContactWithChannels } from "../../contacts/types.js";
+import { resolveGuardianName } from "../../prompts/user-reference.js";
 import type {
   ContactChannelPayload,
   ContactPayload,

@@ -8,7 +8,6 @@
  * focused on orchestration.
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { resolveGuardianName } from "../../../config/user-reference.js";
 import { findGuardianForChannel } from "../../../contacts/contact-store.js";
 import type { TrustContext } from "../../../daemon/session-runtime-assembly.js";
 import * as deliveryChannels from "../../../memory/delivery-channels.js";
@@ -19,6 +18,7 @@ import {
   extractThreadTsFromCallbackUrl,
   setThreadTs,
 } from "../../../memory/slack-thread-store.js";
+import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import {

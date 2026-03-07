@@ -286,7 +286,7 @@ mock.module("../services/published-app-updater.js", () => ({
 
 const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } =
   await import("../tools/registry.js");
-const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 const { Session } = await import("../daemon/session.js");
 const { projectSkillTools, resetSkillToolProjection } =
   await import("../daemon/session-skill-tools.js");

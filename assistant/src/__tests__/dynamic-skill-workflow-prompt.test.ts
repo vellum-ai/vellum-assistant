@@ -71,7 +71,7 @@ mock.module("../config/loader.js", () => ({
   syncConfigToLockfile: () => {},
 }));
 
-const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
 describe("Dynamic Skill Authoring Workflow prompt section", () => {
   beforeEach(() => {

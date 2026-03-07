@@ -14,7 +14,6 @@ import {
   parseInterfaceId,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import { buildSystemPrompt } from "../config/system-prompt.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { bootstrapHomeBaseAppLink } from "../home-base/bootstrap.js";
@@ -32,6 +31,7 @@ import {
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
 import { getLatestConversation } from "../memory/conversation-queries.js";
+import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
   getFailoverProvider,

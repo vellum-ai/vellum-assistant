@@ -72,7 +72,7 @@ mock.module("../tools/terminal/sandbox.js", () => ({
 }));
 
 import { loadSkillCatalog } from "../config/skills.js";
-import { buildSystemPrompt } from "../config/system-prompt.js";
+import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { DeleteManagedSkillTool } from "../tools/skills/delete-managed.js";
 import { SkillLoadTool } from "../tools/skills/load.js";
 import { ScaffoldManagedSkillTool } from "../tools/skills/scaffold-managed.js";
