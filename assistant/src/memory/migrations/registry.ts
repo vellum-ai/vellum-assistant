@@ -141,6 +141,12 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Drop assistant_id columns from all 16 daemon tables after normalization to single-tenant identity",
   },
+  {
+    key: "migration_backfill_usage_cache_accounting_v1",
+    version: 20,
+    description:
+      "Backfill historical Anthropic llm_usage_events rows from llm_request_logs with cache-aware pricing",
+  },
 ];
 
 export interface MigrationValidationResult {
