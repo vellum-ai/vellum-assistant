@@ -74,7 +74,7 @@ Load the **guardian-verify-setup** skill to handle the verification flow:
 The guardian-verify-setup skill manages the full outbound verification flow for Telegram, including:
 
 - Collecting the user's Telegram chat ID or @handle as the destination
-- Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/outbound/start` with `channel: "telegram"`
+- Starting the outbound verification session via the gateway endpoint `POST /v1/integrations/guardian/sessions` with `channel: "telegram"` and the user's destination
 - Handling the bootstrap deep-link flow when the user provides an @handle (the response includes a `telegramBootstrapUrl` that the user must click before receiving the code)
 - Guiding the user to send the verification code back in the Telegram bot chat
 - Checking guardian status to confirm the binding was created
