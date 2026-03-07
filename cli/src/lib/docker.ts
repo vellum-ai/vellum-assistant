@@ -245,9 +245,9 @@ export async function hatchDocker(
       child.stderr?.on("end", () => stderrPrefixer.flush());
 
       child.on("close", (code) => {
-        // Treat signal-based exit codes (128+signal) as clean exits so that
-        // Ctrl+C (SIGINT→130, SIGTERM→143 from sleep) doesn't produce errors.
-        if (code === 0 || code === null || code >= 128) {
+        // Treat expected signal exit codes as clean exits so that Ctrl+C
+        // (SIGINT→130, SIGKILL→137, SIGTERM→143) doesn't produce errors.
+        if (code === 0 || code === null || code === 130 || code === 137 || code === 143) {
           resolve();
         } else {
           reject(new Error(`Docker container exited with code ${code}`));
