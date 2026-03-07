@@ -167,7 +167,7 @@ export function recordUsage(
         actor,
         provider: ctx.providerName,
         model,
-        inputTokens: directInputTokens,
+        inputTokens, // total (direct + cache) for downstream aggregates
         outputTokens,
         cacheCreationInputTokens: normalizedCacheCreationInputTokens,
         cacheReadInputTokens: normalizedCacheReadInputTokens,
