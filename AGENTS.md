@@ -90,7 +90,7 @@ We have no external customers or users yet. Move fast and do not preserve backwa
 
 When a change breaks an existing interface, contract, or data format: **flag the break in the PR description** so the reviewer is aware, but proceed with the clean implementation. Only preserve compatibility if the reviewer explicitly requests it.
 
-This policy will change once the project has users. Until then, every backwards-compat shim is dead weight that slows us down.
+This policy will change once the project has users. When you encounter existing backwards-compatibility code while working on a file, remove it — the same policy applies to old code as to new code. Until then, every backwards-compat shim is dead weight that slows us down.
 
 ## Extensibility Principle
 
