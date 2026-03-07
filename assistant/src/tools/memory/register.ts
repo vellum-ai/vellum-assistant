@@ -6,37 +6,14 @@ import {
   memoryDeleteDefinition,
   memoryRecallDefinition,
   memorySaveDefinition,
-  memorySearchDefinition,
   memoryUpdateDefinition,
 } from "./definitions.js";
 import {
   handleMemoryDelete,
   handleMemoryRecall,
   handleMemorySave,
-  handleMemorySearch,
   handleMemoryUpdate,
 } from "./handlers.js";
-
-// ── memory_search ────────────────────────────────────────────────────
-
-class MemorySearchTool implements Tool {
-  name = "memory_search";
-  description = memorySearchDefinition.description;
-  category = "memory";
-  defaultRiskLevel = RiskLevel.Low;
-
-  getDefinition(): ToolDefinition {
-    return memorySearchDefinition;
-  }
-
-  async execute(
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ): Promise<ToolExecutionResult> {
-    const config = getConfig();
-    return handleMemorySearch(input, config, context.memoryScopeId);
-  }
-}
 
 // ── memory_save ──────────────────────────────────────────────────────
 
@@ -135,7 +112,6 @@ class MemoryRecallTool implements Tool {
 
 // ── Exported tool instances ──────────────────────────────────────────
 
-export const memorySearchTool = new MemorySearchTool();
 export const memorySaveTool = new MemorySaveTool();
 export const memoryUpdateTool = new MemoryUpdateTool();
 export const memoryDeleteTool = new MemoryDeleteTool();

@@ -13,8 +13,6 @@ import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import {
   collectAndMergeCandidates,
   embedWithRetry,
-  formatRelativeTime,
-  searchMemoryItems,
 } from "../../memory/retriever.js";
 import { memoryItems } from "../../memory/schema.js";
 import type { ScopePolicyOverride } from "../../memory/search/types.js";
@@ -23,66 +21,6 @@ import { truncate } from "../../util/truncate.js";
 import type { ToolExecutionResult } from "../types.js";
 
 const log = getLogger("memory-tools");
-
-// ── memory_search ────────────────────────────────────────────────────
-
-export async function handleMemorySearch(
-  args: Record<string, unknown>,
-  config: AssistantConfig,
-  scopeId?: string,
-): Promise<ToolExecutionResult> {
-  const query = args.query;
-  if (typeof query !== "string" || query.trim().length === 0) {
-    return {
-      content: "Error: query is required and must be a non-empty string",
-      isError: true,
-    };
-  }
-
-  const limit =
-    typeof args.limit === "number" && args.limit > 0
-      ? Math.min(args.limit, 20)
-      : 5;
-
-  // Private threads should always fall back to default scope for search
-  const scopePolicyOverride: ScopePolicyOverride | undefined =
-    scopeId && scopeId.startsWith("private:")
-      ? { scopeId, fallbackToDefault: true }
-      : undefined;
-
-  try {
-    const results = await searchMemoryItems(
-      query,
-      limit,
-      config,
-      scopeId,
-      scopePolicyOverride,
-    );
-
-    if (results.length === 0) {
-      return { content: "No matching memories found.", isError: false };
-    }
-
-    const lines: string[] = [`Found ${results.length} memory item(s):\n`];
-    for (const result of results) {
-      const timeAgo = formatRelativeTime(result.createdAt);
-      lines.push(`- **[${result.kind}]** ${result.text}`);
-      lines.push(
-        `  _ID: ${result.id} | source: ${
-          result.type
-        } | ${timeAgo} | confidence: ${result.confidence.toFixed(
-          2,
-        )} | importance: ${result.importance.toFixed(2)}_`,
-      );
-    }
-
-    return { content: lines.join("\n"), isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, query }, "memory_search failed");
-    return { content: `Error: Memory search failed: ${msg}`, isError: true };
-  }
-}
 
 // ── memory_save ──────────────────────────────────────────────────────
 
