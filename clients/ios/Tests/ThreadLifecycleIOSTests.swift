@@ -630,6 +630,64 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertFalse(store.threads.first(where: { $0.id == storedThread.id })?.hasUnseenLatestAssistantMessage ?? true)
     }
 
+    func testMarkingThreadWithLoadedAssistantReplyUnreadUsesLocalMessageTimestamp() {
+        let daemonClient = DaemonClient()
+        var sentSignals: [IPCConversationUnreadSignal] = []
+        daemonClient.sendOverride = { message in
+            if let signal = message as? IPCConversationUnreadSignal {
+                sentSignals.append(signal)
+            }
+        }
+
+        let store = IOSThreadStore(daemonClient: daemonClient)
+        let response = makeSessionListResponse(sessions: [[
+            "id": "connected-session-live-assistant",
+            "title": "Live assistant reply",
+            "createdAt": 1_000,
+            "updatedAt": 2_000,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": false,
+            ],
+        ]])
+
+        daemonClient.onSessionListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-live-assistant" }) else {
+            XCTFail("Expected connected thread")
+            return
+        }
+
+        let vm = store.viewModel(for: storedThread.id)
+        vm.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(
+            text: "Fresh assistant reply",
+            sessionId: "connected-session-live-assistant"
+        )))
+        vm.flushStreamingBuffer()
+        vm.handleServerMessage(.messageComplete(MessageCompleteMessage(
+            sessionId: "connected-session-live-assistant"
+        )))
+
+        store.markThreadUnread(storedThread)
+
+        guard let updatedThread = store.threads.first(where: { $0.id == storedThread.id }) else {
+            XCTFail("Expected updated thread")
+            return
+        }
+
+        XCTAssertTrue(updatedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertNil(updatedThread.lastSeenAssistantMessageAt)
+        XCTAssertNotNil(updatedThread.latestAssistantMessageAt)
+        XCTAssertEqual(sentSignals.count, 1)
+
+        let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
+        guard let cachedThread = reloadedStore.threads.first(where: { $0.sessionId == "connected-session-live-assistant" }) else {
+            XCTFail("Expected cached connected thread")
+            return
+        }
+
+        XCTAssertTrue(cachedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertNotNil(cachedThread.latestAssistantMessageAt)
+    }
+
     func testSessionListRefreshPreservesLocalSeenUntilDaemonCatchesUp() {
         let daemonClient = DaemonClient()
         let store = IOSThreadStore(daemonClient: daemonClient)
@@ -765,6 +823,44 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(updatesBySessionId["connected-session-pinned"]?.isPinned, true)
         XCTAssertEqual(updatesBySessionId["connected-session-unpinned"]?.displayOrder, 1)
         XCTAssertEqual(updatesBySessionId["connected-session-unpinned"]?.isPinned, true)
+    }
+
+    func testPinningConnectedThreadSurvivesStaleSessionRefresh() {
+        let daemonClient = DaemonClient()
+        let store = IOSThreadStore(daemonClient: daemonClient)
+        let response = makeSessionListResponse(sessions: [
+            [
+                "id": "connected-session-pinned",
+                "title": "Pinned thread",
+                "createdAt": 1_000,
+                "updatedAt": 2_000,
+                "displayOrder": 0,
+                "isPinned": true,
+            ],
+            [
+                "id": "connected-session-unpinned",
+                "title": "Unpinned thread",
+                "createdAt": 1_000,
+                "updatedAt": 3_000,
+            ],
+        ])
+
+        daemonClient.onSessionListResponse?(response)
+        guard let thread = store.threads.first(where: { $0.sessionId == "connected-session-unpinned" }) else {
+            XCTFail("Expected unpinned connected thread")
+            return
+        }
+
+        store.pinThread(thread)
+        daemonClient.onSessionListResponse?(response)
+
+        guard let updatedThread = store.threads.first(where: { $0.id == thread.id }) else {
+            XCTFail("Expected updated thread")
+            return
+        }
+
+        XCTAssertTrue(updatedThread.isPinned)
+        XCTAssertEqual(updatedThread.displayOrder, 1)
     }
 
     func testUnpinningConnectedThreadRecompactsPinnedOrderAndEmitsReorder() {

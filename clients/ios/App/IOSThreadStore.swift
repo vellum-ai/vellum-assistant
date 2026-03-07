@@ -216,6 +216,16 @@ class IOSThreadStore: ObservableObject {
         }
     }
 
+    private func latestLoadedAssistantMessageTimestamp(for threadId: UUID) -> Date? {
+        viewModels[threadId]?.messages.last(where: { $0.role == .assistant })?.timestamp
+    }
+
+    private func canMarkThreadUnread(at index: Int) -> Bool {
+        guard !threads[index].hasUnseenLatestAssistantMessage else { return false }
+        return threads[index].latestAssistantMessageAt != nil
+            || latestLoadedAssistantMessageTimestamp(for: threads[index].id) != nil
+    }
+
     init(daemonClient: any DaemonClientProtocol) {
         self.daemonClient = daemonClient
 
@@ -507,8 +517,8 @@ class IOSThreadStore: ObservableObject {
                             lastActivityAt: restored.lastActivityAt,
                             sessionId: restored.sessionId,
                             isArchived: local.isArchived,
-                            isPinned: restored.isPinned,
-                            displayOrder: restored.displayOrder,
+                            isPinned: local.isPinned,
+                            displayOrder: local.displayOrder,
                             scheduleJobId: restored.scheduleJobId,
                             hasUnseenLatestAssistantMessage: restored.hasUnseenLatestAssistantMessage,
                             latestAssistantMessageAt: restored.latestAssistantMessageAt,
@@ -860,6 +870,7 @@ class IOSThreadStore: ObservableObject {
 
         threads[idx].isPinned = true
         threads[idx].displayOrder = Int.max
+        if let sid = threads[idx].sessionId { locallyEditedSessionIds.insert(sid) }
         recompactPinnedDisplayOrders()
         sendReorderThreads()
         saveConnectedCache()
@@ -873,6 +884,7 @@ class IOSThreadStore: ObservableObject {
 
         threads[idx].isPinned = false
         threads[idx].displayOrder = nil
+        if let sid = threads[idx].sessionId { locallyEditedSessionIds.insert(sid) }
         recompactPinnedDisplayOrders()
         sendReorderThreads()
         saveConnectedCache()
@@ -882,12 +894,16 @@ class IOSThreadStore: ObservableObject {
         guard isConnectedMode,
               let idx = threads.firstIndex(where: { $0.id == thread.id }),
               let sessionId = threads[idx].sessionId,
-              !threads[idx].hasUnseenLatestAssistantMessage,
-              threads[idx].latestAssistantMessageAt != nil else { return }
+              canMarkThreadUnread(at: idx) else { return }
+
+        let latestAssistantMessageAt =
+            threads[idx].latestAssistantMessageAt
+            ?? latestLoadedAssistantMessageTimestamp(for: threads[idx].id)
 
         pendingAttentionOverrides[sessionId] = .unread(
-            latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
+            latestAssistantMessageAt: latestAssistantMessageAt
         )
+        threads[idx].latestAssistantMessageAt = latestAssistantMessageAt
         threads[idx].hasUnseenLatestAssistantMessage = true
         threads[idx].lastSeenAssistantMessageAt = nil
         saveConnectedCache()
