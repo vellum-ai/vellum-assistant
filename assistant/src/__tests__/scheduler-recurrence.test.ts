@@ -270,6 +270,7 @@ describe("scheduler RRULE execution", () => {
       name: "Cron Schedule",
       cronExpression: "* * * * *",
       message: "Cron message",
+      syntax: "cron",
     });
 
     // Verify it defaults to cron syntax
