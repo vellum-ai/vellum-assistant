@@ -361,44 +361,52 @@ jobs:
 
           echo "--- Done with permission grants ---"
 
-      - name: Start screen recording dialog watcher
+      - name: Start screen recording dialog auto-clicker
         run: |
           # As a fallback, run a background AppleScript that auto-clicks
           # "Allow" on the screen recording permission dialog if it appears.
           # This covers the case where TCC/plist grants don't fully suppress it.
-          cat > /tmp/dismiss-screencapture-dialog.sh << 'WATCHER_EOF'
-          #!/bin/bash
-          while true; do
-            osascript -e '
-              tell application "System Events"
-                -- Check all processes for a window with an "Allow" button
-                -- The screen recording dialog is shown by CoreServicesUIAgent
-                -- or UserNotificationCenter depending on macOS version
-                set targetNames to {"CoreServicesUIAgent", "UserNotificationCenter"}
-                repeat with procName in targetNames
-                  try
-                    set targetProc to first process whose name is (contents of procName)
-                    tell targetProc
-                      repeat with w in (every window)
-                        try
-                          if exists button "Allow" of w then
-                            click button "Allow" of w
-                            log "Clicked Allow on " & (contents of procName)
-                          end if
-                        end try
-                      end repeat
-                    end tell
-                  end try
-                end repeat
-              end tell
-            ' 2>/dev/null
-            sleep 2
-          done
-          WATCHER_EOF
-          chmod +x /tmp/dismiss-screencapture-dialog.sh
-          nohup /tmp/dismiss-screencapture-dialog.sh > /tmp/dialog-watcher.log 2>&1 &
+          #
+          # We write the AppleScript to a file directly (not via heredoc) to
+          # avoid shebang whitespace issues from YAML indentation.
+          APPLESCRIPT='/tmp/dismiss-dialog.scpt'
+          printf '%s\n' \
+            'on run' \
+            '  tell application "System Events"' \
+            '    set targetNames to {"CoreServicesUIAgent", "UserNotificationCenter"}' \
+            '    repeat with procName in targetNames' \
+            '      try' \
+            '        set targetProc to first process whose name is (contents of procName)' \
+            '        tell targetProc' \
+            '          repeat with w in (every window)' \
+            '            try' \
+            '              repeat with btn in (every button of w)' \
+            '                set btnName to name of btn' \
+            '                if btnName starts with "Allow" then' \
+            '                  click btn' \
+            '                  do shell script "echo $(date): Clicked " & quoted form of btnName & " on " & (contents of procName) & " >> /tmp/dialog-watcher.log"' \
+            '                end if' \
+            '              end repeat' \
+            '            end try' \
+            '          end repeat' \
+            '        end tell' \
+            '      end try' \
+            '    end repeat' \
+            '  end tell' \
+            'end run' \
+            > "$APPLESCRIPT"
+
+          # Background loop: poll every 2s, run the AppleScript, log errors
+          (
+            while true; do
+              osascript "$APPLESCRIPT" 2>> /tmp/dialog-watcher.log || true
+              sleep 2
+            done
+          ) &
           echo $! > /tmp/dialog-watcher.pid
-          echo "Dialog watcher started with PID $(cat /tmp/dialog-watcher.pid)"
+          echo "Dialog auto-clicker started with PID $(cat /tmp/dialog-watcher.pid)"
+          echo "--- AppleScript contents ---"
+          cat "$APPLESCRIPT"
 
       - name: Run Playwright tests
         id: tests
@@ -426,6 +434,18 @@ jobs:
             bun run test -g "${{ inputs.test_case }}" $SHARD_ARGS
           else
             bun run test $SHARD_ARGS
+          fi
+
+      - name: Dump dialog watcher log
+        if: always() && steps.tests.outcome != 'skipped'
+        run: |
+          echo "--- Dialog watcher log ---"
+          cat /tmp/dialog-watcher.log 2>/dev/null || echo "No dialog watcher log found"
+          echo "--- Dialog watcher PID status ---"
+          if [ -f /tmp/dialog-watcher.pid ]; then
+            PID=$(cat /tmp/dialog-watcher.pid)
+            ps -p "$PID" 2>/dev/null && echo "Watcher still running" || echo "Watcher already exited"
+            kill "$PID" 2>/dev/null || true
           fi
 
       - name: Upload test artifacts
