@@ -2117,8 +2117,7 @@ public final class ChatViewModel: ObservableObject {
     ///
     /// - Parameters:
     ///   - historyMessages: The message items from the daemon's history response.
-    ///   - hasMore: Whether the daemon has older pages available. Defaults to `false`
-    ///     for backward compatibility with older daemons that don't send this field.
+    ///   - hasMore: Whether the daemon has older pages available.
     ///   - oldestTimestamp: The timestamp of the oldest message in the response (ms since epoch).
     ///     Used as the cursor for the next pagination request.
     ///   - isPaginationLoad: When `true`, messages are prepended to the existing list
@@ -2126,7 +2125,7 @@ public final class ChatViewModel: ObservableObject {
     ///     or reconnect-catch-up logic applies.
     public func populateFromHistory(
         _ historyMessages: [IPCHistoryResponseMessage],
-        hasMore: Bool = false,
+        hasMore: Bool,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
     ) {

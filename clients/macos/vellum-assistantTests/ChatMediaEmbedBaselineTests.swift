@@ -219,7 +219,7 @@ final class ChatMediaEmbedBaselineTests: XCTestCase {
             ),
         ]
 
-        viewModel.populateFromHistory(historyItems)
+        viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
