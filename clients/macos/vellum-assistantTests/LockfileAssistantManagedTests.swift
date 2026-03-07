@@ -172,6 +172,8 @@ final class LockfileAssistantManagedTests: XCTestCase {
             zone: nil,
             instanceId: nil,
             hatchedAt: "2024-01-01T00:00:00Z",
+            baseDataDir: nil,
+            daemonPort: nil,
             gatewayPort: nil,
             socketPath: nil,
             instanceDir: nil
@@ -190,6 +192,8 @@ final class LockfileAssistantManagedTests: XCTestCase {
             zone: nil,
             instanceId: nil,
             hatchedAt: nil,
+            baseDataDir: nil,
+            daemonPort: nil,
             gatewayPort: nil,
             socketPath: nil,
             instanceDir: nil
@@ -208,6 +212,8 @@ final class LockfileAssistantManagedTests: XCTestCase {
             zone: "us-central1-a",
             instanceId: "inst-1",
             hatchedAt: nil,
+            baseDataDir: nil,
+            daemonPort: nil,
             gatewayPort: nil,
             socketPath: nil,
             instanceDir: nil
@@ -226,6 +232,8 @@ final class LockfileAssistantManagedTests: XCTestCase {
             zone: nil,
             instanceId: nil,
             hatchedAt: nil,
+            baseDataDir: nil,
+            daemonPort: nil,
             gatewayPort: nil,
             socketPath: nil,
             instanceDir: nil
@@ -246,6 +254,8 @@ final class LockfileAssistantManagedTests: XCTestCase {
             zone: nil,
             instanceId: nil,
             hatchedAt: nil,
+            baseDataDir: nil,
+            daemonPort: nil,
             gatewayPort: nil,
             socketPath: nil,
             instanceDir: nil
@@ -264,6 +274,8 @@ final class LockfileAssistantManagedTests: XCTestCase {
             zone: nil,
             instanceId: nil,
             hatchedAt: nil,
+            baseDataDir: nil,
+            daemonPort: nil,
             gatewayPort: nil,
             socketPath: nil,
             instanceDir: nil
@@ -282,6 +294,8 @@ final class LockfileAssistantManagedTests: XCTestCase {
             zone: nil,
             instanceId: nil,
             hatchedAt: nil,
+            baseDataDir: nil,
+            daemonPort: nil,
             gatewayPort: nil,
             socketPath: nil,
             instanceDir: nil
@@ -302,6 +316,8 @@ final class LockfileAssistantManagedTests: XCTestCase {
             zone: nil,
             instanceId: nil,
             hatchedAt: nil,
+            baseDataDir: nil,
+            daemonPort: nil,
             gatewayPort: nil,
             socketPath: nil,
             instanceDir: nil
