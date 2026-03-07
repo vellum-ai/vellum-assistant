@@ -587,7 +587,7 @@ struct UsageDashboardStorePresentationTests {
         #expect(UsageFormatting.directInputTokensLabel == "Direct Input Tokens")
         #expect(
             UsageFormatting.formatBreakdownSummary(entry)
-                == "1,234 direct / 78 cache created / 9,876 cache read / 56 out"
+                == "\(UsageFormatting.formatCount(1_234)) direct / \(UsageFormatting.formatCount(78)) cache created / \(UsageFormatting.formatCount(9_876)) cache read / \(UsageFormatting.formatCount(56)) out"
         )
     }
 }
