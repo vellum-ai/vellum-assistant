@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Create a temp directory that acts as a fake home, so allocateLocalResources()
-// and defaultLocalResources() never touch the real ~/.vellum directory.
+// never touches the real ~/.vellum directory.
 const testDir = mkdtempSync(join(tmpdir(), "cli-multi-local-test-"));
 process.env.BASE_DATA_DIR = testDir;
 
@@ -31,7 +31,6 @@ mock.module("../lib/port-probe.js", () => ({
 
 import {
   allocateLocalResources,
-  defaultLocalResources,
   resolveTargetAssistant,
   setActiveAssistant,
   getActiveAssistant,
@@ -153,18 +152,6 @@ describe("multi-local", () => {
       // THEN the daemon port skips all occupied ports
       expect(res.daemonPort).toBeGreaterThan(DEFAULT_DAEMON_PORT + 1);
       expect(portsInUse.has(res.daemonPort)).toBe(false);
-    });
-  });
-
-  describe("defaultLocalResources() returns legacy paths", () => {
-    test("instanceDir is homedir", () => {
-      const res = defaultLocalResources();
-      expect(res.instanceDir).toBe(testDir);
-    });
-
-    test("daemonPort is DEFAULT_DAEMON_PORT", () => {
-      const res = defaultLocalResources();
-      expect(res.daemonPort).toBe(DEFAULT_DAEMON_PORT);
     });
   });
 

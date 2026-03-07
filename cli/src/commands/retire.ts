@@ -4,7 +4,6 @@ import { homedir } from "os";
 import { basename, dirname, join } from "path";
 
 import {
-  defaultLocalResources,
   findAssistantByName,
   loadAllAssistants,
   removeAssistantEntry,
@@ -45,20 +44,20 @@ function extractHostFromUrl(url: string): string {
 async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
 
-  const resources = entry.resources ?? defaultLocalResources();
+  if (!entry.resources) {
+    throw new Error(
+      `Local assistant '${name}' is missing resource configuration. Re-hatch to fix.`,
+    );
+  }
+  const resources = entry.resources;
   const vellumDir = join(resources.instanceDir, ".vellum");
 
   // Check whether another local assistant shares the same data directory.
-  // Legacy entries without `resources` all resolve to ~/.vellum/ — if we
-  // blindly kill processes and archive the directory, we'd destroy the
-  // other assistant's running daemon and data.
   const otherSharesDir = loadAllAssistants().some((other) => {
     if (other.cloud !== "local") return false;
     if (other.assistantId === name) return false;
-    const otherVellumDir = join(
-      (other.resources ?? defaultLocalResources()).instanceDir,
-      ".vellum",
-    );
+    if (!other.resources) return false;
+    const otherVellumDir = join(other.resources.instanceDir, ".vellum");
     return otherVellumDir === vellumDir;
   });
 

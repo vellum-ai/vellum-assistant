@@ -1,10 +1,7 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 
-import {
-  defaultLocalResources,
-  resolveTargetAssistant,
-} from "../lib/assistant-config.js";
+import { resolveTargetAssistant } from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 
@@ -15,8 +12,12 @@ type ActiveCallLease = {
 };
 
 function getAssistantRootDir(entry: AssistantEntry): string {
-  const resources = entry.resources ?? defaultLocalResources();
-  return join(resources.instanceDir, ".vellum");
+  if (!entry.resources) {
+    throw new Error(
+      `Local assistant '${entry.assistantId}' is missing resource configuration. Re-hatch to fix.`,
+    );
+  }
+  return join(entry.resources.instanceDir, ".vellum");
 }
 
 function readActiveCallLeases(vellumDir: string): ActiveCallLease[] {
@@ -70,7 +71,13 @@ export async function sleep(): Promise<void> {
     process.exit(1);
   }
 
-  const resources = entry.resources ?? defaultLocalResources();
+  if (!entry.resources) {
+    console.error(
+      `Error: Local assistant '${entry.assistantId}' is missing resource configuration. Re-hatch to fix.`,
+    );
+    process.exit(1);
+  }
+  const resources = entry.resources;
   const assistantPidFile = resources.pidFile;
   const socketFile = resources.socketPath;
   const vellumDir = getAssistantRootDir(entry);

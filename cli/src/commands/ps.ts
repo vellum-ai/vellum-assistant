@@ -3,7 +3,6 @@ import { homedir } from "os";
 import { join } from "path";
 
 import {
-  defaultLocalResources,
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
@@ -216,7 +215,12 @@ function formatDetectionInfo(proc: DetectedProcess): string {
 }
 
 async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
-  const resources = entry.resources ?? defaultLocalResources();
+  if (!entry.resources) {
+    throw new Error(
+      `Local assistant '${entry.assistantId}' is missing resource configuration. Re-hatch to fix.`,
+    );
+  }
+  const resources = entry.resources;
   const vellumDir = join(resources.instanceDir, ".vellum");
 
   const specs: ProcessSpec[] = [
@@ -409,9 +413,7 @@ async function listAllAssistants(): Promise<void> {
       // process isn't running, the assistant is sleeping — skip the
       // network health check to avoid a misleading "unreachable" status.
       let health: { status: string; detail: string | null };
-      const resources =
-        a.resources ??
-        (a.cloud === "local" ? defaultLocalResources() : undefined);
+      const resources = a.resources;
       if (a.cloud === "local" && resources) {
         const pid = readPidFile(resources.pidFile);
         const alive = pid !== null && isProcessAlive(pid);

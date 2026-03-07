@@ -282,24 +282,6 @@ export async function allocateLocalResources(
 }
 
 /**
- * Return default resources representing the legacy single-instance layout.
- * @deprecated All new instances should use `allocateLocalResources()`.
- * Retained only for callers that need to normalize legacy lockfile entries
- * that lack a `resources` field.
- */
-export function defaultLocalResources(): LocalInstanceResources {
-  const vellumDir = join(homedir(), ".vellum");
-  return {
-    instanceDir: homedir(),
-    daemonPort: DEFAULT_DAEMON_PORT,
-    gatewayPort: DEFAULT_GATEWAY_PORT,
-    qdrantPort: DEFAULT_QDRANT_PORT,
-    socketPath: join(vellumDir, "vellum.sock"),
-    pidFile: join(vellumDir, "vellum.pid"),
-  };
-}
-
-/**
  * Read the assistant config file and sync client-relevant values to the
  * lockfile. This lets external tools (e.g. vel) discover the platform URL
  * without importing the assistant config schema.

@@ -13,7 +13,6 @@ import { homedir, hostname, networkInterfaces, platform } from "os";
 import { dirname, join } from "path";
 
 import {
-  defaultLocalResources,
   loadLatestAssistant,
   type LocalInstanceResources,
 } from "./assistant-config.js";
@@ -216,18 +215,16 @@ function resolveDaemonMainPath(assistantIndex: string): string {
 
 async function startDaemonFromSource(
   assistantIndex: string,
-  resources?: LocalInstanceResources,
+  resources: LocalInstanceResources,
 ): Promise<void> {
   const daemonMainPath = resolveDaemonMainPath(assistantIndex);
 
-  const defaults = defaultLocalResources();
-  const res = resources ?? defaults;
   // Ensure the directory containing PID/socket files exists. For named
   // instances this is instanceDir/.vellum/ (matching daemon's getRootDir()).
-  mkdirSync(dirname(res.pidFile), { recursive: true });
+  mkdirSync(dirname(resources.pidFile), { recursive: true });
 
-  const pidFile = res.pidFile;
-  const socketFile = res.socketPath;
+  const pidFile = resources.pidFile;
+  const socketFile = resources.socketPath;
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
   if (existsSync(pidFile)) {
@@ -305,19 +302,17 @@ async function startDaemonFromSource(
 // assistant-side equivalent.
 async function startDaemonWatchFromSource(
   assistantIndex: string,
-  resources?: LocalInstanceResources,
+  resources: LocalInstanceResources,
 ): Promise<void> {
   const mainPath = resolveDaemonMainPath(assistantIndex);
   if (!existsSync(mainPath)) {
     throw new Error(`Daemon main.ts not found at ${mainPath}`);
   }
 
-  const defaults = defaultLocalResources();
-  const res = resources ?? defaults;
-  mkdirSync(dirname(res.pidFile), { recursive: true });
+  mkdirSync(dirname(resources.pidFile), { recursive: true });
 
-  const pidFile = res.pidFile;
-  const socketFile = res.socketPath;
+  const pidFile = resources.pidFile;
+  const socketFile = resources.socketPath;
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
   // If a daemon is already running, skip spawning a new one.
@@ -641,7 +636,7 @@ function getLocalLanIPv4(): string | undefined {
 // assistant-side equivalent.
 export async function startLocalDaemon(
   watch: boolean = false,
-  resources?: LocalInstanceResources,
+  resources: LocalInstanceResources,
 ): Promise<void> {
   if (process.env.VELLUM_DESKTOP_APP && !watch) {
     // When running inside the desktop app, the CLI owns the daemon lifecycle.
@@ -656,10 +651,8 @@ export async function startLocalDaemon(
       );
     }
 
-    const defaults = defaultLocalResources();
-    const res = resources ?? defaults;
-    const pidFile = res.pidFile;
-    const socketFile = res.socketPath;
+    const pidFile = resources.pidFile;
+    const socketFile = resources.socketPath;
 
     // If a daemon is already running, skip spawning a new one.
     // This prevents cascading kill→restart cycles when multiple callers
@@ -831,13 +824,10 @@ export async function startLocalDaemon(
           "  Ensure the daemon binary is bundled alongside the CLI, or run from the source tree.",
       );
     }
-    const defaults = defaultLocalResources();
-    const res = resources ?? defaults;
-
     if (watch) {
       await startDaemonWatchFromSource(assistantIndex, resources);
 
-      const socketReady = await waitForSocketFile(res.socketPath, 60000);
+      const socketReady = await waitForSocketFile(resources.socketPath, 60000);
       if (socketReady) {
         console.log("   Assistant socket ready\n");
       } else {
@@ -848,7 +838,7 @@ export async function startLocalDaemon(
     } else {
       await startDaemonFromSource(assistantIndex, resources);
 
-      const socketReady = await waitForSocketFile(res.socketPath, 60000);
+      const socketReady = await waitForSocketFile(resources.socketPath, 60000);
       if (socketReady) {
         console.log("   Assistant socket ready\n");
       } else {
