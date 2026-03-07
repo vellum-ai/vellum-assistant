@@ -1241,6 +1241,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         for id in threadIds {
             if let idx = threads.firstIndex(where: { $0.id == id }) {
                 threads[idx].hasUnseenLatestAssistantMessage = true
+                threads[idx].lastSeenAssistantMessageAt = nil
+                if let sessionId = threads[idx].sessionId {
+                    pendingAttentionOverrides.removeValue(forKey: sessionId)
+                }
             }
         }
     }
