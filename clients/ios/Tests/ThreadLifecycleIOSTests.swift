@@ -469,6 +469,125 @@ final class ThreadLifecycleIOSTests: XCTestCase {
         XCTAssertFalse(store.threads.first(where: { $0.id == storedThread.id })?.hasUnseenLatestAssistantMessage ?? true)
     }
 
+    func testMarkingSeenConnectedThreadUnreadUpdatesLocalStateAndEmitsSignal() {
+        let daemonClient = DaemonClient()
+        var sentSignals: [IPCConversationUnreadSignal] = []
+        daemonClient.sendOverride = { message in
+            if let signal = message as? IPCConversationUnreadSignal {
+                sentSignals.append(signal)
+            }
+        }
+
+        let store = IOSThreadStore(daemonClient: daemonClient)
+        let response = makeSessionListResponse(sessions: [[
+            "id": "connected-session-4",
+            "title": "Seen thread",
+            "createdAt": 1_000,
+            "updatedAt": 2_000,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": false,
+                "latestAssistantMessageAt": 5_000,
+                "lastSeenAssistantMessageAt": 5_000,
+            ],
+        ]])
+
+        daemonClient.onSessionListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-4" }) else {
+            XCTFail("Expected connected thread")
+            return
+        }
+
+        store.markThreadUnread(storedThread)
+
+        guard let updatedThread = store.threads.first(where: { $0.id == storedThread.id }) else {
+            XCTFail("Expected updated thread")
+            return
+        }
+
+        XCTAssertTrue(updatedThread.hasUnseenLatestAssistantMessage)
+        XCTAssertEqual(sentSignals.count, 1)
+        XCTAssertEqual(sentSignals[0].conversationId, "connected-session-4")
+        XCTAssertEqual(sentSignals[0].sourceChannel, "vellum")
+        XCTAssertEqual(sentSignals[0].signalType, "macos_conversation_opened")
+        XCTAssertEqual(sentSignals[0].confidence, "explicit")
+        XCTAssertEqual(sentSignals[0].source, "ui-navigation")
+        XCTAssertEqual(sentSignals[0].evidenceText, "User selected Mark as unread")
+
+        let reloadedStore = IOSThreadStore(daemonClient: daemonClient)
+        guard let cachedThread = reloadedStore.threads.first(where: { $0.sessionId == "connected-session-4" }) else {
+            XCTFail("Expected cached connected thread")
+            return
+        }
+
+        XCTAssertTrue(cachedThread.hasUnseenLatestAssistantMessage)
+    }
+
+    func testMarkingAlreadyUnreadConnectedThreadUnreadDoesNothing() {
+        let daemonClient = DaemonClient()
+        var sentSignals: [IPCConversationUnreadSignal] = []
+        daemonClient.sendOverride = { message in
+            if let signal = message as? IPCConversationUnreadSignal {
+                sentSignals.append(signal)
+            }
+        }
+
+        let store = IOSThreadStore(daemonClient: daemonClient)
+        let response = makeSessionListResponse(sessions: [[
+            "id": "connected-session-5",
+            "title": "Unread thread",
+            "createdAt": 1_000,
+            "updatedAt": 2_000,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": true,
+                "latestAssistantMessageAt": 5_000,
+                "lastSeenAssistantMessageAt": 4_000,
+            ],
+        ]])
+
+        daemonClient.onSessionListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-5" }) else {
+            XCTFail("Expected unread connected thread")
+            return
+        }
+
+        store.markThreadUnread(storedThread)
+
+        XCTAssertTrue(sentSignals.isEmpty)
+        XCTAssertTrue(store.threads.first(where: { $0.id == storedThread.id })?.hasUnseenLatestAssistantMessage ?? false)
+    }
+
+    func testMarkingThreadWithoutAssistantReplyUnreadDoesNothing() {
+        let daemonClient = DaemonClient()
+        var sentSignals: [IPCConversationUnreadSignal] = []
+        daemonClient.sendOverride = { message in
+            if let signal = message as? IPCConversationUnreadSignal {
+                sentSignals.append(signal)
+            }
+        }
+
+        let store = IOSThreadStore(daemonClient: daemonClient)
+        let response = makeSessionListResponse(sessions: [[
+            "id": "connected-session-6",
+            "title": "No assistant reply yet",
+            "createdAt": 1_000,
+            "updatedAt": 2_000,
+            "assistantAttention": [
+                "hasUnseenLatestAssistantMessage": false,
+            ],
+        ]])
+
+        daemonClient.onSessionListResponse?(response)
+        guard let storedThread = store.threads.first(where: { $0.sessionId == "connected-session-6" }) else {
+            XCTFail("Expected connected thread")
+            return
+        }
+
+        store.markThreadUnread(storedThread)
+
+        XCTAssertTrue(sentSignals.isEmpty)
+        XCTAssertFalse(store.threads.first(where: { $0.id == storedThread.id })?.hasUnseenLatestAssistantMessage ?? true)
+    }
+
     func testPinningConnectedThreadUpdatesLocalStateAndEmitsReorder() {
         let daemonClient = DaemonClient()
         var reorderRequests: [IPCReorderThreadsRequest] = []

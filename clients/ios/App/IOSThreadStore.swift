@@ -795,6 +795,27 @@ class IOSThreadStore: ObservableObject {
         saveConnectedCache()
     }
 
+    func markThreadUnread(_ thread: IOSThread) {
+        guard isConnectedMode,
+              let idx = threads.firstIndex(where: { $0.id == thread.id }),
+              let sessionId = threads[idx].sessionId,
+              !threads[idx].hasUnseenLatestAssistantMessage,
+              threads[idx].latestAssistantMessageAt != nil else { return }
+
+        threads[idx].hasUnseenLatestAssistantMessage = true
+        saveConnectedCache()
+
+        let signal = IPCConversationUnreadSignal(
+            conversationId: sessionId,
+            sourceChannel: "vellum",
+            signalType: "macos_conversation_opened",
+            confidence: "explicit",
+            source: "ui-navigation",
+            evidenceText: "User selected Mark as unread"
+        )
+        try? daemonClient.send(signal)
+    }
+
     func unarchiveThread(_ thread: IOSThread) {
         guard let idx = threads.firstIndex(where: { $0.id == thread.id }) else { return }
         threads[idx].isArchived = false
