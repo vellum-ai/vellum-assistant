@@ -166,21 +166,15 @@ Twilio integration setup/config endpoints are exposed directly by the gateway an
 
 **Forwarded endpoints:**
 
-| Method | Path                                                   |
-| ------ | ------------------------------------------------------ |
-| GET    | `/v1/integrations/twilio/config`                       |
-| POST   | `/v1/integrations/twilio/credentials`                  |
-| DELETE | `/v1/integrations/twilio/credentials`                  |
-| GET    | `/v1/integrations/twilio/numbers`                      |
-| POST   | `/v1/integrations/twilio/numbers/provision`            |
-| POST   | `/v1/integrations/twilio/numbers/assign`               |
-| POST   | `/v1/integrations/twilio/numbers/release`              |
-| GET    | `/v1/integrations/twilio/sms/compliance`               |
-| POST   | `/v1/integrations/twilio/sms/compliance/tollfree`      |
-| PATCH  | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` |
-| DELETE | `/v1/integrations/twilio/sms/compliance/tollfree/:sid` |
-| POST   | `/v1/integrations/twilio/sms/test`                     |
-| POST   | `/v1/integrations/twilio/sms/doctor`                   |
+| Method | Path                                        |
+| ------ | ------------------------------------------- |
+| GET    | `/v1/integrations/twilio/config`            |
+| POST   | `/v1/integrations/twilio/credentials`       |
+| DELETE | `/v1/integrations/twilio/credentials`       |
+| GET    | `/v1/integrations/twilio/numbers`           |
+| POST   | `/v1/integrations/twilio/numbers/provision` |
+| POST   | `/v1/integrations/twilio/numbers/assign`    |
+| POST   | `/v1/integrations/twilio/numbers/release`   |
 
 **Authentication boundary:**
 
@@ -260,7 +254,6 @@ All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-
 | `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`                                                          |
 | `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`                                                  |
 | `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`                                                       |
-| `getTwilioSmsWebhookUrl()`     | `${base}/webhooks/twilio/sms`                                                             |
 | `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                         |
 | `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                               |
 
@@ -496,13 +489,13 @@ The `channelGuardianApprovalRequests` table tracks per-run approval state. Each 
 | `assistant/src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel based on binding state + sender identity              |
 | `assistant/src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation, actor role resolution                              |
 | `assistant/src/runtime/routes/channel-routes.ts`          | Approval routing to guardian, proactive expiry sweep (`sweepExpiredGuardianApprovals`, `startGuardianExpirySweep`)            |
-| `assistant/src/calls/guardian-dispatch.ts`                | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram/sms, manages deliveries       |
+| `assistant/src/calls/guardian-dispatch.ts`                | Cross-channel ASK_GUARDIAN dispatch: creates guardian_action_requests, fans out to mac/telegram, manages deliveries           |
 | `assistant/src/calls/guardian-action-sweep.ts`            | Periodic 60s sweep for expired guardian action requests; sends expiry notices to delivery channels                            |
 | `assistant/src/memory/guardian-action-store.ts`           | CRUD for guardian_action_requests and guardian_action_deliveries tables; first-writer-wins resolution via atomic status check |
 
 ### Ingress Membership and Escalation
 
-The ingress membership system extends the guardian security model to support controlled cross-user access. External users interact with the assistant through channels (Telegram, SMS) under an invite-based membership system with per-member access policies.
+The ingress membership system extends the guardian security model to support controlled cross-user access. External users interact with the assistant through channels (Telegram, WhatsApp) under an invite-based membership system with per-member access policies.
 
 #### Ingress Membership ACL
 
@@ -536,7 +529,7 @@ sequenceDiagram
     RT->>DB: Create channel_guardian_approval_request
     RT->>RT: emitNotificationSignal (escalation alert)
     RT->>GW: Notify guardian via notification pipeline
-    GW->>Guardian: Deliver escalation notice (Telegram/SMS/desktop)
+    GW->>Guardian: Deliver escalation notice (Telegram/desktop)
 
     alt Guardian approves
         Guardian->>RT: Approve decision
@@ -552,7 +545,7 @@ sequenceDiagram
     end
 ```
 
-Escalation alerts are routed through the canonical notification pipeline (`emitNotificationSignal`), which delivers to all configured channels (Telegram/SMS push, desktop notification). The guardian can approve or deny from any channel. All decisions write to the same `channel_guardian_approval_requests` table.
+Escalation alerts are routed through the canonical notification pipeline (`emitNotificationSignal`), which delivers to all configured channels (Telegram push, desktop notification). The guardian can approve or deny from any channel. All decisions write to the same `channel_guardian_approval_requests` table.
 
 If no guardian binding exists for the channel, escalation fails closed -- the message is denied with `escalate_no_guardian`.
 
@@ -632,7 +625,7 @@ In multi-assistant mode, the operator must configure `GATEWAY_ASSISTANT_ROUTING_
 
 ### Slack Channel (Socket Mode)
 
-The Slack channel enables inbound and outbound messaging via Slack's Socket Mode API. Unlike Telegram, SMS, and WhatsApp which use HTTP webhook ingress, Slack uses a persistent WebSocket connection — no public ingress URL is required.
+The Slack channel enables inbound and outbound messaging via Slack's Socket Mode API. Unlike Telegram and WhatsApp which use HTTP webhook ingress, Slack uses a persistent WebSocket connection — no public ingress URL is required.
 
 **Connection lifecycle** (`apps.connections.open`):
 
@@ -686,7 +679,7 @@ The Socket Mode client auto-reconnects on any WebSocket close or error. The back
 
 ## AI Phone Calls — Twilio ConversationRelay
 
-The Calls subsystem supports both **outbound** and **inbound** voice calls via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak in real time. Voice is a first-class channel with its own per-call conversation (outbound key: `asst:${assistantId}:voice:call:${callSessionId}`, inbound key: `asst:${assistantId}:voice:inbound:${callSid}`). When the AI needs guardian input during a call, it dispatches ASK_GUARDIAN requests cross-channel to mac/telegram/sms via the guardian dispatch engine. Answer resolution uses first-writer-wins semantics -- the first channel to respond provides the answer, and remaining channels receive a "already answered" notice.
+The Calls subsystem supports both **outbound** and **inbound** voice calls via Twilio's ConversationRelay protocol. The assistant uses an LLM-driven conversation loop to speak in real time. Voice is a first-class channel with its own per-call conversation (outbound key: `asst:${assistantId}:voice:call:${callSessionId}`, inbound key: `asst:${assistantId}:voice:inbound:${callSid}`). When the AI needs guardian input during a call, it dispatches ASK_GUARDIAN requests cross-channel to mac/telegram via the guardian dispatch engine. Answer resolution uses first-writer-wins semantics -- the first channel to respond provides the answer, and remaining channels receive a "already answered" notice.
 
 ### Outbound Call Flow
 
@@ -707,7 +700,7 @@ sequenceDiagram
     participant State as CallState (Notifiers)
     participant GuardianDispatch as GuardianDispatch
     participant Mac as Mac Desktop
-    participant TG/SMS as Telegram / SMS
+    participant TG as Telegram
     participant CallDomain as CallDomain
 
     User->>Session: call_start tool
@@ -749,9 +742,9 @@ sequenceDiagram
         Ctrl->>CallStore: createPendingQuestion()
         Ctrl->>GuardianDispatch: dispatchGuardianQuestion()
         GuardianDispatch->>Mac: notification_thread_created IPC
-        GuardianDispatch->>TG/SMS: POST /deliver/{channel}
-        Note over Mac,TG/SMS: First channel to respond wins
-        Mac/TG/SMS->>Routes: guardian answer
+        GuardianDispatch->>TG: POST /deliver/{channel}
+        Note over Mac,TG: First channel to respond wins
+        Mac/TG->>Routes: guardian answer
         Routes->>CallDomain: answerCall()
         CallDomain->>Ctrl: handleUserAnswer()
         Ctrl->>Bridge: startVoiceTurn([USER_ANSWERED: ...])
@@ -875,7 +868,7 @@ sequenceDiagram
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `assistant/src/calls/call-store.ts`                              | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM                                                                                                                        |
 | `assistant/src/calls/call-domain.ts`                             | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`) used by both tools and HTTP routes                                                                              |
-| `assistant/src/calls/guardian-dispatch.ts`                       | Cross-channel dispatch engine: fans out ASK_GUARDIAN questions to mac/telegram/sms, creates server-side guardian conversations, manages deliveries                                                                     |
+| `assistant/src/calls/guardian-dispatch.ts`                       | Cross-channel dispatch engine: fans out ASK_GUARDIAN questions to mac/telegram, creates server-side guardian conversations, manages deliveries                                                                         |
 | `assistant/src/memory/guardian-action-store.ts`                  | CRUD for guardian action requests and deliveries; first-writer-wins resolution via atomic status check                                                                                                                 |
 | `assistant/src/calls/guardian-action-sweep.ts`                   | Periodic 60s sweep for expired guardian action requests; sends expiry notices to all delivery channels                                                                                                                 |
 | `assistant/src/calls/call-domain.ts:createInboundVoiceSession()` | Creates or reuses a voice session for an inbound call keyed by CallSid (idempotent replay protection)                                                                                                                  |
@@ -931,7 +924,7 @@ When the LLM emits `[ASK_GUARDIAN: question]` during a voice call, the controlle
 
 2. **Delivery fan-out via notification pipeline**: The guardian dispatch calls `emitNotificationSignal()` and uses the same notification decision + broadcaster path as every other producer.
    - **Vellum**: Conversation pairing happens in the notification broadcaster. The resulting `notification_thread_created` event surfaces the thread in the desktop UI.
-   - **Telegram/SMS**: Delivery is handled by channel adapters selected by the notification decision and guarded by configured bindings.
+   - **Telegram**: Delivery is handled by channel adapters selected by the notification decision and guarded by configured bindings.
    - Guardian dispatch records `guardian_action_deliveries` from pipeline delivery results. It also uses the per-dispatch `onThreadCreated` callback so vellum delivery rows are created as soon as thread pairing occurs (without waiting for slower channels).
 
 3. **Answer resolution**: The first channel to respond wins. Answer resolution uses an atomic `WHERE status = 'pending'` check on the `guardian_action_requests` table -- only the first writer succeeds in transitioning the request to `answered` status. The winning answer text and responding channel are recorded on the request row.
@@ -966,13 +959,12 @@ All five tables live in `~/.vellum/workspace/data/db/assistant.db` alongside exi
 
 Internet-facing Twilio callbacks terminate at the gateway, which validates signatures before forwarding to the runtime. This keeps the runtime behind the gateway's bearer-auth boundary.
 
-| Gateway Route                          | Validates                                           | Forwards To (Runtime)                                                                      |
-| -------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `POST /webhooks/twilio/voice`          | HMAC-SHA1 signature, payload size                   | `POST /v1/internal/twilio/voice-webhook` (JSON: `{ params, originalUrl, assistantId? }`)   |
-| `POST /webhooks/twilio/status`         | HMAC-SHA1 signature, payload size                   | `POST /v1/internal/twilio/status` (JSON: `{ params }`)                                     |
-| `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size                   | `POST /v1/internal/twilio/connect-action` (JSON: `{ params }`)                             |
-| `WS /webhooks/twilio/relay`            | WebSocket upgrade                                   | `WS /v1/calls/relay` (bidirectional proxy)                                                 |
-| `POST /webhooks/twilio/sms`            | HMAC-SHA1 signature, payload size, MessageSid dedup | `POST /v1/channels/inbound` (normalized `GatewayInboundEvent` with `sourceChannel: "sms"`) |
+| Gateway Route                          | Validates                         | Forwards To (Runtime)                                                                    |
+| -------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------- |
+| `POST /webhooks/twilio/voice`          | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/voice-webhook` (JSON: `{ params, originalUrl, assistantId? }`) |
+| `POST /webhooks/twilio/status`         | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/status` (JSON: `{ params }`)                                   |
+| `POST /webhooks/twilio/connect-action` | HMAC-SHA1 signature, payload size | `POST /v1/internal/twilio/connect-action` (JSON: `{ params }`)                           |
+| `WS /webhooks/twilio/relay`            | WebSocket upgrade                 | `WS /v1/calls/relay` (bidirectional proxy)                                               |
 
 In gateway-fronted deployments, the TwiML WebSocket URL (returned by the voice webhook) should point to the gateway's `/webhooks/twilio/relay` endpoint rather than directly to the runtime. The gateway proxies ConversationRelay frames bidirectionally between Twilio and the runtime, preserving close and error semantics for proper cleanup.
 
@@ -983,7 +975,7 @@ Signature validation is **fail-closed**: if the Twilio auth token is not configu
 1. `ingress.publicBaseUrl` in workspace config (preferred — set via Settings UI > Public Ingress)
 2. `INGRESS_PUBLIC_BASE_URL` environment variable (fallback)
 
-All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/twilio/sms`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
+All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.
 
 For **inbound Twilio signature validation** at the gateway, URL reconstruction now supports multiple candidates in order:
 
@@ -1078,5 +1070,3 @@ All calls use **ElevenLabs** as the TTS provider via Twilio ConversationRelay. T
 The voice webhook in `twilio-routes.ts` calls `resolveVoiceQualityProfile()` and passes the result directly to `generateTwiML()` to produce ConversationRelay TwiML.
 
 ---
-
-See also [`gateway/docs/sms-twilio-parity-checklist.md`](docs/sms-twilio-parity-checklist.md).
