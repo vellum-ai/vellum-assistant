@@ -10,6 +10,41 @@ import { importPlaywright } from "./runtime-check.js";
 const log = getLogger("browser-manager");
 
 /**
+ * Well-known paths where Google Chrome is installed on each platform.
+ * Returns the first path that exists on disk, or null if none found.
+ */
+function findSystemChrome(): string | null {
+  const candidates: string[] = [];
+
+  if (process.platform === "darwin") {
+    candidates.push(
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    );
+  } else if (process.platform === "win32") {
+    const programFiles = process.env.PROGRAMFILES || "C:\\Program Files";
+    const programFilesX86 =
+      process.env["PROGRAMFILES(X86)"] || "C:\\Program Files (x86)";
+    candidates.push(
+      join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+      join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+    );
+  } else {
+    // Linux
+    candidates.push(
+      "/usr/bin/google-chrome",
+      "/usr/bin/google-chrome-stable",
+    );
+  }
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
  * Returns true when the host has a GUI capable of displaying a browser window.
  * macOS and Windows always have a display; Linux requires DISPLAY or WAYLAND_DISPLAY.
  */
@@ -195,50 +230,64 @@ class BrowserManager {
       } else {
         const pw = await importPlaywright();
 
-        // Auto-install Chromium if the browser binary is missing
-        let chromiumInstalled = false;
-        try {
-          const execPath = pw.chromium.executablePath();
-          chromiumInstalled = existsSync(execPath);
-        } catch {
-          // executablePath() may throw if registry is missing
-        }
-
-        if (!chromiumInstalled) {
-          log.info("Chromium not installed, installing via playwright...");
-          const proc = Bun.spawn(
-            ["bunx", "playwright", "install", "chromium"],
-            {
-              stdout: "pipe",
-              stderr: "pipe",
-            },
+        // Prefer a locally-installed Google Chrome over Chrome for Testing
+        const systemChrome = findSystemChrome();
+        if (systemChrome) {
+          log.info(
+            { path: systemChrome },
+            "Using system Chrome installation",
           );
-          const timeoutMs = 120_000;
-          let timer: ReturnType<typeof setTimeout>;
-          const exitCode = await Promise.race([
-            proc.exited.finally(() => clearTimeout(timer)),
-            new Promise<never>(
-              (_, reject) =>
-                (timer = setTimeout(() => {
-                  proc.kill();
-                  reject(
-                    new Error(
-                      `Chromium install timed out after ${timeoutMs / 1000}s`,
-                    ),
-                  );
-                }, timeoutMs)),
-            ),
-          ]);
-          if (exitCode === 0) {
-            log.info("Chromium installed successfully");
-          } else {
-            const stderr = await new Response(proc.stderr).text();
-            const msg = stderr.trim() || `exited with code ${exitCode}`;
-            throw new Error(`Failed to install Chromium: ${msg}`);
+          launch = (userDataDir, options) =>
+            pw.chromium.launchPersistentContext(userDataDir, {
+              ...options,
+              executablePath: systemChrome,
+            });
+        } else {
+          // Fall back to Playwright's bundled Chrome for Testing
+          let chromiumInstalled = false;
+          try {
+            const execPath = pw.chromium.executablePath();
+            chromiumInstalled = existsSync(execPath);
+          } catch {
+            // executablePath() may throw if registry is missing
           }
-        }
 
-        launch = pw.chromium.launchPersistentContext.bind(pw.chromium);
+          if (!chromiumInstalled) {
+            log.info("Chromium not installed, installing via playwright...");
+            const proc = Bun.spawn(
+              ["bunx", "playwright", "install", "chromium"],
+              {
+                stdout: "pipe",
+                stderr: "pipe",
+              },
+            );
+            const timeoutMs = 120_000;
+            let timer: ReturnType<typeof setTimeout>;
+            const exitCode = await Promise.race([
+              proc.exited.finally(() => clearTimeout(timer)),
+              new Promise<never>(
+                (_, reject) =>
+                  (timer = setTimeout(() => {
+                    proc.kill();
+                    reject(
+                      new Error(
+                        `Chromium install timed out after ${timeoutMs / 1000}s`,
+                      ),
+                    );
+                  }, timeoutMs)),
+              ),
+            ]);
+            if (exitCode === 0) {
+              log.info("Chromium installed successfully");
+            } else {
+              const stderr = await new Response(proc.stderr).text();
+              const msg = stderr.trim() || `exited with code ${exitCode}`;
+              throw new Error(`Failed to install Chromium: ${msg}`);
+            }
+          }
+
+          launch = pw.chromium.launchPersistentContext.bind(pw.chromium);
+        }
       }
 
       const profileDir = getProfileDir();
