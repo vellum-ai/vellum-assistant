@@ -109,6 +109,19 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKey: () => null,
 }));
 
+mock.module("../calls/voice-ingress-preflight.js", () => ({
+  preflightVoiceIngress: async () => ({
+    ok: true,
+    publicBaseUrl: "https://test.example.com",
+    ingressConfig: {
+      ingress: {
+        enabled: true,
+        publicBaseUrl: "https://test.example.com",
+      },
+    },
+  }),
+}));
+
 import {
   createCallSession,
   createPendingQuestion,
