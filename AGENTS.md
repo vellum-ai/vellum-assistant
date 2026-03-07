@@ -84,6 +84,8 @@ Do not add new tool registrations using the `class ____Tool implements Tool` pat
 
 Skills must be self-contained and portable — no coupling to daemon tools, internals, or repo-specific modules. Use `scripts/` for supporting logic with inline dependencies. No interactive prompts. Relative paths only. Ask: "Could this skill be copied into a different project and still work?"
 
+Follow the [Agent Skills specification](https://agentskills.io/specification) for SKILL.md format, directory structure, and naming conventions.
+
 ## User-Facing Terminology: "daemon" vs "assistant"
 
 "Daemon" is an internal implementation detail. In all user-facing text — CLI output, error messages, help strings, SKILL.md instructions that would be relayed to users, README documentation, and UI strings — use **"assistant"** instead of "daemon". Internal code (variable names, class names, file paths, log messages, comments explaining architecture) may continue using "daemon" since users don't see those. When in doubt, ask: "Would a user ever read this?" If yes, say "assistant".
