@@ -86,7 +86,7 @@ struct UsageDashboardPanel: View {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: VSpacing.md) {
                 statCard(label: "Estimated Cost", value: formatCost(totals.totalEstimatedCostUsd))
                 statCard(label: "LLM Calls", value: formatCount(totals.eventCount))
-                statCard(label: "Input Tokens", value: formatTokenCount(totals.totalInputTokens))
+                statCard(label: UsageFormatting.directInputTokensLabel, value: formatTokenCount(totals.totalInputTokens))
                 statCard(label: "Output Tokens", value: formatTokenCount(totals.totalOutputTokens))
                 statCard(label: "Cache Created", value: formatTokenCount(totals.totalCacheCreationTokens))
                 statCard(label: "Cache Read", value: formatTokenCount(totals.totalCacheReadTokens))
@@ -206,15 +206,15 @@ struct UsageDashboardPanel: View {
     private func breakdownList(_ entries: [UsageGroupBreakdownEntry]) -> some View {
         VStack(spacing: VSpacing.sm) {
             // Header row
-            HStack {
+            HStack(alignment: .top, spacing: VSpacing.sm) {
                 Text("Group")
                     .font(VFont.small)
                     .foregroundColor(VColor.textMuted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(width: 130, alignment: .leading)
                 Text("Tokens")
                     .font(VFont.small)
                     .foregroundColor(VColor.textMuted)
-                    .frame(width: 70, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Cost")
                     .font(VFont.small)
                     .foregroundColor(VColor.textMuted)
@@ -223,22 +223,29 @@ struct UsageDashboardPanel: View {
             .padding(.bottom, VSpacing.xxs)
 
             ForEach(entries, id: \.group) { entry in
-                HStack {
-                    Text(entry.group)
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .lineLimit(1)
-                    Text(formatTokenCount(entry.totalInputTokens + entry.totalOutputTokens))
-                        .font(VFont.small)
-                        .foregroundColor(VColor.textSecondary)
-                        .frame(width: 70, alignment: .trailing)
-                    Text(formatCost(entry.totalEstimatedCostUsd))
-                        .font(VFont.small)
-                        .foregroundColor(VColor.textSecondary)
-                        .frame(width: 60, alignment: .trailing)
-                }
+                breakdownRow(entry)
             }
+        }
+    }
+
+    @ViewBuilder
+    func breakdownRow(_ entry: UsageGroupBreakdownEntry) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            Text(entry.group)
+                .font(VFont.captionMedium)
+                .foregroundColor(VColor.textPrimary)
+                .frame(width: 130, alignment: .leading)
+                .lineLimit(1)
+            Text(UsageFormatting.formatBreakdownSummary(entry))
+                .font(VFont.small)
+                .foregroundColor(VColor.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            Text(formatCost(entry.totalEstimatedCostUsd))
+                .font(VFont.small)
+                .foregroundColor(VColor.textSecondary)
+                .frame(width: 60, alignment: .trailing)
         }
     }
 
