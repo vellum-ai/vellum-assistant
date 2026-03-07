@@ -797,7 +797,7 @@ fi
 # When contract source files are staged, verify generated output is up to date.
 
 IPC_CONTRACT_FILES=(
-    "assistant/src/daemon/ipc-contract.ts"
+    "assistant/src/daemon/ipc-protocol.ts"
     "assistant/src/daemon/ipc-contract-inventory.ts"
     "assistant/scripts/ipc/generate-swift.ts"
     "assistant/scripts/ipc/check-contract-inventory.ts"

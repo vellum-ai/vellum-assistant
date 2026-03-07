@@ -152,12 +152,12 @@ export const activeRelayConnections = new Map<string, RelayConnection>();
 
 /** Module-level broadcast function, set by the HTTP server during startup. */
 let globalBroadcast:
-  | ((msg: import("../daemon/ipc-contract.js").ServerMessage) => void)
+  | ((msg: import("../daemon/ipc-protocol.js").ServerMessage) => void)
   | undefined;
 
 /** Register a broadcast function so RelayConnection can forward IPC events. */
 export function setRelayBroadcast(
-  fn: (msg: import("../daemon/ipc-contract.js").ServerMessage) => void,
+  fn: (msg: import("../daemon/ipc-protocol.js").ServerMessage) => void,
 ): void {
   globalBroadcast = fn;
 }

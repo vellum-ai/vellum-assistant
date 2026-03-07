@@ -2,7 +2,7 @@
  * IPC contract → Swift code generator.
  *
  * Pipeline:
- *   1. typescript-json-schema extracts JSON Schema from ipc-contract.ts
+ *   1. typescript-json-schema extracts JSON Schema from ipc-protocol.ts
  *   2. Schemas are walked to produce Swift Codable structs and enums
  *   3. Output is written to clients/shared/IPC/Generated/IPCContractGenerated.swift
  *
@@ -15,16 +15,16 @@
  *   bun run generate:ipc -- --check   # fail if output would differ (CI)
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as TJS from 'typescript-json-schema';
+import * as fs from "fs";
+import * as path from "path";
+import * as TJS from "typescript-json-schema";
 
-const ROOT = path.resolve(import.meta.dirname ?? __dirname, '../..');
-const CONTRACT_PATH = path.join(ROOT, 'src/daemon/ipc-contract.ts');
-const DOMAIN_DIR = path.join(ROOT, 'src/daemon/ipc-contract');
+const ROOT = path.resolve(import.meta.dirname ?? __dirname, "../..");
+const CONTRACT_PATH = path.join(ROOT, "src/daemon/ipc-protocol.ts");
+const DOMAIN_DIR = path.join(ROOT, "src/daemon/ipc-contract");
 const OUTPUT_PATH = path.resolve(
   ROOT,
-  '../clients/shared/IPC/Generated/IPCContractGenerated.swift',
+  "../clients/shared/IPC/Generated/IPCContractGenerated.swift",
 );
 
 /** Collect all .ts files: the barrel + domain files. */
@@ -32,7 +32,7 @@ function getContractFiles(): string[] {
   const files = [CONTRACT_PATH];
   if (fs.existsSync(DOMAIN_DIR)) {
     for (const f of fs.readdirSync(DOMAIN_DIR)) {
-      if (f.endsWith('.ts')) {
+      if (f.endsWith(".ts")) {
         files.push(path.join(DOMAIN_DIR, f));
       }
     }
@@ -40,7 +40,7 @@ function getContractFiles(): string[] {
   return files;
 }
 
-const PREAMBLE = `// AUTO-GENERATED from assistant/src/daemon/ipc-contract.ts — DO NOT EDIT
+const PREAMBLE = `// AUTO-GENERATED from assistant/src/daemon/ipc-protocol.ts — DO NOT EDIT
 // Regenerate: cd assistant && bun run generate:ipc
 //
 // This file contains Swift Codable DTOs derived from the IPC contract.
@@ -55,20 +55,22 @@ import Foundation
 
 /** Types to skip entirely. */
 const SKIP_TYPES = new Set([
-  'ClientMessage',
-  'ServerMessage',
-  'IPCContractSchema',
-  'SurfaceData',
-  'SurfaceType',
-  'UiSurfaceShow',
-  'UiSurfaceShowBase',
-  'INTERACTIVE_SURFACE_TYPES',
+  "ClientMessage",
+  "ServerMessage",
+  "IPCContractSchema",
+  "SurfaceData",
+  "SurfaceType",
+  "UiSurfaceShow",
+  "UiSurfaceShowBase",
+  "INTERACTIVE_SURFACE_TYPES",
   // String-union types that need hand-written Swift enums
-  'SessionErrorCode',
-  'TraceEventKind',
+  "SessionErrorCode",
+  "TraceEventKind",
   // Uses SessionErrorCode and TraceEventKind which are hand-maintained enums
-  'SessionErrorMessage',
-  'TraceEvent',
+  "SessionErrorMessage",
+  "TraceEvent",
+  // Runtime-only types from ipc-protocol.ts (not part of the IPC contract)
+  "ParsedMessage",
 ]);
 
 // --- JSON Schema type definitions ---
@@ -94,10 +96,11 @@ function generateSchemas(): Record<string, SchemaDef> {
 
   const program = TJS.getProgramFromFiles(contractFiles, {
     strict: true,
-    target: 'es2022',
-    module: 'commonjs',
-    moduleResolution: 'node',
+    target: "es2022",
+    module: "commonjs",
+    moduleResolution: "node",
     skipLibCheck: true,
+    esModuleInterop: true,
   });
 
   const generator = TJS.buildGenerator(program, {
@@ -108,7 +111,7 @@ function generateSchemas(): Record<string, SchemaDef> {
   });
 
   if (!generator) {
-    throw new Error('Failed to create schema generator');
+    throw new Error("Failed to create schema generator");
   }
 
   const symbols = generator.getMainFileSymbols(program, contractFiles);
@@ -118,7 +121,11 @@ function generateSchemas(): Record<string, SchemaDef> {
 
   for (const symbol of symbols) {
     // Skip domain-level union aliases (_<Domain>ClientMessages / _<Domain>ServerMessages)
-    if (symbol.startsWith('_') && (symbol.endsWith('ClientMessages') || symbol.endsWith('ServerMessages'))) continue;
+    if (
+      symbol.startsWith("_") &&
+      (symbol.endsWith("ClientMessages") || symbol.endsWith("ServerMessages"))
+    )
+      continue;
     if (SKIP_TYPES.has(symbol)) continue;
     try {
       const schema = generator.getSchemaForSymbol(symbol) as SchemaDef | null;
@@ -133,7 +140,9 @@ function generateSchemas(): Record<string, SchemaDef> {
   }
 
   if (skipped.length > 0) {
-    console.warn(`Warning: skipped ${skipped.length} symbol(s) that could not produce schemas:`);
+    console.warn(
+      `Warning: skipped ${skipped.length} symbol(s) that could not produce schemas:`,
+    );
     for (const s of skipped) {
       console.warn(`  - ${s}`);
     }
@@ -146,7 +155,11 @@ function generateSchemas(): Record<string, SchemaDef> {
       // Skip generic type references (e.g. Partial<CardSurfaceData>, Record<string,unknown>)
       // — these produce invalid Swift struct names and are already handled as
       // [String: AnyCodable] in schemaToSwiftType via the startsWith checks.
-      if (!result[defName] && !SKIP_TYPES.has(defName) && !defName.includes('<')) {
+      if (
+        !result[defName] &&
+        !SKIP_TYPES.has(defName) &&
+        !defName.includes("<")
+      ) {
         result[defName] = defSchema;
       }
     }
@@ -236,16 +249,16 @@ function schemaToSwiftType(
   if (prop.$ref) {
     const refName = resolveRef(prop.$ref);
 
-    if (refName === 'Record<string,unknown>') return '[String: AnyCodable]';
-    if (refName === 'Record<string,string>') return '[String: String]';
-    if (refName.startsWith('Record<')) return '[String: AnyCodable]';
-    if (refName.startsWith('Partial<')) return '[String: AnyCodable]';
+    if (refName === "Record<string,unknown>") return "[String: AnyCodable]";
+    if (refName === "Record<string,string>") return "[String: String]";
+    if (refName.startsWith("Record<")) return "[String: AnyCodable]";
+    if (refName.startsWith("Partial<")) return "[String: AnyCodable]";
 
     // String enum types (e.g. SessionErrorCode, TraceEventKind) don't produce
     // generated structs — emit as plain String so the output compiles.
     const refDef = allDefs[refName];
-    if (refDef && refDef.type === 'string' && refDef.enum) {
-      return 'String';
+    if (refDef && refDef.type === "string" && refDef.enum) {
+      return "String";
     }
 
     return `IPC${refName}`;
@@ -253,41 +266,51 @@ function schemaToSwiftType(
 
   // Array type syntax: e.g. "type": ["null", "string"] → String?
   if (Array.isArray(prop.type)) {
-    const nonNull = prop.type.filter((t: string) => t !== 'null');
-    const hasNull = prop.type.includes('null');
+    const nonNull = prop.type.filter((t: string) => t !== "null");
+    const hasNull = prop.type.includes("null");
     if (nonNull.length === 1) {
-      const inner = schemaToSwiftType({ type: nonNull[0] }, parentName, propName, allDefs);
+      const inner = schemaToSwiftType(
+        { type: nonNull[0] },
+        parentName,
+        propName,
+        allDefs,
+      );
       return hasNull ? `${inner}?` : inner;
     }
-    return 'AnyCodable';
+    return "AnyCodable";
   }
 
   // anyOf — union. Check nullable pattern: [T, {type: "null"}]
   if (prop.anyOf) {
-    const nonNull = prop.anyOf.filter((v) => v.type !== 'null');
-    const hasNull = prop.anyOf.some((v) => v.type === 'null');
+    const nonNull = prop.anyOf.filter((v) => v.type !== "null");
+    const hasNull = prop.anyOf.some((v) => v.type === "null");
 
     if (nonNull.length === 1) {
-      const inner = schemaToSwiftType(nonNull[0], parentName, propName, allDefs);
+      const inner = schemaToSwiftType(
+        nonNull[0],
+        parentName,
+        propName,
+        allDefs,
+      );
       return hasNull ? `${inner}?` : inner;
     }
 
     // Multi-type union
-    return 'AnyCodable';
+    return "AnyCodable";
   }
 
   // Primitives
   switch (prop.type) {
-    case 'string':
-      return 'String';
-    case 'number':
-      return shouldBeInt(propName) ? 'Int' : 'Double';
-    case 'integer':
-      return 'Int';
-    case 'boolean':
-      return 'Bool';
+    case "string":
+      return "String";
+    case "number":
+      return shouldBeInt(propName) ? "Int" : "Double";
+    case "integer":
+      return "Int";
+    case "boolean":
+      return "Bool";
 
-    case 'object':
+    case "object":
       // Inline object with named properties → extract as a struct
       if (prop.properties) {
         const structName = `${parentName}${capitalize(propName)}`;
@@ -295,24 +318,37 @@ function schemaToSwiftType(
         return structName;
       }
       // Map type
-      if (prop.additionalProperties && typeof prop.additionalProperties === 'object') {
-        const valueType = schemaToSwiftType(prop.additionalProperties, parentName, propName, allDefs);
+      if (
+        prop.additionalProperties &&
+        typeof prop.additionalProperties === "object"
+      ) {
+        const valueType = schemaToSwiftType(
+          prop.additionalProperties,
+          parentName,
+          propName,
+          allDefs,
+        );
         return `[String: ${valueType}]`;
       }
-      return '[String: AnyCodable]';
+      return "[String: AnyCodable]";
 
-    case 'array':
+    case "array":
       if (prop.items) {
-        const itemType = schemaToSwiftType(prop.items, parentName, singularize(propName), allDefs);
+        const itemType = schemaToSwiftType(
+          prop.items,
+          parentName,
+          singularize(propName),
+          allDefs,
+        );
         return `[${itemType}]`;
       }
-      return '[AnyCodable]';
+      return "[AnyCodable]";
 
-    case 'null':
-      return 'AnyCodable?';
+    case "null":
+      return "AnyCodable?";
   }
 
-  return 'AnyCodable';
+  return "AnyCodable";
 }
 
 function capitalize(s: string): string {
@@ -321,9 +357,16 @@ function capitalize(s: string): string {
 
 function singularize(s: string): string {
   // Crude singularization for array item names
-  if (s.endsWith('ies')) return s.slice(0, -3) + 'y';
-  if (s.endsWith('ches') || s.endsWith('shes') || s.endsWith('ses') || s.endsWith('xes') || s.endsWith('zes')) return s.slice(0, -2);
-  if (s.endsWith('s') && !s.endsWith('ss')) return s.slice(0, -1);
+  if (s.endsWith("ies")) return s.slice(0, -3) + "y";
+  if (
+    s.endsWith("ches") ||
+    s.endsWith("shes") ||
+    s.endsWith("ses") ||
+    s.endsWith("xes") ||
+    s.endsWith("zes")
+  )
+    return s.slice(0, -2);
+  if (s.endsWith("s") && !s.endsWith("ss")) return s.slice(0, -1);
   return s;
 }
 
@@ -345,7 +388,7 @@ function extractInlineStruct(
     let swiftType = schemaToSwiftType(pDef, name, pName, allDefs);
 
     const isOptional = !required.has(pName);
-    if (isOptional && !swiftType.endsWith('?')) {
+    if (isOptional && !swiftType.endsWith("?")) {
       swiftType = `${swiftType}?`;
     }
 
@@ -363,13 +406,13 @@ function extractInlineStruct(
 
 // --- Step 3: Build all structs ---
 
-function buildAllStructs(
-  allDefs: Record<string, SchemaDef>,
-): SwiftStruct[] {
+function buildAllStructs(allDefs: Record<string, SchemaDef>): SwiftStruct[] {
   const structs: SwiftStruct[] = [];
 
-  for (const [name, def] of Object.entries(allDefs).sort(([a], [b]) => a.localeCompare(b))) {
-    if (def.type !== 'object' || !def.properties) continue;
+  for (const [name, def] of Object.entries(allDefs).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    if (def.type !== "object" || !def.properties) continue;
 
     const ipcName = `IPC${name}`;
     const required = new Set(def.required ?? []);
@@ -379,7 +422,7 @@ function buildAllStructs(
       let swiftType = schemaToSwiftType(propDef, ipcName, propName, allDefs);
 
       const isOptional = !required.has(propName);
-      if (isOptional && !swiftType.endsWith('?')) {
+      if (isOptional && !swiftType.endsWith("?")) {
         swiftType = `${swiftType}?`;
       }
 
@@ -412,7 +455,7 @@ function emitStruct(s: SwiftStruct): string {
   const lines: string[] = [];
 
   if (s.doc) {
-    for (const docLine of s.doc.split('\n')) {
+    for (const docLine of s.doc.split("\n")) {
       lines.push(`/// ${docLine}`);
     }
   }
@@ -421,7 +464,7 @@ function emitStruct(s: SwiftStruct): string {
 
   for (const p of s.properties) {
     if (p.doc) {
-      for (const docLine of p.doc.split('\n')) {
+      for (const docLine of p.doc.split("\n")) {
         lines.push(`    /// ${docLine}`);
       }
     }
@@ -430,20 +473,22 @@ function emitStruct(s: SwiftStruct): string {
 
   // Emit public memberwise init (Swift only auto-generates internal inits for public structs)
   if (s.properties.length > 0) {
-    lines.push('');
+    lines.push("");
     const params = s.properties
-      .map((p) => `${p.swiftName}: ${p.swiftType}${p.isOptional ? ' = nil' : ''}`)
-      .join(', ');
+      .map(
+        (p) => `${p.swiftName}: ${p.swiftType}${p.isOptional ? " = nil" : ""}`,
+      )
+      .join(", ");
     lines.push(`    public init(${params}) {`);
     for (const p of s.properties) {
       lines.push(`        self.${p.swiftName} = ${p.swiftName}`);
     }
-    lines.push('    }');
+    lines.push("    }");
   }
 
   if (needsCodingKeys(s.properties)) {
-    lines.push('');
-    lines.push('    private enum CodingKeys: String, CodingKey {');
+    lines.push("");
+    lines.push("    private enum CodingKeys: String, CodingKey {");
     for (const p of s.properties) {
       if (p.jsonName !== p.swiftName) {
         lines.push(`        case ${p.swiftName} = "${p.jsonName}"`);
@@ -451,19 +496,19 @@ function emitStruct(s: SwiftStruct): string {
         lines.push(`        case ${p.swiftName}`);
       }
     }
-    lines.push('    }');
+    lines.push("    }");
   }
 
-  lines.push('}');
-  return lines.join('\n');
+  lines.push("}");
+  return lines.join("\n");
 }
 
 // --- Main ---
 
 async function main(): Promise<void> {
-  const isCheck = process.argv.includes('--check');
+  const isCheck = process.argv.includes("--check");
 
-  console.log('Generating JSON Schema from ipc-contract.ts...');
+  console.log("Generating JSON Schema from ipc-protocol.ts...");
   const allDefs = generateSchemas();
   console.log(`Found ${Object.keys(allDefs).length} type definitions`);
 
@@ -475,7 +520,9 @@ async function main(): Promise<void> {
 
   // Merge: top-level first, then extracted inline structs (deduped)
   const allStructNames = new Set(topLevelStructs.map((s) => s.name));
-  const inlineOnly = extractedStructs.filter((s) => !allStructNames.has(s.name));
+  const inlineOnly = extractedStructs.filter(
+    (s) => !allStructNames.has(s.name),
+  );
   const allStructs = [...topLevelStructs, ...inlineOnly].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
@@ -486,13 +533,13 @@ async function main(): Promise<void> {
 
   const sections: string[] = [PREAMBLE];
 
-  sections.push('// MARK: - Generated IPC types\n');
+  sections.push("// MARK: - Generated IPC types\n");
   for (const s of allStructs) {
     sections.push(emitStruct(s));
-    sections.push('');
+    sections.push("");
   }
 
-  const output = sections.join('\n');
+  const output = sections.join("\n");
 
   // Ensure output directory exists
   const outputDir = path.dirname(OUTPUT_PATH);
@@ -503,22 +550,22 @@ async function main(): Promise<void> {
   if (isCheck) {
     if (!fs.existsSync(OUTPUT_PATH)) {
       console.error(`Generated file not found at ${OUTPUT_PATH}`);
-      console.error('Run `bun run generate:ipc` to create it.');
+      console.error("Run `bun run generate:ipc` to create it.");
       process.exit(1);
     }
 
-    const existing = fs.readFileSync(OUTPUT_PATH, 'utf-8');
+    const existing = fs.readFileSync(OUTPUT_PATH, "utf-8");
     if (existing !== output) {
-      console.error('Generated Swift file is out of date.');
-      console.error('Run `bun run generate:ipc` to regenerate.');
+      console.error("Generated Swift file is out of date.");
+      console.error("Run `bun run generate:ipc` to regenerate.");
       process.exit(1);
     }
 
-    console.log('Generated Swift file is up to date.');
+    console.log("Generated Swift file is up to date.");
     return;
   }
 
-  fs.writeFileSync(OUTPUT_PATH, output, 'utf-8');
+  fs.writeFileSync(OUTPUT_PATH, output, "utf-8");
   console.log(`Wrote ${OUTPUT_PATH}`);
 }
 
