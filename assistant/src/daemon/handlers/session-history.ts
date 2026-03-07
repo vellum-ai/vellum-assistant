@@ -35,8 +35,7 @@ export function handleHistoryRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  // Default to unlimited when callers don't specify a limit, preserving
-  // backward-compatible behavior of returning full conversation history.
+  // No limit means return all messages.
   const limit = msg.limit;
 
   // Resolve include flags: explicit flags override mode, mode provides defaults.
