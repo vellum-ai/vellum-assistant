@@ -170,7 +170,7 @@ curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/integrations/slack/channel/config" \
 Check guardian binding status:
 
 ```bash
-assistant integrations guardian status --channel slack --json
+assistant channel-verification-sessions status --channel slack --json
 ```
 
 The Settings > Channels > Slack card auto-refreshes on view appear via `fetchSlackChannelConfig()`, so the user will see the "Connected" status badge when they open or re-open that page.

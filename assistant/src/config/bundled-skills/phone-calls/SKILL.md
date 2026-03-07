@@ -52,7 +52,7 @@ Load the `guardian-verify-setup` skill with `channel: "phone"`. The skill handle
 If the user declines, skip this step. To re-check guardian status later:
 
 ```bash
-assistant integrations guardian status --channel phone --json
+assistant channel-verification-sessions status --channel phone --json
 ```
 
 # Making Outbound Calls

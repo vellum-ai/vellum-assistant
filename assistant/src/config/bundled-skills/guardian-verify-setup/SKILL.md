@@ -5,7 +5,7 @@ compatibility: "Designed for Vellum personal assistants"
 metadata: {"emoji":"🔐","vellum":{"display-name":"Guardian Verify Setup","user-invocable":true}}
 ---
 
-You are helping your user set up channel verification for a messaging channel (phone, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `assistant integrations guardian status` for status reads.
+You are helping your user set up channel verification for a messaging channel (phone, Telegram, or Slack). This links their identity as the trusted guardian for the chosen channel. Use gateway control-plane APIs for outbound actions, and use `assistant channel-verification-sessions status` for status reads.
 
 ## Prerequisites
 
@@ -124,7 +124,7 @@ For **voice** verification only: after telling the user their code and instructi
 2. Check the binding status via Vellum CLI:
 
 ```bash
-assistant integrations guardian status --channel phone --json
+assistant channel-verification-sessions status --channel phone --json
 ```
 
 3. If the response shows `bound: true`: immediately send a proactive success message in the current chat — "Voice verification complete! Your phone number is now the trusted guardian." Stop polling.
@@ -155,7 +155,7 @@ For **Slack** verification: after telling the user their code and instructing th
 2. Check the binding status via Vellum CLI:
 
 ```bash
-assistant integrations guardian status --channel slack --json
+assistant channel-verification-sessions status --channel slack --json
 ```
 
 3. If the response shows `bound: true`: immediately send a proactive success message in the current chat — "Slack verification complete! Your Slack account is now the trusted guardian. The DM channel has been captured for future message delivery." Stop polling.
@@ -181,7 +181,7 @@ After the user reports entering the code, verify the binding was created:
 
 ```bash
 CHANNEL="<channel>"
-assistant integrations guardian status --channel "$CHANNEL" --json
+assistant channel-verification-sessions status --channel "$CHANNEL" --json
 ```
 
 If the response shows the channel is bound, confirm success: "Verification complete! Your [channel] identity is now the trusted guardian."
