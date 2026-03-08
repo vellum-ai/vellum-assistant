@@ -832,13 +832,6 @@ async function main() {
     });
   }
 
-  if (isTelegramConfigured()) {
-    registerTelegramCommands();
-    reconcileTelegramWebhook(config, telegramCaches).catch((err) => {
-      log.error({ err }, "Failed to reconcile Telegram webhook on startup");
-    });
-  }
-
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
 
@@ -884,12 +877,6 @@ async function main() {
     log.info("Slack Socket Mode client started");
   }
 
-  if (slackReady) {
-    startSlackSocket().catch((err) => {
-      log.error({ err }, "Failed to start Slack Socket Mode on startup");
-    });
-  }
-
   const credentialWatcher = new CredentialWatcher((event) => {
     const changed = detectCredentialChanges(event, log);
 
@@ -932,7 +919,21 @@ async function main() {
     }
   });
 
-  credentialWatcher.start();
+  await credentialWatcher.start();
+
+  // ── Startup side effects (run after credential watcher initial poll) ──
+  if (isTelegramConfigured()) {
+    registerTelegramCommands();
+    reconcileTelegramWebhook(config, telegramCaches).catch((err) => {
+      log.error({ err }, "Failed to reconcile Telegram webhook on startup");
+    });
+  }
+
+  if (slackReady) {
+    startSlackSocket().catch((err) => {
+      log.error({ err }, "Failed to start Slack Socket Mode on startup");
+    });
+  }
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
     // Invalidate the config file cache so subsequent reads pick up fresh values
