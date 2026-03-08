@@ -39,7 +39,6 @@ const WS_CLOSED = WebSocket.CLOSED; // 3
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
-    telegramApiBaseUrl: "https://api.telegram.org",
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
     defaultAssistantId: undefined,
@@ -51,20 +50,11 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     maxWebhookPayloadBytes: 1048576,
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };
@@ -163,10 +153,14 @@ describe("createTwilioRelayWebsocketHandler", () => {
     // First arg is the request, second is { data: ... }
     expect(call[0]).toBe(req);
     const upgradeData = (
-      call[1] as { data: { callSessionId: string; config: GatewayConfig } }
+      call[1] as {
+        data: { callSessionId: string; assistantRuntimeBaseUrl: string };
+      }
     ).data;
     expect(upgradeData.callSessionId).toBe("sess-42");
-    expect(upgradeData.config).toBe(config);
+    expect(upgradeData.assistantRuntimeBaseUrl).toBe(
+      config.assistantRuntimeBaseUrl,
+    );
   });
 
   test("calls server.upgrade when Authorization header provides valid token", () => {
@@ -215,21 +209,6 @@ describe("createTwilioRelayWebsocketHandler", () => {
     expect(res).toBeInstanceOf(Response);
     expect(res!.status).toBe(401);
     expect(fakeServer.upgrade).not.toHaveBeenCalled();
-  });
-
-  test("allows upgrade when no token configured but telegramDeliverAuthBypass is true", () => {
-    const config = makeConfig({ telegramDeliverAuthBypass: true });
-    const handler = createTwilioRelayWebsocketHandler(config);
-    const req = new Request(
-      "http://localhost:7830/ws/twilio/relay?callSessionId=sess-1",
-    );
-    const fakeServer = {
-      upgrade: mock(() => true),
-    } as unknown as import("bun").Server<any>;
-    const res = handler(req, fakeServer);
-
-    expect(res).toBeUndefined();
-    expect(fakeServer.upgrade).toHaveBeenCalledTimes(1);
   });
 
   test("returns 401 when token is missing from request", () => {
@@ -300,7 +279,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("open initializes pendingMessages buffer", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -308,12 +287,9 @@ describe("getRelayWebsocketHandlers", () => {
   });
 
   test("open creates upstream WebSocket to correct URL", () => {
-    const config = makeConfig({
-      assistantRuntimeBaseUrl: "http://runtime:8000",
-    });
     const ws = createFakeDownstreamWs({
       callSessionId: "s&id=1",
-      config,
+      assistantRuntimeBaseUrl: "http://runtime:8000",
     });
     handlers.open(ws as never);
 
@@ -332,7 +308,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("buffers downstream messages while upstream is CONNECTING", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -349,7 +325,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("flushes buffered messages on upstream open", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -370,7 +346,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("forwards downstream messages directly when upstream is OPEN", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -390,7 +366,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("closes downstream with 1008 on buffer overflow", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -412,7 +388,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("downstream close while upstream is CONNECTING closes upstream and clears buffer", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -436,7 +412,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("upstream close event propagates to downstream close", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -452,7 +428,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("upstream error event closes downstream with 1011", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -468,7 +444,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("upstream message is forwarded to downstream (string)", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -481,7 +457,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("upstream binary message is forwarded to downstream as Uint8Array", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -497,7 +473,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("downstream close with OPEN upstream closes upstream", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 
@@ -515,7 +491,7 @@ describe("getRelayWebsocketHandlers", () => {
   test("downstream close does not call upstream.close when upstream is already CLOSED", () => {
     const ws = createFakeDownstreamWs({
       callSessionId: "sess-1",
-      config: makeConfig(),
+      assistantRuntimeBaseUrl: "http://localhost:7821",
     });
     handlers.open(ws as never);
 

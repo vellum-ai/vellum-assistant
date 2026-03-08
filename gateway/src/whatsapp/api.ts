@@ -1,5 +1,5 @@
 import type { CredentialCache } from "../credential-cache.js";
-import type { GatewayConfig } from "../config.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
 
@@ -62,20 +62,20 @@ function computeDelay(
 }
 
 async function retryableWhatsAppFetch<T>(
-  config: GatewayConfig,
+  configFile: ConfigFileCache | undefined,
   operation: string,
   doFetch: () => Promise<Response>,
 ): Promise<T> {
+  const maxRetries = configFile?.getNumber("whatsapp", "maxRetries") ?? 3;
+  const initialBackoffMs =
+    configFile?.getNumber("whatsapp", "initialBackoffMs") ?? 1000;
+
   let lastError: Error | null = null;
   let lastRetryAfter: string | null = null;
 
-  for (let attempt = 0; attempt <= config.whatsappMaxRetries; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
-      const delay = computeDelay(
-        attempt,
-        config.whatsappInitialBackoffMs,
-        lastRetryAfter,
-      );
+      const delay = computeDelay(attempt, initialBackoffMs, lastRetryAfter);
       log.debug({ attempt, delay, operation }, "Retrying WhatsApp API call");
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -140,19 +140,17 @@ async function retryableWhatsAppFetch<T>(
   throw lastError ?? new Error(`WhatsApp ${operation} failed after retries`);
 }
 
-/** Options bag for optional credential cache injection into WhatsApp API calls. */
+/** Options bag for optional credential and config cache injection into WhatsApp API calls. */
 export type WhatsAppApiCaches = {
   credentials?: CredentialCache;
+  configFile?: ConfigFileCache;
 };
 
 /**
  * Resolve WhatsApp credentials from cache.
  * Returns undefined fields if the cache has no values.
  */
-async function resolveWhatsAppCredentials(
-  _config: GatewayConfig,
-  caches?: WhatsAppApiCaches,
-): Promise<{
+async function resolveWhatsAppCredentials(caches?: WhatsAppApiCaches): Promise<{
   phoneNumberId: string | undefined;
   accessToken: string | undefined;
 }> {
@@ -180,21 +178,21 @@ export interface WhatsAppSendMessageResult {
  * phoneNumberId is the WhatsApp Business phone number ID (not the phone number itself).
  */
 export async function sendWhatsAppTextMessage(
-  config: GatewayConfig,
   to: string,
   text: string,
   caches?: WhatsAppApiCaches,
 ): Promise<WhatsAppSendMessageResult> {
-  const { phoneNumberId, accessToken } = await resolveWhatsAppCredentials(
-    config,
-    caches,
-  );
+  const { phoneNumberId, accessToken } =
+    await resolveWhatsAppCredentials(caches);
   if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
+  const timeoutMs =
+    caches?.configFile?.getNumber("whatsapp", "timeoutMs") ?? 15000;
+
   return retryableWhatsAppFetch<WhatsAppSendMessageResult>(
-    config,
+    caches?.configFile,
     "sendMessage",
     () =>
       fetchImpl(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
@@ -210,7 +208,7 @@ export async function sendWhatsAppTextMessage(
           type: "text",
           text: { body: text, preview_url: false },
         }),
-        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       }),
   );
 }
@@ -224,22 +222,22 @@ export interface WhatsAppMediaUploadResult {
  * The media ID can then be used in sendWhatsAppMediaMessage.
  */
 export async function uploadWhatsAppMedia(
-  config: GatewayConfig,
   blob: Blob,
   filename: string,
   mimeType: string,
   caches?: WhatsAppApiCaches,
 ): Promise<WhatsAppMediaUploadResult> {
-  const { phoneNumberId, accessToken } = await resolveWhatsAppCredentials(
-    config,
-    caches,
-  );
+  const { phoneNumberId, accessToken } =
+    await resolveWhatsAppCredentials(caches);
   if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
+  const timeoutMs =
+    caches?.configFile?.getNumber("whatsapp", "timeoutMs") ?? 15000;
+
   return retryableWhatsAppFetch<WhatsAppMediaUploadResult>(
-    config,
+    caches?.configFile,
     "uploadMedia",
     () => {
       const form = new FormData();
@@ -253,7 +251,7 @@ export async function uploadWhatsAppMedia(
           Authorization: `Bearer ${accessToken}`,
         },
         body: form,
-        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     },
   );
@@ -266,7 +264,6 @@ export type WhatsAppMediaType = "image" | "video" | "document";
  * Requires a previously uploaded media ID from uploadWhatsAppMedia.
  */
 export async function sendWhatsAppMediaMessage(
-  config: GatewayConfig,
   to: string,
   mediaType: WhatsAppMediaType,
   mediaId: string,
@@ -274,10 +271,8 @@ export async function sendWhatsAppMediaMessage(
   caption?: string,
   caches?: WhatsAppApiCaches,
 ): Promise<WhatsAppSendMessageResult> {
-  const { phoneNumberId, accessToken } = await resolveWhatsAppCredentials(
-    config,
-    caches,
-  );
+  const { phoneNumberId, accessToken } =
+    await resolveWhatsAppCredentials(caches);
   if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
@@ -287,8 +282,11 @@ export async function sendWhatsAppMediaMessage(
   // WhatsApp only supports filename on document type
   if (mediaType === "document" && filename) mediaPayload.filename = filename;
 
+  const timeoutMs =
+    caches?.configFile?.getNumber("whatsapp", "timeoutMs") ?? 15000;
+
   return retryableWhatsAppFetch<WhatsAppSendMessageResult>(
-    config,
+    caches?.configFile,
     "sendMediaMessage",
     () =>
       fetchImpl(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
@@ -304,7 +302,7 @@ export async function sendWhatsAppMediaMessage(
           type: mediaType,
           [mediaType]: mediaPayload,
         }),
-        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       }),
   );
 }
@@ -315,22 +313,22 @@ export async function sendWhatsAppMediaMessage(
  * WhatsApp supports up to 3 reply buttons per interactive message.
  */
 export async function sendWhatsAppInteractiveMessage(
-  config: GatewayConfig,
   to: string,
   bodyText: string,
   buttons: Array<{ id: string; title: string }>,
   caches?: WhatsAppApiCaches,
 ): Promise<WhatsAppSendMessageResult> {
-  const { phoneNumberId, accessToken } = await resolveWhatsAppCredentials(
-    config,
-    caches,
-  );
+  const { phoneNumberId, accessToken } =
+    await resolveWhatsAppCredentials(caches);
   if (!phoneNumberId || !accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
+  const timeoutMs =
+    caches?.configFile?.getNumber("whatsapp", "timeoutMs") ?? 15000;
+
   return retryableWhatsAppFetch<WhatsAppSendMessageResult>(
-    config,
+    caches?.configFile,
     "sendInteractiveMessage",
     () =>
       fetchImpl(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
@@ -355,7 +353,7 @@ export async function sendWhatsAppInteractiveMessage(
             },
           },
         }),
-        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       }),
   );
 }
@@ -374,24 +372,26 @@ export interface WhatsAppMediaMetadata {
  * The returned URL is short-lived and requires the access token as a Bearer header.
  */
 export async function getWhatsAppMediaMetadata(
-  config: GatewayConfig,
   mediaId: string,
   caches?: WhatsAppApiCaches,
 ): Promise<WhatsAppMediaMetadata> {
-  const { accessToken } = await resolveWhatsAppCredentials(config, caches);
+  const { accessToken } = await resolveWhatsAppCredentials(caches);
   if (!accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
+  const timeoutMs =
+    caches?.configFile?.getNumber("whatsapp", "timeoutMs") ?? 15000;
+
   return retryableWhatsAppFetch<WhatsAppMediaMetadata>(
-    config,
+    caches?.configFile,
     "getMediaMetadata",
     () =>
       fetchImpl(`${WHATSAPP_API_BASE}/${mediaId}`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
-        signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
       }),
   );
 }
@@ -402,21 +402,23 @@ export async function getWhatsAppMediaMetadata(
  * Returns the raw Response so callers can stream or buffer as needed.
  */
 export async function downloadWhatsAppMediaBytes(
-  config: GatewayConfig,
   mediaUrl: string,
   caches?: WhatsAppApiCaches,
 ): Promise<Response> {
-  const { accessToken } = await resolveWhatsAppCredentials(config, caches);
+  const { accessToken } = await resolveWhatsAppCredentials(caches);
   if (!accessToken) {
     throw new Error("WhatsApp credentials not configured");
   }
 
-  return retryableWhatsAppRawFetch(config, "downloadMedia", () =>
+  const timeoutMs =
+    caches?.configFile?.getNumber("whatsapp", "timeoutMs") ?? 15000;
+
+  return retryableWhatsAppRawFetch(caches?.configFile, "downloadMedia", () =>
     fetchImpl(mediaUrl, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
-      signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     }),
   );
 }
@@ -426,20 +428,20 @@ export async function downloadWhatsAppMediaBytes(
  * Used for binary downloads where the response body is not JSON.
  */
 async function retryableWhatsAppRawFetch(
-  config: GatewayConfig,
+  configFile: ConfigFileCache | undefined,
   operation: string,
   doFetch: () => Promise<Response>,
 ): Promise<Response> {
+  const maxRetries = configFile?.getNumber("whatsapp", "maxRetries") ?? 3;
+  const initialBackoffMs =
+    configFile?.getNumber("whatsapp", "initialBackoffMs") ?? 1000;
+
   let lastError: Error | null = null;
   let lastRetryAfter: string | null = null;
 
-  for (let attempt = 0; attempt <= config.whatsappMaxRetries; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
-      const delay = computeDelay(
-        attempt,
-        config.whatsappInitialBackoffMs,
-        lastRetryAfter,
-      );
+      const delay = computeDelay(attempt, initialBackoffMs, lastRetryAfter);
       log.debug({ attempt, delay, operation }, "Retrying WhatsApp API call");
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -518,15 +520,15 @@ async function retryableWhatsAppRawFetch(
  * Best-effort — callers should not propagate errors from this.
  */
 export async function markWhatsAppMessageRead(
-  config: GatewayConfig,
   messageId: string,
   caches?: WhatsAppApiCaches,
 ): Promise<void> {
-  const { phoneNumberId, accessToken } = await resolveWhatsAppCredentials(
-    config,
-    caches,
-  );
+  const { phoneNumberId, accessToken } =
+    await resolveWhatsAppCredentials(caches);
   if (!phoneNumberId || !accessToken) return;
+
+  const timeoutMs =
+    caches?.configFile?.getNumber("whatsapp", "timeoutMs") ?? 15000;
 
   try {
     await fetchImpl(`${WHATSAPP_API_BASE}/${phoneNumberId}/messages`, {
@@ -540,7 +542,7 @@ export async function markWhatsAppMessageRead(
         status: "read",
         message_id: messageId,
       }),
-      signal: AbortSignal.timeout(config.whatsappTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     log.debug({ err, messageId }, "Failed to mark WhatsApp message as read");

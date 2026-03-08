@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
@@ -24,7 +25,7 @@ export type ApprovalPayload = {
 
 export function createTelegramDeliverHandler(
   config: GatewayConfig,
-  caches?: { credentials?: CredentialCache },
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ) {
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -34,11 +35,11 @@ export function createTelegramDeliverHandler(
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    const authResponse = checkDeliverAuth(
-      req,
-      config,
-      "telegramDeliverAuthBypass",
-    );
+    const isBypassed =
+      process.env.APP_VERSION === "0.0.0-dev" &&
+      (caches?.configFile?.getBoolean("telegram", "deliverAuthBypass") ??
+        false);
+    const authResponse = checkDeliverAuth(req, isBypassed);
     if (authResponse) return authResponse;
 
     let body: {
@@ -177,7 +178,7 @@ export function createTelegramDeliverHandler(
     }
 
     const credentialOpts = caches?.credentials
-      ? { credentials: caches.credentials }
+      ? { credentials: caches.credentials, configFile: caches.configFile }
       : undefined;
 
     try {

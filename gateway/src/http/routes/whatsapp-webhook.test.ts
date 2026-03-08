@@ -91,17 +91,7 @@ const baseConfig: GatewayConfig = {
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
-  telegramApiBaseUrl: "https://api.telegram.org",
-  telegramDeliverAuthBypass: false,
-  telegramInitialBackoffMs: 1000,
-  telegramMaxRetries: 3,
-  telegramTimeoutMs: 15000,
   unmappedPolicy: "default",
-  whatsappDeliverAuthBypass: false,
-  whatsappTimeoutMs: 15000,
-  whatsappMaxRetries: 3,
-  whatsappInitialBackoffMs: 1000,
-  slackDeliverAuthBypass: false,
   trustProxy: false,
 };
 
@@ -339,7 +329,6 @@ describe("whatsapp-webhook", () => {
       "whatsapp-formatting",
     );
     expect(markWhatsAppMessageReadMock).toHaveBeenCalledWith(
-      baseConfig,
       "wamid-1",
       expect.objectContaining({ credentials: expect.anything() }),
     );
@@ -779,7 +768,6 @@ describe("whatsapp-webhook", () => {
 
     expect(res.status).toBe(200);
     expect(markWhatsAppMessageReadMock).toHaveBeenCalledWith(
-      baseConfig,
       "wamid-read-media",
       expect.objectContaining({ credentials: expect.anything() }),
     );

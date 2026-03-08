@@ -1,6 +1,11 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
+import { initSigningKey, mintToken } from "../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
+
+const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
+initSigningKey(TEST_SIGNING_KEY);
 
 type FetchFn = (
   input: string | URL | Request,
@@ -34,27 +39,28 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     unmappedPolicy: "reject",
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackDeliverAuthBypass: true,
     trustProxy: false,
     ...overrides,
   } as GatewayConfig;
   return merged;
 }
 
+const TOKEN = mintToken({
+  aud: "vellum-daemon",
+  sub: "svc:gateway:self",
+  scope_profile: "gateway_service_v1",
+  policy_epoch: CURRENT_POLICY_EPOCH,
+  ttlSeconds: 300,
+});
+
 function makeRequest(body: unknown): Request {
   return new Request("http://localhost:7830/deliver/slack", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${TOKEN}`,
+    },
     body: JSON.stringify(body),
   });
 }

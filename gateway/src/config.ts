@@ -24,29 +24,7 @@ export type GatewayConfig = {
   runtimeProxyRequireAuth: boolean;
   runtimeTimeoutMs: number;
   shutdownDrainMs: number;
-  telegramApiBaseUrl: string;
-  /**
-   * When true, the /deliver/telegram endpoint allows unauthenticated access
-   * even when no bearer token is configured. Intended for local development only.
-   */
-  telegramDeliverAuthBypass: boolean;
-  telegramInitialBackoffMs: number;
-  telegramMaxRetries: number;
-  telegramTimeoutMs: number;
   unmappedPolicy: "reject" | "default";
-  /**
-   * When true, the /deliver/whatsapp endpoint allows unauthenticated access
-   * even when no bearer token is configured. Intended for local development only.
-   */
-  whatsappDeliverAuthBypass: boolean;
-  whatsappTimeoutMs: number;
-  whatsappMaxRetries: number;
-  whatsappInitialBackoffMs: number;
-  /**
-   * When true, the /deliver/slack endpoint allows unauthenticated access
-   * even when no bearer token is configured. Intended for local development only.
-   */
-  slackDeliverAuthBypass: boolean;
   /** When true, trust X-Forwarded-For for client IP resolution (set when behind a reverse proxy). */
   trustProxy: boolean;
 };
@@ -85,9 +63,6 @@ function parseRoutingJson(raw: string): RoutingEntry[] {
 }
 
 export function loadConfig(): GatewayConfig {
-  const telegramApiBaseUrl =
-    process.env.TELEGRAM_API_BASE_URL || "https://api.telegram.org";
-
   // Port-based routing: each gateway instance reads RUNTIME_HTTP_PORT to
   // discover its co-located daemon's HTTP port. In multi-instance setups,
   // the CLI passes a per-instance daemon port so each gateway proxies to
@@ -191,47 +166,6 @@ export function loadConfig(): GatewayConfig {
     );
   }
 
-  const telegramDeliverAuthBypassRaw =
-    process.env.GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS;
-  if (
-    telegramDeliverAuthBypassRaw !== undefined &&
-    telegramDeliverAuthBypassRaw !== "true" &&
-    telegramDeliverAuthBypassRaw !== "false"
-  ) {
-    throw new Error(
-      `GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS must be "true" or "false", got "${telegramDeliverAuthBypassRaw}"`,
-    );
-  }
-  let telegramDeliverAuthBypass = telegramDeliverAuthBypassRaw === "true";
-
-  const telegramTimeoutMs = Number(
-    process.env.GATEWAY_TELEGRAM_TIMEOUT_MS || "15000",
-  );
-  if (!Number.isFinite(telegramTimeoutMs) || telegramTimeoutMs <= 0) {
-    throw new Error("GATEWAY_TELEGRAM_TIMEOUT_MS must be a positive number");
-  }
-
-  const telegramMaxRetries = Number(
-    process.env.GATEWAY_TELEGRAM_MAX_RETRIES || "3",
-  );
-  if (!Number.isInteger(telegramMaxRetries) || telegramMaxRetries < 0) {
-    throw new Error(
-      "GATEWAY_TELEGRAM_MAX_RETRIES must be a non-negative integer",
-    );
-  }
-
-  const telegramInitialBackoffMs = Number(
-    process.env.GATEWAY_TELEGRAM_INITIAL_BACKOFF_MS || "1000",
-  );
-  if (
-    !Number.isFinite(telegramInitialBackoffMs) ||
-    telegramInitialBackoffMs <= 0
-  ) {
-    throw new Error(
-      "GATEWAY_TELEGRAM_INITIAL_BACKOFF_MS must be a positive number",
-    );
-  }
-
   const maxWebhookPayloadBytes = Number(
     process.env.GATEWAY_MAX_WEBHOOK_PAYLOAD_BYTES || String(1024 * 1024),
   );
@@ -258,89 +192,6 @@ export function loadConfig(): GatewayConfig {
     throw new Error(
       "GATEWAY_MAX_ATTACHMENT_CONCURRENCY must be a positive integer",
     );
-  }
-
-  const whatsappDeliverAuthBypassRaw =
-    process.env.GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS;
-  if (
-    whatsappDeliverAuthBypassRaw !== undefined &&
-    whatsappDeliverAuthBypassRaw !== "true" &&
-    whatsappDeliverAuthBypassRaw !== "false"
-  ) {
-    throw new Error(
-      `GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS must be "true" or "false", got "${whatsappDeliverAuthBypassRaw}"`,
-    );
-  }
-  let whatsappDeliverAuthBypass = whatsappDeliverAuthBypassRaw === "true";
-
-  const whatsappTimeoutMs = Number(
-    process.env.GATEWAY_WHATSAPP_TIMEOUT_MS || "15000",
-  );
-  if (!Number.isFinite(whatsappTimeoutMs) || whatsappTimeoutMs <= 0) {
-    throw new Error("GATEWAY_WHATSAPP_TIMEOUT_MS must be a positive number");
-  }
-
-  const whatsappMaxRetries = Number(
-    process.env.GATEWAY_WHATSAPP_MAX_RETRIES || "3",
-  );
-  if (!Number.isInteger(whatsappMaxRetries) || whatsappMaxRetries < 0) {
-    throw new Error(
-      "GATEWAY_WHATSAPP_MAX_RETRIES must be a non-negative integer",
-    );
-  }
-
-  const whatsappInitialBackoffMs = Number(
-    process.env.GATEWAY_WHATSAPP_INITIAL_BACKOFF_MS || "1000",
-  );
-  if (
-    !Number.isFinite(whatsappInitialBackoffMs) ||
-    whatsappInitialBackoffMs <= 0
-  ) {
-    throw new Error(
-      "GATEWAY_WHATSAPP_INITIAL_BACKOFF_MS must be a positive number",
-    );
-  }
-
-  const slackDeliverAuthBypassRaw =
-    process.env.GATEWAY_SLACK_DELIVER_AUTH_BYPASS;
-  if (
-    slackDeliverAuthBypassRaw !== undefined &&
-    slackDeliverAuthBypassRaw !== "true" &&
-    slackDeliverAuthBypassRaw !== "false"
-  ) {
-    throw new Error(
-      `GATEWAY_SLACK_DELIVER_AUTH_BYPASS must be "true" or "false", got "${slackDeliverAuthBypassRaw}"`,
-    );
-  }
-  let slackDeliverAuthBypass = slackDeliverAuthBypassRaw === "true";
-
-  // Production guard: auth bypass flags must never be active outside dev mode.
-  // Fail closed: treat missing APP_VERSION as production, since the gateway
-  // release pipeline does not inject it (unlike the daemon build).
-  const appVersion = process.env.APP_VERSION;
-  const isDevMode = appVersion === "0.0.0-dev";
-  if (!isDevMode) {
-    if (telegramDeliverAuthBypass) {
-      log.warn(
-        "GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)",
-        appVersion,
-      );
-      telegramDeliverAuthBypass = false;
-    }
-    if (whatsappDeliverAuthBypass) {
-      log.warn(
-        "GATEWAY_WHATSAPP_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)",
-        appVersion,
-      );
-      whatsappDeliverAuthBypass = false;
-    }
-    if (slackDeliverAuthBypass) {
-      log.warn(
-        "GATEWAY_SLACK_DELIVER_AUTH_BYPASS is set but ignored in production (APP_VERSION=%s)",
-        appVersion,
-      );
-      slackDeliverAuthBypass = false;
-    }
   }
 
   const trustProxyRaw = process.env.GATEWAY_TRUST_PROXY;
@@ -371,7 +222,6 @@ export function loadConfig(): GatewayConfig {
 
   log.info(
     {
-      telegramApiBaseUrl,
       assistantRuntimeBaseUrl,
       gatewayInternalBaseUrl,
       routingEntryCount: routingEntries.length,
@@ -380,9 +230,6 @@ export function loadConfig(): GatewayConfig {
       port,
       runtimeProxyEnabled,
       runtimeProxyRequireAuth,
-      telegramDeliverAuthBypass,
-      whatsappDeliverAuthBypass,
-      slackDeliverAuthBypass,
       trustProxy,
     },
     "Configuration loaded",
@@ -404,17 +251,7 @@ export function loadConfig(): GatewayConfig {
     runtimeProxyRequireAuth,
     runtimeTimeoutMs,
     shutdownDrainMs,
-    telegramApiBaseUrl,
-    telegramDeliverAuthBypass,
-    telegramInitialBackoffMs,
-    telegramMaxRetries,
-    telegramTimeoutMs,
     unmappedPolicy,
-    whatsappDeliverAuthBypass,
-    whatsappTimeoutMs,
-    whatsappMaxRetries,
-    whatsappInitialBackoffMs,
-    slackDeliverAuthBypass,
     trustProxy,
   };
 }

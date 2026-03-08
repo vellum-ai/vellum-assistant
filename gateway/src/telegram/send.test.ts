@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
 import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 
 // Mock fetch at the transport level (same pattern as all other test files)
 // instead of mocking ./api.js — mock.module for api.js leaks across test
@@ -36,17 +37,7 @@ const baseConfig: GatewayConfig = {
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
-  telegramApiBaseUrl: "https://api.telegram.org",
-  telegramDeliverAuthBypass: true,
-  telegramInitialBackoffMs: 1000,
-  telegramMaxRetries: 0,
-  telegramTimeoutMs: 15000,
   unmappedPolicy: "reject",
-  whatsappDeliverAuthBypass: false,
-  whatsappTimeoutMs: 15000,
-  whatsappMaxRetries: 3,
-  whatsappInitialBackoffMs: 1000,
-  slackDeliverAuthBypass: false,
   trustProxy: false,
 };
 
@@ -60,19 +51,33 @@ const sampleApproval: ApprovalPayload = {
   plainTextFallback: "Reply: approve, always, or reject",
 };
 
+/** Mock credential cache providing test bot token. */
+const testCreds: CredentialCache = {
+  get: async (key: string) => {
+    if (key === "credential:telegram:bot_token") return "test-bot-token";
+    return undefined;
+  },
+  invalidate: () => {},
+} as unknown as CredentialCache;
+
+const testConfigFile: ConfigFileCache = {
+  getNumber: (_section: string, field: string) => {
+    if (field === "maxRetries") return 0;
+    return undefined;
+  },
+  getString: () => undefined,
+  getBoolean: () => undefined,
+  getRecord: () => undefined,
+} as unknown as ConfigFileCache;
+
+const testOpts = { credentials: testCreds, configFile: testConfigFile };
+
 function makeTelegramResponse(result: unknown) {
   return new Response(JSON.stringify({ ok: true, result }), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
 }
-
-const mockCredentials = {
-  get: async (key: string) =>
-    key === "credential:telegram:bot_token" ? "test-bot-token" : undefined,
-  invalidate: () => {},
-} as unknown as CredentialCache;
-const credOpts = { credentials: mockCredentials };
 
 let fetchCalls: { url: string; body: unknown }[];
 
@@ -169,7 +174,7 @@ describe("buildInlineKeyboard", () => {
 
 describe("sendTelegramReply", () => {
   it("sends a plain message without reply_markup when no approval", async () => {
-    await sendTelegramReply(baseConfig, "chat-1", "Hello", undefined, credOpts);
+    await sendTelegramReply(baseConfig, "chat-1", "Hello", undefined, testOpts);
 
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0].url).toContain("/sendMessage");
@@ -185,7 +190,7 @@ describe("sendTelegramReply", () => {
       "chat-1",
       "Approve?",
       sampleApproval,
-      credOpts,
+      testOpts,
     );
 
     expect(fetchCalls).toHaveLength(1);
@@ -210,7 +215,7 @@ describe("sendTelegramReply", () => {
       "chat-1",
       longText,
       sampleApproval,
-      credOpts,
+      testOpts,
     );
 
     expect(fetchCalls).toHaveLength(2);

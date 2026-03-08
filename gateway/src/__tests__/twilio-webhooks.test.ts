@@ -115,7 +115,6 @@ function expectFailureDiagnosticLog(params: {
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
-    telegramApiBaseUrl: "https://api.telegram.org",
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
     defaultAssistantId: undefined,
@@ -127,20 +126,11 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     maxWebhookPayloadBytes: 1048576,
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };

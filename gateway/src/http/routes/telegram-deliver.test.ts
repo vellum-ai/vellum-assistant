@@ -43,17 +43,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: true,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramDeliverAuthBypass: true,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     unmappedPolicy: "reject",
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };
@@ -74,6 +64,22 @@ function mintDeliverToken(): string {
 const TOKEN = mintDeliverToken();
 
 function makeRequest(body: unknown, headers?: Record<string, string>): Request {
+  return new Request("http://localhost:7830/deliver/telegram", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${TOKEN}`,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Make a request without Authorization header (for testing auth rejection). */
+function makeUnauthRequest(
+  body: unknown,
+  headers?: Record<string, string>,
+): Request {
   return new Request("http://localhost:7830/deliver/telegram", {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
@@ -101,10 +107,8 @@ describe("telegram-deliver endpoint basics", () => {
   });
 
   it("rejects request without Authorization header with 401", async () => {
-    const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: false }),
-    );
-    const req = makeRequest({ chatId: "123", text: "hello" });
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = makeUnauthRequest({ chatId: "123", text: "hello" });
     const res = await handler(req);
     expect(res.status).toBe(401);
     const body = await res.json();
@@ -112,10 +116,8 @@ describe("telegram-deliver endpoint basics", () => {
   });
 
   it("rejects request with wrong bearer token with 401", async () => {
-    const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: false }),
-    );
-    const req = makeRequest(
+    const handler = createTelegramDeliverHandler(makeConfig());
+    const req = makeUnauthRequest(
       { chatId: "123", text: "hello" },
       {
         authorization: "Bearer wrong-token",
@@ -128,25 +130,7 @@ describe("telegram-deliver endpoint basics", () => {
   });
 
   it("accepts request with correct bearer token", async () => {
-    const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: false }),
-    );
-    const req = makeRequest(
-      { chatId: "123", text: "hello" },
-      {
-        authorization: `Bearer ${TOKEN}`,
-      },
-    );
-    const res = await handler(req);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-  });
-
-  it("allows unauthenticated access when bypass flag is set", async () => {
-    const handler = createTelegramDeliverHandler(
-      makeConfig({ telegramDeliverAuthBypass: true }),
-    );
+    const handler = createTelegramDeliverHandler(makeConfig());
     const req = makeRequest({ chatId: "123", text: "hello" });
     const res = await handler(req);
     expect(res.status).toBe(200);
@@ -198,7 +182,10 @@ describe("telegram-deliver endpoint basics", () => {
     const handler = createTelegramDeliverHandler(makeConfig());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${TOKEN}`,
+      },
       body: "not-json",
     });
     const res = await handler(req);

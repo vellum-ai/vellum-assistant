@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
@@ -309,7 +310,7 @@ export async function sendSlackAttachments(
 export function createSlackDeliverHandler(
   config: GatewayConfig,
   onThreadReply?: (threadTs: string) => void,
-  caches?: { credentials?: CredentialCache },
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ) {
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -319,11 +320,10 @@ export function createSlackDeliverHandler(
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    const authResponse = checkDeliverAuth(
-      req,
-      config,
-      "slackDeliverAuthBypass",
-    );
+    const isBypassed =
+      process.env.APP_VERSION === "0.0.0-dev" &&
+      (caches?.configFile?.getBoolean("slack", "deliverAuthBypass") ?? false);
+    const authResponse = checkDeliverAuth(req, isBypassed);
     if (authResponse) return authResponse;
 
     // Resolve bot token from cache

@@ -1,5 +1,5 @@
 import type { CredentialCache } from "../credential-cache.js";
-import type { GatewayConfig } from "../config.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import { fetchImpl } from "../fetch.js";
 import { getLogger } from "../logger.js";
 
@@ -79,20 +79,20 @@ function computeDelay(
 }
 
 async function retryableFetch<T>(
-  config: GatewayConfig,
+  configFile: ConfigFileCache | undefined,
   method: string,
   doFetch: () => Promise<Response>,
 ): Promise<T> {
+  const maxRetries = configFile?.getNumber("telegram", "maxRetries") ?? 3;
+  const initialBackoffMs =
+    configFile?.getNumber("telegram", "initialBackoffMs") ?? 1000;
+
   let lastError: Error | null = null;
   let lastRetryAfter: string | null = null;
 
-  for (let attempt = 0; attempt <= config.telegramMaxRetries; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     if (attempt > 0) {
-      const delay = computeDelay(
-        attempt,
-        config.telegramInitialBackoffMs,
-        lastRetryAfter,
-      );
+      const delay = computeDelay(attempt, initialBackoffMs, lastRetryAfter);
       log.debug({ attempt, delay, method }, "Retrying Telegram API call");
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -167,10 +167,9 @@ async function retryableFetch<T>(
 }
 
 export async function callTelegramApi<T>(
-  config: GatewayConfig,
   method: string,
   body: Record<string, unknown>,
-  opts?: { credentials?: CredentialCache },
+  opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ): Promise<T> {
   let botToken: string | undefined;
   if (opts?.credentials) {
@@ -183,21 +182,26 @@ export async function callTelegramApi<T>(
     );
   }
 
-  return retryableFetch<T>(config, method, () =>
-    fetchImpl(`${config.telegramApiBaseUrl}/bot${botToken}/${method}`, {
+  const apiBaseUrl =
+    opts?.configFile?.getString("telegram", "apiBaseUrl") ??
+    "https://api.telegram.org";
+  const timeoutMs =
+    opts?.configFile?.getNumber("telegram", "timeoutMs") ?? 15000;
+
+  return retryableFetch<T>(opts?.configFile, method, () =>
+    fetchImpl(`${apiBaseUrl}/bot${botToken}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(config.telegramTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     }),
   );
 }
 
 export async function callTelegramApiMultipart<T>(
-  config: GatewayConfig,
   method: string,
   form: FormData,
-  opts?: { credentials?: CredentialCache },
+  opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ): Promise<T> {
   let botToken: string | undefined;
   if (opts?.credentials) {
@@ -210,11 +214,17 @@ export async function callTelegramApiMultipart<T>(
     );
   }
 
-  return retryableFetch<T>(config, method, () =>
-    fetchImpl(`${config.telegramApiBaseUrl}/bot${botToken}/${method}`, {
+  const apiBaseUrl =
+    opts?.configFile?.getString("telegram", "apiBaseUrl") ??
+    "https://api.telegram.org";
+  const timeoutMs =
+    opts?.configFile?.getNumber("telegram", "timeoutMs") ?? 15000;
+
+  return retryableFetch<T>(opts?.configFile, method, () =>
+    fetchImpl(`${apiBaseUrl}/bot${botToken}/${method}`, {
       method: "POST",
       body: form,
-      signal: AbortSignal.timeout(config.telegramTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     }),
   );
 }

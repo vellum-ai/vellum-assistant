@@ -80,7 +80,7 @@ export async function sendWhatsAppReply(
 
     // If text fits in the interactive body limit, send as single interactive message
     if (text.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
-      await sendWhatsAppInteractiveMessage(config, to, text, buttons, caches);
+      await sendWhatsAppInteractiveMessage(to, text, buttons, caches);
       log.debug({ to }, "WhatsApp interactive approval reply sent");
       return;
     }
@@ -89,23 +89,16 @@ export async function sendWhatsAppReply(
     // interactive message with truncated body and buttons at the end
     const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
     for (let i = 0; i < chunks.length - 1; i++) {
-      await sendWhatsAppTextMessage(config, to, chunks[i], caches);
+      await sendWhatsAppTextMessage(to, chunks[i], caches);
     }
 
     const lastChunk = chunks[chunks.length - 1];
     if (lastChunk.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
-      await sendWhatsAppInteractiveMessage(
-        config,
-        to,
-        lastChunk,
-        buttons,
-        caches,
-      );
+      await sendWhatsAppInteractiveMessage(to, lastChunk, buttons, caches);
     } else {
       // Last chunk still too long — send it as text, then a short interactive prompt
-      await sendWhatsAppTextMessage(config, to, lastChunk, caches);
+      await sendWhatsAppTextMessage(to, lastChunk, caches);
       await sendWhatsAppInteractiveMessage(
-        config,
         to,
         "Choose an action:",
         buttons,
@@ -120,7 +113,7 @@ export async function sendWhatsAppReply(
   const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
 
   for (const chunk of chunks) {
-    await sendWhatsAppTextMessage(config, to, chunk, caches);
+    await sendWhatsAppTextMessage(to, chunk, caches);
   }
 
   log.debug({ to, chunks: chunks.length }, "WhatsApp reply sent");
@@ -175,14 +168,12 @@ export async function sendWhatsAppAttachments(
       const mediaType = resolveMediaType(mimeType);
 
       const uploaded = await uploadWhatsAppMedia(
-        config,
         blob,
         filename,
         mimeType,
         caches,
       );
       await sendWhatsAppMediaMessage(
-        config,
         to,
         mediaType,
         uploaded.id,

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import type { GatewayConfig } from "../config.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 
 type FetchFn = (
@@ -16,44 +16,28 @@ mock.module("../fetch.js", () => ({
 
 const { callTelegramApi } = await import("../telegram/api.js");
 
-function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
-  const merged: GatewayConfig = {
-    telegramApiBaseUrl: "https://api.telegram.org",
-    assistantRuntimeBaseUrl: "http://localhost:7821",
-    routingEntries: [],
-    defaultAssistantId: undefined,
-    unmappedPolicy: "reject",
-    port: 7830,
-    runtimeProxyEnabled: false,
-    runtimeProxyRequireAuth: false,
-    shutdownDrainMs: 5000,
-    runtimeTimeoutMs: 30000,
-    runtimeMaxRetries: 2,
-    runtimeInitialBackoffMs: 500,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 0,
-    telegramTimeoutMs: 15000,
-    maxWebhookPayloadBytes: 1048576,
-    logFile: { dir: undefined, retentionDays: 30 },
-    maxAttachmentBytes: 20971520,
-    maxAttachmentConcurrency: 3,
-    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackDeliverAuthBypass: false,
-    trustProxy: false,
-    ...overrides,
-  };
-  return merged;
+/** Create a mock ConfigFileCache that returns 0 retries to avoid delay in tests. */
+function makeConfigFile(): ConfigFileCache {
+  return {
+    getNumber: (_section: string, field: string) => {
+      if (field === "maxRetries") return 0;
+      if (field === "timeoutMs") return 15000;
+      if (field === "initialBackoffMs") return 1000;
+      return undefined;
+    },
+    getString: () => undefined,
+    getBoolean: () => undefined,
+    getRecord: () => undefined,
+  } as unknown as ConfigFileCache;
 }
 
-function makeCredentials(botToken: string) {
+/** Create a mock CredentialCache that returns the given bot token. */
+function makeCredentials(botToken: string): CredentialCache {
   return {
-    get: async (key: string) =>
-      key === "credential:telegram:bot_token" ? botToken : undefined,
+    get: async (key: string) => {
+      if (key === "credential:telegram:bot_token") return botToken;
+      return undefined;
+    },
     invalidate: () => {},
   } as unknown as CredentialCache;
 }
@@ -82,20 +66,15 @@ describe("callTelegramApi transport error redaction", () => {
       throw err;
     });
 
-    const config = makeConfig({
-      telegramMaxRetries: 0,
-    });
-
     let thrown: Error | null = null;
     try {
       await callTelegramApi(
-        config,
         "sendMessage",
         {
           chat_id: "1",
           text: "hello",
         },
-        { credentials: makeCredentials(tgToken) },
+        { credentials: makeCredentials(tgToken), configFile: makeConfigFile() },
       );
     } catch (err) {
       thrown = err as Error;
@@ -126,20 +105,15 @@ describe("callTelegramApi transport error redaction", () => {
       throw err;
     });
 
-    const config = makeConfig({
-      telegramMaxRetries: 0,
-    });
-
     let thrown: Error | null = null;
     try {
       await callTelegramApi(
-        config,
         "sendMessage",
         {
           chat_id: "1",
           text: "hello",
         },
-        { credentials: makeCredentials(tgToken) },
+        { credentials: makeCredentials(tgToken), configFile: makeConfigFile() },
       );
     } catch (err) {
       thrown = err as Error;
@@ -169,20 +143,15 @@ describe("callTelegramApi transport error redaction", () => {
       throw err;
     });
 
-    const config = makeConfig({
-      telegramMaxRetries: 0,
-    });
-
     let thrown: Error | null = null;
     try {
       await callTelegramApi(
-        config,
         "sendMessage",
         {
           chat_id: "1",
           text: "hello",
         },
-        { credentials: makeCredentials(tgToken) },
+        { credentials: makeCredentials(tgToken), configFile: makeConfigFile() },
       );
     } catch (err) {
       thrown = err as Error;
