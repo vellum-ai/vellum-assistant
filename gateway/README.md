@@ -187,7 +187,7 @@ The `/deliver/telegram` endpoint accepts an optional `approval` field in the req
 
 **Inline keyboard format:** Each action is rendered as a single-button row. The callback data uses the compact format `apr:<requestId>:<action>` (e.g., `apr:request-uuid:approve_once`) so the runtime can parse it back when the button is clicked.
 
-**Fallback behavior:** For non-Telegram channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before calling the delivery endpoint. The fallback includes plain-text instructions (e.g., "Reply yes/no/always") so the user can respond via text. The `channelSupportsRichApprovalUI()` function in the runtime determines which format to use; currently only `telegram` is classified as a rich channel.
+**Fallback behavior:** For non-rich channels that do not support inline keyboards, the runtime substitutes the `plainTextFallback` string for the structured `promptText` before calling the delivery endpoint. The fallback includes plain-text instructions so the user can respond via text. The `channelSupportsRichApprovalUI()` function in the runtime determines which format to use. Free-text responses are classified by the conversational approval engine.
 
 ## Telegram Typing Indicator
 
