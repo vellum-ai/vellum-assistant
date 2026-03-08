@@ -125,6 +125,7 @@ export class TelegramStreamingDelivery {
 
         // Send overflow (with approval buttons if present) as a new message
         await this.sendNewMessage(overflow, approval);
+        this.finishOk = true;
         return;
       }
 
