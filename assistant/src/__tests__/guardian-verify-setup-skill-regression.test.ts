@@ -17,7 +17,7 @@ const ASSISTANT_DIR = resolve(import.meta.dirname ?? __dirname, "..", "..");
 const SKILL_PATH = resolve(
   ASSISTANT_DIR,
   "src",
-  "config",
+  "skills",
   "bundled-skills",
   "guardian-verify-setup",
   "SKILL.md",

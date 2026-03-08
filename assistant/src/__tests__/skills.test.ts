@@ -670,7 +670,7 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
   const BUNDLED_SKILLS_DIR = join(
     import.meta.dir,
     "..",
-    "config",
+    "skills",
     "bundled-skills",
   );
 

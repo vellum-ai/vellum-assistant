@@ -7,7 +7,7 @@ import type { SlackConversation } from "../messaging/providers/slack/types.js";
 const BUNDLED_SKILLS_DIR = join(
   import.meta.dir,
   "..",
-  "config",
+  "skills",
   "bundled-skills",
 );
 
