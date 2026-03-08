@@ -1,7 +1,7 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import type { AssistantConfig, SkillEntryConfig } from "../config/schema.js";
-import type { SkillSummary } from "./catalog.js";
-import { checkSkillRequirements } from "./catalog.js";
+import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
+import type { AssistantConfig, SkillEntryConfig } from "./schema.js";
+import type { SkillSummary } from "./skills.js";
+import { checkSkillRequirements } from "./skills.js";
 
 export type SkillState = "enabled" | "disabled" | "degraded" | "available";
 

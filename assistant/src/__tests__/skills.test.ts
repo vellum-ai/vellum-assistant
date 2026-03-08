@@ -69,7 +69,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const { loadSkillCatalog, loadSkillBySelector, resolveSkillSelector } =
-  await import("../skills/catalog.js");
+  await import("../config/skills.js");
 
 /** Return only user-installed skills (filters out bundled skills that ship with the source tree). */
 function loadUserSkillCatalog() {

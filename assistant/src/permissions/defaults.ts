@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
-import { getBundledSkillsDir } from "../skills/catalog.js";
+import { getBundledSkillsDir } from "../config/skills.js";
 import { getRootDir } from "../util/platform.js";
 
 export interface DefaultRuleTemplate {

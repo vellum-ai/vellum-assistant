@@ -1,6 +1,6 @@
+import type { SkillToolEntry } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
-import type { SkillToolEntry } from "../../skills/catalog.js";
 import type {
   ExecutionTarget,
   Tool,

@@ -313,7 +313,7 @@ describe("baseline characterization: core app tool surface", () => {
     // Resolve the bundled skill directory relative to the source config
     const skillDir = path.resolve(
       import.meta.dirname,
-      "../skills/bundled-skills/app-builder",
+      "../config/bundled-skills/app-builder",
     );
     const toolsJsonPath = path.join(skillDir, "TOOLS.json");
 

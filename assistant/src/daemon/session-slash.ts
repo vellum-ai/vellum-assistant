@@ -6,9 +6,9 @@ import QRCode from "qrcode";
 
 import { getGatewayPort, getIngressPublicBaseUrl } from "../config/env.js";
 import { getConfig, loadRawConfig, saveRawConfig } from "../config/loader.js";
+import { resolveSkillStates } from "../config/skill-state.js";
+import { loadSkillCatalog } from "../config/skills.js";
 import { initializeProviders } from "../providers/registry.js";
-import { loadSkillCatalog } from "../skills/catalog.js";
-import { resolveSkillStates } from "../skills/skill-state.js";
 import {
   buildInvocableSlashCatalog,
   resolveSlashSkillCommand,

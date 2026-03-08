@@ -1,14 +1,14 @@
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
+import { skillFlagKey } from "../../config/skill-state.js";
+import type { SkillSummary } from "../../config/skills.js";
+import { loadSkillBySelector, loadSkillCatalog } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
-import type { SkillSummary } from "../../skills/catalog.js";
-import { loadSkillBySelector, loadSkillCatalog } from "../../skills/catalog.js";
 import {
   indexCatalogById,
   validateIncludes,
 } from "../../skills/include-graph.js";
-import { skillFlagKey } from "../../skills/skill-state.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
 import { registerTool } from "../registry.js";

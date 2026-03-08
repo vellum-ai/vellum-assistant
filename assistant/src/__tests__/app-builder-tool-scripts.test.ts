@@ -70,15 +70,15 @@ mock.module("../memory/app-store.js", () => mockStore);
 // Import skill scripts (after mocking)
 // ---------------------------------------------------------------------------
 
-import * as appCreateScript from "../skills/bundled-skills/app-builder/tools/app-create.js";
-import * as appDeleteScript from "../skills/bundled-skills/app-builder/tools/app-delete.js";
-import * as appFileEditScript from "../skills/bundled-skills/app-builder/tools/app-file-edit.js";
-import * as appFileListScript from "../skills/bundled-skills/app-builder/tools/app-file-list.js";
-import * as appFileReadScript from "../skills/bundled-skills/app-builder/tools/app-file-read.js";
-import * as appFileWriteScript from "../skills/bundled-skills/app-builder/tools/app-file-write.js";
-import * as appListScript from "../skills/bundled-skills/app-builder/tools/app-list.js";
-import * as appQueryScript from "../skills/bundled-skills/app-builder/tools/app-query.js";
-import * as appUpdateScript from "../skills/bundled-skills/app-builder/tools/app-update.js";
+import * as appCreateScript from "../config/bundled-skills/app-builder/tools/app-create.js";
+import * as appDeleteScript from "../config/bundled-skills/app-builder/tools/app-delete.js";
+import * as appFileEditScript from "../config/bundled-skills/app-builder/tools/app-file-edit.js";
+import * as appFileListScript from "../config/bundled-skills/app-builder/tools/app-file-list.js";
+import * as appFileReadScript from "../config/bundled-skills/app-builder/tools/app-file-read.js";
+import * as appFileWriteScript from "../config/bundled-skills/app-builder/tools/app-file-write.js";
+import * as appListScript from "../config/bundled-skills/app-builder/tools/app-list.js";
+import * as appQueryScript from "../config/bundled-skills/app-builder/tools/app-query.js";
+import * as appUpdateScript from "../config/bundled-skills/app-builder/tools/app-update.js";
 
 // ---------------------------------------------------------------------------
 // Tests

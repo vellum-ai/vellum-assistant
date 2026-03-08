@@ -76,12 +76,12 @@ mock.module("../config/loader.js", () => ({
 mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
-mock.module("../skills/catalog.js", () => ({
+mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => [],
   loadSkillBySelector: () => ({ skill: null }),
   ensureSkillIcon: async () => null,
 }));
-mock.module("../skills/skill-state.js", () => ({
+mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: () => [],
 }));
 mock.module("../skills/slash-commands.js", () => ({

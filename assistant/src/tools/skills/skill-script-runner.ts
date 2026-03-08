@@ -1,6 +1,6 @@
 import { basename, join, resolve } from "node:path";
 
-import { bundledToolRegistry } from "../../skills/bundled-tool-registry.js";
+import { bundledToolRegistry } from "../../config/bundled-tool-registry.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import type {
   ExecutionTarget,

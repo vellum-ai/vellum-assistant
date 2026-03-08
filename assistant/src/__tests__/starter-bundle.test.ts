@@ -20,7 +20,7 @@ mock.module("../util/platform.js", () => ({
 }));
 
 // Mock the skills config module used by defaults.ts
-mock.module("../skills/catalog.js", () => ({
+mock.module("../config/skills.js", () => ({
   getBundledSkillsDir: () => join(TEST_ROOT, "bundled-skills"),
 }));
 

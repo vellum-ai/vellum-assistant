@@ -78,7 +78,7 @@ const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 // Load task_list_add description from the bundled skill TOOLS.json
 const tasksToolsJson = JSON.parse(
   readFileSync(
-    join(import.meta.dirname, "../skills/bundled-skills/tasks/TOOLS.json"),
+    join(import.meta.dirname, "../config/bundled-skills/tasks/TOOLS.json"),
     "utf-8",
   ),
 );
@@ -89,7 +89,7 @@ const taskListAddDef = tasksToolsJson.tools.find(
 // Load reminder_create description from the bundled skill TOOLS.json
 const reminderToolsJson = JSON.parse(
   readFileSync(
-    join(import.meta.dirname, "../skills/bundled-skills/reminder/TOOLS.json"),
+    join(import.meta.dirname, "../config/bundled-skills/reminder/TOOLS.json"),
     "utf-8",
   ),
 );
@@ -100,7 +100,7 @@ const reminderCreateDef = reminderToolsJson.tools.find(
 // Load schedule_create description from the bundled skill TOOLS.json
 const scheduleToolsJson = JSON.parse(
   readFileSync(
-    join(import.meta.dirname, "../skills/bundled-skills/schedule/TOOLS.json"),
+    join(import.meta.dirname, "../config/bundled-skills/schedule/TOOLS.json"),
     "utf-8",
   ),
 );

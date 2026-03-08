@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import type { SkillToolManifest } from "../skills/catalog.js";
+import type { SkillToolManifest } from "../config/skills.js";
 import {
   parseToolManifest,
   parseToolManifestFile,

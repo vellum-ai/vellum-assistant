@@ -56,6 +56,9 @@ mock.module("../runtime/auth/token-service.js", () => ({
 
 import type { Database } from "bun:sqlite";
 
+import { executeContactMerge } from "../config/bundled-skills/contacts/tools/contact-merge.js";
+import { executeContactSearch } from "../config/bundled-skills/contacts/tools/contact-search.js";
+import { executeContactUpsert } from "../config/bundled-skills/contacts/tools/contact-upsert.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import {
   handleGetContact,
@@ -63,9 +66,6 @@ import {
   handleMergeContacts,
   handleUpsertContact,
 } from "../runtime/routes/contact-routes.js";
-import { executeContactMerge } from "../skills/bundled-skills/contacts/tools/contact-merge.js";
-import { executeContactSearch } from "../skills/bundled-skills/contacts/tools/contact-search.js";
-import { executeContactUpsert } from "../skills/bundled-skills/contacts/tools/contact-upsert.js";
 import type { ToolContext } from "../tools/types.js";
 
 initializeDb();

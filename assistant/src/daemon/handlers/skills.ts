@@ -8,18 +8,19 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
+import { resolveSkillStates } from "../../config/skill-state.js";
+import {
+  ensureSkillIcon,
+  loadSkillBySelector,
+  loadSkillCatalog,
+  type SkillSummary,
+} from "../../config/skills.js";
 import {
   createTimeout,
   extractText,
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
-import {
-  ensureSkillIcon,
-  loadSkillBySelector,
-  loadSkillCatalog,
-  type SkillSummary,
-} from "../../skills/catalog.js";
 import {
   clawhubCheckUpdates,
   clawhubInspect,
@@ -33,7 +34,6 @@ import {
   removeSkillsIndexEntry,
   validateManagedSkillId,
 } from "../../skills/managed-store.js";
-import { resolveSkillStates } from "../../skills/skill-state.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import type {
   SkillDetailRequest,

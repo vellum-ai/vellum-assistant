@@ -46,7 +46,7 @@ import { claudeCodeTool } from "../tools/claude-code/claude-code.js";
 
 const SKILL_DIR = path.resolve(
   import.meta.dirname ?? __dirname,
-  "../skills/bundled-skills/claude-code",
+  "../config/bundled-skills/claude-code",
 );
 
 // ---------------------------------------------------------------------------

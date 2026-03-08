@@ -39,15 +39,15 @@ import type { Database } from "bun:sqlite";
 
 import { v4 as uuid } from "uuid";
 
+import { executePlaybookCreate } from "../config/bundled-skills/playbooks/tools/playbook-create.js";
+import { executePlaybookDelete } from "../config/bundled-skills/playbooks/tools/playbook-delete.js";
+import { executePlaybookList } from "../config/bundled-skills/playbooks/tools/playbook-list.js";
+import { executePlaybookUpdate } from "../config/bundled-skills/playbooks/tools/playbook-update.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { computeMemoryFingerprint } from "../memory/fingerprint.js";
 import { memoryItems } from "../memory/schema.js";
 import { compilePlaybooks } from "../playbooks/playbook-compiler.js";
 import { parsePlaybookStatement } from "../playbooks/types.js";
-import { executePlaybookCreate } from "../skills/bundled-skills/playbooks/tools/playbook-create.js";
-import { executePlaybookDelete } from "../skills/bundled-skills/playbooks/tools/playbook-delete.js";
-import { executePlaybookList } from "../skills/bundled-skills/playbooks/tools/playbook-list.js";
-import { executePlaybookUpdate } from "../skills/bundled-skills/playbooks/tools/playbook-update.js";
 import type { ToolContext } from "../tools/types.js";
 
 initializeDb();

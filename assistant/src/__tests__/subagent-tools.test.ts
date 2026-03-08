@@ -45,7 +45,7 @@ import { executeSubagentStatus } from "../tools/subagent/status.js";
 // Load tool definitions from the bundled skill TOOLS.json
 const toolsJson = JSON.parse(
   readFileSync(
-    join(import.meta.dirname, "../skills/bundled-skills/subagent/TOOLS.json"),
+    join(import.meta.dirname, "../config/bundled-skills/subagent/TOOLS.json"),
     "utf-8",
   ),
 );

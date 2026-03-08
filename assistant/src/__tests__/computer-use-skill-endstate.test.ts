@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 
+import { getBundledSkillsDir } from "../config/skills.js";
 import { buildToolDefinitions } from "../daemon/session-tool-setup.js";
-import { getBundledSkillsDir } from "../skills/catalog.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import {
   __resetRegistryForTesting,

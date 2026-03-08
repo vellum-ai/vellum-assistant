@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import type { SkillToolEntry, SkillToolManifest } from "./catalog.js";
+import type { SkillToolEntry, SkillToolManifest } from "../config/skills.js";
 
 const VALID_RISK_LEVELS = new Set(["low", "medium", "high"]);
 const VALID_EXECUTION_TARGETS = new Set(["host", "sandbox"]);

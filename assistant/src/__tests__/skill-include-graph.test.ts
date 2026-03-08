@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SkillSummary } from "../skills/catalog.js";
+import type { SkillSummary } from "../config/skills.js";
 import {
   getImmediateChildren,
   indexCatalogById,

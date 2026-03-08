@@ -8,12 +8,12 @@ mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const toolsManifestPath = resolve(
   __dirname,
-  "../skills/bundled-skills/messaging/TOOLS.json",
+  "../config/bundled-skills/messaging/TOOLS.json",
 );
 const toolsManifest = JSON.parse(readFileSync(toolsManifestPath, "utf-8"));
 const slackToolsManifestPath = resolve(
   __dirname,
-  "../skills/bundled-skills/slack/TOOLS.json",
+  "../config/bundled-skills/slack/TOOLS.json",
 );
 const slackToolsManifest = JSON.parse(
   readFileSync(slackToolsManifestPath, "utf-8"),

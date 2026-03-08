@@ -45,7 +45,7 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 
 // Skill catalog: returns a configurable list of fake skills
 let catalogSkillIds: string[] = [];
-mock.module("../skills/catalog.js", () => ({
+mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () =>
     catalogSkillIds.map((id) => ({
       id,
@@ -67,7 +67,7 @@ mock.module("../skills/catalog.js", () => ({
 
 // Mock skill-state.js to break the transitive import chain — the benchmark
 // only needs skillFlagKey and doesn't exercise resolveSkillStates.
-mock.module("../skills/skill-state.js", () => ({
+mock.module("../config/skill-state.js", () => ({
   skillFlagKey: (id: string) => `feature_flags.${id}.enabled`,
   resolveSkillStates: () => [],
 }));

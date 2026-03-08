@@ -166,7 +166,7 @@ mock.module("../context/window-manager.js", () => ({
 }));
 
 // Mock skill catalog — "start-the-day" and "browser" are available
-mock.module("../skills/catalog.js", () => ({
+mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => [
     {
       id: "start-the-day",
@@ -196,7 +196,7 @@ mock.module("../skills/catalog.js", () => ({
   ensureSkillIcon: () => {},
 }));
 
-mock.module("../skills/skill-state.js", () => ({
+mock.module("../config/skill-state.js", () => ({
   resolveSkillStates: (catalog: Record<string, unknown>[]) =>
     catalog.map((s) => ({
       summary: s,

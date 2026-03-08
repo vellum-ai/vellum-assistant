@@ -1,13 +1,13 @@
 import * as net from "node:net";
 import { join } from "node:path";
 
+import { loadSkillCatalog } from "../../config/skills.js";
 import {
   check,
   classifyRisk,
   generateAllowlistOptions,
   generateScopeOptions,
 } from "../../permissions/checker.js";
-import { loadSkillCatalog } from "../../skills/catalog.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import {
   type ManifestOverride,

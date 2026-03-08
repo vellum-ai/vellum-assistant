@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
+import type { SkillToolEntry } from "../config/skills.js";
 import { RiskLevel } from "../permissions/types.js";
-import type { SkillToolEntry } from "../skills/catalog.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import {
   createSkillTool,

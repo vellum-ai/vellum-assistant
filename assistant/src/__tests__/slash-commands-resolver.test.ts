@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SkillSummary } from "../skills/catalog.js";
-import type { ResolvedSkill } from "../skills/skill-state.js";
+import type { ResolvedSkill } from "../config/skill-state.js";
+import type { SkillSummary } from "../config/skills.js";
 import {
   buildInvocableSlashCatalog,
   formatUnknownSlashSkillMessage,
