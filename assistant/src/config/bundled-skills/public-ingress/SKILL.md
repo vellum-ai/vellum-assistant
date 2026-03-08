@@ -252,3 +252,7 @@ ngrok's free tier allows one tunnel at a time. Stop any other ngrok tunnels befo
 **Cause:** ngrok is forwarding to a different port than the gateway is listening on. This can happen if the gateway port was changed after ngrok was started, or if ngrok was started manually with a hardcoded port.
 
 **Fix:** Stop ngrok (`pkill -f ngrok`), verify the gateway URL with `echo "$INTERNAL_GATEWAY_BASE_URL"`, then re-run this skill to start ngrok on the correct port.
+
+### ngrok automatically restarts with wrong port
+
+If after killing the ngrok process, it automatically re-spawns and is still attached to the incorrect port, check to see if there is a launch agent process configured to auto-restart it. This might exist at `~/Library/LaunchAgents/com.ngrok.tunnel.plist`. If so, it needs to be either removed or updated.
