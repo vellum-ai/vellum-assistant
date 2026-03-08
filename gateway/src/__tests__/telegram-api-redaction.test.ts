@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -49,6 +50,14 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   return merged;
 }
 
+function makeCredentials(botToken: string) {
+  return {
+    get: async (key: string) =>
+      key === "credential:telegram:bot_token" ? botToken : undefined,
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+}
+
 describe("callTelegramApi transport error redaction", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
@@ -79,10 +88,15 @@ describe("callTelegramApi transport error redaction", () => {
 
     let thrown: Error | null = null;
     try {
-      await callTelegramApi(config, "sendMessage", {
-        chat_id: "1",
-        text: "hello",
-      });
+      await callTelegramApi(
+        config,
+        "sendMessage",
+        {
+          chat_id: "1",
+          text: "hello",
+        },
+        { credentials: makeCredentials(tgToken) },
+      );
     } catch (err) {
       thrown = err as Error;
     }
@@ -118,10 +132,15 @@ describe("callTelegramApi transport error redaction", () => {
 
     let thrown: Error | null = null;
     try {
-      await callTelegramApi(config, "sendMessage", {
-        chat_id: "1",
-        text: "hello",
-      });
+      await callTelegramApi(
+        config,
+        "sendMessage",
+        {
+          chat_id: "1",
+          text: "hello",
+        },
+        { credentials: makeCredentials(tgToken) },
+      );
     } catch (err) {
       thrown = err as Error;
     }
@@ -156,10 +175,15 @@ describe("callTelegramApi transport error redaction", () => {
 
     let thrown: Error | null = null;
     try {
-      await callTelegramApi(config, "sendMessage", {
-        chat_id: "1",
-        text: "hello",
-      });
+      await callTelegramApi(
+        config,
+        "sendMessage",
+        {
+          chat_id: "1",
+          text: "hello",
+        },
+        { credentials: makeCredentials(tgToken) },
+      );
     } catch (err) {
       thrown = err as Error;
     }
