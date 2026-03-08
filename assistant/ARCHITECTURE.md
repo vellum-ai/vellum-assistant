@@ -593,7 +593,7 @@ Release-driven update notification system that surfaces release notes to the ass
 
 **Data flow:**
 
-1. **Bundled template** (`src/config/templates/UPDATES.md`) — source of release notes, maintained per-release in the repo.
+1. **Bundled template** (`src/prompts/templates/UPDATES.md`) — source of release notes, maintained per-release in the repo.
 2. **Startup sync** (`syncUpdateBulletinOnStartup()` in `src/config/update-bulletin.ts`) — materializes the bundled template into the workspace `UPDATES.md` on daemon boot. Uses atomic write (temp + rename) for crash safety.
 3. **System prompt injection** — `buildSystemPrompt()` reads workspace `UPDATES.md` and injects it as a `## Recent Updates` section with judgment-based handling instructions.
 4. **Completion by deletion** — the assistant deletes `UPDATES.md` when it has actioned all updates. Next startup detects the deletion and marks those releases as completed in checkpoint state.
@@ -608,11 +608,11 @@ Release-driven update notification system that surfaces release notes to the ass
 
 | File                                   | Purpose                                                   |
 | -------------------------------------- | --------------------------------------------------------- |
-| `src/config/templates/UPDATES.md`      | Bundled release-note template                             |
+| `src/prompts/templates/UPDATES.md`     | Bundled release-note template                             |
 | `src/config/update-bulletin.ts`        | Startup sync logic (materialize, delete-complete, merge)  |
 | `src/config/update-bulletin-format.ts` | Release block formatter/parser helpers                    |
 | `src/config/update-bulletin-state.ts`  | Checkpoint state helpers for active/completed releases    |
-| `src/config/system-prompt.ts`          | Prompt injection of updates section                       |
+| `src/prompts/system-prompt.ts`         | Prompt injection of updates section                       |
 | `src/daemon/config-watcher.ts`         | File watcher — evicts sessions on UPDATES.md changes      |
 | `src/permissions/defaults.ts`          | Auto-allow rules for file_read/write/edit + rm UPDATES.md |
 
@@ -642,7 +642,7 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 | Enforcement Point                  | Module                                                   | Effect                                                                                                                                                                                                      |
 | ---------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **1. Client skill list**           | `resolveSkillStates()` in `skills/skill-state.ts`        | Skills with flag OFF are excluded from the resolved list returned to IPC clients (macOS skill list, settings UI). The skill never appears in the client.                                                    |
-| **2. System prompt skill catalog** | `appendSkillsCatalog()` in `config/system-prompt.ts`     | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them.                                                                  |
+| **2. System prompt skill catalog** | `appendSkillsCatalog()` in `prompts/system-prompt.ts`    | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them.                                                                  |
 | **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`           | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
 | **5. Included child skills**       | `executeSkillLoad()` in `tools/skills/load.ts`           | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
@@ -657,7 +657,7 @@ All five enforcement points use `isAssistantFeatureFlagEnabled(skillFlagKey(skil
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader        |
 | `src/skills/skill-state.ts`                     | `skillFlagKey()` — derives canonical flag key for skills; `resolveSkillStates()` — enforcement point 1             |
-| `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                      |
+| `src/prompts/system-prompt.ts`                  | `appendSkillsCatalog()` — enforcement point 2                                                                      |
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                  |
 | `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                        |
 | `src/config/schema.ts`                          | `assistantFeatureFlagValues` field definition in `AssistantConfig` (Zod schema)                                    |
