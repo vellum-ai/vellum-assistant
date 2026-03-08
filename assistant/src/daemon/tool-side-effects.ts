@@ -237,6 +237,8 @@ registerHook(
       coerced = typeof raw === "number" ? raw : Number(raw);
     } else if (setting === "wake_word_keyword" && typeof raw === "string") {
       coerced = raw.trim();
+    } else if (setting === "tts_voice_id" && typeof raw === "string") {
+      coerced = raw.trim();
     }
     broadcastToAllClients?.({
       type: "client_settings_update",
