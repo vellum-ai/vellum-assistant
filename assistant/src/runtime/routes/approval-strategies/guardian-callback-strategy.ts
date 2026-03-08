@@ -230,15 +230,27 @@ export async function handleGuardianCallbackDecision(
 
   // Guardian sent a plain-text message with pending approvals but the
   // conversational engine is unavailable. Return a handled result with a
-  // static reply so the guardian gets feedback instead of the message being
+  // generative reply so the guardian gets feedback instead of the message being
   // silently swallowed by the standard approval flow.
-  if (effectivePending.length > 0 && content) {
+  //
+  // Exclude callback/reaction payloads (e.g. `reaction:+1`) — these carry
+  // `callbackData` and must fall through so `handleApprovalInterception` can
+  // route them to the deterministic reaction handler.
+  if (effectivePending.length > 0 && content && !callbackData) {
     try {
+      const text = await composeApprovalMessageGenerative(
+        {
+          scenario: "guardian_text_unavailable",
+          channel: sourceChannel,
+        },
+        {},
+        approvalCopyGenerator,
+      );
       await deliverChannelReply(
         replyCallbackUrl,
         {
           chatId: conversationExternalId,
-          text: "I can't process text replies for approvals right now. Please use the approve/deny buttons above to respond.",
+          text,
           assistantId,
         },
         bearerToken,
