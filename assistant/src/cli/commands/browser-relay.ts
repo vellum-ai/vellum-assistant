@@ -76,7 +76,9 @@ async function readStdin(): Promise<string> {
 export function registerBrowserRelayCommand(program: Command): void {
   const browser = program
     .command("browser")
-    .description("Browser automation commands");
+    .description(
+      "Browser automation, extension relay, and Chrome CDP management",
+    );
 
   browser.addHelpText(
     "after",
