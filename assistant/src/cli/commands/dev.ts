@@ -95,7 +95,7 @@ Examples:
         }
       }
 
-      const mainPath = `${import.meta.dirname}/../daemon/main.ts`;
+      const mainPath = `${import.meta.dirname}/../../daemon/main.ts`;
 
       const useWatch = opts.watch === true;
       log.info(
@@ -104,7 +104,7 @@ Examples:
         } (Ctrl+C to stop)`,
       );
 
-      const repoRoot = join(import.meta.dirname, "..", "..", "..");
+      const repoRoot = join(import.meta.dirname, "..", "..", "..", "..");
       const args = useWatch ? ["--watch", "run", mainPath] : ["run", mainPath];
       const child = spawn("bun", args, {
         stdio: "inherit",
