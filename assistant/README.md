@@ -160,7 +160,7 @@ All approval prompt delivery paths use a **fail-closed** policy -- if the prompt
 
 ### Plain-Text Fallback for Non-Rich Channels
 
-Channels that do not support rich inline approval UI (e.g., inline keyboards) receive plain-text instructions embedded in the message body. The `channelSupportsRichApprovalUI()` check determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). The fallback text includes instructions like "Reply yes/no/always" so the user can respond via text.
+Channels that do not support rich inline approval UI (e.g., inline keyboards) receive plain-text instructions embedded in the message body. The `channelSupportsRichApprovalUI()` check determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). The fallback text includes instructions so the user can respond via text; the conversational approval engine then classifies the free-text response.
 
 ### Key modules
 

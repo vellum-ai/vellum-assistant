@@ -97,7 +97,7 @@ Scoped approval grants allow a guardian's approval decision on one channel (e.g.
 
 ### Guardian Decision Primitive (Dual-Mode Approval)
 
-All guardian approval decisions — regardless of how they arrive — route through a single unified primitive in `src/approvals/guardian-decision-primitive.ts`. This centralizes decision logic that was previously duplicated across callback button handlers, the conversational approval engine, the legacy text parser, and the requester self-cancel path.
+All guardian approval decisions — regardless of how they arrive — route through a single unified primitive in `src/approvals/guardian-decision-primitive.ts`. This centralizes decision logic that was previously duplicated across callback button handlers, the conversational approval engine, and the requester self-cancel path.
 
 **Core API:**
 

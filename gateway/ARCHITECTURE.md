@@ -346,7 +346,7 @@ The `approval-message-composer.ts` module provides a centralized system for gene
 1. **Assistant preface** — reuses existing assistant text (macOS parity)
 2. **Deterministic fallback** — scenario-specific templates with required semantic content
 
-All approval/guardian/verification user-facing copy routes through this composer. Deterministic behavior (action IDs, callback payloads, plain-text parsing) remains separate and unchanged. A guard test (`approval-hardcoded-copy-guard.test.ts`) scans the route/service files for banned hard-coded copy literals to prevent regressions.
+All approval/guardian/verification user-facing copy routes through this composer. Deterministic behavior (action IDs, callback payloads) remains separate and unchanged. A guard test (`approval-hardcoded-copy-guard.test.ts`) scans the route/service files for banned hard-coded copy literals to prevent regressions.
 
 ### Channel Guardian Security
 
