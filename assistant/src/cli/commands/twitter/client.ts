@@ -4,8 +4,18 @@
  * go through the browser's authenticated session.
  */
 
-import { ProviderError } from "../../../util/errors.js";
 import { loadSession, type TwitterSession } from "./session.js";
+
+class ProviderError extends Error {
+  constructor(
+    message: string,
+    public readonly provider: string,
+    public readonly statusCode?: number,
+  ) {
+    super(message);
+    this.name = "ProviderError";
+  }
+}
 
 const CDP_BASE = "http://localhost:9222";
 
