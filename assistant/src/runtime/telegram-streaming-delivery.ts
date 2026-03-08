@@ -73,7 +73,17 @@ export class TelegramStreamingDelivery {
         this.currentMessageText += this.buffer;
         this.buffer = "";
       } else {
-        this.currentMessageText = this.buffer;
+        log.warn(
+          {
+            chatId: this.opts.chatId,
+            bufferLen: this.buffer.length,
+            currentMessageTextLen: this.currentMessageText.length,
+            textDelivered: this.textDelivered,
+            initialSendInFlight: this.initialSendInFlight,
+          },
+          "finish() sending as new message because currentMessageId is null",
+        );
+        this.currentMessageText += this.buffer;
         this.buffer = "";
         // Send as new message
         await this.sendNewMessage(this.currentMessageText, approval);
@@ -179,6 +189,11 @@ export class TelegramStreamingDelivery {
       .then((result) => {
         if (result.messageId) {
           this.currentMessageId = result.messageId;
+        } else {
+          log.warn(
+            { chatId: this.opts.chatId },
+            "Initial streaming send succeeded but no messageId in response",
+          );
         }
         this.textDelivered = true;
         this.lastSentText = textSnapshot;
@@ -191,6 +206,10 @@ export class TelegramStreamingDelivery {
           { err, chatId: this.opts.chatId },
           "Failed to send initial streaming message",
         );
+        // Push the initial text back into the buffer so finish() can send
+        // the full accumulated text as a single message
+        this.buffer = this.currentMessageText + this.buffer;
+        this.currentMessageText = "";
         // Fall back: clear guard so future deltas can retry
         this.initialSendInFlight = false;
         this.currentMessageId = null;
