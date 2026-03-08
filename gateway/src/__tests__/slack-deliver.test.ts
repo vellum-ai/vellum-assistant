@@ -342,6 +342,7 @@ describe("slack-deliver endpoint", () => {
 
     const handler = createSlackDeliverHandler(makeConfig(), undefined, {
       credentials,
+      configFile: makeConfigFile(),
     });
     const req = makeRequest({ chatId: "C123", text: "hello" });
     const res = await handler(req);
