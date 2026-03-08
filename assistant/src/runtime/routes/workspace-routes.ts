@@ -1,13 +1,7 @@
 /**
  * Route handlers for workspace file browsing and content serving.
  */
-import {
-  existsSync,
-  lstatSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -47,9 +41,9 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
       const fullPath = join(resolved, entry.name);
       const isDir = entry.isDirectory();
 
-      let stats: ReturnType<typeof lstatSync>;
+      let stats: ReturnType<typeof statSync>;
       try {
-        stats = lstatSync(fullPath);
+        stats = statSync(fullPath);
       } catch {
         // Skip entries that can't be stat'd (broken symlinks, permission denied, etc.)
         continue;
