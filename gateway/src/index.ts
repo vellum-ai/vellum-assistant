@@ -201,7 +201,9 @@ async function main() {
 
   const { handler: handleTelegramWebhook, dedupCache: telegramDedupCache } =
     createTelegramWebhookHandler(config, { credentials: credentialCache });
-  const handleTelegramDeliver = createTelegramDeliverHandler(config);
+  const handleTelegramDeliver = createTelegramDeliverHandler(config, {
+    credentials: credentialCache,
+  });
   const isTelegramConfigured = () => telegramReady;
   const isWhatsAppConfigured = () => whatsappReady;
 

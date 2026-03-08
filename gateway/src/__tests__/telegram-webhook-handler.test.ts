@@ -86,11 +86,12 @@ function makeWebhookRequest(
   });
 }
 
-/** Create a mock CredentialCache that returns the webhook secret. */
+/** Create a mock CredentialCache that returns the webhook secret and bot token. */
 function makeCaches(webhookSecret: string | undefined = "test-webhook-secret") {
   const credentials = {
     get: async (key: string) => {
       if (key === "credential:telegram:webhook_secret") return webhookSecret;
+      if (key === "credential:telegram:bot_token") return "test-bot-token";
       return undefined;
     },
     invalidate: () => {},

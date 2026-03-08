@@ -177,6 +177,12 @@ export async function callTelegramApi<T>(
     botToken = await opts.credentials.get("credential:telegram:bot_token");
   }
 
+  if (!botToken) {
+    throw new Error(
+      `Telegram ${method} failed: botToken is not available (credentials not provided or credential cache returned undefined)`,
+    );
+  }
+
   return retryableFetch<T>(config, method, () =>
     fetchImpl(`${config.telegramApiBaseUrl}/bot${botToken}/${method}`, {
       method: "POST",
@@ -196,6 +202,12 @@ export async function callTelegramApiMultipart<T>(
   let botToken: string | undefined;
   if (opts?.credentials) {
     botToken = await opts.credentials.get("credential:telegram:bot_token");
+  }
+
+  if (!botToken) {
+    throw new Error(
+      `Telegram ${method} failed: botToken is not available (credentials not provided or credential cache returned undefined)`,
+    );
   }
 
   return retryableFetch<T>(config, method, () =>

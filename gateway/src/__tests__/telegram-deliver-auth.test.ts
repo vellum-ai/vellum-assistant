@@ -1,5 +1,6 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
 import { initSigningKey, mintToken } from "../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 
@@ -72,6 +73,18 @@ afterEach(() => {
   fetchMock = mock(async () => new Response());
 });
 
+/** Create a mock CredentialCache that returns the bot token. */
+function makeCaches() {
+  const credentials = {
+    get: async (key: string) => {
+      if (key === "credential:telegram:bot_token") return "test-bot-token";
+      return undefined;
+    },
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  return { credentials };
+}
+
 function mockTelegramApi() {
   fetchMock = mock(async () => {
     return new Response(JSON.stringify({ ok: true, result: {} }), {
@@ -114,6 +127,7 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
 
     const handler = createTelegramDeliverHandler(
       makeConfig({ telegramDeliverAuthBypass: true }),
+      makeCaches(),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -178,6 +192,7 @@ describe("/deliver/telegram attachment delivery without assistantId", () => {
 
     const handler = createTelegramDeliverHandler(
       makeConfig({ telegramDeliverAuthBypass: true }),
+      makeCaches(),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -240,6 +255,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
 
     const handler = createTelegramDeliverHandler(
       makeConfig({ telegramDeliverAuthBypass: true }),
+      makeCaches(),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -267,6 +283,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
   test("rejects attachment missing id with 400", async () => {
     const handler = createTelegramDeliverHandler(
       makeConfig({ telegramDeliverAuthBypass: true }),
+      makeCaches(),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -313,6 +330,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
 
     const handler = createTelegramDeliverHandler(
       makeConfig({ telegramDeliverAuthBypass: true }),
+      makeCaches(),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -340,7 +358,7 @@ describe("/deliver/telegram ID-only attachment validation", () => {
 
 describe("/deliver/telegram bearer auth enforcement", () => {
   test("rejects request without Authorization header with 401", async () => {
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -354,7 +372,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
   });
 
   test("rejects request with wrong bearer token with 401", async () => {
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
       headers: {
@@ -371,7 +389,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
   });
 
   test("rejects request with empty bearer token with 401", async () => {
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
       headers: {
@@ -387,7 +405,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
 
   test("accepts request with correct bearer token", async () => {
     mockTelegramApi();
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
       headers: {
@@ -407,6 +425,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
     mockTelegramApi();
     const handler = createTelegramDeliverHandler(
       makeConfig({ telegramDeliverAuthBypass: true }),
+      makeCaches(),
     );
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
@@ -421,7 +440,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
   });
 
   test("still rejects non-POST methods before auth check", async () => {
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "GET",
     });
@@ -431,7 +450,7 @@ describe("/deliver/telegram bearer auth enforcement", () => {
   });
 
   test("still validates request body after successful auth", async () => {
-    const handler = createTelegramDeliverHandler(makeConfig());
+    const handler = createTelegramDeliverHandler(makeConfig(), makeCaches());
     const req = new Request("http://localhost:7830/deliver/telegram", {
       method: "POST",
       headers: {

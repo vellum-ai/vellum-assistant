@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
 import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
 import { getLogger } from "../logger.js";
 import {
@@ -48,6 +49,7 @@ export async function sendTelegramReply(
   chatId: string,
   text: string,
   approval?: ApprovalPayload,
+  opts?: { credentials?: CredentialCache },
 ): Promise<void> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
 
@@ -63,7 +65,7 @@ export async function sendTelegramReply(
       payload.reply_markup = buildInlineKeyboard(approval);
     }
 
-    await callTelegramApi(config, "sendMessage", payload);
+    await callTelegramApi(config, "sendMessage", payload, opts);
   }
 
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");
@@ -73,6 +75,7 @@ export async function sendTelegramAttachments(
   config: GatewayConfig,
   chatId: string,
   attachments: RuntimeAttachmentMeta[],
+  opts?: { credentials?: CredentialCache },
 ): Promise<void> {
   const failures: string[] = [];
 
@@ -120,10 +123,10 @@ export async function sendTelegramAttachments(
       const isImage = IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p));
       if (isImage) {
         form.set("photo", blob, filename);
-        await callTelegramApiMultipart(config, "sendPhoto", form);
+        await callTelegramApiMultipart(config, "sendPhoto", form, opts);
       } else {
         form.set("document", blob, filename);
-        await callTelegramApiMultipart(config, "sendDocument", form);
+        await callTelegramApiMultipart(config, "sendDocument", form, opts);
       }
 
       log.debug(
@@ -143,7 +146,7 @@ export async function sendTelegramAttachments(
   if (failures.length > 0) {
     const notice = `\u26a0\ufe0f ${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
     try {
-      await sendTelegramReply(config, chatId, notice);
+      await sendTelegramReply(config, chatId, notice, undefined, opts);
     } catch (err) {
       log.error({ err, chatId }, "Failed to send attachment failure notice");
     }
@@ -153,12 +156,18 @@ export async function sendTelegramAttachments(
 export async function sendTypingIndicator(
   config: GatewayConfig,
   chatId: string,
+  opts?: { credentials?: CredentialCache },
 ): Promise<boolean> {
   try {
-    await callTelegramApi(config, "sendChatAction", {
-      chat_id: chatId,
-      action: "typing",
-    });
+    await callTelegramApi(
+      config,
+      "sendChatAction",
+      {
+        chat_id: chatId,
+        action: "typing",
+      },
+      opts,
+    );
     return true;
   } catch (err) {
     log.debug({ err, chatId }, "Failed to send typing indicator");

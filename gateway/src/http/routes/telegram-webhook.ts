@@ -182,9 +182,14 @@ export function createTelegramWebhookHandler(
       phase: string,
     ): void => {
       if (!callbackQueryId) return;
-      callTelegramApi(config, "answerCallbackQuery", {
-        callback_query_id: callbackQueryId,
-      }).catch((err) => {
+      callTelegramApi(
+        config,
+        "answerCallbackQuery",
+        {
+          callback_query_id: callbackQueryId,
+        },
+        { credentials: caches?.credentials },
+      ).catch((err) => {
         tlog.error(
           { err, callbackQueryId, phase },
           "Failed to acknowledge callback query",
@@ -230,21 +235,21 @@ export function createTelegramWebhookHandler(
           return;
         }
 
-        callTelegramApi(config, "deleteMessage", basePayload).catch(
-          (deleteErr) => {
-            tlog.error(
-              {
-                primaryErr,
-                fallbackErr,
-                deleteErr,
-                chatId,
-                messageId: parsedMessageId,
-                phase,
-              },
-              "Failed to clear inline approval buttons and delete prompt message",
-            );
-          },
-        );
+        callTelegramApi(config, "deleteMessage", basePayload, {
+          credentials: caches?.credentials,
+        }).catch((deleteErr) => {
+          tlog.error(
+            {
+              primaryErr,
+              fallbackErr,
+              deleteErr,
+              chatId,
+              messageId: parsedMessageId,
+              phase,
+            },
+            "Failed to clear inline approval buttons and delete prompt message",
+          );
+        });
       };
 
       // Bot API behavior differs across wrappers/clients for "remove markup".
@@ -252,16 +257,24 @@ export function createTelegramWebhookHandler(
       // keyboard payload if needed. If both fail, delete the prompt message
       // so users are not left with stale actionable buttons — unless the error
       // indicates the markup was already removed (no-op).
-      callTelegramApi(config, "editMessageReplyMarkup", {
-        ...basePayload,
-        reply_markup: null,
-      }).catch((primaryErr) =>
-        callTelegramApi(config, "editMessageReplyMarkup", {
+      callTelegramApi(
+        config,
+        "editMessageReplyMarkup",
+        {
           ...basePayload,
-          reply_markup: { inline_keyboard: [] },
-        }).catch((fallbackErr) =>
-          deleteApprovalPrompt(primaryErr, fallbackErr),
-        ),
+          reply_markup: null,
+        },
+        { credentials: caches?.credentials },
+      ).catch((primaryErr) =>
+        callTelegramApi(
+          config,
+          "editMessageReplyMarkup",
+          {
+            ...basePayload,
+            reply_markup: { inline_keyboard: [] },
+          },
+          { credentials: caches?.credentials },
+        ).catch((fallbackErr) => deleteApprovalPrompt(primaryErr, fallbackErr)),
       );
     };
 
@@ -321,6 +334,8 @@ export function createTelegramWebhookHandler(
             config,
             normalized.message.conversationExternalId,
             "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
+            undefined,
+            { credentials: caches?.credentials },
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -342,6 +357,8 @@ export function createTelegramWebhookHandler(
           config,
           normalized.message.conversationExternalId,
           START_COMMAND_ACK_TEXT,
+          undefined,
+          { credentials: caches?.credentials },
         ).catch((err) => {
           tlog.error(
             { err, chatId: normalized.message.conversationExternalId },
@@ -381,6 +398,8 @@ export function createTelegramWebhookHandler(
               config,
               normalized.message.conversationExternalId,
               "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
+              undefined,
+              { credentials: caches?.credentials },
             ).catch((err) => {
               tlog.error(
                 { err, chatId: normalized.message.conversationExternalId },
@@ -397,6 +416,8 @@ export function createTelegramWebhookHandler(
             config,
             normalized.message.conversationExternalId,
             "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
+            undefined,
+            { credentials: caches?.credentials },
           ).catch((err) => {
             tlog.error({ err }, "Failed to send /start fallback reply");
           });
@@ -426,6 +447,8 @@ export function createTelegramWebhookHandler(
           config,
           normalized.message.conversationExternalId,
           "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
+          undefined,
+          { credentials: caches?.credentials },
         ).catch((replyErr) => {
           tlog.error({ err: replyErr }, "Failed to send /start error fallback");
         });
@@ -461,6 +484,8 @@ export function createTelegramWebhookHandler(
             config,
             normalized.message.conversationExternalId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
+            undefined,
+            { credentials: caches?.credentials },
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -478,6 +503,8 @@ export function createTelegramWebhookHandler(
               config,
               normalized.message.conversationExternalId,
               text,
+              undefined,
+              { credentials: caches?.credentials },
             );
           },
           tlog,
@@ -558,6 +585,7 @@ export function createTelegramWebhookHandler(
                   fileName: att.fileName,
                   mimeType: att.mimeType,
                 },
+                { credentials: caches?.credentials },
               );
               return uploadAttachment(config, downloaded);
             }),
@@ -613,6 +641,8 @@ export function createTelegramWebhookHandler(
             config,
             chatId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
+            undefined,
+            { credentials: caches?.credentials },
           ).catch((err) => {
             tlog.error(
               { err, chatId },

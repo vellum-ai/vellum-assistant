@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../../config.js";
+import type { CredentialCache } from "../../credential-cache.js";
 import { getLogger } from "../../logger.js";
 import { checkDeliverAuth } from "../middleware/deliver-auth.js";
 import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
@@ -21,7 +22,10 @@ export type ApprovalPayload = {
   plainTextFallback: string;
 };
 
-export function createTelegramDeliverHandler(config: GatewayConfig) {
+export function createTelegramDeliverHandler(
+  config: GatewayConfig,
+  caches?: { credentials?: CredentialCache },
+) {
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
     const tlog = traceId ? log.child({ traceId }) : log;
@@ -172,17 +176,26 @@ export function createTelegramDeliverHandler(config: GatewayConfig) {
       }
     }
 
+    const credentialOpts = caches?.credentials
+      ? { credentials: caches.credentials }
+      : undefined;
+
     try {
       if (chatAction === "typing") {
-        await sendTypingIndicator(config, chatId);
+        await sendTypingIndicator(config, chatId, credentialOpts);
       }
 
       if (text) {
-        await sendTelegramReply(config, chatId, text, approval);
+        await sendTelegramReply(config, chatId, text, approval, credentialOpts);
       }
 
       if (attachments && attachments.length > 0) {
-        await sendTelegramAttachments(config, chatId, attachments);
+        await sendTelegramAttachments(
+          config,
+          chatId,
+          attachments,
+          credentialOpts,
+        );
       }
     } catch (err) {
       tlog.error({ err, chatId }, "Failed to deliver Telegram reply");
