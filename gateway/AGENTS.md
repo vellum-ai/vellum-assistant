@@ -30,7 +30,7 @@ All assistant API requests from clients, CLI, skills, and user-facing tooling **
 
 **SKILL.md proxied outbound pattern:** For outbound third-party API calls from skills that require stored credentials, default to `bash` with `network_mode: "proxied"` and `credential_ids` instead of manual token/keychain plumbing. This keeps credentials out of chat and enforces credential policies consistently.
 
-**SKILL.md gateway URL pattern:** For gateway control-plane writes/actions that are not exposed through a CLI read command, use `$INTERNAL_GATEWAY_BASE_URL` (injected by `bash` and `host_bash`). `$GATEWAY_BASE_URL` is also injected and resolves to the configured public ingress URL when set (falling back to the internal gateway target). Do not hardcode `localhost`/ports in skill examples, and do not instruct users/agents to manually export either variable from Settings.
+**SKILL.md gateway URL pattern:** For gateway control-plane writes/actions that are not exposed through a CLI read command, use `$INTERNAL_GATEWAY_BASE_URL` (injected by `bash` and `host_bash`). Do not hardcode `localhost`/ports in skill examples, and do not instruct users/agents to manually export the variable from Settings. For public ingress URLs (e.g. OAuth redirect URIs, webhook registration), use `assistant config get ingress.publicBaseUrl` or load the `public-ingress` skill — do not inject public URLs as environment variables.
 
 ### Channel Identity Vocabulary
 

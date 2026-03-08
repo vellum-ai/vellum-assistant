@@ -5,10 +5,7 @@
  *
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
-import {
-  getGatewayInternalBaseUrl,
-  getIngressPublicBaseUrl,
-} from "../../config/env.js";
+import { getGatewayInternalBaseUrl } from "../../config/env.js";
 
 const SAFE_ENV_VARS = [
   "PATH",
@@ -41,9 +38,5 @@ export function buildSanitizedEnv(): Record<string, string> {
   // Always inject an internal gateway base for local control-plane/API calls.
   const internalGatewayBase = getGatewayInternalBaseUrl();
   env.INTERNAL_GATEWAY_BASE_URL = internalGatewayBase;
-  // Inject a public gateway base when ingress is configured; otherwise fall
-  // back to the internal base so commands remain functional in local-only mode.
-  const publicGatewayBase = getIngressPublicBaseUrl()?.replace(/\/+$/, "");
-  env.GATEWAY_BASE_URL = publicGatewayBase || internalGatewayBase;
   return env;
 }
