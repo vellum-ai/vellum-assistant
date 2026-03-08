@@ -2,7 +2,7 @@
  * Route handlers for workspace file browsing and content serving.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { getWorkspaceDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
@@ -12,10 +12,6 @@ import {
   MAX_INLINE_TEXT_SIZE,
   resolveWorkspacePath,
 } from "./workspace-utils.js";
-
-// ---------------------------------------------------------------------------
-// GET /v1/workspace/tree — directory listing
-// ---------------------------------------------------------------------------
 
 interface TreeEntry {
   name: string;
@@ -74,11 +70,7 @@ function handleWorkspaceTree(ctx: { url: URL }): Response {
 function handleWorkspaceFile(ctx: RouteContext): Response {
   const path = ctx.url.searchParams.get("path");
   if (!path) {
-    return httpError(
-      "BAD_REQUEST",
-      "Missing required query parameter: path",
-      400,
-    );
+    return httpError("BAD_REQUEST", "path query parameter is required", 400);
   }
 
   const resolved = resolveWorkspacePath(path);
@@ -86,31 +78,35 @@ function handleWorkspaceFile(ctx: RouteContext): Response {
     return httpError("BAD_REQUEST", "Invalid path", 400);
   }
 
-  if (!existsSync(resolved)) {
+  let stat: ReturnType<typeof statSync>;
+  try {
+    stat = statSync(resolved);
+  } catch {
     return httpError("NOT_FOUND", "File not found", 404);
   }
 
-  const stat = statSync(resolved);
   if (!stat.isFile()) {
-    return httpError("BAD_REQUEST", "Path is not a file", 400);
+    return httpError("NOT_FOUND", "File not found", 404);
   }
 
-  const bunFile = Bun.file(resolved);
-  const mimeType = bunFile.type;
-  const size = stat.size;
+  const mimeType = Bun.file(resolved).type;
+  const isText = isTextMimeType(mimeType);
+  const isBinary = !isText;
 
-  const result: Record<string, unknown> = {
+  let content: string | undefined = undefined;
+  if (isText && stat.size <= MAX_INLINE_TEXT_SIZE) {
+    content = readFileSync(resolved, "utf-8");
+  }
+
+  return Response.json({
     path,
+    name: basename(resolved),
+    size: stat.size,
     mimeType,
-    size,
-  };
-
-  // Inline text content for small text files
-  if (isTextMimeType(mimeType) && size <= MAX_INLINE_TEXT_SIZE) {
-    result.content = readFileSync(resolved, "utf-8");
-  }
-
-  return Response.json(result);
+    modifiedAt: stat.mtime.toISOString(),
+    content: content ?? null,
+    isBinary,
+  });
 }
 
 // ---------------------------------------------------------------------------
