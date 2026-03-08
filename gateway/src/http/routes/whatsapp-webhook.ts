@@ -25,6 +25,7 @@ import { downloadWhatsAppFile } from "../../whatsapp/download.js";
 import {
   markWhatsAppMessageRead,
   WhatsAppNonRetryableError,
+  type WhatsAppApiCaches,
 } from "../../whatsapp/api.js";
 import { normalizeWhatsAppWebhook } from "../../whatsapp/normalize.js";
 import { sendWhatsAppReply } from "../../whatsapp/send.js";
@@ -40,6 +41,11 @@ export function createWhatsAppWebhookHandler(
 ) {
   // 24-hour TTL — WhatsApp message IDs are globally unique and never reused
   const dedupCache = new StringDedupCache(24 * 60 * 60_000);
+
+  // Build API caches from the credential cache for outbound WhatsApp calls
+  const apiCaches: WhatsAppApiCaches | undefined = caches?.credentials
+    ? { credentials: caches.credentials }
+    : undefined;
 
   const handler = async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -193,12 +199,14 @@ export function createWhatsAppWebhookHandler(
       );
 
       // Mark message as read (best-effort, do not await)
-      markWhatsAppMessageRead(config, whatsappMessageId).catch((err) => {
-        tlog.debug(
-          { err, messageId: whatsappMessageId },
-          "Failed to mark WhatsApp message as read",
-        );
-      });
+      markWhatsAppMessageRead(config, whatsappMessageId, apiCaches).catch(
+        (err) => {
+          tlog.debug(
+            { err, messageId: whatsappMessageId },
+            "Failed to mark WhatsApp message as read",
+          );
+        },
+      );
 
       // Resolve routing once so we can gate further operations on it
       const routing = resolveAssistant(config, from, from);
@@ -210,21 +218,25 @@ export function createWhatsAppWebhookHandler(
             { from, reason: routing.reason },
             "Routing rejected /new command",
           );
-          sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
-            (err) => {
-              tlog.error(
-                { err, to: from },
-                "Failed to send /new routing rejection notice",
-              );
-            },
-          );
+          sendWhatsAppReply(
+            config,
+            from,
+            ROUTING_REJECTION_NOTICE,
+            undefined,
+            apiCaches,
+          ).catch((err) => {
+            tlog.error(
+              { err, to: from },
+              "Failed to send /new routing rejection notice",
+            );
+          });
         } else {
           await handleNewCommand(
             config,
             event.sourceChannel,
             event.message.conversationExternalId,
             async (text) => {
-              await sendWhatsAppReply(config, from, text);
+              await sendWhatsAppReply(config, from, text, undefined, apiCaches);
             },
             tlog,
           );
@@ -240,14 +252,18 @@ export function createWhatsAppWebhookHandler(
           "Routing rejected inbound WhatsApp message",
         );
         if (rejectionLimiter.shouldSend(from)) {
-          sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
-            (err) => {
-              tlog.error(
-                { err, to: from },
-                "Failed to send routing rejection notice",
-              );
-            },
-          );
+          sendWhatsAppReply(
+            config,
+            from,
+            ROUTING_REJECTION_NOTICE,
+            undefined,
+            apiCaches,
+          ).catch((err) => {
+            tlog.error(
+              { err, to: from },
+              "Failed to send routing rejection notice",
+            );
+          });
         }
         dedupCache.mark(whatsappMessageId);
         continue;
@@ -364,14 +380,18 @@ export function createWhatsAppWebhookHandler(
           whatsappMessageId,
           () => {
             if (rejectionLimiter.shouldSend(from)) {
-              sendWhatsAppReply(config, from, ROUTING_REJECTION_NOTICE).catch(
-                (err) => {
-                  tlog.error(
-                    { err, to: from },
-                    "Failed to send routing rejection notice",
-                  );
-                },
-              );
+              sendWhatsAppReply(
+                config,
+                from,
+                ROUTING_REJECTION_NOTICE,
+                undefined,
+                apiCaches,
+              ).catch((err) => {
+                tlog.error(
+                  { err, to: from },
+                  "Failed to send routing rejection notice",
+                );
+              });
             }
           },
           tlog,

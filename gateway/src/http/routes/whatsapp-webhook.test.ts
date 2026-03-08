@@ -275,6 +275,7 @@ describe("whatsapp-webhook", () => {
     expect(markWhatsAppMessageReadMock).toHaveBeenCalledWith(
       baseConfig,
       "wamid-1",
+      expect.objectContaining({ credentials: expect.anything() }),
     );
   });
 
@@ -714,6 +715,7 @@ describe("whatsapp-webhook", () => {
     expect(markWhatsAppMessageReadMock).toHaveBeenCalledWith(
       baseConfig,
       "wamid-read-media",
+      expect.objectContaining({ credentials: expect.anything() }),
     );
   });
 

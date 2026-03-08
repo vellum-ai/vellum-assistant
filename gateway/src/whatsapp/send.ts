@@ -12,6 +12,7 @@ import {
   uploadWhatsAppMedia,
   sendWhatsAppMediaMessage,
   type WhatsAppMediaType,
+  type WhatsAppApiCaches,
 } from "./api.js";
 
 const log = getLogger("whatsapp-send");
@@ -65,6 +66,7 @@ export async function sendWhatsAppReply(
   to: string,
   text: string,
   approval?: ApprovalPayload,
+  caches?: WhatsAppApiCaches,
 ): Promise<void> {
   if (approval) {
     // WhatsApp interactive buttons: up to 3 buttons, 20-char titles, 1024-char body.
@@ -78,7 +80,7 @@ export async function sendWhatsAppReply(
 
     // If text fits in the interactive body limit, send as single interactive message
     if (text.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
-      await sendWhatsAppInteractiveMessage(config, to, text, buttons);
+      await sendWhatsAppInteractiveMessage(config, to, text, buttons, caches);
       log.debug({ to }, "WhatsApp interactive approval reply sent");
       return;
     }
@@ -87,20 +89,27 @@ export async function sendWhatsAppReply(
     // interactive message with truncated body and buttons at the end
     const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
     for (let i = 0; i < chunks.length - 1; i++) {
-      await sendWhatsAppTextMessage(config, to, chunks[i]);
+      await sendWhatsAppTextMessage(config, to, chunks[i], caches);
     }
 
     const lastChunk = chunks[chunks.length - 1];
     if (lastChunk.length <= WHATSAPP_INTERACTIVE_BODY_MAX_LEN) {
-      await sendWhatsAppInteractiveMessage(config, to, lastChunk, buttons);
+      await sendWhatsAppInteractiveMessage(
+        config,
+        to,
+        lastChunk,
+        buttons,
+        caches,
+      );
     } else {
       // Last chunk still too long — send it as text, then a short interactive prompt
-      await sendWhatsAppTextMessage(config, to, lastChunk);
+      await sendWhatsAppTextMessage(config, to, lastChunk, caches);
       await sendWhatsAppInteractiveMessage(
         config,
         to,
         "Choose an action:",
         buttons,
+        caches,
       );
     }
 
@@ -111,7 +120,7 @@ export async function sendWhatsAppReply(
   const chunks = splitText(text, WHATSAPP_MAX_MESSAGE_LEN);
 
   for (const chunk of chunks) {
-    await sendWhatsAppTextMessage(config, to, chunk);
+    await sendWhatsAppTextMessage(config, to, chunk, caches);
   }
 
   log.debug({ to, chunks: chunks.length }, "WhatsApp reply sent");
@@ -127,6 +136,7 @@ export async function sendWhatsAppAttachments(
   config: GatewayConfig,
   to: string,
   attachments: RuntimeAttachmentMeta[],
+  caches?: WhatsAppApiCaches,
 ): Promise<AttachmentResult> {
   const failures: string[] = [];
 
@@ -169,6 +179,7 @@ export async function sendWhatsAppAttachments(
         blob,
         filename,
         mimeType,
+        caches,
       );
       await sendWhatsAppMediaMessage(
         config,
@@ -176,6 +187,8 @@ export async function sendWhatsAppAttachments(
         mediaType,
         uploaded.id,
         filename,
+        undefined,
+        caches,
       );
 
       log.debug(
@@ -195,7 +208,7 @@ export async function sendWhatsAppAttachments(
   if (failures.length > 0) {
     const notice = `${failures.length} attachment(s) could not be delivered: ${failures.join(", ")}`;
     try {
-      await sendWhatsAppReply(config, to, notice);
+      await sendWhatsAppReply(config, to, notice, undefined, caches);
     } catch (err) {
       log.error({ err, to }, "Failed to send attachment failure notice");
     }

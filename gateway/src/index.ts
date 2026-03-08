@@ -221,7 +221,9 @@ async function main() {
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
     createWhatsAppWebhookHandler(config, { credentials: credentialCache });
-  const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config);
+  const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config, {
+    credentials: credentialCache,
+  });
   const handleSlackDeliver = createSlackDeliverHandler(
     config,
     (threadTs) => {
