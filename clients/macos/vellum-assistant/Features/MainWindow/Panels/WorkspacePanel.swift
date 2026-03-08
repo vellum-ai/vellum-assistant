@@ -31,6 +31,10 @@ struct WorkspacePanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .task { await loadRoot() }
+        .onDisappear {
+            state.fileLoadTask?.cancel()
+            state.fileLoadTask = nil
+        }
     }
 
     private func loadRoot() async {
@@ -385,6 +389,10 @@ private struct WorkspaceVideoPlayer: View {
         }
         .onAppear {
             player = AVPlayer(url: url)
+        }
+        .onChange(of: url) { _, newURL in
+            player?.pause()
+            player = AVPlayer(url: newURL)
         }
         .onDisappear {
             player?.pause()
