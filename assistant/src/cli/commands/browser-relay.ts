@@ -6,15 +6,6 @@ import type {
 } from "../../browser-extension-relay/protocol.js";
 import { extensionRelayServer } from "../../browser-extension-relay/server.js";
 import {
-  initAuthSigningKey,
-  isSigningKeyInitialized,
-  loadOrCreateSigningKey,
-} from "../../runtime/auth/token-service.js";
-import {
-  gatewayGet,
-  gatewayPost,
-} from "../../runtime/gateway-internal-client.js";
-import {
   ensureChromeWithCdp,
   minimizeChromeWindow,
   restoreChromeWindow,
@@ -26,25 +17,22 @@ import {
 
 async function relayCommand(command: Record<string, unknown>): Promise<void> {
   try {
-    // Try in-process relay first (works when running inside the daemon)
-    let data: ExtensionResponse;
     const status = extensionRelayServer.getStatus();
-    if (status.connected) {
-      data = await extensionRelayServer.sendCommand(
-        command as Omit<ExtensionCommand, "id">,
+    if (!status.connected) {
+      process.stdout.write(
+        JSON.stringify({
+          ok: false,
+          error:
+            "Browser extension relay is not connected. Open Chrome, click the Vellum extension, and click Connect.",
+        }) + "\n",
       );
-    } else {
-      // Fall back to HTTP relay endpoint via the gateway
-      if (!isSigningKeyInitialized()) {
-        initAuthSigningKey(loadOrCreateSigningKey());
-      }
-
-      const resp = await gatewayPost<ExtensionResponse>(
-        "/v1/browser-relay/command",
-        command,
-      );
-      data = resp.data;
+      process.exitCode = 1;
+      return;
     }
+
+    const data: ExtensionResponse = await extensionRelayServer.sendCommand(
+      command as Omit<ExtensionCommand, "id">,
+    );
 
     if (data.success) {
       process.stdout.write(
@@ -143,8 +131,7 @@ Examples:
     `
 Routes commands to Chrome tabs through the browser extension relay. The relay
 connects the assistant to a Chrome extension that can inspect and control
-browser tabs. Commands are sent through the gateway HTTP endpoint with
-automatic signing key initialization.
+browser tabs.
 
 Available subcommands:
   find-tab      Find a tab matching a URL pattern
@@ -378,52 +365,18 @@ Examples:
   $ assistant browser chrome relay status`,
     )
     .action(async () => {
-      try {
-        // Try in-process relay first (works when running inside the daemon)
-        const inProcessStatus = extensionRelayServer.getStatus();
-        if (inProcessStatus.connected) {
-          process.stdout.write(
-            JSON.stringify({
-              ok: true,
-              connected: inProcessStatus.connected,
-              connectionId: inProcessStatus.connectionId,
-              lastHeartbeatAt: inProcessStatus.lastHeartbeatAt
-                ? new Date(inProcessStatus.lastHeartbeatAt).toISOString()
-                : null,
-              pendingCommandCount: inProcessStatus.pendingCommandCount,
-            }) + "\n",
-          );
-          return;
-        }
-
-        // Fall back to HTTP relay endpoint via the gateway
-        if (!isSigningKeyInitialized()) {
-          initAuthSigningKey(loadOrCreateSigningKey());
-        }
-
-        const data = await gatewayGet<{
-          connected: boolean;
-          connectionId?: string;
-          lastHeartbeatAt?: string;
-          pendingCommandCount?: number;
-        }>("/v1/browser-relay/status");
-
-        process.stdout.write(
-          JSON.stringify({
-            ok: true,
-            connected: data.connected,
-            connectionId: data.connectionId,
-            lastHeartbeatAt: data.lastHeartbeatAt,
-            pendingCommandCount: data.pendingCommandCount,
-          }) + "\n",
-        );
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        process.stdout.write(
-          JSON.stringify({ ok: false, error: message }) + "\n",
-        );
-        process.exitCode = 1;
-      }
+      const status = extensionRelayServer.getStatus();
+      process.stdout.write(
+        JSON.stringify({
+          ok: true,
+          connected: status.connected,
+          connectionId: status.connectionId,
+          lastHeartbeatAt: status.lastHeartbeatAt
+            ? new Date(status.lastHeartbeatAt).toISOString()
+            : null,
+          pendingCommandCount: status.pendingCommandCount,
+        }) + "\n",
+      );
     });
 
   // ---------------------------------------------------------------------------
