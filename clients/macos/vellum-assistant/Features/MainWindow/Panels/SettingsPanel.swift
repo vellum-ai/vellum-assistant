@@ -148,6 +148,7 @@ struct SettingsPanel: View {
         .onAppear {
             store.refreshAPIKeyState()
             store.refreshTwitterStatus()
+            store.refreshManagedTwitterStatus()
             store.refreshTelegramStatus()
             store.refreshTwilioStatus()
             store.refreshIngressConfig()
@@ -194,6 +195,9 @@ struct SettingsPanel: View {
             Task { @MainActor in
                 await refreshPermissionStatus()
             }
+            // Refresh managed Twitter status when app regains focus (e.g. after
+            // completing the OAuth flow in the browser).
+            store.refreshManagedTwitterStatus()
         }
         .sheet(isPresented: $showingTrustRules) {
             if let daemonClient {
@@ -619,21 +623,72 @@ struct SettingsPanel: View {
 
             // Managed mode status
             if store.twitterMode == "managed" {
-                if store.isManagedTwitterEligible {
+                if !authManager.isAuthenticated {
+                    // State 1: Not signed in
                     HStack(spacing: VSpacing.sm) {
-                        VIconView(.circleCheck, size: 14)
-                            .foregroundStyle(VColor.textSecondary)
-                        Text("Managed Twitter is ready. Authentication is handled by the platform.")
-                            .font(VFont.caption)
-                            .foregroundStyle(VColor.textSecondary)
+                        VButton(label: "Connect", style: .primary) {}
+                            .disabled(true)
                     }
-                } else if let reason = store.managedTwitterBlockReason {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.info, size: 14)
                             .foregroundStyle(VColor.textSecondary)
-                        Text(reason)
+                        Text("Sign in to Vellum to use Managed")
                             .font(VFont.caption)
                             .foregroundStyle(VColor.textSecondary)
+                    }
+                } else if !store.isManagedTwitterEligible {
+                    // State 2/3: Signed in but prerequisites not met
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Connect", style: .primary) {}
+                            .disabled(true)
+                    }
+                    if let reason = store.managedTwitterBlockReason {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.info, size: 14)
+                                .foregroundStyle(VColor.textSecondary)
+                            Text(reason)
+                                .font(VFont.caption)
+                                .foregroundStyle(VColor.textSecondary)
+                        }
+                    }
+                } else if store.managedTwitterConnected {
+                    // State 5: Connected
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Connected", leftIcon: VIcon.circleCheck.rawValue, style: .success) {}
+                            VButton(label: "Disconnect", style: .danger) {
+                                store.disconnectManagedTwitter()
+                            }
+                            .disabled(store.managedTwitterConnectInProgress)
+                        }
+                        if let account = store.managedTwitterAccountInfo {
+                            Text(account)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.textMuted)
+                        }
+                    }
+                } else if store.managedTwitterConnectInProgress {
+                    // State 6: In progress
+                    HStack(spacing: VSpacing.sm) {
+                        VButton(label: "Connect", style: .primary) {}
+                            .disabled(true)
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Opening browser...")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.textSecondary)
+                    }
+                } else {
+                    // State 4: Eligible + disconnected
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        VButton(label: "Connect", style: .primary) {
+                            store.connectManagedTwitter()
+                        }
+                        if let error = store.managedTwitterError {
+                            Text(error)
+                                .font(VFont.caption)
+                                .foregroundColor(VColor.error)
+                        }
                     }
                 }
             }

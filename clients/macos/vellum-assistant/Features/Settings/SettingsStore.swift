@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 import Combine
 import Foundation
@@ -90,6 +91,12 @@ public final class SettingsStore: ObservableObject {
     @Published var twitterAuthInProgress: Bool = false
     @Published var twitterAuthErrorCode: String?
     @Published var twitterAuthError: String?
+
+    // Managed Twitter connection state (populated via PlatformTwitterOAuthService)
+    @Published var managedTwitterConnected: Bool = false
+    @Published var managedTwitterAccountInfo: String?
+    @Published var managedTwitterConnectInProgress: Bool = false
+    @Published var managedTwitterError: String?
 
     /// Whether all managed Twitter prerequisites are met.
     var isManagedTwitterEligible: Bool {
@@ -977,6 +984,127 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
         } catch {
             log.error("Failed to send Twitter disconnect: \(error)")
+        }
+    }
+
+    // MARK: - Managed Twitter Actions
+
+    /// Resolves the platform assistant ID and organization ID for managed Twitter calls.
+    /// Returns nil if the required context is unavailable.
+    private func resolveManagedTwitterContext() async -> (platformAssistantId: String, organizationId: String, baseURL: String)? {
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+            ?? LockfileAssistant.loadLatest()
+        guard let assistant else { return nil }
+
+        guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+              !orgId.isEmpty else { return nil }
+
+        // Resolve the current user ID from the auth session so self-hosted local
+        // assistants can look up their persisted platform assistant ID.
+        let userId: String? = try? await AuthService.shared.getSession().data?.user?.id
+
+        let platformId = PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: assistant.assistantId,
+            isManaged: assistant.isManaged,
+            organizationId: orgId,
+            userId: userId,
+            credentialStorage: KeychainCredentialStorage()
+        )
+        guard let platformId else { return nil }
+
+        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+        return (platformAssistantId: platformId, organizationId: orgId, baseURL: baseURL)
+    }
+
+    /// Fetches managed Twitter connection status from the platform.
+    func refreshManagedTwitterStatus() {
+        Task { @MainActor in
+            guard let ctx = await resolveManagedTwitterContext() else {
+                managedTwitterConnected = false
+                managedTwitterAccountInfo = nil
+                return
+            }
+
+            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
+            do {
+                let response = try await service.listConnections(
+                    platformAssistantId: ctx.platformAssistantId,
+                    organizationId: ctx.organizationId
+                )
+                if let connection = response.connections.first {
+                    managedTwitterConnected = true
+                    managedTwitterAccountInfo = connection.accountInfo
+                } else {
+                    managedTwitterConnected = false
+                    managedTwitterAccountInfo = nil
+                }
+                managedTwitterError = nil
+            } catch {
+                log.error("Failed to fetch managed Twitter status: \(error)")
+                managedTwitterError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Starts the managed Twitter OAuth connect flow: calls the platform to get
+    /// an authorization URL and opens it in the default browser.
+    func connectManagedTwitter() {
+        managedTwitterConnectInProgress = true
+        managedTwitterError = nil
+        Task { @MainActor in
+            defer { managedTwitterConnectInProgress = false }
+
+            guard let ctx = await resolveManagedTwitterContext() else {
+                managedTwitterError = "Unable to resolve platform assistant. Check your account settings."
+                return
+            }
+
+            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
+            do {
+                let response = try await service.startTwitterConnect(
+                    platformAssistantId: ctx.platformAssistantId,
+                    organizationId: ctx.organizationId
+                )
+                if let url = URL(string: response.authorizationUrl) {
+                    NSWorkspace.shared.open(url)
+                } else {
+                    managedTwitterError = "Invalid authorization URL received."
+                }
+            } catch {
+                log.error("Failed to start managed Twitter connect: \(error)")
+                managedTwitterError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Disconnects the managed Twitter connection via the platform API.
+    func disconnectManagedTwitter() {
+        managedTwitterConnectInProgress = true
+        managedTwitterError = nil
+        Task { @MainActor in
+            defer { managedTwitterConnectInProgress = false }
+
+            guard let ctx = await resolveManagedTwitterContext() else {
+                managedTwitterError = "Unable to resolve platform assistant. Check your account settings."
+                return
+            }
+
+            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
+            do {
+                _ = try await service.disconnectTwitter(
+                    platformAssistantId: ctx.platformAssistantId,
+                    organizationId: ctx.organizationId
+                )
+                managedTwitterConnected = false
+                managedTwitterAccountInfo = nil
+                managedTwitterError = nil
+                // Refresh to confirm
+                refreshManagedTwitterStatus()
+            } catch {
+                log.error("Failed to disconnect managed Twitter: \(error)")
+                managedTwitterError = error.localizedDescription
+            }
         }
     }
 
