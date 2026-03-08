@@ -41,6 +41,11 @@ describe("expandQueryForFTS", () => {
     const result = expandQueryForFTS("error-handling config.yaml");
     expect(result).toEqual(["error", "handling", "config", "yaml"]);
   });
+
+  test("normalizes contractions instead of splitting on apostrophes", () => {
+    const result = expandQueryForFTS("can't we discuss what's happening?");
+    expect(result).toEqual(["cant", "discuss", "whats", "happening"]);
+  });
 });
 
 describe("buildFTSQuery", () => {
