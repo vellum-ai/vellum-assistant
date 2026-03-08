@@ -185,7 +185,7 @@ describe("proxyTwitterCall", () => {
     expect(lastFetchArgs![1].method).toBe("POST");
   });
 
-  test("sends Bearer authorization header with assistant API key", async () => {
+  test("sends Api-Key authorization header with assistant API key", async () => {
     await proxyTwitterCall({
       method: "GET",
       path: "/2/users/me",
@@ -193,7 +193,7 @@ describe("proxyTwitterCall", () => {
 
     expect(lastFetchArgs).not.toBeNull();
     const headers = lastFetchArgs![1].headers as Record<string, string>;
-    expect(headers.Authorization).toBe("Bearer test-api-key-123");
+    expect(headers.Authorization).toBe("Api-Key test-api-key-123");
     expect(headers["Content-Type"]).toBe("application/json");
   });
 

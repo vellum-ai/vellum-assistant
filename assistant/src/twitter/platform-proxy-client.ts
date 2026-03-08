@@ -15,6 +15,7 @@
 import { getPlatformAssistantId, getPlatformBaseUrl } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
 import { getSecureKey } from "../security/secure-keys.js";
+import { BackendError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("twitter-proxy");
@@ -23,7 +24,7 @@ const log = getLogger("twitter-proxy");
 // Error types
 // ---------------------------------------------------------------------------
 
-export class TwitterProxyError extends Error {
+export class TwitterProxyError extends BackendError {
   constructor(
     message: string,
     public readonly code: string,
@@ -221,7 +222,7 @@ function mapProxyError(status: number, body: unknown): TwitterProxyError {
  * The request body describes the Twitter API call to make:
  *   { method, path, body?, query? }
  *
- * Auth uses `Authorization: Bearer {auth_token}` (the assistant API key).
+ * Auth uses `Authorization: Api-Key {auth_token}` (the assistant API key).
  */
 export async function proxyTwitterCall<T = unknown>(
   request: TwitterProxyRequest,
@@ -232,7 +233,7 @@ export async function proxyTwitterCall<T = unknown>(
   const url = `${platformBaseUrl}/v1/assistants/${platformAssistantId}/external-provider-proxy/twitter/`;
 
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${authToken}`,
+    Authorization: `Api-Key ${authToken}`,
     "Content-Type": "application/json",
   };
 
