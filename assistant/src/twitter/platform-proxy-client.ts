@@ -131,7 +131,10 @@ export interface TwitterProxyResponse<T = unknown> {
 // Error mapping
 // ---------------------------------------------------------------------------
 
-function mapProxyError(status: number, body: unknown): TwitterProxyError {
+export function mapProxyError(
+  status: number,
+  body: unknown,
+): TwitterProxyError {
   const obj =
     typeof body === "object" && body
       ? (body as Record<string, unknown>)

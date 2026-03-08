@@ -766,3 +766,50 @@ Guardian approval prompts are rendered as structured card UIs in the chat timeli
 | `clients/shared/Features/Chat/ToolConfirmationBubble.swift` | Tool confirmation card (shares `ApprovalActionButton`) |
 
 ---
+
+## Managed Twitter OAuth (macOS)
+
+When `twitter.integrationMode` is `managed`, the macOS Settings UI enables the assistant owner to connect their Twitter/X account through the platform rather than using local BYO OAuth credentials.
+
+### Key Concepts
+
+- **Hosting mode vs. credential mode are independent.** An assistant can be self-hosted (local daemon) yet use platform-managed Twitter credentials. The `twitter.integrationMode` config controls credential mode; the assistant's hosting mode is determined by its lockfile entry.
+- **Owner-only binding.** Only the assistant owner can connect or disconnect the managed Twitter account. Non-owner users see a disabled state and cannot trigger connect/disconnect. The platform enforces this via 403 responses with `owner_only` or `owner_credential_required` error codes.
+
+### Authentication Layers
+
+| Flow | Header | Token Source | Purpose |
+|------|--------|-------------|---------|
+| Connect/disconnect/status (Settings UI) | `X-Session-Token` | WorkOS session (via `SessionTokenManager`) | Authenticates the human user to the platform |
+| Runtime Twitter API calls (proxy client) | `Authorization: Api-Key {key}` | `credential:vellum:assistant_api_key` (secure storage) | Authenticates the assistant to the platform proxy |
+
+The proxy client (`platform-proxy-client.ts`) never includes user-level session tokens or user OAuth tokens. Token storage and refresh are handled server-side by the platform.
+
+### Connect Flow
+
+```
+Owner clicks "Connect Twitter" in Settings
+  --> PlatformTwitterOAuthService.connect(assistantId:)
+  --> POST /v1/assistants/{id}/twitter-oauth/connect/
+      (with X-Session-Token header)
+  --> Platform redirects to Twitter OAuth
+  --> Callback to platform, token stored server-side
+  --> Settings UI polls status until connected
+```
+
+### Daemon Guardrail
+
+When `integrationMode` is `managed`, the daemon's `handleTwitterAuthStart` handler returns a managed-specific error code (`managed_auth_via_platform` or `managed_missing_api_key`) and never calls `orchestrateOAuthConnect`. This prevents credential confusion between managed and local BYO flows.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `clients/shared/App/Auth/PlatformTwitterOAuthService.swift` | Swift client for platform Twitter OAuth connect/disconnect/status |
+| `clients/macos/vellum-assistant/Features/Settings/SettingsStore.swift` | Settings state including managed Twitter connection UI |
+| `assistant/src/daemon/handlers/twitter-auth.ts` | Daemon auth handler with managed mode guardrail |
+| `assistant/src/twitter/platform-proxy-client.ts` | Runtime proxy client (Api-Key auth, no user tokens) |
+| `assistant/src/cli/commands/twitter/router.ts` | Strategy router dispatching to managed/oauth/browser paths |
+| `assistant/src/config/bundled-skills/twitter/SKILL.md` | Skill documentation including managed mode architecture |
+
+---

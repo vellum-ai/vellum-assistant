@@ -27,6 +27,15 @@ When `twitter.integrationMode` is set to `managed`, the platform holds the OAuth
 - *"Sign in as the assistant owner"* — The current user is not the assistant owner.
 - *"Reconnect Twitter or retry"* — The platform's OAuth token may have expired. Reconnect on the platform.
 
+**Architecture notes for managed mode:**
+
+- **Assistant hosting mode and Twitter credential mode are separate concepts.** An assistant can be self-hosted (local daemon) yet use managed Twitter credentials, or platform-hosted yet use local BYO OAuth. The `twitter.integrationMode` config controls credential mode; the assistant's hosting mode is determined by its lockfile entry.
+- **Managed Twitter is bound to the assistant owner.** Only the owner of the assistant (as determined by the platform) can connect or disconnect the Twitter account. Non-owner users receive a `403` with an `owner_only` or `owner_credential_required` error code.
+- **Connect/disconnect/status uses desktop session authentication.** The macOS Settings UI calls the platform's Twitter OAuth endpoints using the user's `X-Session-Token` header (obtained during managed sign-in via WorkOS). This authenticates the human user, not the assistant.
+- **Actual Twitter API calls use assistant-level API key authentication.** At runtime, the proxy client sends `Authorization: Api-Key {assistant_api_key}` — it never includes user-level session tokens or OAuth tokens. This ensures the assistant's identity is what the platform uses for token lookup and rate limiting.
+- **The platform proxy handles token storage and refresh.** OAuth tokens are stored server-side by the platform. The assistant never sees or stores the Twitter OAuth access/refresh tokens in managed mode. Token refresh is handled transparently by the proxy.
+- **The daemon auth handler never starts local OAuth in managed mode.** When `integrationMode` is `managed`, `handleTwitterAuthStart` returns a managed-specific error code (`managed_auth_via_platform` or `managed_missing_api_key`) and never calls `orchestrateOAuthConnect`. This is a critical guardrail to prevent credential confusion.
+
 ### OAuth (recommended with X developer credentials)
 
 OAuth uses the official X API v2. It is the most reliable connection method and does not depend on browser sessions.
