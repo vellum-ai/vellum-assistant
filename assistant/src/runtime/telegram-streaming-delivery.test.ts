@@ -188,49 +188,167 @@ describe("TelegramStreamingDelivery", () => {
     expect(delivery.finishSucceeded).toBe(true);
   });
 
-  // ── Test 5: finalizeCurrentMessage on tool_use_start ────────────────
-  test("finalizeCurrentMessage on tool_use_start sends buffered text", async () => {
+  // ── Test 5: tool_use_start between text segments produces single message ─
+  test("tool_use_start between text segments produces single message", async () => {
     const delivery = createDelivery();
 
-    // Feed 15 chars (below MIN_INITIAL_CHARS=20)
+    // Send enough text to trigger initial message (>= MIN_INITIAL_CHARS=20)
     delivery.onEvent({
       type: "assistant_text_delta",
-      text: "a".repeat(15),
+      text: "Yeah, still here! ", // 18 chars
+    });
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "aa", // Push past 20 chars
     });
     await flushPromises();
 
-    // No message sent yet (below threshold)
-    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(0);
+    // Initial message sent
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+    const initialPayload = callPayload(0);
+    expect(initialPayload.messageId).toBeUndefined(); // new message
 
-    // tool_use_start triggers finalizeCurrentMessage
+    // tool_use_start — should NOT finalize/reset message state
     delivery.onEvent({
       type: "tool_use_start",
-      toolName: "test_tool",
+      toolName: "memory_recall",
       input: {},
     });
     await flushPromises();
 
-    // Pre-tool text should be sent as a new message
-    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
-    const firstPayload = callPayload(0);
-    expect(firstPayload.text).toBe("a".repeat(15));
-    expect(firstPayload.messageId).toBeUndefined();
-
-    // Then feed more text and finish
+    // More text after the tool call
     delivery.onEvent({
       type: "assistant_text_delta",
-      text: "b".repeat(25),
+      text: "What do you need?",
     });
-    await flushPromises();
 
     await delivery.finish();
 
-    // Should have sent a second message with the new text
-    // Call count depends on whether initial send triggered + finish edit
+    // The final edit should be to the SAME message (same messageId),
+    // containing the full combined text
     const lastCallIndex = mockDeliverChannelReply.mock.calls.length - 1;
     const lastPayload = callPayload(lastCallIndex);
-    // The second segment's text should contain the "b" chars
-    expect((lastPayload.text as string).includes("b".repeat(25))).toBe(true);
+    expect(lastPayload.messageId).toBe(100); // same messageId as initial
+    expect(lastPayload.text).toBe("Yeah, still here! aaWhat do you need?");
+  });
+
+  // ── Test 5b: multiple tool calls between text segments ──────────────
+  test("multiple tool calls between text segments produce single message", async () => {
+    const delivery = createDelivery();
+
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "a".repeat(25),
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+
+    // Two consecutive tool calls
+    delivery.onEvent({ type: "tool_use_start", toolName: "tool1", input: {} });
+    delivery.onEvent({ type: "tool_use_start", toolName: "tool2", input: {} });
+
+    // More text after both tool calls
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "b".repeat(10),
+    });
+    await delivery.finish();
+
+    // All text should be in the same message
+    const lastCallIndex = mockDeliverChannelReply.mock.calls.length - 1;
+    const lastPayload = callPayload(lastCallIndex);
+    expect(lastPayload.messageId).toBe(100);
+    expect(lastPayload.text).toBe("a".repeat(25) + "b".repeat(10));
+  });
+
+  // ── Test 5c: tool_use_start before any text is a no-op ─────────────
+  test("tool_use_start before any text is a no-op", async () => {
+    const delivery = createDelivery();
+
+    delivery.onEvent({
+      type: "tool_use_start",
+      toolName: "init_tool",
+      input: {},
+    });
+    await flushPromises();
+
+    // No messages should have been sent
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(0);
+
+    // Subsequent text should work normally
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "a".repeat(25),
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+
+    await delivery.finish();
+    expect(delivery.finishSucceeded).toBe(true);
+  });
+
+  // ── Test 5d: tool_use_start at end of response finalizes on finish ──
+  test("tool_use_start at end of response finalizes on finish", async () => {
+    const delivery = createDelivery();
+
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "a".repeat(25),
+    });
+    await flushPromises();
+
+    delivery.onEvent({
+      type: "tool_use_start",
+      toolName: "final_tool",
+      input: {},
+    });
+    await delivery.finish();
+
+    // The text should have been delivered via the initial message + a final edit
+    expect(delivery.finishSucceeded).toBe(true);
+    expect(delivery.hasDeliveredText).toBe(true);
+  });
+
+  // ── Test 5e: text exceeding max length after tool pause splits at length boundary ─
+  test("text exceeding max length after tool pause splits at length boundary", async () => {
+    const delivery = createDelivery();
+
+    // Send ~3900 chars
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "a".repeat(3900),
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+
+    // Tool call (should not split)
+    delivery.onEvent({ type: "tool_use_start", toolName: "lookup", input: {} });
+
+    // Send 200 more chars (total 4100 > 4000 limit)
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "b".repeat(200),
+    });
+
+    await delivery.finish();
+    await flushPromises();
+
+    // Should have split at 4000-char boundary:
+    // 1. Initial message (3900 chars)
+    // 2. Edit at boundary (4000 chars)
+    // 3. Overflow new message (100 chars)
+    const calls = mockDeliverChannelReply.mock.calls.length;
+    expect(calls).toBe(3);
+
+    // Edit at boundary
+    const editPayload = callPayload(1);
+    expect((editPayload.text as string).length).toBe(4000);
+    expect(editPayload.messageId).toBeDefined();
+
+    // Overflow as new message
+    const overflowPayload = callPayload(2);
+    expect((overflowPayload.text as string).length).toBe(100);
+    expect(overflowPayload.messageId).toBeUndefined();
   });
 
   // ── Test 6: skips final edit when text hasn't changed ───────────────

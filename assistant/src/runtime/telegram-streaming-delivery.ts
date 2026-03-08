@@ -31,6 +31,7 @@ export class TelegramStreamingDelivery {
   private finishOk = false; // True only when finish() completes without error
   private initialSendInFlight = false; // Synchronous guard against duplicate initial sends
   private initialSendPromise: Promise<ChannelDeliveryResult> | null = null; // Tracks in-flight initial send
+  private pausedForTool = false; // True when a tool_use_start has paused streaming
 
   constructor(opts: TelegramStreamingOptions) {
     this.opts = opts;
@@ -45,7 +46,24 @@ export class TelegramStreamingDelivery {
         this.onTextDelta(msg.text);
         break;
       case "tool_use_start":
-        this.finalizeCurrentMessage();
+        this.pausedForTool = true;
+        // Flush buffer into currentMessageText but do NOT reset message state.
+        // This keeps the current Telegram message alive so the next text delta
+        // can resume appending to it instead of starting a new message.
+        if (this.buffer.length > 0) {
+          this.currentMessageText += this.buffer;
+          this.buffer = "";
+        }
+        // Send an edit with current text so it's up to date before the tool runs
+        if (
+          this.currentMessageId &&
+          this.currentMessageText !== this.lastSentText
+        ) {
+          this.flushEdit();
+        }
+        break;
+      case "tool_result":
+        this.pausedForTool = false;
         break;
       case "message_complete":
         // Don't finalize here — let finish() handle it
@@ -55,6 +73,7 @@ export class TelegramStreamingDelivery {
 
   async finish(approval?: ApprovalUIMetadata): Promise<void> {
     this.finished = true;
+    this.pausedForTool = false;
     if (this.editTimer) {
       clearTimeout(this.editTimer);
       this.editTimer = null;
@@ -164,6 +183,7 @@ export class TelegramStreamingDelivery {
 
   private onTextDelta(text: string): void {
     this.buffer += text;
+    this.pausedForTool = false; // Resume streaming to the same message
     if (
       !this.currentMessageId &&
       !this.initialSendInFlight &&
@@ -397,6 +417,7 @@ export class TelegramStreamingDelivery {
     this.currentMessageId = null;
     this.currentMessageText = "";
     this.lastSentText = "";
+    this.pausedForTool = false;
   }
 
   private async sendNewMessage(
