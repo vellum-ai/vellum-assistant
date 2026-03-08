@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from "bun:test";
 import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
 
 // Mock fetch at the transport level (same pattern as all other test files)
 // instead of mocking ./api.js — mock.module for api.js leaks across test
@@ -65,6 +66,13 @@ function makeTelegramResponse(result: unknown) {
     headers: { "content-type": "application/json" },
   });
 }
+
+const mockCredentials = {
+  get: async (key: string) =>
+    key === "credential:telegram:bot_token" ? "test-bot-token" : undefined,
+  invalidate: () => {},
+} as unknown as CredentialCache;
+const credOpts = { credentials: mockCredentials };
 
 let fetchCalls: { url: string; body: unknown }[];
 
@@ -161,7 +169,7 @@ describe("buildInlineKeyboard", () => {
 
 describe("sendTelegramReply", () => {
   it("sends a plain message without reply_markup when no approval", async () => {
-    await sendTelegramReply(baseConfig, "chat-1", "Hello");
+    await sendTelegramReply(baseConfig, "chat-1", "Hello", undefined, credOpts);
 
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0].url).toContain("/sendMessage");
@@ -172,7 +180,13 @@ describe("sendTelegramReply", () => {
   });
 
   it("attaches inline keyboard when approval is provided", async () => {
-    await sendTelegramReply(baseConfig, "chat-1", "Approve?", sampleApproval);
+    await sendTelegramReply(
+      baseConfig,
+      "chat-1",
+      "Approve?",
+      sampleApproval,
+      credOpts,
+    );
 
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0].url).toContain("/sendMessage");
@@ -191,7 +205,13 @@ describe("sendTelegramReply", () => {
   it("attaches inline keyboard only to the last chunk for long messages", async () => {
     // Create a message that exceeds TELEGRAM_MAX_MESSAGE_LEN (4000 chars)
     const longText = "A".repeat(4001);
-    await sendTelegramReply(baseConfig, "chat-1", longText, sampleApproval);
+    await sendTelegramReply(
+      baseConfig,
+      "chat-1",
+      longText,
+      sampleApproval,
+      credOpts,
+    );
 
     expect(fetchCalls).toHaveLength(2);
 
