@@ -29,7 +29,7 @@ struct WorkspaceBrowserView: View {
                 List {
                     ForEach(entries) { entry in
                         if entry.isDirectory {
-                            NavigationLink(value: entry) {
+                            NavigationLink(destination: WorkspaceBrowserView(client: client, initialPath: entry.path)) {
                                 directoryRow(entry)
                             }
                         } else {
@@ -43,9 +43,6 @@ struct WorkspaceBrowserView: View {
             }
         }
         .navigationTitle(initialPath.isEmpty ? "Workspace" : lastPathComponent(initialPath))
-        .navigationDestination(for: WorkspaceTreeEntry.self) { entry in
-            WorkspaceBrowserView(client: client, initialPath: entry.path)
-        }
         .sheet(item: $selectedFile) { file in
             WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, client: client)
         }
