@@ -101,6 +101,7 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   await ensureAssistantHatched();
   skipAssistantOnboarding();
   ensureApiKeyInDefaults();
+  logFixtureState();
 
   return {
     teardown: async () => {
@@ -529,6 +530,9 @@ function ensureApiKeyInDefaults(): void {
     // the on-disk plist, eliminating stale-cache races.
     execSync("killall cfprefsd 2>/dev/null || true", { timeout: 5_000 });
 
+    // Give cfprefsd time to restart and re-read plist files from disk.
+    execSync("sleep 1", { timeout: 5_000 });
+
     // Verify the write is readable after the cfprefsd restart.
     const readBack = execSync(
       `defaults read ${domain} vellum_provider_anthropic`,
@@ -544,6 +548,57 @@ function ensureApiKeyInDefaults(): void {
     console.error(
       `[fixture] Failed to write/verify API key in defaults: ${err instanceof Error ? err.message : err}`,
     );
+  }
+}
+
+/**
+ * Logs the complete fixture state right before the test agent takes over.
+ * This runs after all setup (hatch, onboarding skip, API key write) so we
+ * can diagnose exactly what the app will see on launch.
+ */
+function logFixtureState(): void {
+  const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
+  const domain = defaultsDomain();
+
+  console.error(`[fixture] HOME=${os.homedir()}`);
+  console.error(`[fixture] BASE_DATA_DIR=${process.env.BASE_DATA_DIR ?? "(unset)"}`);
+  console.error(`[fixture] Lockfile path: ${lockfilePath}`);
+  console.error(`[fixture] Lockfile exists: ${existsSync(lockfilePath)}`);
+
+  if (existsSync(lockfilePath)) {
+    try {
+      const raw = readFileSync(lockfilePath, "utf-8");
+      const data = JSON.parse(raw) as { assistants?: unknown[] };
+      const count = Array.isArray(data.assistants) ? data.assistants.length : 0;
+      console.error(`[fixture] Lockfile assistant count: ${count}`);
+      console.error(`[fixture] Lockfile contents: ${raw.slice(0, 500)}`);
+    } catch (err) {
+      console.error(`[fixture] Failed to read lockfile: ${err}`);
+    }
+  }
+
+  try {
+    const apiKey = execSync(
+      `defaults read ${domain} vellum_provider_anthropic 2>&1`,
+      { encoding: "utf-8", timeout: 5_000 },
+    ).trim();
+    console.error(
+      `[fixture] defaults read API key: ${apiKey ? `present (${apiKey.length} chars)` : "EMPTY"}`,
+    );
+  } catch (err) {
+    console.error(
+      `[fixture] defaults read API key FAILED: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+
+  try {
+    const allDefaults = execSync(
+      `defaults read ${domain} 2>&1 | head -30`,
+      { encoding: "utf-8", timeout: 5_000 },
+    ).trim();
+    console.error(`[fixture] All defaults (first 30 lines):\n${allDefaults}`);
+  } catch {
+    // best-effort
   }
 }
 
