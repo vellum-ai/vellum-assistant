@@ -66,7 +66,6 @@ function buildCredentialOutput(
     usageDescription: metadata.usageDescription ?? null,
     allowedTools: metadata.allowedTools,
     allowedDomains: metadata.allowedDomains,
-    accountInfo: metadata.accountInfo ?? null,
     grantedScopes: metadata.grantedScopes ?? null,
     expiresAt: metadata.expiresAt
       ? new Date(metadata.expiresAt).toISOString()
@@ -101,7 +100,6 @@ function printCredentialHuman(output: Record<string, unknown>): void {
     log.info(
       `    Domains:     ${(output.allowedDomains as string[]).join(", ")}`,
     );
-  if (output.accountInfo) log.info(`    Account:     ${output.accountInfo}`);
   if (output.grantedScopes)
     log.info(
       `    Scopes:      ${(output.grantedScopes as string[]).join(", ")}`,
@@ -237,10 +235,6 @@ Examples:
       "--allowed-tools <tools>",
       "Comma-separated tool names that may use this credential",
     )
-    .option(
-      "--account-info <json>",
-      "JSON string of account metadata to associate with this credential",
-    )
     .addHelpText(
       "after",
       `
@@ -254,8 +248,7 @@ updated with any provided flags. Omitted flags leave existing metadata intact.
 Examples:
   $ assistant credentials set twilio:account_sid AC1234567890
   $ assistant credentials set fal:api_key key_live_abc --label "fal-prod" --description "Image generation"
-  $ assistant credentials set github:token ghp_abc --allowed-tools "bash,host_bash"
-  $ assistant credentials set slack_channel:bot_token xoxb-abc --account-info '{"teamId":"T123","teamName":"My Workspace"}'`,
+  $ assistant credentials set github:token ghp_abc --allowed-tools "bash,host_bash"`,
     )
     .action(
       async (
@@ -265,7 +258,6 @@ Examples:
           label?: string;
           description?: string;
           allowedTools?: string;
-          accountInfo?: string;
         },
         cmd: Command,
       ) => {
@@ -303,7 +295,6 @@ Examples:
             alias: opts.label,
             usageDescription: opts.description,
             allowedTools,
-            accountInfo: opts.accountInfo,
           });
 
           writeOutput(cmd, {
@@ -472,7 +463,6 @@ Examples:
             usageDescription: null,
             allowedTools: [],
             allowedDomains: [],
-            accountInfo: null,
             grantedScopes: null,
             expiresAt: null,
             createdAt: null,

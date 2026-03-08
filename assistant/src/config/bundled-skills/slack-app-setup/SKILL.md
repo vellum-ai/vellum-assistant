@@ -137,8 +137,10 @@ TEAM_ID=$(echo "$AUTH_RESPONSE" | jq -r '.team_id')
 TEAM_NAME=$(echo "$AUTH_RESPONSE" | jq -r '.team')
 BOT_USER_ID=$(echo "$AUTH_RESPONSE" | jq -r '.user_id')
 BOT_USERNAME=$(echo "$AUTH_RESPONSE" | jq -r '.user')
-ACCOUNT_INFO="{\"teamId\":\"$TEAM_ID\",\"teamName\":\"$TEAM_NAME\",\"botUserId\":\"$BOT_USER_ID\",\"botUsername\":\"$BOT_USERNAME\"}"
-assistant credentials set slack_channel:bot_token "$BOT_TOKEN" --account-info "$ACCOUNT_INFO"
+assistant config set slack.teamId "$TEAM_ID"
+assistant config set slack.teamName "$TEAM_NAME"
+assistant config set slack.botUserId "$BOT_USER_ID"
+assistant config set slack.botUsername "$BOT_USERNAME"
 ```
 
 Report the bot username and workspace from the response.
