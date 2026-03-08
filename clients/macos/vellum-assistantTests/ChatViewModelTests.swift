@@ -320,7 +320,8 @@ final class ChatViewModelTests: XCTestCase {
         // Set up state directly because DaemonClient.send() throws in tests
         // (no real socket), which prevents sendMessage() from establishing
         // queue bookkeeping.
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
         viewModel.isThinking = true
 
@@ -345,7 +346,8 @@ final class ChatViewModelTests: XCTestCase {
         // Set up state directly because DaemonClient.send() throws in tests.
         // Simulate the state after a successful cancel send: isCancelling is
         // true, isSending stays true, isThinking is false.
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
         viewModel.isThinking = false
         viewModel.isCancelling = true
@@ -380,7 +382,8 @@ final class ChatViewModelTests: XCTestCase {
 
     func testErrorWithPendingQueuePreservesQueueBookkeeping() {
         // Set up state directly because DaemonClient.send() throws in tests.
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
         viewModel.isThinking = true
 
@@ -401,7 +404,8 @@ final class ChatViewModelTests: XCTestCase {
 
     func testErrorWithEmptyQueueClearsAllBookkeeping() {
         // Set up state directly because DaemonClient.send() throws in tests.
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
         viewModel.isThinking = true
 
@@ -420,7 +424,8 @@ final class ChatViewModelTests: XCTestCase {
     func testErrorDuringCancellationSuppressesErrorText() {
         // Simulate the state after a successful cancel send so we can test
         // the error handler's isCancelling suppression branch.
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
         viewModel.isThinking = false
         viewModel.isCancelling = true
@@ -738,7 +743,8 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testMessageDequeuedKeepsMessagePositionInTranscript() {
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.inputText = "Message A"
         viewModel.sendMessage()
         viewModel.inputText = "Message B"
@@ -785,7 +791,8 @@ final class ChatViewModelTests: XCTestCase {
 
     func testProcessingStatusResetToSentOnMessageComplete() {
         // Set up session and send a message while busy (gets queued)
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.inputText = "Message A"
         viewModel.sendMessage()
         // A(0)
@@ -818,7 +825,8 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testProcessingStatusResetToSentOnMessageRequestComplete() {
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.inputText = "Message A"
         viewModel.sendMessage()
 
@@ -852,7 +860,8 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testMessageRequestCompleteKeepsBusyStateWhenRunStillActive() {
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.inputText = "Message A"
         viewModel.sendMessage()
 
@@ -881,7 +890,8 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testProcessingStatusResetToSentOnGenerationCancelled() {
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.inputText = "Message A"
         viewModel.sendMessage()
 
@@ -905,7 +915,8 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testProcessingStatusResetToSentOnGenerationHandoff() {
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.inputText = "Message A"
         viewModel.sendMessage()
 
@@ -985,7 +996,8 @@ final class ChatViewModelTests: XCTestCase {
 
     func testThreeMessageBurstWithHandoffTransitions() {
         // Set up session
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
         viewModel.isThinking = true
 
@@ -1084,7 +1096,8 @@ final class ChatViewModelTests: XCTestCase {
 
     func testQueueBadgesStatusTransitionsReflectHandoffDequeueComplete() {
         // Set up viewModel with a session
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
 
         // Send message A (direct — not queued)
         viewModel.inputText = "Message A"
@@ -1248,7 +1261,8 @@ final class ChatViewModelTests: XCTestCase {
 
     func testFullConversationFlow() {
         // Simulate a complete conversation: session created, text streamed, completed
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         XCTAssertEqual(viewModel.sessionId, "sess-1")
 
         // Thinking starts
@@ -1440,7 +1454,8 @@ final class ChatViewModelTests: XCTestCase {
 
     func testSessionErrorResetsProcessingMessagesToSent() {
         // Set up state directly because DaemonClient.send() throws in tests.
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
         viewModel.isThinking = true
 
@@ -1483,7 +1498,8 @@ final class ChatViewModelTests: XCTestCase {
     }
 
     func testSendMessageClearsSessionError() {
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
 
         let errorMsg = SessionErrorMessage(
             sessionId: "sess-1",
@@ -1513,7 +1529,8 @@ final class ChatViewModelTests: XCTestCase {
     func testSessionErrorDuringCancellationSuppressesErrorText() {
         // Simulate the state after a successful cancel send so we can test
         // the sessionError handler's isCancelling suppression branch.
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
         viewModel.isThinking = false
         viewModel.isCancelling = true
@@ -2485,7 +2502,8 @@ final class ChatViewModelTests: XCTestCase {
         // Simulate inline approval consumption: text delta creates an assistant
         // message, then messageRequestComplete with runStillActive=false should
         // flush the buffer and finalize the streaming state.
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
         viewModel.isThinking = true
 
@@ -2521,7 +2539,8 @@ final class ChatViewModelTests: XCTestCase {
     func testMessageRequestCompletePreservesAgentStreamWhenRunStillActive() {
         // When runStillActive=true, the agent's in-flight streaming message must
         // NOT be finalized — the agent is still producing text deltas.
-        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat")))
+        viewModel.bootstrapCorrelationId = "test-correlation-id"
+        viewModel.handleServerMessage(.sessionInfo(SessionInfoMessage(sessionId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))
         viewModel.isSending = true
         viewModel.isThinking = true
 
