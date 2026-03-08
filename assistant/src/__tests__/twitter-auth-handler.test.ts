@@ -22,6 +22,23 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   return current;
 }
 
+function setNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const keys = path.split(".");
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i]!;
+    if (current[key] == null || typeof current[key] !== "object") {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]!] = value;
+}
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -34,6 +51,7 @@ mock.module("../config/loader.js", () => ({
   saveConfig: () => {},
   invalidateConfigCache: () => {},
   getNestedValue,
+  setNestedValue,
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({
@@ -294,6 +312,12 @@ describe("Twitter auth handler", () => {
       expect(result).toBeDefined();
       expect(result.success).toBe(true);
       expect(result.accountInfo).toBe("@testuser");
+
+      // accountInfo should be persisted to config, not credential metadata
+      expect(getNestedValue(rawConfigStore, "twitter.accountInfo")).toBe(
+        "@testuser",
+      );
+      expect(credentialMetadataStore).toHaveLength(0);
     });
 
     test("delegates to orchestrateOAuthConnect with correct options", async () => {
@@ -533,14 +557,11 @@ describe("Twitter auth handler", () => {
     });
 
     test("returns connected with account info when token exists", () => {
-      rawConfigStore = { twitter: { integrationMode: "local_byo" } };
+      rawConfigStore = {
+        twitter: { integrationMode: "local_byo", accountInfo: "@testuser" },
+      };
       secureKeyStore["credential:integration:twitter:access_token"] =
         "test-access-token";
-      credentialMetadataStore.push({
-        service: "integration:twitter",
-        field: "access_token",
-        accountInfo: "@testuser",
-      });
 
       const msg: TwitterAuthStatusRequest = { type: "twitter_auth_status" };
       const { ctx, sent } = createTestContext();

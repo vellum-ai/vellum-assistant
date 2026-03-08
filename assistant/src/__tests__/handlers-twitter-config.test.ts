@@ -257,16 +257,13 @@ describe("Twitter integration config handler", () => {
   });
 
   test("get action returns correct status when configured and connected", () => {
-    rawConfigStore = { twitter: { integrationMode: "local_byo" } };
+    rawConfigStore = {
+      twitter: { integrationMode: "local_byo", accountInfo: "@testuser" },
+    };
     secureKeyStore["credential:integration:twitter:client_id"] =
       "test-client-id";
     secureKeyStore["credential:integration:twitter:access_token"] =
       "test-access-token";
-    credentialMetadataStore.push({
-      service: "integration:twitter",
-      field: "access_token",
-      accountInfo: "@testuser",
-    });
 
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
@@ -392,16 +389,12 @@ describe("Twitter integration config handler", () => {
   });
 
   test("clear_local_client also disconnects if connected", async () => {
+    rawConfigStore = { twitter: { accountInfo: "@testuser" } };
     secureKeyStore["credential:integration:twitter:client_id"] = "my-client-id";
     secureKeyStore["credential:integration:twitter:access_token"] =
       "test-token";
     secureKeyStore["credential:integration:twitter:refresh_token"] =
       "test-refresh";
-    credentialMetadataStore.push({
-      service: "integration:twitter",
-      field: "access_token",
-      accountInfo: "@testuser",
-    });
 
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
@@ -426,23 +419,17 @@ describe("Twitter integration config handler", () => {
     expect(
       secureKeyStore["credential:integration:twitter:refresh_token"],
     ).toBeUndefined();
-    expect(deletedMetadata).toContainEqual({
-      service: "integration:twitter",
-      field: "access_token",
-    });
+    // accountInfo should be cleared from config
+    expect(getNestedValue(rawConfigStore, "twitter.accountInfo")).toBe("");
   });
 
-  test("disconnect removes tokens and metadata", async () => {
+  test("disconnect removes tokens and clears accountInfo from config", async () => {
+    rawConfigStore = { twitter: { accountInfo: "@testuser" } };
     secureKeyStore["credential:integration:twitter:client_id"] = "my-client-id";
     secureKeyStore["credential:integration:twitter:access_token"] =
       "test-token";
     secureKeyStore["credential:integration:twitter:refresh_token"] =
       "test-refresh";
-    credentialMetadataStore.push({
-      service: "integration:twitter",
-      field: "access_token",
-      accountInfo: "@testuser",
-    });
 
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
@@ -473,10 +460,8 @@ describe("Twitter integration config handler", () => {
     expect(secureKeyStore["credential:integration:twitter:client_id"]).toBe(
       "my-client-id",
     );
-    expect(deletedMetadata).toContainEqual({
-      service: "integration:twitter",
-      field: "access_token",
-    });
+    // accountInfo should be cleared from config
+    expect(getNestedValue(rawConfigStore, "twitter.accountInfo")).toBe("");
   });
 
   test("set_local_client returns error when setSecureKey fails for client ID", async () => {
@@ -750,6 +735,7 @@ describe("Twitter integration config handler", () => {
 
   test("disconnect preserves client credentials when access token exists", async () => {
     // Set up both client credentials and tokens
+    rawConfigStore = { twitter: { accountInfo: "@connected_user" } };
     secureKeyStore["credential:integration:twitter:client_id"] = "my-client-id";
     secureKeyStore["credential:integration:twitter:client_secret"] =
       "my-client-secret";
@@ -757,11 +743,6 @@ describe("Twitter integration config handler", () => {
       "active-token";
     secureKeyStore["credential:integration:twitter:refresh_token"] =
       "active-refresh";
-    credentialMetadataStore.push({
-      service: "integration:twitter",
-      field: "access_token",
-      accountInfo: "@connected_user",
-    });
 
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
@@ -796,15 +777,13 @@ describe("Twitter integration config handler", () => {
     expect(secureKeyStore["credential:integration:twitter:client_secret"]).toBe(
       "my-client-secret",
     );
-    // Metadata deleted
-    expect(deletedMetadata).toContainEqual({
-      service: "integration:twitter",
-      field: "access_token",
-    });
+    // accountInfo cleared from config
+    expect(getNestedValue(rawConfigStore, "twitter.accountInfo")).toBe("");
   });
 
-  test("clear_local_client cascades to remove tokens and metadata", async () => {
-    // Set up client credentials, tokens, and metadata
+  test("clear_local_client cascades to remove tokens and clears accountInfo from config", async () => {
+    // Set up client credentials, tokens, and accountInfo in config
+    rawConfigStore = { twitter: { accountInfo: "@connected_user" } };
     secureKeyStore["credential:integration:twitter:client_id"] = "my-client-id";
     secureKeyStore["credential:integration:twitter:client_secret"] =
       "my-client-secret";
@@ -812,11 +791,6 @@ describe("Twitter integration config handler", () => {
       "active-token";
     secureKeyStore["credential:integration:twitter:refresh_token"] =
       "active-refresh";
-    credentialMetadataStore.push({
-      service: "integration:twitter",
-      field: "access_token",
-      accountInfo: "@connected_user",
-    });
 
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
@@ -850,14 +824,12 @@ describe("Twitter integration config handler", () => {
     expect(
       secureKeyStore["credential:integration:twitter:refresh_token"],
     ).toBeUndefined();
-    expect(deletedMetadata).toContainEqual({
-      service: "integration:twitter",
-      field: "access_token",
-    });
+    // accountInfo should be cleared from config
+    expect(getNestedValue(rawConfigStore, "twitter.accountInfo")).toBe("");
   });
 
-  test("get status with partial state — access token but no metadata", () => {
-    // Only access token exists, no credential metadata
+  test("get status with partial state — access token but no accountInfo in config", () => {
+    // Only access token exists, no accountInfo in config
     secureKeyStore["credential:integration:twitter:access_token"] =
       "orphan-token";
 
@@ -938,17 +910,13 @@ describe("Twitter integration config handler", () => {
 
   test("response messages never contain raw credential values", () => {
     // Set up credentials and tokens
+    rawConfigStore = { twitter: { accountInfo: "@testuser" } };
     secureKeyStore["credential:integration:twitter:client_id"] =
       "secret-client-id-abc123";
     secureKeyStore["credential:integration:twitter:client_secret"] =
       "secret-client-secret-xyz789";
     secureKeyStore["credential:integration:twitter:access_token"] =
       "secret-access-token-def456";
-    credentialMetadataStore.push({
-      service: "integration:twitter",
-      field: "access_token",
-      accountInfo: "@testuser",
-    });
 
     const msg: TwitterIntegrationConfigRequest = {
       type: "twitter_integration_config",
