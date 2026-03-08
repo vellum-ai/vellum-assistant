@@ -30,7 +30,7 @@ const provider: MessagingProvider = {
   ) => sendMessageMock(token, conversationId, text, options),
 };
 
-mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
+mock.module("../skills/bundled-skills/messaging/tools/shared.js", () => ({
   resolveProvider: () => provider,
   withProviderToken: async (
     _provider: MessagingProvider,
@@ -40,7 +40,7 @@ mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
   err: (content: string) => ({ content, isError: true }),
 }));
 
-import { run } from "../config/bundled-skills/messaging/tools/messaging-send.js";
+import { run } from "../skills/bundled-skills/messaging/tools/messaging-send.js";
 
 describe("messaging-send tool", () => {
   beforeEach(() => {

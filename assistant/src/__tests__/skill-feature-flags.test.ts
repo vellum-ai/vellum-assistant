@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
-import { resolveSkillStates, skillFlagKey } from "../config/skill-state.js";
-import type { SkillSummary } from "../config/skills.js";
+import type { SkillSummary } from "../skills/catalog.js";
+import { resolveSkillStates, skillFlagKey } from "../skills/skill-state.js";
 
 const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
 const DECLARED_SKILL_ID = "hatch-new-assistant";

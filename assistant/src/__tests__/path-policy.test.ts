@@ -39,7 +39,7 @@ mock.module("../util/platform.js", () => ({
   ensureDataDir: () => {},
 }));
 
-mock.module("../config/skills.js", () => ({
+mock.module("../skills/catalog.js", () => ({
   getBundledSkillsDir: () => MOCK_BUNDLED_DIR,
 }));
 

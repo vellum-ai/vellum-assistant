@@ -38,11 +38,11 @@ mock.module("../memory/jobs-store.js", () => ({
 
 import type { Database } from "bun:sqlite";
 
-import { executePlaybookCreate } from "../config/bundled-skills/playbooks/tools/playbook-create.js";
-import { executePlaybookDelete } from "../config/bundled-skills/playbooks/tools/playbook-delete.js";
-import { executePlaybookList } from "../config/bundled-skills/playbooks/tools/playbook-list.js";
-import { executePlaybookUpdate } from "../config/bundled-skills/playbooks/tools/playbook-update.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { executePlaybookCreate } from "../skills/bundled-skills/playbooks/tools/playbook-create.js";
+import { executePlaybookDelete } from "../skills/bundled-skills/playbooks/tools/playbook-delete.js";
+import { executePlaybookList } from "../skills/bundled-skills/playbooks/tools/playbook-list.js";
+import { executePlaybookUpdate } from "../skills/bundled-skills/playbooks/tools/playbook-update.js";
 import type { ToolContext } from "../tools/types.js";
 
 initializeDb();

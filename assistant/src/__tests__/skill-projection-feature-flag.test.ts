@@ -5,9 +5,9 @@
 import * as realFs from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
 import { RiskLevel } from "../permissions/types.js";
 import type { Message } from "../providers/types.js";
+import type { SkillSummary, SkillToolManifest } from "../skills/catalog.js";
 import type { Tool } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ const DECLARED_FLAG_KEY = "feature_flags.hatch-new-assistant.enabled";
 // Mocks
 // ---------------------------------------------------------------------------
 
-mock.module("../config/skills.js", () => ({
+mock.module("../skills/catalog.js", () => ({
   loadSkillCatalog: () => mockCatalog,
   checkSkillRequirements: () => ({ satisfied: true, missing: [] }),
 }));
@@ -57,7 +57,7 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   _resetDefaultsCache: () => {},
 }));
 
-mock.module("../config/skill-state.js", () => ({
+mock.module("../skills/skill-state.js", () => ({
   skillFlagKey: (skillId: string) => `feature_flags.${skillId}.enabled`,
 }));
 

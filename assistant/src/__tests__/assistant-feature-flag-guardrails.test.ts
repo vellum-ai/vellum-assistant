@@ -57,7 +57,7 @@ function loadRegistry(): Registry {
  */
 const LEGACY_KEY_ALLOWLIST = new Set([
   // Legacy wrapper (deprecated, kept for migration)
-  "assistant/src/config/skill-state.ts",
+  "assistant/src/skills/skill-state.ts",
   // Type definitions documenting the legacy format
   "assistant/src/config/types.ts",
   // macOS client: fallback reads from legacy config section

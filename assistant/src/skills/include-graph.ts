@@ -1,4 +1,4 @@
-import type { SkillSummary } from "../config/skills.js";
+import type { SkillSummary } from "./catalog.js";
 
 export interface IncludeGraphResult {
   /** Ordered list of all skill IDs visited during traversal (including the root). */

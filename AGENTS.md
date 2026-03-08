@@ -78,7 +78,7 @@ Use `modelIntent` (`'latency-optimized'`, `'quality-optimized'`, `'vision-optimi
 
 ## Tooling Direction
 
-Do not add new tool registrations using the `class ____Tool implements Tool` pattern. Prefer skills in `assistant/src/config/bundled-skills/` that teach the model CLI tools. When touching existing tool-based flows, migrate toward skill-driven CLI usage. Keep the system prompt minimal.
+Do not add new tool registrations using the `class ____Tool implements Tool` pattern. Prefer skills in `assistant/src/skills/bundled-skills/` that teach the model CLI tools. When touching existing tool-based flows, migrate toward skill-driven CLI usage. Keep the system prompt minimal.
 
 ## Skill Independence
 

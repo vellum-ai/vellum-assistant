@@ -18,7 +18,7 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { loadSkillCatalog } from "../config/skills.js";
+import { loadSkillCatalog } from "../skills/catalog.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("install-cli-launchers");

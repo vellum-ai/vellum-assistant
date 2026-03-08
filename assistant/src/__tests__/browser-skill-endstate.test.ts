@@ -103,7 +103,7 @@ describe("browser skill migration end-state", () => {
     const fs = await import("node:fs");
     const skillDir = path.resolve(
       import.meta.dirname,
-      "../config/bundled-skills/browser",
+      "../skills/bundled-skills/browser",
     );
     expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
     expect(fs.existsSync(path.join(skillDir, "TOOLS.json"))).toBe(true);
@@ -114,7 +114,7 @@ describe("browser skill migration end-state", () => {
     const fs = await import("node:fs");
     const toolsPath = path.resolve(
       import.meta.dirname,
-      "../config/bundled-skills/browser/TOOLS.json",
+      "../skills/bundled-skills/browser/TOOLS.json",
     );
     const manifest = JSON.parse(fs.readFileSync(toolsPath, "utf-8"));
     expect(manifest.version).toBe(1);
@@ -158,7 +158,7 @@ describe("browser skill migration end-state", () => {
     const fs = await import("node:fs");
     const toolsDir = path.resolve(
       import.meta.dirname,
-      "../config/bundled-skills/browser/tools",
+      "../skills/bundled-skills/browser/tools",
     );
     const wrapperFiles = [
       "browser-navigate.ts",

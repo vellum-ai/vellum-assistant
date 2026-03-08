@@ -6,7 +6,7 @@ import {
   getSenderMessageIds,
   getSenderMetadata,
   storeScanResult,
-} from "../config/bundled-skills/messaging/tools/scan-result-store.js";
+} from "../skills/bundled-skills/messaging/tools/scan-result-store.js";
 
 describe("scan-result-store", () => {
   beforeEach(() => {

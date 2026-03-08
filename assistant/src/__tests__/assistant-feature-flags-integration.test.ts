@@ -112,7 +112,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 const { isAssistantFeatureFlagEnabled } =
   await import("../config/assistant-feature-flags.js");
-const { skillFlagKey } = await import("../config/skill-state.js");
+const { skillFlagKey } = await import("../skills/skill-state.js");
 
 // ---------------------------------------------------------------------------
 // Setup / Teardown

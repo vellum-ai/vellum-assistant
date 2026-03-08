@@ -111,7 +111,7 @@ mock.module("../tools/assets/search.js", () => ({
 }));
 
 // Import after mocking
-import { run } from "../config/bundled-skills/image-studio/tools/media-generate-image.js";
+import { run } from "../skills/bundled-skills/image-studio/tools/media-generate-image.js";
 
 // Clean up after this file to prevent contamination of later test files.
 afterAll(() => {

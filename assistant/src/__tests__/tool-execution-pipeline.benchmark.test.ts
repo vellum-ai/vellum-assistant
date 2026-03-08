@@ -72,7 +72,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../config/skills.js", () => ({
+mock.module("../skills/catalog.js", () => ({
   resolveSkillSelector: () => ({ skill: null }),
   loadSkillCatalog: () => [],
 }));

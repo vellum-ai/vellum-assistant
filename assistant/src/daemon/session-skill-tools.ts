@@ -13,12 +13,12 @@ import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import { skillFlagKey } from "../config/skill-state.js";
-import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
-import { loadSkillCatalog } from "../config/skills.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
+import type { SkillSummary, SkillToolManifest } from "../skills/catalog.js";
+import { loadSkillCatalog } from "../skills/catalog.js";
+import { skillFlagKey } from "../skills/skill-state.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import {

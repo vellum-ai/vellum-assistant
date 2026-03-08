@@ -1,7 +1,6 @@
 import * as realFs from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
 import { RiskLevel } from "../permissions/types.js";
 import type {
   Message,
@@ -9,6 +8,7 @@ import type {
   ToolResultContent,
   ToolUseContent,
 } from "../providers/types.js";
+import type { SkillSummary, SkillToolManifest } from "../skills/catalog.js";
 import type { Tool } from "../tools/types.js";
 import {
   assertBrowserToolsAbsent,
@@ -35,7 +35,7 @@ let mockVersionHashErrors: Set<string> = new Set();
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
-mock.module("../config/skills.js", () => ({
+mock.module("../skills/catalog.js", () => ({
   loadSkillCatalog: () => mockCatalog,
   checkSkillRequirements: () => ({ eligible: true, missing: {} }),
 }));
@@ -224,7 +224,7 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   loadDefaultsRegistry: () => ({}),
 }));
 
-mock.module("../config/skill-state.js", () => ({
+mock.module("../skills/skill-state.js", () => ({
   skillFlagKey: (skillId: string) => `feature_flags.${skillId}.enabled`,
 }));
 

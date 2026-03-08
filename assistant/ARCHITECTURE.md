@@ -236,7 +236,7 @@ The HTTP route handlers (`channel-verification-routes.ts`) and the legacy IPC ha
 | `src/runtime/verification-outbound-actions.ts`             | Shared business logic for start/resend/cancel outbound verification                                                  |
 | `src/runtime/routes/channel-verification-routes.ts`        | HTTP route handlers for unified verification session API (`/v1/channel-verification-sessions`, `/revoke`, `/status`) |
 | `src/daemon/handlers/config-channels.ts`                   | IPC handler that delegates to the same shared actions                                                                |
-| `src/config/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate channel verification via chat                                    |
+| `src/skills/bundled-skills/guardian-verify-setup/SKILL.md` | Skill that teaches the assistant how to orchestrate channel verification via chat                                    |
 
 **Guardian-Only Tool Invocation Gate:**
 
@@ -426,7 +426,7 @@ External users who are not the guardian can gain access to the assistant through
 | `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
 | `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                  |
 | `src/memory/channel-verification-sessions.ts`          | Verification challenge persistence                                            |
-| `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links        |
+| `src/skills/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links        |
 
 ### Guardian-Initiated Invite Links
 
@@ -635,13 +635,13 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 **Public API:**
 
 - `isAssistantFeatureFlagEnabled(key, config)` — full resolver with the canonical key
-- `skillFlagKey(skillId)` — derives the canonical flag key for a skill, respecting overrides (in `config/skill-state.ts`)
+- `skillFlagKey(skillId)` — derives the canonical flag key for a skill, respecting overrides (in `skills/skill-state.ts`)
 
 **Skill-gating guarantee:** For skills that are explicitly mapped to declared assistant flags, when the flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at five independent points:
 
 | Enforcement Point                  | Module                                                   | Effect                                                                                                                                                                                                      |
 | ---------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Client skill list**           | `resolveSkillStates()` in `config/skill-state.ts`        | Skills with flag OFF are excluded from the resolved list returned to IPC clients (macOS skill list, settings UI). The skill never appears in the client.                                                    |
+| **1. Client skill list**           | `resolveSkillStates()` in `skills/skill-state.ts`        | Skills with flag OFF are excluded from the resolved list returned to IPC clients (macOS skill list, settings UI). The skill never appears in the client.                                                    |
 | **2. System prompt skill catalog** | `appendSkillsCatalog()` in `config/system-prompt.ts`     | The model-visible `## Skills Catalog` section in the system prompt filters out flagged-off skills. The model cannot see or reference them.                                                                  |
 | **3. `skill_load` tool**           | `executeSkillLoad()` in `tools/skills/load.ts`           | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
 | **4. Runtime tool projection**     | `projectSkillTools()` in `daemon/session-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
@@ -656,7 +656,7 @@ All five enforcement points use `isAssistantFeatureFlagEnabled(skillFlagKey(skil
 | File                                            | Purpose                                                                                                            |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, `getAssistantFeatureFlagDefaults()`, registry loader        |
-| `src/config/skill-state.ts`                     | `skillFlagKey()` — derives canonical flag key for skills; `resolveSkillStates()` — enforcement point 1             |
+| `src/skills/skill-state.ts`                     | `skillFlagKey()` — derives canonical flag key for skills; `resolveSkillStates()` — enforcement point 1             |
 | `src/config/system-prompt.ts`                   | `appendSkillsCatalog()` — enforcement point 2                                                                      |
 | `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                  |
 | `src/daemon/session-skill-tools.ts`             | `projectSkillTools()` — enforcement point 4                                                                        |
@@ -1358,7 +1358,7 @@ graph LR
 | --------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `assistant/src/skills/include-graph.ts` | `indexCatalogById()`, `getImmediateChildren()`, `validateIncludes()`, `traverseIncludes()` |
 | `assistant/src/tools/skills/load.ts`    | Include validation integration in `skill_load` execute path                                |
-| `assistant/src/config/skills.ts`        | `includes` field parsing from SKILL.md frontmatter                                         |
+| `assistant/src/skills/catalog.ts`       | `includes` field parsing from SKILL.md frontmatter                                         |
 | `assistant/src/skills/managed-store.ts` | `includes` emission in `buildSkillMarkdown()`                                              |
 
 ---
@@ -1401,7 +1401,7 @@ skills/<skill-id>/
 
 ### Bundled Skills
 
-The following capabilities ship as bundled skills in `assistant/src/config/bundled-skills/`:
+The following capabilities ship as bundled skills in `assistant/src/skills/bundled-skills/`:
 
 | Skill ID        | Tools                                                                                                                                                                                                                                                                                              | Purpose                                                                                                                                                                                                                                                                                                         |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1494,8 +1494,8 @@ graph TB
 
 | File                                                | Role                                                                                       |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `assistant/src/config/skills.ts`                    | Skill catalog loading: bundled, managed, workspace, extra directories                      |
-| `assistant/src/config/bundled-skills/`              | Bundled skill directories (browser, gmail, claude-code, computer-use, weather, etc.)       |
+| `assistant/src/skills/catalog.ts`                   | Skill catalog loading: bundled, managed, workspace, extra directories                      |
+| `assistant/src/skills/bundled-skills/`              | Bundled skill directories (browser, gmail, claude-code, computer-use, weather, etc.)       |
 | `assistant/src/skills/tool-manifest.ts`             | `TOOLS.json` parser and validator                                                          |
 | `assistant/src/skills/active-skill-tools.ts`        | `deriveActiveSkills()` — scans history for `<loaded_skill>` markers                        |
 | `assistant/src/skills/include-graph.ts`             | Include graph builder: `indexCatalogById()`, `validateIncludes()`, cycle/missing detection |
@@ -2115,7 +2115,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 | `assistant/src/notifications/copy-composer.ts`                             | Template-based fallback copy when LLM copy is unavailable                                                                             |
 | `assistant/src/notifications/preference-extractor.ts`                      | Detects preference statements in conversation messages                                                                                |
 | `assistant/src/notifications/preferences-store.ts`                         | CRUD for user notification preferences                                                                                                |
-| `assistant/src/config/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline                                 |
+| `assistant/src/skills/bundled-skills/messaging/tools/send-notification.ts` | Explicit producer tool for user-requested notifications; emits signals into the same routing pipeline                                 |
 | `assistant/src/calls/guardian-dispatch.ts`                                 | Guardian question dispatch that reuses canonical notification pairing and records guardian delivery bookkeeping from pipeline results |
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `threadActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `thread_action`, `thread_target_conversation_id`, `thread_decision_fallback_used`)
@@ -2179,7 +2179,7 @@ Some tool outputs contain values that must reach the user's final reply but shou
 
 3. **Post-generation substitution** (`src/agent/loop.ts`): Before emitting streamed `text_delta` events and before building the final `assistantMessage`, all placeholders are deterministically replaced with their real values. The substitution is chunk-safe for streaming (buffering partial placeholder prefixes across deltas).
 
-Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts` (extraction hook), `src/agent/loop.ts` (substitution), `src/config/bundled-skills/contacts/SKILL.md` (invite flow adoption).
+Key files: `src/tools/sensitive-output-placeholders.ts`, `src/tools/executor.ts` (extraction hook), `src/agent/loop.ts` (substitution), `src/skills/bundled-skills/contacts/SKILL.md` (invite flow adoption).
 
 ### Notifications
 

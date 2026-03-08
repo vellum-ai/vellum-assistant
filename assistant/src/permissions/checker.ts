@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 
 import { getConfig } from "../config/loader.js";
-import { resolveSkillSelector } from "../config/skills.js";
+import { resolveSkillSelector } from "../skills/catalog.js";
 import {
   isSkillSourcePath,
   normalizeFilePath,

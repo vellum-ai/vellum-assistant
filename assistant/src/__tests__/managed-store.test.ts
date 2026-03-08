@@ -34,7 +34,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { loadSkillCatalog } from "../config/skills.js";
+import { loadSkillCatalog } from "../skills/catalog.js";
 import {
   buildSkillMarkdown,
   createManagedSkill,

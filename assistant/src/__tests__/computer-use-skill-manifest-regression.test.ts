@@ -24,7 +24,7 @@ afterAll(() => {
 // Load the TOOLS.json manifest
 const manifestPath = resolve(
   import.meta.dirname,
-  "../config/bundled-skills/computer-use/TOOLS.json",
+  "../skills/bundled-skills/computer-use/TOOLS.json",
 );
 const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
 

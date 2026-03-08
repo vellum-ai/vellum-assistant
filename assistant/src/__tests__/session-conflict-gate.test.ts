@@ -159,13 +159,13 @@ mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
 
-mock.module("../config/skills.js", () => ({
+mock.module("../skills/catalog.js", () => ({
   loadSkillCatalog: () => [],
   loadSkillBySelector: () => ({ skill: null }),
   ensureSkillIcon: async () => null,
 }));
 
-mock.module("../config/skill-state.js", () => ({
+mock.module("../skills/skill-state.js", () => ({
   resolveSkillStates: () => [],
 }));
 
