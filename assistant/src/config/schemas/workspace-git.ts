@@ -1,100 +1,5 @@
 import { z } from "zod";
 
-export const HeartbeatConfigSchema = z
-  .object({
-    enabled: z
-      .boolean({ error: "heartbeat.enabled must be a boolean" })
-      .default(false),
-    intervalMs: z
-      .number({ error: "heartbeat.intervalMs must be a number" })
-      .int("heartbeat.intervalMs must be an integer")
-      .positive("heartbeat.intervalMs must be a positive integer")
-      .default(3_600_000),
-    activeHoursStart: z
-      .number({ error: "heartbeat.activeHoursStart must be a number" })
-      .int("heartbeat.activeHoursStart must be an integer")
-      .min(0, "heartbeat.activeHoursStart must be >= 0")
-      .max(23, "heartbeat.activeHoursStart must be <= 23")
-      .optional(),
-    activeHoursEnd: z
-      .number({ error: "heartbeat.activeHoursEnd must be a number" })
-      .int("heartbeat.activeHoursEnd must be an integer")
-      .min(0, "heartbeat.activeHoursEnd must be >= 0")
-      .max(23, "heartbeat.activeHoursEnd must be <= 23")
-      .optional(),
-  })
-  .superRefine((config, ctx) => {
-    const hasStart = config.activeHoursStart != null;
-    const hasEnd = config.activeHoursEnd != null;
-    if (hasStart !== hasEnd) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: [hasStart ? "activeHoursEnd" : "activeHoursStart"],
-        message:
-          "heartbeat.activeHoursStart and heartbeat.activeHoursEnd must both be set or both be omitted",
-      });
-    }
-    if (
-      hasStart &&
-      hasEnd &&
-      config.activeHoursStart === config.activeHoursEnd
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["activeHoursEnd"],
-        message:
-          "heartbeat.activeHoursStart and heartbeat.activeHoursEnd must not be equal (would create an empty window)",
-      });
-    }
-  });
-
-export const SwarmConfigSchema = z.object({
-  enabled: z
-    .boolean({ error: "swarm.enabled must be a boolean" })
-    .default(true),
-  maxWorkers: z
-    .number({ error: "swarm.maxWorkers must be a number" })
-    .int("swarm.maxWorkers must be an integer")
-    .positive("swarm.maxWorkers must be a positive integer")
-    .max(6, "swarm.maxWorkers must be at most 6")
-    .default(3),
-  maxTasks: z
-    .number({ error: "swarm.maxTasks must be a number" })
-    .int("swarm.maxTasks must be an integer")
-    .positive("swarm.maxTasks must be a positive integer")
-    .max(20, "swarm.maxTasks must be at most 20")
-    .default(8),
-  maxRetriesPerTask: z
-    .number({ error: "swarm.maxRetriesPerTask must be a number" })
-    .int("swarm.maxRetriesPerTask must be an integer")
-    .nonnegative("swarm.maxRetriesPerTask must be a non-negative integer")
-    .max(3, "swarm.maxRetriesPerTask must be at most 3")
-    .default(1),
-  workerTimeoutSec: z
-    .number({ error: "swarm.workerTimeoutSec must be a number" })
-    .int("swarm.workerTimeoutSec must be an integer")
-    .positive("swarm.workerTimeoutSec must be a positive integer")
-    .default(900),
-  roleTimeoutsSec: z
-    .object({
-      router: z.number().int().positive().optional(),
-      researcher: z.number().int().positive().optional(),
-      coder: z.number().int().positive().optional(),
-      reviewer: z.number().int().positive().optional(),
-    })
-    .default({}),
-  plannerModelIntent: z
-    .enum(["latency-optimized", "quality-optimized", "vision-optimized"], {
-      error: "swarm.plannerModelIntent must be a valid model intent",
-    })
-    .default("latency-optimized"),
-  synthesizerModelIntent: z
-    .enum(["latency-optimized", "quality-optimized", "vision-optimized"], {
-      error: "swarm.synthesizerModelIntent must be a valid model intent",
-    })
-    .default("quality-optimized"),
-});
-
 export const WorkspaceGitConfigSchema = z.object({
   turnCommitMaxWaitMs: z
     .number({ error: "workspaceGit.turnCommitMaxWaitMs must be a number" })
@@ -261,6 +166,4 @@ export const WorkspaceGitConfigSchema = z.object({
     }),
 });
 
-export type HeartbeatConfig = z.infer<typeof HeartbeatConfigSchema>;
-export type SwarmConfig = z.infer<typeof SwarmConfigSchema>;
 export type WorkspaceGitConfig = z.infer<typeof WorkspaceGitConfigSchema>;

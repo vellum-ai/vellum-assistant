@@ -4,50 +4,6 @@ import { getDataDir } from "../util/platform.js";
 
 // Re-export all domain schemas
 export type {
-  HeartbeatConfig,
-  SwarmConfig,
-  WorkspaceGitConfig,
-} from "./agent-schema.js";
-export {
-  HeartbeatConfigSchema,
-  SwarmConfigSchema,
-  WorkspaceGitConfigSchema,
-} from "./agent-schema.js";
-export type {
-  MemoryCleanupConfig,
-  MemoryConfig,
-  MemoryConflictsConfig,
-  MemoryEmbeddingsConfig,
-  MemoryEntityConfig,
-  MemoryExtractionConfig,
-  MemoryJobsConfig,
-  MemoryProfileConfig,
-  MemoryRerankingConfig,
-  MemoryRetentionConfig,
-  MemoryRetrievalConfig,
-  MemorySegmentationConfig,
-  MemorySummarizationConfig,
-  QdrantConfig,
-} from "./memory-schema.js";
-export {
-  MemoryCleanupConfigSchema,
-  MemoryConfigSchema,
-  MemoryConflictsConfigSchema,
-  MemoryDynamicBudgetConfigSchema,
-  MemoryEarlyTerminationConfigSchema,
-  MemoryEmbeddingsConfigSchema,
-  MemoryEntityConfigSchema,
-  MemoryExtractionConfigSchema,
-  MemoryJobsConfigSchema,
-  MemoryProfileConfigSchema,
-  MemoryRerankingConfigSchema,
-  MemoryRetentionConfigSchema,
-  MemoryRetrievalConfigSchema,
-  MemorySegmentationConfigSchema,
-  MemorySummarizationConfigSchema,
-  QdrantConfigSchema,
-} from "./memory-schema.js";
-export type {
   CallerIdentityConfig,
   CallsConfig,
   CallsDisclosureConfig,
@@ -81,6 +37,8 @@ export {
   DEFAULT_ELEVENLABS_VOICE_ID,
   ElevenLabsConfigSchema,
 } from "./schemas/elevenlabs.js";
+export type { HeartbeatConfig } from "./schemas/heartbeat.js";
+export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 export type {
   ContextOverflowRecoveryConfig,
   ContextWindowConfig,
@@ -120,6 +78,52 @@ export {
   McpServerConfigSchema,
   McpTransportSchema,
 } from "./schemas/mcp.js";
+export type { MemoryConfig } from "./schemas/memory.js";
+export { MemoryConfigSchema } from "./schemas/memory.js";
+export type {
+  MemoryCleanupConfig,
+  MemoryJobsConfig,
+  MemoryRetentionConfig,
+} from "./schemas/memory-lifecycle.js";
+export {
+  MemoryCleanupConfigSchema,
+  MemoryJobsConfigSchema,
+  MemoryRetentionConfigSchema,
+} from "./schemas/memory-lifecycle.js";
+export type {
+  MemoryConflictsConfig,
+  MemoryEntityConfig,
+  MemoryExtractionConfig,
+  MemoryProfileConfig,
+  MemorySummarizationConfig,
+} from "./schemas/memory-processing.js";
+export {
+  MemoryConflictsConfigSchema,
+  MemoryEntityConfigSchema,
+  MemoryExtractionConfigSchema,
+  MemoryProfileConfigSchema,
+  MemorySummarizationConfigSchema,
+} from "./schemas/memory-processing.js";
+export type {
+  MemoryRerankingConfig,
+  MemoryRetrievalConfig,
+} from "./schemas/memory-retrieval.js";
+export {
+  MemoryDynamicBudgetConfigSchema,
+  MemoryEarlyTerminationConfigSchema,
+  MemoryRerankingConfigSchema,
+  MemoryRetrievalConfigSchema,
+} from "./schemas/memory-retrieval.js";
+export type {
+  MemoryEmbeddingsConfig,
+  MemorySegmentationConfig,
+  QdrantConfig,
+} from "./schemas/memory-storage.js";
+export {
+  MemoryEmbeddingsConfigSchema,
+  MemorySegmentationConfigSchema,
+  QdrantConfigSchema,
+} from "./schemas/memory-storage.js";
 export type { NotificationsConfig } from "./schemas/notifications.js";
 export { NotificationsConfigSchema } from "./schemas/notifications.js";
 export type {
@@ -163,19 +167,17 @@ export {
   SkillsInstallConfigSchema,
   SkillsLoadConfigSchema,
 } from "./schemas/skills.js";
+export type { SwarmConfig } from "./schemas/swarm.js";
+export { SwarmConfigSchema } from "./schemas/swarm.js";
 export type { RateLimitConfig, TimeoutConfig } from "./schemas/timeouts.js";
 export {
   RateLimitConfigSchema,
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
+export type { WorkspaceGitConfig } from "./schemas/workspace-git.js";
+export { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 // Imports for AssistantConfigSchema composition
-import {
-  HeartbeatConfigSchema,
-  SwarmConfigSchema,
-  WorkspaceGitConfigSchema,
-} from "./agent-schema.js";
-import { MemoryConfigSchema } from "./memory-schema.js";
 import { CallsConfigSchema } from "./schemas/calls.js";
 import {
   SlackConfigSchema,
@@ -184,6 +186,7 @@ import {
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
 import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
+import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import {
   ContextWindowConfigSchema,
   EffortSchema,
@@ -196,6 +199,7 @@ import {
   LogFileConfigSchema,
 } from "./schemas/logging.js";
 import { McpConfigSchema } from "./schemas/mcp.js";
+import { MemoryConfigSchema } from "./schemas/memory.js";
 import { NotificationsConfigSchema } from "./schemas/notifications.js";
 import {
   AvatarConfigSchema,
@@ -209,10 +213,12 @@ import {
   SecretDetectionConfigSchema,
 } from "./schemas/security.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
+import { SwarmConfigSchema } from "./schemas/swarm.js";
 import {
   RateLimitConfigSchema,
   TimeoutConfigSchema,
 } from "./schemas/timeouts.js";
+import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 const VALID_PROVIDERS = [
   "anthropic",
