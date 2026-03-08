@@ -9,8 +9,46 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { SessionRecording } from "../../../tools/browser/network-recording-types.js";
 import { getDataDir } from "../../../util/platform.js";
+
+interface NetworkRecordedRequest {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  postData?: string;
+}
+
+interface NetworkRecordedEntry {
+  requestId: string;
+  resourceType: string;
+  timestamp: number;
+  request: NetworkRecordedRequest;
+  response?: unknown;
+}
+
+interface SessionRecording {
+  id: string;
+  startedAt: number;
+  endedAt: number;
+  targetDomain?: string;
+  networkEntries: NetworkRecordedEntry[];
+  cookies: Array<{
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    httpOnly: boolean;
+    secure: boolean;
+    expires?: number;
+  }>;
+  observations: Array<{
+    ocrText: string;
+    appName?: string;
+    windowTitle?: string;
+    timestamp: number;
+    captureIndex: number;
+  }>;
+}
 
 export type AmazonRequestKey =
   | "search"

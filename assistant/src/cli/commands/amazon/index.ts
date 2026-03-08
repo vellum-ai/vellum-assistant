@@ -9,6 +9,7 @@ import { Command } from "commander";
 
 import {
   addToCart,
+  type ExtractedCredential,
   getCheckoutSummary,
   getFreshDeliverySlots,
   getPaymentMethods,
@@ -873,8 +874,7 @@ async function extractSessionFromChromeCookies(): Promise<
   }
 
   // 4. Decrypt each cookie
-  const cookies: import("../../../tools/browser/network-recording-types.js").ExtractedCredential[] =
-    [];
+  const cookies: ExtractedCredential[] = [];
   for (const line of rawOutput.split("\n")) {
     const parts = line.split("|");
     if (parts.length < 7) continue;

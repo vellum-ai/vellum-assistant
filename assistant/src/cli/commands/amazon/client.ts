@@ -51,9 +51,17 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
-import type { ExtractedCredential } from "../../../tools/browser/network-recording-types.js";
-
 const execFileAsync = promisify(execFile);
+
+export interface ExtractedCredential {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  httpOnly: boolean;
+  secure: boolean;
+  expires?: number;
+}
 
 interface RelayResponse {
   ok: boolean;
