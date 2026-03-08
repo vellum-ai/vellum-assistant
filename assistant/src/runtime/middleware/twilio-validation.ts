@@ -73,8 +73,8 @@ export async function validateTwilioWebhook(
 
   if (!authToken) {
     log.error(
-      "Twilio auth token not found in config — cannot verify webhook HMAC signature. " +
-        "Rejecting request. Set twilio.authToken via config.",
+      "Twilio auth token not found in credential store — cannot verify webhook HMAC signature. " +
+        "Rejecting request. Store auth token via credential store (twilio:auth_token).",
     );
     return httpError("FORBIDDEN", "Forbidden", 403);
   }

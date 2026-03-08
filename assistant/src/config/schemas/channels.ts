@@ -4,9 +4,6 @@ export const TwilioConfigSchema = z.object({
   accountSid: z
     .string({ error: "twilio.accountSid must be a string" })
     .default(""),
-  authToken: z
-    .string({ error: "twilio.authToken must be a string" })
-    .default(""),
   phoneNumber: z
     .string({ error: "twilio.phoneNumber must be a string" })
     .default(""),
