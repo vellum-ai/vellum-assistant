@@ -325,7 +325,7 @@ Examples:
       const missingWasm: string[] = [];
       for (const wasm of wasmFiles) {
         const dir = import.meta.dirname ?? __dirname;
-        let fullPath = `${dir}/../../node_modules/${wasm.pkg}/${wasm.file}`;
+        let fullPath = `${dir}/../../../node_modules/${wasm.pkg}/${wasm.file}`;
         // In compiled binaries, fall back to Resources/ or next to the binary
         if (!existsSync(fullPath) && dir.startsWith("/$bunfs/")) {
           const { dirname: pathDirname, join: pathJoin } =

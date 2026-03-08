@@ -37,8 +37,8 @@ function getSkillsIndexPath(): string {
 function getRepoSkillsDir(): string | undefined {
   if (!process.env.VELLUM_DEV) return undefined;
 
-  // assistant/src/cli/skills.ts -> ../../../skills/
-  const candidate = join(import.meta.dir, "..", "..", "..", "skills");
+  // assistant/src/cli/commands/skills.ts -> ../../../../skills/
+  const candidate = join(import.meta.dir, "..", "..", "..", "..", "skills");
   if (existsSync(join(candidate, "catalog.json"))) {
     return candidate;
   }
