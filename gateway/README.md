@@ -75,7 +75,7 @@ v1 uses deterministic settings-based routing (no database):
 
 ## Setting up the Telegram webhook
 
-Webhook registration is now handled automatically by the gateway. On startup, the gateway reconciles the Telegram webhook by registering it at `${INGRESS_PUBLIC_BASE_URL}/webhooks/telegram` with the configured secret and allowed updates. This also runs whenever the credential watcher detects changes to the bot token or webhook secret (e.g., secret rotation). If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile so the webhook re-registers automatically without a gateway restart.
+Webhook registration is now handled automatically by the gateway. On startup, the gateway reconciles the Telegram webhook by registering it at `${INGRESS_PUBLIC_BASE_URL}/webhooks/telegram` with the configured secret and allowed updates. This also runs whenever the credential watcher detects changes to the bot token or webhook secret (e.g., secret rotation). If the ingress URL changes (e.g., tunnel restart), the config file watcher detects the change and triggers webhook reconciliation directly — no daemon involvement or gateway restart is needed.
 
 For manual setup (or reference), register the webhook with Telegram using the `setWebhook` API method. Pass:
 
@@ -126,7 +126,7 @@ Caller → Twilio → Gateway /webhooks/twilio/voice (no callSessionId)
 
 The `/webhooks/twilio/sms` endpoint receives inbound SMS messages from Twilio. On each request:
 
-1. **Signature validation** — The `X-Twilio-Signature` header is validated using HMAC-SHA1 with the `TWILIO_AUTH_TOKEN`. When behind a tunnel or reverse proxy, the gateway reconstructs the canonical request URL from `INGRESS_PUBLIC_BASE_URL` for validation.
+1. **Signature validation** — The `X-Twilio-Signature` header is validated using HMAC-SHA1 with the `TWILIO_AUTH_TOKEN`. When behind a tunnel or reverse proxy, the gateway reconstructs the canonical request URL from the ingress public base URL (read via `ConfigFileCache` from `ingress.publicBaseUrl` in workspace config, falling back to the `INGRESS_PUBLIC_BASE_URL` env var) for validation.
 2. **MessageSid dedup** — Each `MessageSid` is tracked in an in-memory dedup cache. Duplicate webhook deliveries (Twilio retries) are silently accepted without re-forwarding.
 3. **MMS detection** — The gateway treats a message as MMS when any of the following conditions are met: `NumMedia > 0`, any `MediaUrl<N>` key has a non-empty value, or any `MediaContentType<N>` key has a non-empty value. This catches media attachments even when Twilio omits `NumMedia`. The gateway replies with an unsupported notice ("MMS is not supported yet") and does not forward the payload to the runtime.
 4. **`/new` command** — When the message body is exactly `/new` (case-insensitive, trimmed), the gateway resolves routing first. If routing is rejected, the gateway sends a rejection notice SMS to the sender (matching Telegram rejection semantics) and does not forward the message. If routing succeeds, the gateway resets the conversation via the runtime API and sends a confirmation SMS. The message is never forwarded to the runtime.
@@ -284,7 +284,7 @@ Inbound SMS follows the same gateway-only pattern as voice and Telegram:
 
 ### Signature URL Tightening
 
-When `INGRESS_PUBLIC_BASE_URL` is configured, the gateway prioritizes it as the canonical URL for Twilio signature validation. If the signature only validates against the raw local request URL (fallback), a warning is logged indicating potential drift between the configured ingress URL and the actual webhook registration. The raw URL fallback is preserved for local-dev operability.
+When the ingress public base URL is configured (via `ingress.publicBaseUrl` in workspace config or `INGRESS_PUBLIC_BASE_URL` env var, read through `ConfigFileCache`), the gateway prioritizes it as the canonical URL for Twilio signature validation. If the signature only validates against the raw local request URL (fallback), a warning is logged indicating potential drift between the configured ingress URL and the actual webhook registration. The raw URL fallback is preserved for local-dev operability.
 
 ## Default Mode: Dedicated Routes Only
 
