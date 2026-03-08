@@ -223,7 +223,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "cli/commands/credentials.ts", // CLI credential management commands
       "runtime/http-server.ts", // HTTP server credential lookup
       "daemon/handlers/twitter-auth.ts", // Twitter OAuth token storage
-      "twitter/oauth-client.ts", // Twitter OAuth API client (reads access token for API calls)
+      "cli/commands/twitter/oauth-client.ts", // Twitter OAuth API client (reads access token for API calls)
       "messaging/providers/telegram-bot/adapter.ts", // Telegram bot token lookup for connectivity check
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
