@@ -841,13 +841,6 @@ async function main() {
     });
   }
 
-  if (isTelegramConfigured()) {
-    registerTelegramCommands();
-    reconcileTelegramWebhook(telegramCaches).catch((err) => {
-      log.error({ err }, "Failed to reconcile Telegram webhook on startup");
-    });
-  }
-
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
 
