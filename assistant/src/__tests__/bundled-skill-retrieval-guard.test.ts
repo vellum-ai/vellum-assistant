@@ -6,7 +6,7 @@ const ASSISTANT_DIR = join(import.meta.dir, "..", "..");
 const BUNDLED_SKILLS_DIR = join(
   ASSISTANT_DIR,
   "src",
-  "skills",
+  "config",
   "bundled-skills",
 );
 

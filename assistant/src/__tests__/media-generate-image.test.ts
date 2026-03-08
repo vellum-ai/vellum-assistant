@@ -120,7 +120,7 @@ afterAll(() => {
 
 const CONFIG_DIR = join(
   dirname(import.meta.dirname!),
-  "skills",
+  "config",
   "bundled-skills",
   "image-studio",
 );
