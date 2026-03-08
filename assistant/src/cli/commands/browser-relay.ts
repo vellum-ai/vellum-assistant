@@ -1,10 +1,14 @@
 import type { Command } from "commander";
 
-import type {
-  ExtensionCommand,
-  ExtensionResponse,
-} from "../../browser-extension-relay/protocol.js";
-import { extensionRelayServer } from "../../browser-extension-relay/server.js";
+import {
+  initAuthSigningKey,
+  isSigningKeyInitialized,
+  loadOrCreateSigningKey,
+} from "../../runtime/auth/token-service.js";
+import {
+  gatewayGet,
+  gatewayPost,
+} from "../../runtime/gateway-internal-client.js";
 import {
   ensureChromeWithCdp,
   minimizeChromeWindow,
@@ -17,22 +21,17 @@ import {
 
 async function relayCommand(command: Record<string, unknown>): Promise<void> {
   try {
-    const status = extensionRelayServer.getStatus();
-    if (!status.connected) {
-      process.stdout.write(
-        JSON.stringify({
-          ok: false,
-          error:
-            "Browser extension relay is not connected. Open Chrome, click the Vellum extension, and click Connect.",
-        }) + "\n",
-      );
-      process.exitCode = 1;
-      return;
+    if (!isSigningKeyInitialized()) {
+      initAuthSigningKey(loadOrCreateSigningKey());
     }
 
-    const data: ExtensionResponse = await extensionRelayServer.sendCommand(
-      command as Omit<ExtensionCommand, "id">,
-    );
+    const { data } = await gatewayPost<{
+      id: string;
+      success: boolean;
+      result?: unknown;
+      error?: string;
+      tabId?: number;
+    }>("/v1/browser-relay/command", command);
 
     if (data.success) {
       process.stdout.write(
@@ -365,18 +364,34 @@ Examples:
   $ assistant browser chrome relay status`,
     )
     .action(async () => {
-      const status = extensionRelayServer.getStatus();
-      process.stdout.write(
-        JSON.stringify({
-          ok: true,
-          connected: status.connected,
-          connectionId: status.connectionId,
-          lastHeartbeatAt: status.lastHeartbeatAt
-            ? new Date(status.lastHeartbeatAt).toISOString()
-            : null,
-          pendingCommandCount: status.pendingCommandCount,
-        }) + "\n",
-      );
+      try {
+        if (!isSigningKeyInitialized()) {
+          initAuthSigningKey(loadOrCreateSigningKey());
+        }
+        const data = await gatewayGet<{
+          connected: boolean;
+          connectionId?: string;
+          lastHeartbeatAt?: number;
+          pendingCommandCount: number;
+        }>("/v1/browser-relay/status");
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            connected: data.connected,
+            connectionId: data.connectionId ?? null,
+            lastHeartbeatAt: data.lastHeartbeatAt
+              ? new Date(data.lastHeartbeatAt).toISOString()
+              : null,
+            pendingCommandCount: data.pendingCommandCount,
+          }) + "\n",
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stdout.write(
+          JSON.stringify({ ok: false, error: message }) + "\n",
+        );
+        process.exitCode = 1;
+      }
     });
 
   // ---------------------------------------------------------------------------
