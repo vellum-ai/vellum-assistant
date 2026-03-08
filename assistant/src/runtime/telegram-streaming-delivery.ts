@@ -31,7 +31,6 @@ export class TelegramStreamingDelivery {
   private finishOk = false; // True only when finish() completes without error
   private initialSendInFlight = false; // Synchronous guard against duplicate initial sends
   private initialSendPromise: Promise<ChannelDeliveryResult> | null = null; // Tracks in-flight initial send
-  private pausedForTool = false; // True when a tool_use_start has paused streaming
 
   constructor(opts: TelegramStreamingOptions) {
     this.opts = opts;
@@ -46,24 +45,14 @@ export class TelegramStreamingDelivery {
         this.onTextDelta(msg.text);
         break;
       case "tool_use_start":
-        this.pausedForTool = true;
-        // Flush buffer into currentMessageText but do NOT reset message state.
-        // This keeps the current Telegram message alive so the next text delta
-        // can resume appending to it instead of starting a new message.
-        if (this.buffer.length > 0) {
+        // Flush buffer and send an edit so the message is up-to-date before the tool runs
+        if (this.buffer.length > 0 && this.currentMessageId) {
+          this.flushEdit();
+        } else if (this.buffer.length > 0) {
+          // No message sent yet — just move buffer to currentMessageText
           this.currentMessageText += this.buffer;
           this.buffer = "";
         }
-        // Send an edit with current text so it's up to date before the tool runs
-        if (
-          this.currentMessageId &&
-          this.currentMessageText !== this.lastSentText
-        ) {
-          this.flushEdit();
-        }
-        break;
-      case "tool_result":
-        this.pausedForTool = false;
         break;
       case "message_complete":
         // Don't finalize here — let finish() handle it
@@ -73,7 +62,6 @@ export class TelegramStreamingDelivery {
 
   async finish(approval?: ApprovalUIMetadata): Promise<void> {
     this.finished = true;
-    this.pausedForTool = false;
     if (this.editTimer) {
       clearTimeout(this.editTimer);
       this.editTimer = null;
@@ -115,6 +103,18 @@ export class TelegramStreamingDelivery {
         this.finishOk = true;
         return;
       }
+    }
+
+    // Buffer was empty but text was moved to currentMessageText (e.g. by
+    // tool_use_start) before any Telegram message was created. Send it now.
+    if (
+      !this.currentMessageId &&
+      this.currentMessageText.length > 0 &&
+      this.buffer.length === 0
+    ) {
+      await this.sendNewMessage(this.currentMessageText, approval);
+      this.finishOk = true;
+      return;
     }
 
     // Final edit with approval buttons if present.
@@ -183,7 +183,6 @@ export class TelegramStreamingDelivery {
 
   private onTextDelta(text: string): void {
     this.buffer += text;
-    this.pausedForTool = false; // Resume streaming to the same message
     if (
       !this.currentMessageId &&
       !this.initialSendInFlight &&
@@ -197,7 +196,7 @@ export class TelegramStreamingDelivery {
 
   private sendInitialMessage(): void {
     this.initialSendInFlight = true;
-    this.currentMessageText = this.buffer;
+    this.currentMessageText += this.buffer;
     this.buffer = "";
 
     const textSnapshot = this.currentMessageText;
@@ -346,78 +345,6 @@ export class TelegramStreamingDelivery {
         });
     }
     this.lastEditAt = Date.now();
-  }
-
-  private finalizeCurrentMessage(): void {
-    if (this.editTimer) {
-      clearTimeout(this.editTimer);
-      this.editTimer = null;
-    }
-
-    // Flush any remaining buffer into the current message
-    if (this.buffer.length > 0) {
-      this.currentMessageText += this.buffer;
-      this.buffer = "";
-    }
-
-    if (this.currentMessageId && this.currentMessageText) {
-      // Send a final edit for the active message
-      const textSnapshot = this.currentMessageText;
-      deliverChannelReply(
-        this.opts.callbackUrl,
-        {
-          chatId: this.opts.chatId,
-          text: this.currentMessageText,
-          messageId: this.currentMessageId,
-          assistantId: this.opts.assistantId,
-        },
-        this.opts.mintBearerToken(),
-      )
-        .then(() => {
-          this.lastSentText = textSnapshot;
-        })
-        .catch((err) => {
-          log.error(
-            { err, chatId: this.opts.chatId },
-            "Failed to finalize streaming message",
-          );
-        });
-    } else if (!this.currentMessageId && this.currentMessageText) {
-      // No Telegram message was created yet (e.g., text was under the
-      // MIN_INITIAL_CHARS threshold when tool_use_start arrived). Send
-      // the buffered text as a new message so it isn't lost.
-      const textSnapshot = this.currentMessageText;
-      deliverChannelReply(
-        this.opts.callbackUrl,
-        {
-          chatId: this.opts.chatId,
-          text: textSnapshot,
-          assistantId: this.opts.assistantId,
-        },
-        this.opts.mintBearerToken(),
-      )
-        .then((result) => {
-          if (result.messageId) {
-            // Message sent successfully; don't set currentMessageId since
-            // we're about to reset for the next segment anyway.
-          }
-          this.textDelivered = true;
-          this.lastSentText = textSnapshot;
-          this.messageCount++;
-        })
-        .catch((err) => {
-          log.error(
-            { err, chatId: this.opts.chatId },
-            "Failed to send pre-tool buffered text",
-          );
-        });
-    }
-
-    // Reset so the next text delta starts a new message
-    this.currentMessageId = null;
-    this.currentMessageText = "";
-    this.lastSentText = "";
-    this.pausedForTool = false;
   }
 
   private async sendNewMessage(

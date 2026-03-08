@@ -122,8 +122,8 @@ describe("TelegramStreamingDelivery", () => {
     expect(secondPayload.text).toBe("a".repeat(25) + "b".repeat(10));
   });
 
-  // ── Test 3: sends full text as new message when messageId missing ───
-  test("sends full text as new message when messageId is missing", async () => {
+  // ── Test 3: sends remainder as new message when messageId missing ───
+  test("sends remainder as new message when messageId is missing", async () => {
     // First call: no messageId in response; second call: with messageId
     mockDeliverChannelReply.mockReset();
     let localCallCount = 0;
@@ -150,9 +150,10 @@ describe("TelegramStreamingDelivery", () => {
 
     expect(mockDeliverChannelReply).toHaveBeenCalledTimes(2);
 
-    // Second call should contain the FULL accumulated text (not just remainder)
+    // The initial text was already delivered (just without a messageId),
+    // so the second call should contain only the remainder (buffer text)
     const secondPayload = callPayload(1);
-    expect(secondPayload.text).toBe("a".repeat(25) + "b".repeat(10));
+    expect(secondPayload.text).toBe("b".repeat(10));
     // It's sent as a new message (no messageId in payload) since the first
     // call didn't return one
     expect(secondPayload.messageId).toBeUndefined();
@@ -349,6 +350,66 @@ describe("TelegramStreamingDelivery", () => {
     const overflowPayload = callPayload(2);
     expect((overflowPayload.text as string).length).toBe(100);
     expect(overflowPayload.messageId).toBeUndefined();
+  });
+
+  // ── Test 5f: preserves below-threshold text across tool_use_start ───
+  test("preserves below-threshold text across tool_use_start", async () => {
+    const delivery = createDelivery();
+
+    // Send text below MIN_INITIAL_CHARS threshold
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "Hi! ", // 4 chars, well below 20
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(0); // not sent yet
+
+    // tool_use_start
+    delivery.onEvent({
+      type: "tool_use_start",
+      toolName: "memory_recall",
+      input: {},
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(0); // still not sent
+
+    // More text after tool (enough to trigger initial send when combined)
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "What can I help with?", // 21 chars, combined = 25 >= 20
+    });
+    await flushPromises();
+
+    // Should have sent initial message with ALL text (pre-tool + post-tool)
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+    const payload = callPayload(0);
+    expect(payload.text).toBe("Hi! What can I help with?");
+
+    await delivery.finish();
+    expect(delivery.finishSucceeded).toBe(true);
+  });
+
+  // ── Test 5g: delivers below-threshold text when tool_use_start is followed by finish ─
+  test("delivers below-threshold text when tool_use_start is followed by finish", async () => {
+    const delivery = createDelivery();
+
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "Hi!", // 3 chars
+    });
+    delivery.onEvent({
+      type: "tool_use_start",
+      toolName: "lookup",
+      input: {},
+    });
+
+    await delivery.finish();
+
+    // The "Hi!" should have been sent as a new message during finish
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+    const payload = callPayload(0);
+    expect(payload.text).toBe("Hi!");
+    expect(delivery.finishSucceeded).toBe(true);
   });
 
   // ── Test 6: skips final edit when text hasn't changed ───────────────
