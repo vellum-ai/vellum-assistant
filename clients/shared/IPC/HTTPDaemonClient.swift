@@ -49,6 +49,35 @@ private struct HTTPErrorEnvelope: Decodable {
     let error: ErrorBody
 }
 
+// MARK: - Workspace API Response Types
+
+struct WorkspaceTreeEntry: Codable, Identifiable, Hashable {
+    let name: String
+    let path: String
+    let type: String  // "file" or "directory"
+    let size: Int?
+    let mimeType: String?
+    let modifiedAt: String
+
+    var id: String { path }
+    var isDirectory: Bool { type == "directory" }
+}
+
+struct WorkspaceTreeResponse: Codable {
+    let path: String
+    let entries: [WorkspaceTreeEntry]
+}
+
+struct WorkspaceFileResponse: Codable {
+    let path: String
+    let name: String
+    let size: Int
+    let mimeType: String
+    let modifiedAt: String
+    let content: String?
+    let isBinary: Bool
+}
+
 // MARK: - HTTP Transport
 
 /// Internal helper that handles HTTP REST + SSE communication with a remote
@@ -191,6 +220,9 @@ public final class HTTPTransport {
         case usageTotals(from: Int, to: Int)
         case usageDaily(from: Int, to: Int)
         case usageBreakdown(from: Int, to: Int, groupBy: String)
+        case workspaceTree(path: String)
+        case workspaceFile(path: String)
+        case workspaceFileContent(path: String)
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -301,6 +333,15 @@ public final class HTTPTransport {
         case .usageBreakdown(let from, let to, let groupBy):
             let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
             return ("/v1/usage/breakdown", "from=\(from)&to=\(to)&groupBy=\(encoded)")
+        case .workspaceTree(let path):
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            return ("/v1/workspace/tree", path.isEmpty ? nil : "path=\(encoded)")
+        case .workspaceFile(let path):
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            return ("/v1/workspace/file", "path=\(encoded)")
+        case .workspaceFileContent(let path):
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            return ("/v1/workspace/file/content", "path=\(encoded)")
         }
     }
 
@@ -392,6 +433,15 @@ public final class HTTPTransport {
         case .usageBreakdown(let from, let to, let groupBy):
             let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
             return ("\(prefix)/usage/breakdown/", "from=\(from)&to=\(to)&groupBy=\(encoded)")
+        case .workspaceTree(let path):
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            return ("\(prefix)/workspace/tree/", path.isEmpty ? nil : "path=\(encoded)")
+        case .workspaceFile(let path):
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            return ("\(prefix)/workspace/file/", "path=\(encoded)")
+        case .workspaceFileContent(let path):
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            return ("\(prefix)/workspace/file/content/", "path=\(encoded)")
         }
     }
 
