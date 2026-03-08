@@ -176,6 +176,7 @@ mock.module("../config/loader.js", () => ({
 mock.module("../memory/conversation-crud.js", () => ({
   addMessage: () => ({ id: "msg-1" }),
   getMessages: () => [],
+  getMessageById: () => null,
   getConversation: () => null,
   createConversation: () => ({
     id: "bench-conv",
@@ -190,13 +191,23 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationThreadType: () => "standard",
   getConversationMemoryScopeId: () => "default",
+  getConversationRecentProvenanceTrustClass: () => null,
   provenanceFromTrustContext: () => ({}),
   relinkAttachments: () => 0,
   setConversationOriginChannelIfUnset: () => {},
+  setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
   updateConversationTitle: () => {},
   updateConversationUsage: () => {},
   updateMessageContent: () => {},
+  batchSetDisplayOrders: () => {},
+  getDisplayMetaForConversations: () => [],
+  messageMetadataSchema: {
+    parse: (v: unknown) => v,
+    safeParse: (v: unknown) => ({ success: true, data: v }),
+  },
+  parseConversation: () => null,
+  parseMessage: () => null,
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
