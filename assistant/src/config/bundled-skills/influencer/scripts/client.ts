@@ -194,7 +194,17 @@ async function evalInTab(tabId: number, script: string): Promise<unknown> {
       stderr += d;
     });
     proc.on("close", (code) => {
-      if (code !== 0) return reject(new Error(stderr || `Exit code ${code}`));
+      if (code !== 0) {
+        // The relay CLI writes structured errors to stdout, not stderr.
+        // Try to parse stdout for a JSON error message before falling back.
+        try {
+          const parsed: RelayResponse = JSON.parse(stdout);
+          if (parsed.error) return reject(new Error(parsed.error));
+        } catch {
+          // stdout wasn't valid JSON — fall through to stderr/exit code
+        }
+        return reject(new Error(stderr || `Exit code ${code}`));
+      }
       try {
         const result: RelayResponse = JSON.parse(stdout);
         if (!result.ok) return reject(new Error(result.error ?? "Eval failed"));
