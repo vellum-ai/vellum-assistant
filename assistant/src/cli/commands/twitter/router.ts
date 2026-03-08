@@ -1,8 +1,12 @@
 /**
  * Strategy router for Twitter operations.
- * Selects OAuth or browser path based on the caller-provided strategy.
+ * Selects managed proxy, OAuth, or browser path based on the caller-provided strategy.
  */
 
+import {
+  postTweet as managedPostTweet,
+  TwitterProxyError,
+} from "../../../twitter/platform-proxy-client.js";
 import type { PostTweetResult } from "./client.js";
 import {
   postTweet as browserPostTweet,
@@ -14,7 +18,7 @@ import {
   oauthSupportsOperation,
 } from "./oauth-client.js";
 
-export type TwitterStrategy = "oauth" | "browser" | "auto";
+export type TwitterStrategy = "oauth" | "browser" | "auto" | "managed";
 
 export interface RoutedResult<T> {
   result: T;
@@ -38,6 +42,46 @@ export async function routedPostTweet(
 ): Promise<RoutedResult<PostTweetResult>> {
   const strategy = opts.strategy;
   const operation = opts.inReplyToTweetId ? "reply" : "post";
+
+  if (strategy === "managed") {
+    // Route through platform proxy — the platform holds the OAuth credentials
+    try {
+      const response = await managedPostTweet(text, {
+        replyToId: opts.inReplyToTweetId,
+      });
+      const data = response.data as Record<string, unknown>;
+      const tweetData = (data?.data ?? data) as Record<string, unknown>;
+      const tweetId = String(tweetData.id ?? "");
+      if (!tweetId) {
+        throw Object.assign(
+          new Error(
+            "Managed post succeeded but the proxy response did not include a tweet ID",
+          ),
+          {
+            pathUsed: "managed" as const,
+          },
+        );
+      }
+      return {
+        result: {
+          tweetId,
+          text,
+          url: `https://x.com/i/status/${tweetId}`,
+        },
+        pathUsed: "managed",
+      };
+    } catch (err) {
+      if (err instanceof TwitterProxyError) {
+        // Surface actionable error messages from the proxy
+        throw Object.assign(new Error(err.message), {
+          pathUsed: "managed" as const,
+          proxyErrorCode: err.code,
+          retryable: err.retryable,
+        });
+      }
+      throw err;
+    }
+  }
 
   if (strategy === "oauth") {
     // User explicitly wants OAuth

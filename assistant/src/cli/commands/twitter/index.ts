@@ -86,7 +86,8 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
       err instanceof Error &&
       (meta.pathUsed !== undefined ||
         meta.suggestAlternative !== undefined ||
-        meta.oauthError !== undefined)
+        meta.oauthError !== undefined ||
+        meta.proxyErrorCode !== undefined)
     ) {
       const payload: Record<string, unknown> = {
         ok: false,
@@ -96,6 +97,9 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
       if (meta.suggestAlternative !== undefined)
         payload.suggestAlternative = meta.suggestAlternative;
       if (meta.oauthError !== undefined) payload.oauthError = meta.oauthError;
+      if (meta.proxyErrorCode !== undefined)
+        payload.proxyErrorCode = meta.proxyErrorCode;
+      if (meta.retryable !== undefined) payload.retryable = meta.retryable;
       output(payload, getJson(cmd));
       process.exitCode = 1;
       return;
@@ -113,22 +117,25 @@ export function registerTwitterCommand(program: Command): void {
     .command("x")
     .alias("twitter")
     .description(
-      "Post on X and manage connections. Supports OAuth (official API) and browser session paths.",
+      "Post on X and manage connections. Supports managed (platform proxy), OAuth (official API), and browser session paths.",
     )
     .option("--json", "Machine-readable JSON output");
 
   tw.addHelpText(
     "after",
     `
-Twitter (X) uses a dual-path architecture for interacting with the platform:
+Twitter (X) supports multiple paths for interacting with the platform:
 
-  1. OAuth (official API) — uses an authenticated Twitter OAuth application for
+  1. Managed (platform proxy) — routes Twitter API calls through the platform,
+     which holds the OAuth credentials. Used when integrationMode is "managed".
+  2. OAuth (official API) — uses an authenticated Twitter OAuth application for
      posting and replying. Requires a connected OAuth credential.
-  2. Browser session (Ride Shotgun) — uses cookies captured from a real Chrome
+  3. Browser session (Ride Shotgun) — uses cookies captured from a real Chrome
      session to call Twitter's internal GraphQL API. Supports all read operations
      and posting as a fallback.
 
-The strategy system controls which path is used for operations that support both:
+The strategy system controls which path is used for operations that support multiple:
+  managed  — route through the platform proxy (platform holds credentials)
   oauth    — always use the OAuth API; fail if unavailable
   browser  — always use the browser session; fail if unavailable
   auto     — try OAuth first, fall back to browser session (default)
@@ -142,6 +149,7 @@ Session management:
 
 Examples:
   $ assistant x status
+  $ assistant x post "Hello world" --strategy managed
   $ assistant x post "Hello world" --strategy auto
   $ assistant x timeline elonmusk --count 10
   $ assistant x search "from:vaborsh AI agents" --product Latest
@@ -331,7 +339,7 @@ Examples:
   const strategyCli = tw
     .command("strategy")
     .description(
-      "Get or set the Twitter operation strategy (oauth, browser, auto)",
+      "Get or set the Twitter operation strategy (managed, oauth, browser, auto)",
     )
     .addHelpText(
       "after",
@@ -339,6 +347,7 @@ Examples:
 The strategy controls which authentication path is used for operations that
 support both OAuth and browser session:
 
+  managed  — route through the platform proxy (platform holds OAuth credentials).
   oauth    — always use the official Twitter OAuth API. Fails if no OAuth
              credential is connected. Best for reliable posting.
   browser  — always use the browser session (captured cookies). Fails if no
@@ -375,7 +384,8 @@ Arguments:
 
 Sets the preferred strategy for Twitter operations that support dual-path
 routing. The setting is persisted by the assistant and applies to all subsequent
-operations until changed.
+operations until changed. Note: "managed" is determined by integration mode
+and cannot be set manually.
 
 Examples:
   $ assistant x strategy set oauth
@@ -410,7 +420,7 @@ Examples:
     .argument("<text>", "Tweet text")
     .requiredOption(
       "--strategy <strategy>",
-      "Operation strategy: oauth, browser, or auto",
+      "Operation strategy: oauth, browser, auto, or managed",
     )
     .option(
       "--oauth-token <token>",
@@ -422,14 +432,20 @@ Examples:
 Arguments:
   text   The tweet text to post (max 280 characters)
 
-Posts a new tweet using the routed dual-path system. The --strategy flag
-controls which path is used. The response includes the tweet ID, URL, and
-which path was used.
+Posts a new tweet using the routed system. The --strategy flag controls which
+path is used. The response includes the tweet ID, URL, and which path was used.
+
+Strategies:
+  oauth    — use the local OAuth token directly
+  browser  — use the browser session (CDP)
+  auto     — try OAuth first, fall back to browser
+  managed  — route through the platform proxy (platform holds OAuth credentials)
 
 Examples:
   $ assistant x post "Hello world" --strategy browser
   $ assistant x post "Hello world" --strategy oauth --oauth-token "$TOKEN"
-  $ assistant x post "Hello world" --strategy auto --oauth-token "$TOKEN"`,
+  $ assistant x post "Hello world" --strategy auto --oauth-token "$TOKEN"
+  $ assistant x post "Hello world" --strategy managed`,
     )
     .action(
       async (
@@ -442,10 +458,11 @@ Examples:
           if (
             strategy !== "oauth" &&
             strategy !== "browser" &&
-            strategy !== "auto"
+            strategy !== "auto" &&
+            strategy !== "managed"
           ) {
             throw new Error(
-              `Invalid strategy "${opts.strategy}". Must be oauth, browser, or auto.`,
+              `Invalid strategy "${opts.strategy}". Must be oauth, browser, auto, or managed.`,
             );
           }
           const { result, pathUsed } = await routedPostTweet(text, {
@@ -471,7 +488,7 @@ Examples:
     .argument("<text>", "Reply text")
     .requiredOption(
       "--strategy <strategy>",
-      "Operation strategy: oauth, browser, or auto",
+      "Operation strategy: oauth, browser, auto, or managed",
     )
     .option(
       "--oauth-token <token>",
@@ -490,7 +507,8 @@ URL. The --strategy flag controls which path is used.
 
 Examples:
   $ assistant x reply https://x.com/elonmusk/status/1234567890 "Great point!" --strategy browser
-  $ assistant x reply 1234567890 "Interesting thread" --strategy oauth --oauth-token "$TOKEN"`,
+  $ assistant x reply 1234567890 "Interesting thread" --strategy oauth --oauth-token "$TOKEN"
+  $ assistant x reply 1234567890 "Nice!" --strategy managed`,
     )
     .action(
       async (
@@ -504,10 +522,11 @@ Examples:
           if (
             strategy !== "oauth" &&
             strategy !== "browser" &&
-            strategy !== "auto"
+            strategy !== "auto" &&
+            strategy !== "managed"
           ) {
             throw new Error(
-              `Invalid strategy "${opts.strategy}". Must be oauth, browser, or auto.`,
+              `Invalid strategy "${opts.strategy}". Must be oauth, browser, auto, or managed.`,
             );
           }
           // Extract tweet ID: either a bare numeric ID or the last numeric segment of a URL
