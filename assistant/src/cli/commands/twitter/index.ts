@@ -5,9 +5,13 @@
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
+import { execFile } from "node:child_process";
 import * as net from "node:net";
+import { promisify } from "node:util";
 
 import { Command } from "commander";
+
+const execFileAsync = promisify(execFile);
 
 import {
   createMessageParser,
@@ -239,7 +243,7 @@ Examples:
 
           // Hide Chrome after capturing session
           try {
-            await minimizeChromeWindow(); // uses default CDP port
+            await minimizeChrome();
           } catch {
             /* best-effort */
           }
@@ -969,13 +973,33 @@ function sendDaemonMessage(
 }
 
 // ---------------------------------------------------------------------------
-// Chrome CDP helpers (shared)
+// Chrome CDP helpers (via `assistant browser chrome` CLI)
 // ---------------------------------------------------------------------------
 
-import {
-  ensureChromeWithCdp,
-  minimizeChromeWindow,
-} from "../../../tools/browser/chrome-cdp.js";
+async function launchChromeCdp(
+  startUrl?: string,
+): Promise<{ baseUrl: string }> {
+  const args = ["browser", "chrome", "launch"];
+  if (startUrl) args.push("--start-url", startUrl);
+  const { stdout } = await execFileAsync("assistant", args);
+  const result = JSON.parse(stdout) as {
+    ok: boolean;
+    baseUrl?: string;
+    error?: string;
+  };
+  if (!result.ok || !result.baseUrl) {
+    throw new Error(result.error ?? "Failed to launch Chrome with CDP");
+  }
+  return { baseUrl: result.baseUrl };
+}
+
+async function minimizeChrome(): Promise<void> {
+  try {
+    await execFileAsync("assistant", ["browser", "chrome", "minimize"]);
+  } catch {
+    // best-effort — same as the original
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Ride Shotgun learn session helper
@@ -1011,9 +1035,7 @@ async function navigateToX(cdpBase: string): Promise<void> {
 async function startLearnSession(
   durationSeconds: number,
 ): Promise<LearnResult> {
-  const cdpSession = await ensureChromeWithCdp({
-    startUrl: "https://x.com/login",
-  });
+  const cdpSession = await launchChromeCdp("https://x.com/login");
   await navigateToX(cdpSession.baseUrl);
 
   return new Promise((resolve, reject) => {
