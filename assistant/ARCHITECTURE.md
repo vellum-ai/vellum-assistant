@@ -594,7 +594,7 @@ Release-driven update notification system that surfaces release notes to the ass
 **Data flow:**
 
 1. **Bundled template** (`src/prompts/templates/UPDATES.md`) — source of release notes, maintained per-release in the repo.
-2. **Startup sync** (`syncUpdateBulletinOnStartup()` in `src/config/update-bulletin.ts`) — materializes the bundled template into the workspace `UPDATES.md` on daemon boot. Uses atomic write (temp + rename) for crash safety.
+2. **Startup sync** (`syncUpdateBulletinOnStartup()` in `src/prompts/update-bulletin.ts`) — materializes the bundled template into the workspace `UPDATES.md` on daemon boot. Uses atomic write (temp + rename) for crash safety.
 3. **System prompt injection** — `buildSystemPrompt()` reads workspace `UPDATES.md` and injects it as a `## Recent Updates` section with judgment-based handling instructions.
 4. **Completion by deletion** — the assistant deletes `UPDATES.md` when it has actioned all updates. Next startup detects the deletion and marks those releases as completed in checkpoint state.
 5. **Cross-release merge** — if pending updates from a prior release exist when a new release lands, both release blocks coexist in the same file.
@@ -606,15 +606,15 @@ Release-driven update notification system that surfaces release notes to the ass
 
 **Key source files:**
 
-| File                                   | Purpose                                                   |
-| -------------------------------------- | --------------------------------------------------------- |
-| `src/prompts/templates/UPDATES.md`     | Bundled release-note template                             |
-| `src/config/update-bulletin.ts`        | Startup sync logic (materialize, delete-complete, merge)  |
-| `src/config/update-bulletin-format.ts` | Release block formatter/parser helpers                    |
-| `src/config/update-bulletin-state.ts`  | Checkpoint state helpers for active/completed releases    |
-| `src/prompts/system-prompt.ts`         | Prompt injection of updates section                       |
-| `src/daemon/config-watcher.ts`         | File watcher — evicts sessions on UPDATES.md changes      |
-| `src/permissions/defaults.ts`          | Auto-allow rules for file_read/write/edit + rm UPDATES.md |
+| File                                    | Purpose                                                   |
+| --------------------------------------- | --------------------------------------------------------- |
+| `src/prompts/templates/UPDATES.md`      | Bundled release-note template                             |
+| `src/prompts/update-bulletin.ts`        | Startup sync logic (materialize, delete-complete, merge)  |
+| `src/prompts/update-bulletin-format.ts` | Release block formatter/parser helpers                    |
+| `src/prompts/update-bulletin-state.ts`  | Checkpoint state helpers for active/completed releases    |
+| `src/prompts/system-prompt.ts`          | Prompt injection of updates section                       |
+| `src/daemon/config-watcher.ts`          | File watcher — evicts sessions on UPDATES.md changes      |
+| `src/permissions/defaults.ts`           | Auto-allow rules for file_read/write/edit + rm UPDATES.md |
 
 ---
 
@@ -1133,7 +1133,7 @@ All overflow recovery settings live under `contextWindow.overflowRecovery` in th
 | `src/daemon/context-overflow-policy.ts`   | Overflow policy resolver: maps config + interactivity to concrete action         |
 | `src/daemon/context-overflow-approval.ts` | Approval gate: prompts user for latest-turn compression via `PermissionPrompter` |
 | `src/daemon/session-agent-loop.ts`        | Integration: preflight budget check, convergence loop, approval/deny flow        |
-| `src/config/core-schema.ts`               | `ContextOverflowRecoveryConfigSchema` with defaults and validation               |
+| `src/config/schemas/inference.ts`         | `ContextOverflowRecoveryConfigSchema` with defaults and validation               |
 
 ---
 
