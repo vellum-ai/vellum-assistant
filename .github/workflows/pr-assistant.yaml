@@ -180,4 +180,4 @@ jobs:
           node-version: '22'
 
       - name: Validate bundled skills against Agent Skills spec
-        run: node scripts/skills/lint-skill-spec.mjs --dir assistant/src/skills/bundled-skills --allow-tools-json
+        run: node scripts/skills/lint-skill-spec.mjs --dir assistant/src/config/bundled-skills --allow-tools-json

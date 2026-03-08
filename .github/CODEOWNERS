@@ -15,9 +15,9 @@ assistant/src/tools/ @siddseethepalli
 
 # Skill system (Aaron)
 assistant/src/skills/ @awlevin
-assistant/src/skills/catalog.ts @awlevin
-assistant/src/skills/skill-state.ts @awlevin
-assistant/src/skills/bundled-skills/ @awlevin
+assistant/src/config/skills.ts @awlevin
+assistant/src/config/skill-state.ts @awlevin
+assistant/src/config/bundled-skills/ @awlevin
 assistant/src/daemon/handlers/skills.ts @awlevin
 assistant/src/daemon/ipc-contract/skills.ts @awlevin
 assistant/src/daemon/session-skill-tools.ts @awlevin
@@ -41,24 +41,24 @@ gateway/src/whatsapp/ @NgoHarrison
 # --- Specific overrides (must come AFTER broad rules) ---
 
 # System prompt ownership
-assistant/src/prompts/system-prompt.ts @awlevin @siddseethepalli @alex-nork
-assistant/src/prompts/computer-use-prompt.ts @awlevin @siddseethepalli @alex-nork
-assistant/src/prompts/templates/ @awlevin @siddseethepalli @alex-nork
+assistant/src/config/system-prompt.ts @awlevin @siddseethepalli @alex-nork
+assistant/src/config/computer-use-prompt.ts @awlevin @siddseethepalli @alex-nork
+assistant/src/config/templates/ @awlevin @siddseethepalli @alex-nork
 
 # Default identity/personality files
-assistant/src/prompts/templates/IDENTITY.md @awlevin @AnitaKirkovska
-assistant/src/prompts/templates/USER.md @awlevin @AnitaKirkovska
-assistant/src/prompts/templates/SOUL.md @awlevin @AnitaKirkovska
-assistant/src/prompts/templates/BOOTSTRAP.md @awlevin @AnitaKirkovska
+assistant/src/config/templates/IDENTITY.md @awlevin @AnitaKirkovska
+assistant/src/config/templates/USER.md @awlevin @AnitaKirkovska
+assistant/src/config/templates/SOUL.md @awlevin @AnitaKirkovska
+assistant/src/config/templates/BOOTSTRAP.md @awlevin @AnitaKirkovska
 
 # Voice / calls (Alex) — overrides tools/, bundled-skills/, routes/
 assistant/src/calls/ @alex-nork
 assistant/src/tools/calls/ @alex-nork
 assistant/src/tools/system/voice-config.ts @alex-nork
-assistant/src/config/schemas/calls.ts @alex-nork
-assistant/src/skills/bundled-skills/phone-calls/ @alex-nork
-assistant/src/skills/bundled-skills/voice-setup/ @alex-nork
-assistant/src/skills/bundled-skills/twilio-setup/ @alex-nork
+assistant/src/config/calls-schema.ts @alex-nork
+assistant/src/config/bundled-skills/phone-calls/ @alex-nork
+assistant/src/config/bundled-skills/voice-setup/ @alex-nork
+assistant/src/config/bundled-skills/twilio-setup/ @alex-nork
 assistant/src/runtime/routes/call-routes.ts @alex-nork
 assistant/src/runtime/middleware/twilio-validation.ts @alex-nork
 assistant/src/runtime/channel-invite-transports/voice.ts @alex-nork
@@ -67,7 +67,7 @@ gateway/src/twilio/ @alex-nork
 
 # Agent-to-agent / agent-to-person overrides (Harrison) — within tools/, bundled-skills/
 assistant/src/tools/subagent/ @NgoHarrison
-assistant/src/skills/bundled-skills/subagent/ @NgoHarrison
+assistant/src/config/bundled-skills/subagent/ @NgoHarrison
 
 # MCP (Vincent) — overrides tools/
 assistant/src/mcp/ @vincent0426
@@ -106,8 +106,8 @@ assistant/src/memory/guardian-* @noanflaherty
 assistant/src/memory/scoped-approval-grants.ts @noanflaherty
 assistant/src/memory/canonical-guardian-store.ts @noanflaherty
 assistant/src/calls/guardian-*.ts @noanflaherty
-assistant/src/skills/bundled-skills/guardian-verify-setup/ @noanflaherty
-assistant/src/skills/bundled-skills/contacts/ @noanflaherty
+assistant/src/config/bundled-skills/guardian-verify-setup/ @noanflaherty
+assistant/src/config/bundled-skills/contacts/ @noanflaherty
 assistant/src/notifications/guardian-question-mode.ts @noanflaherty
 gateway/src/http/routes/channel-verification-session-proxy.ts @noanflaherty
 

@@ -892,7 +892,7 @@ fi
 # Non-blocking reminder to consider whether changes belong in a skill or
 # one of the compiled source files (IDENTITY.md, SOUL.md, etc.) instead.
 
-if tr '\0' '\n' < "$STAGED_ALL_FILE" | grep -q 'assistant/src/prompts/system-prompt.ts'; then
+if tr '\0' '\n' < "$STAGED_ALL_FILE" | grep -q 'assistant/src/config/system-prompt.ts'; then
     echo ""
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}⚠️  You are modifying system-prompt.ts — the core system prompt.${NC}"
