@@ -228,6 +228,30 @@ export async function handleGuardianCallbackDecision(
     });
   }
 
+  // Guardian sent a plain-text message with pending approvals but the
+  // conversational engine is unavailable. Return a handled result with a
+  // static reply so the guardian gets feedback instead of the message being
+  // silently swallowed by the standard approval flow.
+  if (effectivePending.length > 0 && content) {
+    try {
+      await deliverChannelReply(
+        replyCallbackUrl,
+        {
+          chatId: conversationExternalId,
+          text: "I can't process text replies for approvals right now. Please use the approve/deny buttons above to respond.",
+          assistantId,
+        },
+        bearerToken,
+      );
+    } catch (err) {
+      log.error(
+        { err, conversationExternalId },
+        "Failed to deliver guardian fallback reply",
+      );
+    }
+    return { handled: true, type: "assistant_turn" };
+  }
+
   // No content — nothing actionable.
   return null;
 }
