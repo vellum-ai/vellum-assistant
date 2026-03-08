@@ -140,11 +140,22 @@ export interface VercelApiConfigResponse {
   error?: string;
 }
 
+export interface ManagedPrerequisites {
+  /** Whether twitter.integrationMode is set to "managed" in config. */
+  integrationModeManaged: boolean;
+  /** Whether the assistant API key credential exists in secure storage. */
+  assistantApiKeyPresent: boolean;
+  /** Whether the platform base URL is configured (platform registration resolvable). */
+  platformAssistantIdResolvable: boolean;
+}
+
 export interface TwitterIntegrationConfigResponse {
   type: "twitter_integration_config_response";
   success: boolean;
   mode?: "local_byo" | "managed";
   managedAvailable: boolean;
+  /** Detailed prerequisite status for managed Twitter availability. */
+  managedPrerequisites?: ManagedPrerequisites;
   localClientConfigured: boolean;
   connected: boolean;
   accountInfo?: string;
@@ -210,6 +221,8 @@ export interface TwitterAuthResult {
   type: "twitter_auth_result";
   success: boolean;
   accountInfo?: string;
+  /** Machine-readable error code for programmatic handling (e.g. "managed_missing_api_key", "managed_auth_via_platform"). */
+  errorCode?: string;
   error?: string;
 }
 

@@ -83,11 +83,35 @@ public final class SettingsStore: ObservableObject {
 
     @Published var twitterMode: String = "local_byo"
     @Published var twitterManagedAvailable: Bool = false
+    @Published var twitterManagedPrerequisites: IPCManagedPrerequisites?
     @Published var twitterLocalClientConfigured: Bool = false
     @Published var twitterConnected: Bool = false
     @Published var twitterAccountInfo: String?
     @Published var twitterAuthInProgress: Bool = false
+    @Published var twitterAuthErrorCode: String?
     @Published var twitterAuthError: String?
+
+    /// Whether all managed Twitter prerequisites are met.
+    var isManagedTwitterEligible: Bool {
+        twitterManagedAvailable
+    }
+
+    /// Human-readable reason why managed Twitter is not available, or nil if eligible.
+    var managedTwitterBlockReason: String? {
+        guard let prereqs = twitterManagedPrerequisites else {
+            return "Managed Twitter status is unavailable."
+        }
+        if !prereqs.integrationModeManaged {
+            return "Switch to Managed mode to use platform-managed Twitter."
+        }
+        if !prereqs.assistantApiKeyPresent {
+            return "Assistant API key is not configured. Set up your API key in settings."
+        }
+        if !prereqs.platformAssistantIdResolvable {
+            return "Platform connection is not configured. Set up your platform URL."
+        }
+        return nil
+    }
 
     // MARK: - Telegram Integration State
 
@@ -471,6 +495,7 @@ public final class SettingsStore: ObservableObject {
             if response.success {
                 self.twitterMode = response.mode ?? "local_byo"
                 self.twitterManagedAvailable = response.managedAvailable
+                self.twitterManagedPrerequisites = response.managedPrerequisites
                 self.twitterLocalClientConfigured = response.localClientConfigured
                 self.twitterConnected = response.connected
                 self.twitterAccountInfo = response.accountInfo
@@ -544,8 +569,10 @@ public final class SettingsStore: ObservableObject {
             if response.success {
                 self.twitterConnected = true
                 self.twitterAccountInfo = response.accountInfo
+                self.twitterAuthErrorCode = nil
                 self.twitterAuthError = nil
             } else {
+                self.twitterAuthErrorCode = response.errorCode
                 self.twitterAuthError = response.error
             }
             self.refreshTwitterStatus()
@@ -931,6 +958,7 @@ public final class SettingsStore: ObservableObject {
 
     func connectTwitter() {
         twitterAuthInProgress = true
+        twitterAuthErrorCode = nil
         twitterAuthError = nil
         do {
             guard let daemonClient else {
