@@ -51,31 +51,31 @@ private struct HTTPErrorEnvelope: Decodable {
 
 // MARK: - Workspace API Response Types
 
-struct WorkspaceTreeEntry: Codable, Identifiable, Hashable {
-    let name: String
-    let path: String
-    let type: String  // "file" or "directory"
-    let size: Int?
-    let mimeType: String?
-    let modifiedAt: String
+public struct WorkspaceTreeEntry: Codable, Identifiable, Hashable, Sendable {
+    public let name: String
+    public let path: String
+    public let type: String  // "file" or "directory"
+    public let size: Int?
+    public let mimeType: String?
+    public let modifiedAt: String
 
-    var id: String { path }
-    var isDirectory: Bool { type == "directory" }
+    public var id: String { path }
+    public var isDirectory: Bool { type == "directory" }
 }
 
-struct WorkspaceTreeResponse: Codable {
-    let path: String
-    let entries: [WorkspaceTreeEntry]
+public struct WorkspaceTreeResponse: Codable, Sendable {
+    public let path: String
+    public let entries: [WorkspaceTreeEntry]
 }
 
-struct WorkspaceFileResponse: Codable {
-    let path: String
-    let name: String
-    let size: Int
-    let mimeType: String
-    let modifiedAt: String
-    let content: String?
-    let isBinary: Bool
+public struct WorkspaceFileResponse: Codable, Sendable {
+    public let path: String
+    public let name: String
+    public let size: Int
+    public let mimeType: String
+    public let modifiedAt: String
+    public let content: String?
+    public let isBinary: Bool
 }
 
 // MARK: - HTTP Transport
@@ -2088,6 +2088,67 @@ public final class HTTPTransport {
             log.error("fetchUsageBreakdown failed: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    // MARK: - Workspace API
+
+    /// Fetch the workspace directory tree from `GET /v1/workspace/tree`.
+    func fetchWorkspaceTree(path: String, isRetry: Bool = false) async -> WorkspaceTreeResponse? {
+        guard let url = buildURL(for: .workspaceTree(path: path)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchWorkspaceTree(path: path, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(WorkspaceTreeResponse.self, from: data)
+        } catch {
+            log.error("fetchWorkspaceTree failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Fetch a single workspace file's metadata from `GET /v1/workspace/file`.
+    func fetchWorkspaceFile(path: String, isRetry: Bool = false) async -> WorkspaceFileResponse? {
+        guard let url = buildURL(for: .workspaceFile(path: path)) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 401 && !isRetry {
+                    let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                    if case .success = refreshResult {
+                        return await fetchWorkspaceFile(path: path, isRetry: true)
+                    }
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else { return nil }
+            }
+            return try decoder.decode(WorkspaceFileResponse.self, from: data)
+        } catch {
+            log.error("fetchWorkspaceFile failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Build a URL for streaming/downloading workspace file content.
+    func workspaceFileContentURL(path: String) -> URL? {
+        return buildURL(for: .workspaceFileContent(path: path))
     }
 
     // MARK: - Disconnect

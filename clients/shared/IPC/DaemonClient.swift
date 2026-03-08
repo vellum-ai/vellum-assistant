@@ -1061,6 +1061,63 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
     }
 
+    // MARK: - Workspace API
+
+    /// Fetch the workspace directory tree.
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    public func fetchWorkspaceTree(path: String = "") async -> WorkspaceTreeResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchWorkspaceTree(path: path)
+        }
+
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+        let queryPath = path.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?path=\(encoded)"
+        guard let request = buildLocalRequest(target: .daemon, path: queryPath, timeout: 10) else { return nil }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+            return try JSONDecoder().decode(WorkspaceTreeResponse.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Fetch a single workspace file's metadata and optional content.
+    /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
+    public func fetchWorkspaceFile(path: String) async -> WorkspaceFileResponse? {
+        if let httpTransport {
+            return await httpTransport.fetchWorkspaceFile(path: path)
+        }
+
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+        guard let request = buildLocalRequest(
+            target: .daemon,
+            path: "v1/workspace/file?path=\(encoded)",
+            timeout: 10
+        ) else { return nil }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+            return try JSONDecoder().decode(WorkspaceFileResponse.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Build a URL for streaming/downloading workspace file content.
+    /// For remote connections, delegates to HTTPTransport. For local, builds against daemon HTTP port.
+    public func workspaceFileContentURL(path: String) -> URL? {
+        if let httpTransport {
+            return httpTransport.workspaceFileContentURL(path: path)
+        }
+
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+        guard let port = httpPort else { return nil }
+        return URL(string: "http://localhost:\(port)/v1/workspace/file/content?path=\(encoded)")
+    }
+
     // MARK: - Surface Undo
 
     /// Send a surface undo request to revert the last refinement on a workspace surface.
