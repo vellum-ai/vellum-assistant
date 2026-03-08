@@ -2,6 +2,7 @@ import * as net from "node:net";
 
 import {
   getNestedValue,
+  invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
@@ -177,6 +178,7 @@ export async function handleTwitterIntegrationConfig(
       const raw = loadRawConfig();
       setNestedValue(raw, "twitter.operationStrategy", value);
       saveRawConfig(raw);
+      invalidateConfigCache();
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: true,
@@ -192,6 +194,7 @@ export async function handleTwitterIntegrationConfig(
       const raw = loadRawConfig();
       setNestedValue(raw, "twitter.integrationMode", msg.mode ?? "local_byo");
       saveRawConfig(raw);
+      invalidateConfigCache();
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: true,
@@ -306,6 +309,7 @@ export async function handleTwitterIntegrationConfig(
         const raw = loadRawConfig();
         setNestedValue(raw, "twitter.accountInfo", "");
         saveRawConfig(raw);
+        invalidateConfigCache();
       }
       ctx.send(socket, {
         type: "twitter_integration_config_response",
@@ -337,6 +341,7 @@ export async function handleTwitterIntegrationConfig(
         const raw = loadRawConfig();
         setNestedValue(raw, "twitter.accountInfo", "");
         saveRawConfig(raw);
+        invalidateConfigCache();
       }
       ctx.send(socket, {
         type: "twitter_integration_config_response",
