@@ -15,7 +15,7 @@ import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDevCommand } from "./commands/dev.js";
 import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerEmailCommand } from "./commands/email.js";
-import { registerInfluencerCommand } from "./commands/influencer.js";
+import { registerInfluencerCommand } from "./commands/influencer/index.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMapCommand } from "./commands/map.js";
 import { registerMcpCommand } from "./commands/mcp.js";

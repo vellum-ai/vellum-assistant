@@ -12,7 +12,7 @@ import {
   getInfluencerProfile,
   type InfluencerSearchCriteria,
   searchInfluencers,
-} from "../../influencer/client.js";
+} from "./client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

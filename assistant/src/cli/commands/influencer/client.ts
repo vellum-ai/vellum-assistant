@@ -48,14 +48,14 @@
 import type {
   ExtensionCommand,
   ExtensionResponse,
-} from "../browser-extension-relay/protocol.js";
-import { extensionRelayServer } from "../browser-extension-relay/server.js";
+} from "../../../browser-extension-relay/protocol.js";
+import { extensionRelayServer } from "../../../browser-extension-relay/server.js";
 import {
   initAuthSigningKey,
   isSigningKeyInitialized,
   loadOrCreateSigningKey,
-} from "../runtime/auth/token-service.js";
-import { gatewayPost } from "../runtime/gateway-internal-client.js";
+} from "../../../runtime/auth/token-service.js";
+import { gatewayPost } from "../../../runtime/gateway-internal-client.js";
 
 // ---------------------------------------------------------------------------
 // Types
