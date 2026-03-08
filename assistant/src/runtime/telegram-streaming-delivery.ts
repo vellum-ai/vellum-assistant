@@ -1,6 +1,7 @@
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import { getLogger } from "../util/logger.js";
 import type { ApprovalUIMetadata } from "./channel-approval-types.js";
+import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
 
 const log = getLogger("telegram-streaming-delivery");
@@ -26,6 +27,8 @@ export class TelegramStreamingDelivery {
   private messageCount = 0; // Total messages sent
   private finished = false;
   private textDelivered = false; // True once at least some text was sent
+  private initialSendInFlight = false; // Synchronous guard against duplicate initial sends
+  private initialSendPromise: Promise<ChannelDeliveryResult> | null = null; // Tracks in-flight initial send
 
   constructor(opts: TelegramStreamingOptions) {
     this.opts = opts;
@@ -53,6 +56,13 @@ export class TelegramStreamingDelivery {
     if (this.editTimer) {
       clearTimeout(this.editTimer);
       this.editTimer = null;
+    }
+
+    // If sendInitialMessage() is in-flight, wait for it so currentMessageId is resolved
+    if (this.initialSendPromise) {
+      await this.initialSendPromise.catch(() => {
+        // Error already logged in sendInitialMessage; proceed with whatever state we have
+      });
     }
 
     // Flush any remaining buffered text
@@ -93,7 +103,11 @@ export class TelegramStreamingDelivery {
 
   private onTextDelta(text: string): void {
     this.buffer += text;
-    if (!this.currentMessageId && this.buffer.length >= MIN_INITIAL_CHARS) {
+    if (
+      !this.currentMessageId &&
+      !this.initialSendInFlight &&
+      this.buffer.length >= MIN_INITIAL_CHARS
+    ) {
       this.sendInitialMessage();
     } else if (this.currentMessageId) {
       this.scheduleEdit();
@@ -101,10 +115,11 @@ export class TelegramStreamingDelivery {
   }
 
   private sendInitialMessage(): void {
+    this.initialSendInFlight = true;
     this.currentMessageText = this.buffer;
     this.buffer = "";
 
-    deliverChannelReply(
+    const promise = deliverChannelReply(
       this.opts.callbackUrl,
       {
         chatId: this.opts.chatId,
@@ -112,7 +127,10 @@ export class TelegramStreamingDelivery {
         assistantId: this.opts.assistantId,
       },
       this.opts.mintBearerToken(),
-    )
+    );
+    this.initialSendPromise = promise;
+
+    promise
       .then((result) => {
         if (result.messageId) {
           this.currentMessageId = result.messageId;
@@ -120,13 +138,15 @@ export class TelegramStreamingDelivery {
         this.textDelivered = true;
         this.messageCount++;
         this.lastEditAt = Date.now();
+        this.initialSendInFlight = false;
       })
       .catch((err) => {
         log.error(
           { err, chatId: this.opts.chatId },
           "Failed to send initial streaming message",
         );
-        // Fall back: clear messageId so future deltas accumulate for a retry
+        // Fall back: clear guard so future deltas can retry
+        this.initialSendInFlight = false;
         this.currentMessageId = null;
       });
   }
