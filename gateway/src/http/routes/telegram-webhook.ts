@@ -1,4 +1,5 @@
 import { buildTelegramTransportMetadata } from "../../channels/transport-hints.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { DedupCache } from "../../dedup-cache.js";
@@ -47,7 +48,7 @@ const START_COMMAND_ACK_TEXT =
 
 export function createTelegramWebhookHandler(
   config: GatewayConfig,
-  caches?: { credentials?: CredentialCache },
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ) {
   const dedupCache = new DedupCache();
 
@@ -183,12 +184,11 @@ export function createTelegramWebhookHandler(
     ): void => {
       if (!callbackQueryId) return;
       callTelegramApi(
-        config,
         "answerCallbackQuery",
         {
           callback_query_id: callbackQueryId,
         },
-        { credentials: caches?.credentials },
+        { credentials: caches?.credentials, configFile: caches?.configFile },
       ).catch((err) => {
         tlog.error(
           { err, callbackQueryId, phase },
@@ -235,8 +235,9 @@ export function createTelegramWebhookHandler(
           return;
         }
 
-        callTelegramApi(config, "deleteMessage", basePayload, {
+        callTelegramApi("deleteMessage", basePayload, {
           credentials: caches?.credentials,
+          configFile: caches?.configFile,
         }).catch((deleteErr) => {
           tlog.error(
             {
@@ -258,22 +259,20 @@ export function createTelegramWebhookHandler(
       // so users are not left with stale actionable buttons — unless the error
       // indicates the markup was already removed (no-op).
       callTelegramApi(
-        config,
         "editMessageReplyMarkup",
         {
           ...basePayload,
           reply_markup: null,
         },
-        { credentials: caches?.credentials },
+        { credentials: caches?.credentials, configFile: caches?.configFile },
       ).catch((primaryErr) =>
         callTelegramApi(
-          config,
           "editMessageReplyMarkup",
           {
             ...basePayload,
             reply_markup: { inline_keyboard: [] },
           },
-          { credentials: caches?.credentials },
+          { credentials: caches?.credentials, configFile: caches?.configFile },
         ).catch((fallbackErr) => deleteApprovalPrompt(primaryErr, fallbackErr)),
       );
     };
@@ -335,7 +334,10 @@ export function createTelegramWebhookHandler(
             normalized.message.conversationExternalId,
             "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
             undefined,
-            { credentials: caches?.credentials },
+            {
+              credentials: caches?.credentials,
+              configFile: caches?.configFile,
+            },
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -399,7 +401,10 @@ export function createTelegramWebhookHandler(
               normalized.message.conversationExternalId,
               "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
               undefined,
-              { credentials: caches?.credentials },
+              {
+                credentials: caches?.credentials,
+                configFile: caches?.configFile,
+              },
             ).catch((err) => {
               tlog.error(
                 { err, chatId: normalized.message.conversationExternalId },
@@ -417,7 +422,10 @@ export function createTelegramWebhookHandler(
             normalized.message.conversationExternalId,
             "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
             undefined,
-            { credentials: caches?.credentials },
+            {
+              credentials: caches?.credentials,
+              configFile: caches?.configFile,
+            },
           ).catch((err) => {
             tlog.error({ err }, "Failed to send /start fallback reply");
           });
@@ -485,7 +493,10 @@ export function createTelegramWebhookHandler(
             normalized.message.conversationExternalId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
             undefined,
-            { credentials: caches?.credentials },
+            {
+              credentials: caches?.credentials,
+              configFile: caches?.configFile,
+            },
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -504,7 +515,10 @@ export function createTelegramWebhookHandler(
               normalized.message.conversationExternalId,
               text,
               undefined,
-              { credentials: caches?.credentials },
+              {
+                credentials: caches?.credentials,
+                configFile: caches?.configFile,
+              },
             );
           },
           tlog,
@@ -579,13 +593,15 @@ export function createTelegramWebhookHandler(
           const results = await Promise.allSettled(
             batch.map(async (att) => {
               const downloaded = await downloadTelegramFile(
-                config,
                 att.fileId,
                 {
                   fileName: att.fileName,
                   mimeType: att.mimeType,
                 },
-                { credentials: caches?.credentials },
+                {
+                  credentials: caches?.credentials,
+                  configFile: caches?.configFile,
+                },
               );
               return uploadAttachment(config, downloaded);
             }),
@@ -642,7 +658,10 @@ export function createTelegramWebhookHandler(
             chatId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
             undefined,
-            { credentials: caches?.credentials },
+            {
+              credentials: caches?.credentials,
+              configFile: caches?.configFile,
+            },
           ).catch((err) => {
             tlog.error(
               { err, chatId },

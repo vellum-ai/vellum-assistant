@@ -200,9 +200,13 @@ async function main() {
   };
 
   const { handler: handleTelegramWebhook, dedupCache: telegramDedupCache } =
-    createTelegramWebhookHandler(config, { credentials: credentialCache });
+    createTelegramWebhookHandler(config, {
+      credentials: credentialCache,
+      configFile: configFileCache,
+    });
   const handleTelegramDeliver = createTelegramDeliverHandler(config, {
     credentials: credentialCache,
+    configFile: configFileCache,
   });
   const isTelegramConfigured = () => telegramReady;
   const isWhatsAppConfigured = () => whatsappReady;
@@ -217,21 +221,27 @@ async function main() {
   );
   const handleTwilioConnectActionWebhook =
     createTwilioConnectActionWebhookHandler(config, twilioValidationCaches);
-  const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config);
+  const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config, {
+    configFile: configFileCache,
+  });
   const handleBrowserRelayWs = createBrowserRelayWebsocketHandler(config);
   const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const browserRelayWebsocketHandlers = getBrowserRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
-    createWhatsAppWebhookHandler(config, { credentials: credentialCache });
+    createWhatsAppWebhookHandler(config, {
+      credentials: credentialCache,
+      configFile: configFileCache,
+    });
   const handleWhatsAppDeliver = createWhatsAppDeliverHandler(config, {
     credentials: credentialCache,
+    configFile: configFileCache,
   });
   const handleSlackDeliver = createSlackDeliverHandler(
     config,
     (threadTs) => {
       slackSocketClient?.trackThread(threadTs);
     },
-    { credentials: credentialCache },
+    { credentials: credentialCache, configFile: configFileCache },
   );
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
@@ -814,7 +824,6 @@ async function main() {
 
   function registerTelegramCommands(): void {
     callTelegramApi(
-      config,
       "setMyCommands",
       {
         commands: [
@@ -822,7 +831,7 @@ async function main() {
           { command: "help", description: "Show available commands" },
         ],
       },
-      { credentials: credentialCache },
+      { credentials: credentialCache, configFile: configFileCache },
     ).catch((err) => {
       log.error({ err }, "Failed to register Telegram bot commands");
     });
@@ -830,7 +839,7 @@ async function main() {
 
   if (isTelegramConfigured()) {
     registerTelegramCommands();
-    reconcileTelegramWebhook(config, telegramCaches).catch((err) => {
+    reconcileTelegramWebhook(telegramCaches).catch((err) => {
       log.error({ err }, "Failed to reconcile Telegram webhook on startup");
     });
   }
@@ -911,7 +920,7 @@ async function main() {
     // Side effects keyed by service name
     if (changed.has("telegram") && telegramReady) {
       registerTelegramCommands();
-      reconcileTelegramWebhook(config, telegramCaches).catch((err) => {
+      reconcileTelegramWebhook(telegramCaches).catch((err) => {
         log.error(
           { err },
           "Failed to reconcile Telegram webhook after credential change",
@@ -936,7 +945,7 @@ async function main() {
 
     // Side effect: reconcile Telegram webhook when ingress URL changes
     if (event.changedKeys.has("ingress") && isTelegramConfigured()) {
-      reconcileTelegramWebhook(config, telegramCaches).catch((err) => {
+      reconcileTelegramWebhook(telegramCaches).catch((err) => {
         log.error(
           { err },
           "Failed to reconcile Telegram webhook after ingress URL change",

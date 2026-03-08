@@ -1,3 +1,4 @@
+import type { ConfigFileCache } from "../config-file-cache.js";
 import type { GatewayConfig } from "../config.js";
 import type { CredentialCache } from "../credential-cache.js";
 import type { ApprovalPayload } from "../http/routes/telegram-deliver.js";
@@ -49,7 +50,7 @@ export async function sendTelegramReply(
   chatId: string,
   text: string,
   approval?: ApprovalPayload,
-  opts?: { credentials?: CredentialCache },
+  opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ): Promise<void> {
   const chunks = splitText(text, TELEGRAM_MAX_MESSAGE_LEN);
 
@@ -65,7 +66,7 @@ export async function sendTelegramReply(
       payload.reply_markup = buildInlineKeyboard(approval);
     }
 
-    await callTelegramApi(config, "sendMessage", payload, opts);
+    await callTelegramApi("sendMessage", payload, opts);
   }
 
   log.debug({ chatId, chunks: chunks.length }, "Telegram reply sent");
@@ -75,7 +76,7 @@ export async function sendTelegramAttachments(
   config: GatewayConfig,
   chatId: string,
   attachments: RuntimeAttachmentMeta[],
-  opts?: { credentials?: CredentialCache },
+  opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ): Promise<void> {
   const failures: string[] = [];
 
@@ -123,10 +124,10 @@ export async function sendTelegramAttachments(
       const isImage = IMAGE_MIME_PREFIXES.some((p) => mimeType.startsWith(p));
       if (isImage) {
         form.set("photo", blob, filename);
-        await callTelegramApiMultipart(config, "sendPhoto", form, opts);
+        await callTelegramApiMultipart("sendPhoto", form, opts);
       } else {
         form.set("document", blob, filename);
-        await callTelegramApiMultipart(config, "sendDocument", form, opts);
+        await callTelegramApiMultipart("sendDocument", form, opts);
       }
 
       log.debug(
@@ -156,11 +157,10 @@ export async function sendTelegramAttachments(
 export async function sendTypingIndicator(
   config: GatewayConfig,
   chatId: string,
-  opts?: { credentials?: CredentialCache },
+  opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ): Promise<boolean> {
   try {
     await callTelegramApi(
-      config,
       "sendChatAction",
       {
         chat_id: chatId,

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "crypto";
 import { buildWhatsAppTransportMetadata } from "../../channels/transport-hints.js";
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
@@ -37,14 +38,14 @@ const rejectionLimiter = new RejectionRateLimiter();
 
 export function createWhatsAppWebhookHandler(
   config: GatewayConfig,
-  caches?: { credentials?: CredentialCache },
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ) {
   // 24-hour TTL — WhatsApp message IDs are globally unique and never reused
   const dedupCache = new StringDedupCache(24 * 60 * 60_000);
 
-  // Build API caches from the credential cache for outbound WhatsApp calls
+  // Build API caches from the credential and config caches for outbound WhatsApp calls
   const apiCaches: WhatsAppApiCaches | undefined = caches?.credentials
-    ? { credentials: caches.credentials }
+    ? { credentials: caches.credentials, configFile: caches.configFile }
     : undefined;
 
   const handler = async (req: Request): Promise<Response> => {
@@ -215,14 +216,12 @@ export function createWhatsAppWebhookHandler(
       );
 
       // Mark message as read (best-effort, do not await)
-      markWhatsAppMessageRead(config, whatsappMessageId, apiCaches).catch(
-        (err) => {
-          tlog.debug(
-            { err, messageId: whatsappMessageId },
-            "Failed to mark WhatsApp message as read",
-          );
-        },
-      );
+      markWhatsAppMessageRead(whatsappMessageId, apiCaches).catch((err) => {
+        tlog.debug(
+          { err, messageId: whatsappMessageId },
+          "Failed to mark WhatsApp message as read",
+        );
+      });
 
       // Resolve routing once so we can gate further operations on it
       const routing = resolveAssistant(config, from, from);
@@ -334,7 +333,7 @@ export function createWhatsAppWebhookHandler(
                     fileName: att.fileName,
                     mimeType: att.mimeType,
                   },
-                  caches,
+                  apiCaches,
                 );
                 return uploadAttachment(config, downloaded);
               }),

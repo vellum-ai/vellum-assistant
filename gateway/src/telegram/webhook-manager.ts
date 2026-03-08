@@ -1,6 +1,5 @@
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
-import type { GatewayConfig } from "../config.js";
 import { callTelegramApi } from "./api.js";
 import { getLogger } from "../logger.js";
 
@@ -31,7 +30,6 @@ export type WebhookManagerCaches = {
  * setWebhook is idempotent, so calling it unconditionally is safe.
  */
 export async function reconcileTelegramWebhook(
-  config: GatewayConfig,
   caches?: WebhookManagerCaches,
 ): Promise<void> {
   // Resolve credentials from cache
@@ -69,11 +67,14 @@ export async function reconcileTelegramWebhook(
   const baseUrl = ingressUrl.replace(/\/+$/, "");
   const expectedUrl = `${baseUrl}/webhooks/telegram`;
 
+  const apiOpts = caches?.credentials
+    ? { credentials: caches.credentials, configFile: caches?.configFile }
+    : undefined;
+
   const info = await callTelegramApi<WebhookInfo>(
-    config,
     "getWebhookInfo",
     {},
-    caches?.credentials ? { credentials: caches.credentials } : undefined,
+    apiOpts,
   );
 
   log.info(
@@ -86,14 +87,13 @@ export async function reconcileTelegramWebhook(
   );
 
   await callTelegramApi(
-    config,
     "setWebhook",
     {
       url: expectedUrl,
       secret_token: webhookSecret,
       allowed_updates: ALLOWED_UPDATES,
     },
-    caches?.credentials ? { credentials: caches.credentials } : undefined,
+    apiOpts,
   );
 
   log.info({ url: expectedUrl }, "Telegram webhook registered successfully");

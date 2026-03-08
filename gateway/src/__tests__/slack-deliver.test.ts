@@ -1,5 +1,6 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 
 type FetchFn = (
@@ -42,21 +43,31 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     unmappedPolicy: "reject",
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackDeliverAuthBypass: true,
     trustProxy: false,
     ...overrides,
-  } as GatewayConfig;
+  };
   return merged;
+}
+
+function makeConfigFile(
+  overrides: Record<string, Record<string, string | number | boolean>> = {},
+): ConfigFileCache {
+  const data: Record<string, Record<string, string | number | boolean>> = {
+    slack: { deliverAuthBypass: true },
+    ...overrides,
+  };
+  return {
+    getString: (section: string, key: string) =>
+      data[section]?.[key] as string | undefined,
+    getNumber: (section: string, key: string) =>
+      data[section]?.[key] as number | undefined,
+    getBoolean: (section: string, key: string) =>
+      data[section]?.[key] as boolean | undefined,
+    getRecord: () => undefined,
+    refreshNow: () => {},
+    invalidate: () => {},
+  } as unknown as ConfigFileCache;
 }
 
 /** Create a mock CredentialCache that returns the given bot token. */
@@ -69,7 +80,7 @@ function makeCaches(...args: [] | [string | undefined]) {
     },
     invalidate: () => {},
   } as unknown as CredentialCache;
-  return { credentials };
+  return { credentials, configFile: makeConfigFile() };
 }
 
 function makeRequest(
@@ -84,6 +95,10 @@ function makeRequest(
   });
 }
 
+const savedAppVersion = process.env.APP_VERSION;
+// Default to dev mode so the bypass configFile takes effect
+process.env.APP_VERSION = "0.0.0-dev";
+
 let fetchCalls: {
   url: string;
   body?: unknown;
@@ -93,6 +108,7 @@ let fetchCalls: {
 
 beforeEach(() => {
   fetchCalls = [];
+  process.env.APP_VERSION = "0.0.0-dev";
   fetchMock = mock(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url =
@@ -217,10 +233,20 @@ beforeEach(() => {
   );
 });
 
+afterEach(() => {
+  if (savedAppVersion === undefined) {
+    delete process.env.APP_VERSION;
+  } else {
+    process.env.APP_VERSION = savedAppVersion;
+  }
+});
+
 describe("slack-deliver endpoint", () => {
   test("returns 401 when auth is required and missing", async () => {
+    // Ensure bypass is not active — clear APP_VERSION so the production guard blocks it
+    delete process.env.APP_VERSION;
     const handler = createSlackDeliverHandler(
-      makeConfig({ slackDeliverAuthBypass: false }),
+      makeConfig(),
       undefined,
       makeCaches(),
     );

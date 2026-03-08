@@ -1,4 +1,5 @@
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { getLogger } from "../../logger.js";
 import type { RuntimeAttachmentMeta } from "../../runtime/client.js";
@@ -24,10 +25,10 @@ export type ApprovalPayload = {
 
 export function createWhatsAppDeliverHandler(
   config: GatewayConfig,
-  caches?: { credentials?: CredentialCache },
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ) {
   const apiCaches: WhatsAppApiCaches | undefined = caches?.credentials
-    ? { credentials: caches.credentials }
+    ? { credentials: caches.credentials, configFile: caches.configFile }
     : undefined;
 
   return async (req: Request): Promise<Response> => {
@@ -38,11 +39,11 @@ export function createWhatsAppDeliverHandler(
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    const authResponse = checkDeliverAuth(
-      req,
-      config,
-      "whatsappDeliverAuthBypass",
-    );
+    const isBypassed =
+      process.env.APP_VERSION === "0.0.0-dev" &&
+      (caches?.configFile?.getBoolean("whatsapp", "deliverAuthBypass") ??
+        false);
+    const authResponse = checkDeliverAuth(req, isBypassed);
     if (authResponse) return authResponse;
 
     // WhatsApp credential availability is gated by the route precondition

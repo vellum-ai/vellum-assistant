@@ -76,17 +76,7 @@ const baseConfig: GatewayConfig = {
   runtimeProxyRequireAuth: true,
   runtimeTimeoutMs: 30000,
   shutdownDrainMs: 5000,
-  telegramApiBaseUrl: "https://api.telegram.org",
-  telegramDeliverAuthBypass: false,
-  telegramInitialBackoffMs: 1000,
-  telegramMaxRetries: 3,
-  telegramTimeoutMs: 15000,
   unmappedPolicy: "reject",
-  whatsappDeliverAuthBypass: false,
-  whatsappTimeoutMs: 15000,
-  whatsappMaxRetries: 3,
-  whatsappInitialBackoffMs: 1000,
-  slackDeliverAuthBypass: false,
   trustProxy: false,
 };
 
