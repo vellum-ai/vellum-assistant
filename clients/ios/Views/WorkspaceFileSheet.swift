@@ -11,6 +11,7 @@ struct WorkspaceFileSheet: View {
     @State private var fileResponse: WorkspaceFileResponse?
     @State private var isLoading = true
     @State private var error: String?
+    @State private var videoPlayer: AVPlayer?
 
     var displayName: String {
         let trimmed = filePath.hasSuffix("/") ? String(filePath.dropLast()) : filePath
@@ -64,6 +65,7 @@ struct WorkspaceFileSheet: View {
         let resolvedMime = fileResponse?.mimeType ?? mimeType ?? ""
 
         if resolvedMime.hasPrefix("image/"), let contentURL = client?.workspaceFileContentURL(path: filePath) {
+            // TODO: AsyncImage uses bare URL without auth headers. Acceptable for local daemon; add auth for remote/cloud support.
             ScrollView {
                 AsyncImage(url: contentURL) { phase in
                     switch phase {
@@ -91,8 +93,9 @@ struct WorkspaceFileSheet: View {
                 }
                 .padding(VSpacing.lg)
             }
-        } else if resolvedMime.hasPrefix("video/"), let contentURL = client?.workspaceFileContentURL(path: filePath) {
-            VideoPlayer(player: AVPlayer(url: contentURL))
+        } else if resolvedMime.hasPrefix("video/"), let player = videoPlayer {
+            // TODO: VideoPlayer uses bare URL without auth headers. Acceptable for local daemon; add auth for remote/cloud support.
+            VideoPlayer(player: player)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let response = fileResponse, !response.isBinary, let content = response.content {
             ScrollView {
@@ -177,6 +180,11 @@ struct WorkspaceFileSheet: View {
 
         if let response = await client.fetchWorkspaceFile(path: filePath) {
             fileResponse = response
+
+            let resolvedMime = response.mimeType ?? mimeType ?? ""
+            if resolvedMime.hasPrefix("video/"), let contentURL = client.workspaceFileContentURL(path: filePath) {
+                videoPlayer = AVPlayer(url: contentURL)
+            }
         } else {
             error = "Unable to read file."
         }
