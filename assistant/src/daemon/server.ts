@@ -1131,7 +1131,14 @@ export class DaemonServer {
     const onEvent = options?.onEvent
       ? (msg: ServerMessage) => {
           registrar(msg);
-          options.onEvent!(msg);
+          try {
+            options.onEvent!(msg);
+          } catch (err) {
+            log.error(
+              { err, conversationId },
+              "onEvent callback failed; continuing agent loop",
+            );
+          }
         }
       : registrar;
     if (options?.isInteractive === true) {
@@ -1275,7 +1282,14 @@ export class DaemonServer {
     const onEvent = options?.onEvent
       ? (msg: ServerMessage) => {
           registrar(msg);
-          options.onEvent!(msg);
+          try {
+            options.onEvent!(msg);
+          } catch (err) {
+            log.error(
+              { err, conversationId },
+              "onEvent callback failed; continuing agent loop",
+            );
+          }
         }
       : registrar;
     if (options?.isInteractive === true) {
