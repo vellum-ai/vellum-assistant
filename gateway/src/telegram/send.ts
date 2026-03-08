@@ -90,6 +90,12 @@ export async function editTelegramMessage(
   approval?: ApprovalPayload,
   opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ): Promise<void> {
+  if (text.length > TELEGRAM_MAX_MESSAGE_LEN) {
+    throw new Error(
+      `Text length ${text.length} exceeds Telegram's ${TELEGRAM_MAX_MESSAGE_LEN}-character limit for message edits`,
+    );
+  }
+
   const payload: Record<string, unknown> = {
     chat_id: chatId,
     message_id: messageId,
@@ -98,7 +104,22 @@ export async function editTelegramMessage(
   if (approval) {
     payload.reply_markup = buildInlineKeyboard(approval);
   }
-  await callTelegramApi("editMessageText", payload, opts);
+
+  try {
+    await callTelegramApi("editMessageText", payload, opts);
+  } catch (err) {
+    // Telegram returns "message is not modified" when the new text is identical
+    // to what's already displayed. Treat this as a no-op success rather than
+    // propagating a hard failure.
+    if (
+      err instanceof Error &&
+      err.message.includes("message is not modified")
+    ) {
+      log.debug({ chatId, messageId }, "Edit skipped: message is not modified");
+      return;
+    }
+    throw err;
+  }
 }
 
 export async function sendTelegramAttachments(
