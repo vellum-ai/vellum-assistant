@@ -67,9 +67,7 @@ export async function sendGuardianExpiryNotices(
       );
 
       if (
-        (delivery.destinationChannel === "vellum" ||
-          delivery.destinationChannel === "macos" ||
-          delivery.destinationChannel === "mac") &&
+        delivery.destinationChannel === "vellum" &&
         delivery.destinationConversationId
       ) {
         // Add expiry message to vellum guardian thread.
