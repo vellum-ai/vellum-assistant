@@ -2,7 +2,9 @@
  * Route handlers for workspace file browsing and content serving.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 
+import { getWorkspaceDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteContext, RouteDefinition } from "../http-router.js";
 import {
@@ -17,48 +19,52 @@ import {
 
 interface TreeEntry {
   name: string;
+  path: string;
   type: "file" | "directory";
-  size?: number;
-  mimeType?: string;
+  size: number | undefined;
+  mimeType: string | undefined;
+  modifiedAt: string;
 }
 
-function handleWorkspaceTree(ctx: RouteContext): Response {
-  const relativePath = ctx.url.searchParams.get("path") ?? ".";
-
-  const resolved = resolveWorkspacePath(relativePath);
+function handleWorkspaceTree(ctx: { url: URL }): Response {
+  const requestedPath = ctx.url.searchParams.get("path") ?? "";
+  const resolved = resolveWorkspacePath(requestedPath);
   if (resolved === undefined) {
     return httpError("BAD_REQUEST", "Invalid path", 400);
   }
 
-  if (!existsSync(resolved)) {
+  try {
+    const dirents = readdirSync(resolved, { withFileTypes: true });
+    const workspaceDir = getWorkspaceDir();
+
+    const entries: TreeEntry[] = dirents.map((entry) => {
+      const fullPath = join(resolved, entry.name);
+      const isDir = entry.isDirectory();
+      const stats = statSync(fullPath);
+      const relativePath = fullPath.slice(workspaceDir.length + 1);
+
+      return {
+        name: entry.name,
+        path: relativePath,
+        type: isDir ? "directory" : "file",
+        size: isDir ? undefined : stats.size,
+        mimeType: isDir ? undefined : Bun.file(fullPath).type,
+        modifiedAt: stats.mtime.toISOString(),
+      };
+    });
+
+    // Sort: directories first, then files, alphabetically within each group
+    entries.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === "directory" ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    return Response.json({ path: requestedPath, entries });
+  } catch {
     return httpError("NOT_FOUND", "Directory not found", 404);
   }
-
-  const stat = statSync(resolved);
-  if (!stat.isDirectory()) {
-    return httpError("BAD_REQUEST", "Path is not a directory", 400);
-  }
-
-  const entries: TreeEntry[] = [];
-  for (const entry of readdirSync(resolved, { withFileTypes: true })) {
-    if (entry.name.startsWith(".")) continue;
-
-    if (entry.isDirectory()) {
-      entries.push({ name: entry.name, type: "directory" });
-    } else if (entry.isFile()) {
-      const filePath = `${resolved}/${entry.name}`;
-      const fileStat = statSync(filePath);
-      const bunFile = Bun.file(filePath);
-      entries.push({
-        name: entry.name,
-        type: "file",
-        size: fileStat.size,
-        mimeType: bunFile.type,
-      });
-    }
-  }
-
-  return Response.json({ entries });
 }
 
 // ---------------------------------------------------------------------------
