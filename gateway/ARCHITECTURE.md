@@ -585,7 +585,8 @@ Entry points:
 Both paths converge at:
   → Daemon handler validates token via Telegram getMe API
     → setSecureKey("credential:telegram:bot_token", token)
-    → upsertCredentialMetadata("telegram", "bot_token", {accountInfo: username})
+    → upsertCredentialMetadata("telegram", "bot_token", {})
+    → Stores bot username in config at telegram.botUsername
     → Auto-generates webhook secret if missing
       → setSecureKey("credential:telegram:webhook_secret", secret)
       → upsertCredentialMetadata("telegram", "webhook_secret", {})
