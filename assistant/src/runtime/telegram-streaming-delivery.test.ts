@@ -297,6 +297,8 @@ describe("TelegramStreamingDelivery", () => {
     expect(overflowPayload.messageId).toBeUndefined();
     // Overflow should contain the remainder: 25 + 4500 - 4000 = 525 chars
     expect((overflowPayload.text as string).length).toBe(525);
+
+    expect(delivery.finishSucceeded).toBe(true);
   });
 
   // ── Test 8: ignores events after finish() is called ─────────────────
