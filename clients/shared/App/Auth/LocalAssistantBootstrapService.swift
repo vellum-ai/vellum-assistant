@@ -123,6 +123,27 @@ public final class LocalAssistantBootstrapService {
         let platformAssistantId = registration.assistant.id
         log.info("Registered local assistant: \(platformAssistantId, privacy: .public)")
 
+        // Persist the platform assistant ID mapping so other services can resolve it.
+        if let storage = credentialStorage {
+            let userId = try? await resolveUserId()
+            if let uid = userId {
+                let persisted = PlatformAssistantIdResolver.persist(
+                    platformAssistantId: platformAssistantId,
+                    runtimeAssistantId: runtimeAssistantId,
+                    organizationId: organizationId,
+                    userId: uid,
+                    credentialStorage: storage
+                )
+                if persisted {
+                    log.info("Persisted platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                } else {
+                    log.warning("Failed to persist platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                }
+            } else {
+                log.warning("Could not resolve user ID — platform assistant ID mapping not persisted")
+            }
+        }
+
         let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
 
         // Step 2: Check if we already have the key stored locally
@@ -207,6 +228,12 @@ public final class LocalAssistantBootstrapService {
               (200...299).contains(httpResponse.statusCode) else {
             throw LocalBootstrapError.daemonInjectionFailed
         }
+    }
+
+    /// Resolves the current user ID from the auth session.
+    private func resolveUserId() async throws -> String? {
+        let session = try await authService.getSession()
+        return session.data?.user?.id
     }
 
     private enum ErrorContext {
