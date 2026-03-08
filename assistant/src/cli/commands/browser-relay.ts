@@ -90,6 +90,23 @@ Examples:
     .command("chrome")
     .description("Chrome browser automation via the extension relay");
 
+  chrome.addHelpText(
+    "after",
+    `
+Chrome-specific browser automation. Commands are routed through a Chrome
+extension relay that bridges the assistant to open Chrome tabs. The extension
+must be installed and connected before commands will succeed — use the
+\`relay status\` subcommand to verify connectivity.
+
+Subgroups:
+  relay   Send commands to Chrome tabs via the browser extension relay
+
+Examples:
+  $ assistant browser chrome relay status
+  $ assistant browser chrome relay find-tab --url "*://*.github.com/*"
+  $ assistant browser chrome relay evaluate --tab-id 42 --code "document.title"`,
+  );
+
   const relay = chrome
     .command("relay")
     .description(
