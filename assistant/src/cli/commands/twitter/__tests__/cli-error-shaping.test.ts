@@ -45,7 +45,8 @@ function buildErrorPayload(err: unknown): Record<string, unknown> | null {
     err instanceof Error &&
     (meta.pathUsed !== undefined ||
       meta.suggestAlternative !== undefined ||
-      meta.oauthError !== undefined)
+      meta.oauthError !== undefined ||
+      meta.proxyErrorCode !== undefined)
   ) {
     const payload: Record<string, unknown> = {
       ok: false,
@@ -55,6 +56,9 @@ function buildErrorPayload(err: unknown): Record<string, unknown> | null {
     if (meta.suggestAlternative !== undefined)
       payload.suggestAlternative = meta.suggestAlternative;
     if (meta.oauthError !== undefined) payload.oauthError = meta.oauthError;
+    if (meta.proxyErrorCode !== undefined)
+      payload.proxyErrorCode = meta.proxyErrorCode;
+    if (meta.retryable !== undefined) payload.retryable = meta.retryable;
     return payload;
   }
 
@@ -203,6 +207,43 @@ describe("CLI error shaping", () => {
     expect(payload).toEqual({
       ok: false,
       error: "some string error",
+    });
+  });
+
+  test("managed proxy error preserves proxyErrorCode and retryable metadata", () => {
+    const err = Object.assign(
+      new Error("Connect Twitter in Settings as the assistant owner"),
+      {
+        pathUsed: "managed" as const,
+        proxyErrorCode: "owner_credential_required",
+        retryable: false,
+      },
+    );
+    const payload = buildErrorPayload(err);
+
+    expect(payload).toEqual({
+      ok: false,
+      error: "Connect Twitter in Settings as the assistant owner",
+      pathUsed: "managed",
+      proxyErrorCode: "owner_credential_required",
+      retryable: false,
+    });
+  });
+
+  test("managed proxy retryable error preserves metadata", () => {
+    const err = Object.assign(new Error("Reconnect Twitter or retry"), {
+      pathUsed: "managed" as const,
+      proxyErrorCode: "auth_failure",
+      retryable: true,
+    });
+    const payload = buildErrorPayload(err);
+
+    expect(payload).toEqual({
+      ok: false,
+      error: "Reconnect Twitter or retry",
+      pathUsed: "managed",
+      proxyErrorCode: "auth_failure",
+      retryable: true,
     });
   });
 

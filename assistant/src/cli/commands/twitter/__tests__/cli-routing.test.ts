@@ -14,6 +14,8 @@ let mockBrowserPostResult: {
   url: string;
 } | null = null;
 let mockBrowserPostError: Error | null = null;
+let mockManagedPostResult: { data: unknown; status: number } | null = null;
+let mockManagedPostError: Error | null = null;
 
 // Mock the OAuth client
 mock.module("../oauth-client.js", () => ({
@@ -37,6 +39,35 @@ mock.module("../oauth-client.js", () => ({
       this.operation = operation;
     }
   },
+}));
+
+// Mock TwitterProxyError for managed path tests
+class MockTwitterProxyError extends Error {
+  public readonly code: string;
+  public readonly retryable: boolean;
+  public readonly statusCode: number;
+  constructor(
+    message: string,
+    code: string,
+    retryable: boolean,
+    statusCode = 0,
+  ) {
+    super(message);
+    this.name = "TwitterProxyError";
+    this.code = code;
+    this.retryable = retryable;
+    this.statusCode = statusCode;
+  }
+}
+
+// Mock the platform proxy client
+mock.module("../../../../twitter/platform-proxy-client.js", () => ({
+  postTweet: async (_text: string, _opts?: { replyToId?: string }) => {
+    if (mockManagedPostError) throw mockManagedPostError;
+    if (mockManagedPostResult) return mockManagedPostResult;
+    throw new Error("Managed mock not configured");
+  },
+  TwitterProxyError: MockTwitterProxyError,
 }));
 
 // Create a SessionExpiredError class that matches the real one
@@ -82,6 +113,8 @@ beforeEach(() => {
   mockOauthPostError = null;
   mockBrowserPostResult = null;
   mockBrowserPostError = null;
+  mockManagedPostResult = null;
+  mockManagedPostError = null;
 });
 
 describe("Twitter strategy router", () => {
@@ -245,6 +278,99 @@ describe("Twitter strategy router", () => {
         expect(true).toBe(false); // should not reach
       } catch (err) {
         expect((err as Error).message).toBe("Network failure");
+      }
+    });
+  });
+
+  describe("managed strategy", () => {
+    test("routes post through platform proxy", async () => {
+      mockManagedPostResult = {
+        data: { data: { id: "managed-1" } },
+        status: 200,
+      };
+
+      const { result, pathUsed } = await routedPostTweet("managed post", {
+        strategy: "managed",
+      });
+
+      expect(pathUsed).toBe("managed");
+      expect(result.tweetId).toBe("managed-1");
+      expect(result.url).toBe("https://x.com/i/status/managed-1");
+    });
+
+    test("routes reply through platform proxy", async () => {
+      mockManagedPostResult = {
+        data: { data: { id: "managed-reply-1" } },
+        status: 200,
+      };
+
+      const { result, pathUsed } = await routedPostTweet("reply text", {
+        strategy: "managed",
+        inReplyToTweetId: "original-tweet-123",
+      });
+
+      expect(pathUsed).toBe("managed");
+      expect(result.tweetId).toBe("managed-reply-1");
+    });
+
+    test("surfaces proxy errors with actionable metadata", async () => {
+      mockManagedPostError = new MockTwitterProxyError(
+        "Connect Twitter in Settings as the assistant owner",
+        "owner_credential_required",
+        false,
+        403,
+      );
+
+      try {
+        await routedPostTweet("will fail", { strategy: "managed" });
+        expect(true).toBe(false); // should not reach
+      } catch (err) {
+        const e = err as Error & {
+          pathUsed: string;
+          proxyErrorCode: string;
+          retryable: boolean;
+        };
+        expect(e.message).toBe(
+          "Connect Twitter in Settings as the assistant owner",
+        );
+        expect(e.pathUsed).toBe("managed");
+        expect(e.proxyErrorCode).toBe("owner_credential_required");
+        expect(e.retryable).toBe(false);
+      }
+    });
+
+    test("surfaces retryable proxy errors", async () => {
+      mockManagedPostError = new MockTwitterProxyError(
+        "Reconnect Twitter or retry",
+        "auth_failure",
+        true,
+        401,
+      );
+
+      try {
+        await routedPostTweet("will fail", { strategy: "managed" });
+        expect(true).toBe(false);
+      } catch (err) {
+        const e = err as Error & {
+          pathUsed: string;
+          proxyErrorCode: string;
+          retryable: boolean;
+        };
+        expect(e.pathUsed).toBe("managed");
+        expect(e.proxyErrorCode).toBe("auth_failure");
+        expect(e.retryable).toBe(true);
+      }
+    });
+
+    test("re-throws non-proxy errors without wrapping", async () => {
+      mockManagedPostError = new Error("Network failure");
+
+      try {
+        await routedPostTweet("will fail", { strategy: "managed" });
+        expect(true).toBe(false);
+      } catch (err) {
+        expect((err as Error).message).toBe("Network failure");
+        expect((err as Record<string, unknown>).pathUsed).toBeUndefined();
       }
     });
   });
