@@ -64,6 +64,14 @@ export const SlackConfigSchema = z.object({
   deliverAuthBypass: z
     .boolean({ error: "slack.deliverAuthBypass must be a boolean" })
     .default(false),
+  teamId: z.string({ error: "slack.teamId must be a string" }).default(""),
+  teamName: z.string({ error: "slack.teamName must be a string" }).default(""),
+  botUserId: z
+    .string({ error: "slack.botUserId must be a string" })
+    .default(""),
+  botUsername: z
+    .string({ error: "slack.botUsername must be a string" })
+    .default(""),
 });
 
 export type TwilioConfig = z.infer<typeof TwilioConfigSchema>;
