@@ -6,6 +6,7 @@ import { registerHooksCommand } from "../hooks/cli.js";
 import { registerAmazonCommand } from "./commands/amazon/index.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
+import { registerBrowserRelayCommand } from "./commands/browser-relay.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
 import { registerConfigCommand } from "./commands/config.js";
@@ -59,6 +60,7 @@ export function buildCliProgram(): Command {
   registerPlatformCommand(program);
   registerOAuthCommand(program);
   registerSkillsCommand(program);
+  registerBrowserRelayCommand(program);
 
   registerTwitterCommand(program);
   registerMapCommand(program);
