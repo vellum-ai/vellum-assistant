@@ -1,10 +1,3 @@
-/**
- * Route handlers for workspace file browsing.
- *
- * Provides lazy directory listing and file metadata/content endpoints
- * for the Workspace tab in the Intelligence panel.
- */
-
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -17,11 +10,16 @@ import {
   resolveWorkspacePath,
 } from "./workspace-utils.js";
 
-// ---------------------------------------------------------------------------
-// GET /v1/workspace/tree — lazy directory listing
-// ---------------------------------------------------------------------------
+interface TreeEntry {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  size: number | undefined;
+  mimeType: string | undefined;
+  modifiedAt: string;
+}
 
-function handleWorkspaceTree(ctx: RouteContext): Response {
+function handleWorkspaceTree(ctx: { url: URL }): Response {
   const requestedPath = ctx.url.searchParams.get("path") ?? "";
   const resolved = resolveWorkspacePath(requestedPath);
   if (resolved === undefined) {
@@ -29,30 +27,32 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
   }
 
   try {
-    const dirEntries = readdirSync(resolved, { withFileTypes: true });
-    const workspaceRoot = getWorkspaceDir();
+    const dirents = readdirSync(resolved, { withFileTypes: true });
+    const workspaceDir = getWorkspaceDir();
 
-    const entries = dirEntries
-      .map((entry) => {
-        const fullPath = join(resolved, entry.name);
-        const stat = statSync(fullPath);
-        const relativePath = fullPath.slice(workspaceRoot.length + 1);
-        const isDir = entry.isDirectory();
-        return {
-          name: entry.name,
-          path: relativePath,
-          type: isDir ? ("directory" as const) : ("file" as const),
-          size: isDir ? undefined : stat.size,
-          mimeType: isDir ? undefined : Bun.file(fullPath).type,
-          modifiedAt: stat.mtime.toISOString(),
-        };
-      })
-      .sort((a, b) => {
-        if (a.type !== b.type) {
-          return a.type === "directory" ? -1 : 1;
-        }
-        return a.name.localeCompare(b.name);
-      });
+    const entries: TreeEntry[] = dirents.map((entry) => {
+      const fullPath = join(resolved, entry.name);
+      const isDir = entry.isDirectory();
+      const stats = statSync(fullPath);
+      const relativePath = fullPath.slice(workspaceDir.length + 1);
+
+      return {
+        name: entry.name,
+        path: relativePath,
+        type: isDir ? "directory" : "file",
+        size: isDir ? undefined : stats.size,
+        mimeType: isDir ? undefined : Bun.file(fullPath).type,
+        modifiedAt: stats.mtime.toISOString(),
+      };
+    });
+
+    // Sort: directories first, then files, alphabetically within each group
+    entries.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === "directory" ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
 
     return Response.json({ path: requestedPath, entries });
   } catch {

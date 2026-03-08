@@ -689,7 +689,6 @@ export class RuntimeHttpServer {
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
-      ...workspaceRouteDefinitions(),
 
       // Browser relay — not extracted into a domain module because
       // these two routes depend on the in-process extensionRelayServer
@@ -962,6 +961,7 @@ export class RuntimeHttpServer {
       ...brainGraphRouteDefinitions({ mintUiPageToken }),
       ...eventsRouteDefinitions(),
       ...migrationRouteDefinitions(),
+      ...workspaceRouteDefinitions(),
 
       // Internal OAuth callback (gateway -> runtime)
       {
