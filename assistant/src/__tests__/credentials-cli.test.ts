@@ -93,7 +93,6 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
       usageDescription?: string;
       expiresAt?: number | null;
       grantedScopes?: string[];
-      accountInfo?: string | null;
       alias?: string | null;
       injectionTemplates?: unknown[] | null;
     },
@@ -168,7 +167,8 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 // Import the module under test (after mocks are registered)
 // ---------------------------------------------------------------------------
 
-const { registerCredentialsCommand } = await import("../cli/credentials.js");
+const { registerCredentialsCommand } =
+  await import("../cli/commands/credentials.js");
 
 // ---------------------------------------------------------------------------
 // Test helper
@@ -317,7 +317,6 @@ describe("assistant credentials CLI", () => {
         expect(cred).toHaveProperty("usageDescription");
         expect(cred).toHaveProperty("allowedTools");
         expect(cred).toHaveProperty("allowedDomains");
-        expect(cred).toHaveProperty("accountInfo");
         expect(cred).toHaveProperty("grantedScopes");
         expect(cred).toHaveProperty("expiresAt");
         expect(cred).toHaveProperty("createdAt");
@@ -634,7 +633,6 @@ describe("assistant credentials CLI", () => {
       expect(parsed).toHaveProperty("usageDescription");
       expect(parsed).toHaveProperty("allowedTools");
       expect(parsed).toHaveProperty("allowedDomains");
-      expect(parsed).toHaveProperty("accountInfo");
       expect(parsed).toHaveProperty("grantedScopes");
       expect(parsed).toHaveProperty("expiresAt");
       expect(parsed).toHaveProperty("injectionTemplateCount");

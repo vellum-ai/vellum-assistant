@@ -10,7 +10,6 @@ import { randomInt } from "node:crypto";
 
 import type { ServerWebSocket } from "bun";
 
-import { resolveGuardianName } from "../config/user-reference.js";
 import {
   findGuardianForChannel,
   listGuardianChannels,
@@ -25,6 +24,7 @@ import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import { addMessage } from "../memory/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
+import { resolveGuardianName } from "../prompts/user-reference.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import {
   resolveActorTrust,

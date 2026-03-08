@@ -2,17 +2,16 @@ import * as net from "node:net";
 
 import {
   getNestedValue,
+  invalidateConfigCache,
   loadConfig,
   loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
 } from "../../config/loader.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import { getSecureKey } from "../../security/secure-keys.js";
-import {
-  assertMetadataWritable,
-  getCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
+import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
 import { ConfigError } from "../../util/errors.js";
 import type {
   TwitterAuthStartRequest,
@@ -169,15 +168,16 @@ export async function handleTwitterAuthStart(
       return;
     }
 
-    // Persist accountInfo to credential metadata so twitter_auth_status
+    // Persist accountInfo to config so twitter_auth_status
     // can display the @username on subsequent checks.
     if (result.accountInfo) {
       try {
-        upsertCredentialMetadata("integration:twitter", "access_token", {
-          accountInfo: result.accountInfo,
-        });
+        const raw = loadRawConfig();
+        setNestedValue(raw, "twitter.accountInfo", result.accountInfo);
+        saveRawConfig(raw);
+        invalidateConfigCache();
       } catch {
-        // Non-fatal — auth succeeded even if metadata write fails
+        // Non-fatal — auth succeeded even if config write fails
       }
     }
 
@@ -213,12 +213,14 @@ export function handleTwitterAuthStatus(
         | "local_byo"
         | "managed"
         | undefined) ?? "local_byo";
-    const meta = getCredentialMetadata("integration:twitter", "access_token");
+    const accountInfo = getNestedValue(raw, "twitter.accountInfo") as
+      | string
+      | undefined;
 
     ctx.send(socket, {
       type: "twitter_auth_status_response",
       connected: !!accessToken,
-      accountInfo: meta?.accountInfo ?? undefined,
+      accountInfo: accountInfo ?? undefined,
       mode,
     });
   } catch (err) {

@@ -9,7 +9,7 @@ import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
 import { discoverPublicUrl } from "./local";
 import { generateRandomSuffix } from "./random-name";
-import { exec } from "./step-runner";
+import { exec, execOutput } from "./step-runner";
 import { closeLogFile, openLogFile, writeToLogFile } from "./xdg-log";
 
 const _require = createRequire(import.meta.url);
@@ -95,6 +95,33 @@ function createLinePrefixer(
       }
     },
   };
+}
+
+async function fetchRemoteBearerToken(
+  containerName: string,
+): Promise<string | null> {
+  try {
+    const remoteCmd =
+      'cat ~/.vellum.lock.json 2>/dev/null || cat ~/.vellum.lockfile.json 2>/dev/null || echo "{}"';
+    const output = await execOutput("docker", [
+      "exec",
+      containerName,
+      "sh",
+      "-c",
+      remoteCmd,
+    ]);
+    const data = JSON.parse(output.trim());
+    const assistants = data.assistants;
+    if (Array.isArray(assistants) && assistants.length > 0) {
+      const token = assistants[0].bearerToken;
+      if (typeof token === "string" && token) {
+        return token;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function retireDocker(name: string): Promise<void> {
@@ -245,7 +272,14 @@ export async function hatchDocker(
 
       const handleLine = (line: string): void => {
         if (line.includes("Local assistant hatched!")) {
-          process.nextTick(() => {
+          process.nextTick(async () => {
+            const remoteBearerToken =
+              await fetchRemoteBearerToken(instanceName);
+            if (remoteBearerToken) {
+              dockerEntry.bearerToken = remoteBearerToken;
+              saveAssistantEntry(dockerEntry);
+            }
+
             console.log("");
             console.log(`\u2705 Docker container is up and running!`);
             console.log(`   Name: ${instanceName}`);

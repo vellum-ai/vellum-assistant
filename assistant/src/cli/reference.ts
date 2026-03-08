@@ -22,9 +22,7 @@ Commands:
   hooks                                    Manage hooks
   mcp                                      Manage MCP (Model Context Protocol) servers
   email [options]                          Email operations (provider-agnostic)
-  integrations [options]                   Read integration configuration and readiness status
   contacts [options]                       Manage and query the contact graph
-  channels [options]                       Query channel status
   channel-verification-sessions [options]  Manage channel verification sessions
   amazon [options]                         Shop on Amazon and Amazon Fresh. Requires a session imported from a Ride Shotgun recording.
   autonomy [options]                       View and configure autonomy tiers
@@ -33,8 +31,8 @@ Commands:
   platform [options]                       Manage platform integration for containerized deployments
   oauth [options]                          Manage OAuth tokens for connected integrations
   skills                                   Browse and install skills from the Vellum catalog
+  browser                                  Browser automation, extension relay, and Chrome CDP management
   x|twitter [options]                      Post on X and manage connections. Supports OAuth (official API) and browser session paths.
   map [options] <domain>                   Auto-navigate a domain and produce a deduplicated API map. Launches Chrome with CDP, starts a Ride Shotgun learn session, then analyzes captured network traffic.
-  influencer [options]                     Research influencers on Instagram, TikTok, and X/Twitter. Uses the Chrome extension relay to browse each platform. Requires the user to be logged in on each platform in Chrome.
   sequence [options]                       Manage email sequences
 `;

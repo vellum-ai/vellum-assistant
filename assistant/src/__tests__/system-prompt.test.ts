@@ -78,8 +78,8 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const realUserReference = require("../config/user-reference.js");
-mock.module("../config/user-reference.js", () => ({
+const realUserReference = require("../prompts/user-reference.js");
+mock.module("../prompts/user-reference.js", () => ({
   ...realUserReference,
   resolveUserReference: () => "John",
   resolveUserPronouns: () => null,
@@ -92,7 +92,7 @@ const {
   stripCommentLines,
   buildExternalCommsIdentitySection,
   buildPhoneCallsRoutingSection,
-} = await import("../config/system-prompt.js");
+} = await import("../prompts/system-prompt.js");
 
 /** Strip the Configuration, Skills, and hardcoded preamble sections so base-prompt tests stay focused. */
 function basePrompt(result: string): string {

@@ -252,6 +252,14 @@ extension AppDelegate {
             setupDaemonClient()
         }
 
+        // Track whether the main window was visible so we can restore it
+        // only when appropriate (e.g. not when invoked from the menu bar
+        // with no main window open).
+        let mainWindowWasVisible = mainWindow?.isVisible ?? false
+        if mainWindowWasVisible {
+            mainWindow?.hide()
+        }
+
         // Clear persisted step so replay always starts at step 0
         OnboardingState.clearPersistedState()
 
@@ -270,6 +278,9 @@ extension AppDelegate {
         }
         onboarding.onDismiss = { [weak self] in
             self?.onboardingWindow = nil
+            if mainWindowWasVisible {
+                self?.showMainWindow()
+            }
         }
         onboarding.show()
         onboardingWindow = onboarding

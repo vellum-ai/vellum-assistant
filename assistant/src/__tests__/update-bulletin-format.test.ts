@@ -5,7 +5,7 @@ import {
   extractReleaseIds,
   hasReleaseBlock,
   releaseMarker,
-} from "../config/update-bulletin-format.js";
+} from "../prompts/update-bulletin-format.js";
 
 describe("releaseMarker", () => {
   test("returns an HTML comment with the version embedded", () => {

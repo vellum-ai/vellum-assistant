@@ -127,7 +127,7 @@ mock.module("../daemon/context-overflow-approval.js", () => ({
   CONTEXT_OVERFLOW_TOOL_NAME: "context_overflow_compression",
 }));
 
-mock.module("../config/system-prompt.js", () => ({
+mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
 
@@ -200,7 +200,7 @@ mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
     shouldCompact() {
-      return false;
+      return { needed: false, estimatedTokens: 0 };
     }
     async maybeCompact(
       messages: Message[],

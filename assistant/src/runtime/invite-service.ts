@@ -10,11 +10,6 @@
 
 import { isChannelId } from "../channels/types.js";
 import {
-  DECLINED_BY_USER_SENTINEL,
-  DEFAULT_USER_REFERENCE,
-  resolveGuardianName,
-} from "../config/user-reference.js";
-import {
   createInvite,
   findByTokenHash,
   hashToken,
@@ -23,6 +18,11 @@ import {
   listInvites,
   revokeInvite,
 } from "../memory/invite-store.js";
+import {
+  DECLINED_BY_USER_SENTINEL,
+  DEFAULT_USER_REFERENCE,
+  resolveGuardianName,
+} from "../prompts/user-reference.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import {

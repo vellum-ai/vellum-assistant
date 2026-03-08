@@ -17,8 +17,6 @@ import {
   validateEnv,
 } from "../config/env.js";
 import { loadConfig } from "../config/loader.js";
-import { ensurePromptFiles } from "../config/system-prompt.js";
-import { syncUpdateBulletinOnStartup } from "../config/update-bulletin.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { getHookManager } from "../hooks/manager.js";
 import { installTemplates } from "../hooks/templates.js";
@@ -40,6 +38,8 @@ import {
   emitNotificationSignal,
   registerBroadcastFn,
 } from "../notifications/emit-signal.js";
+import { ensurePromptFiles } from "../prompts/system-prompt.js";
+import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,

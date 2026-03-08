@@ -80,7 +80,7 @@ mock.module("../util/platform.js", () => ({
 
 // Mock system-prompt to provide only stripCommentLines without pulling in
 // the rest of the system-prompt transitive dependency tree.
-mock.module("../config/system-prompt.js", () => {
+mock.module("../prompts/system-prompt.js", () => {
   // Inline a minimal implementation of stripCommentLines matching production behavior.
   function stripCommentLines(content: string): string {
     const normalized = content.replace(/\r\n/g, "\n");
@@ -112,12 +112,12 @@ mock.module("../version.js", () => ({
 
 // Mock the template path module so tests read from a temp directory instead
 // of the real source-controlled template file.
-mock.module("../config/update-bulletin-template-path.js", () => ({
+mock.module("../prompts/update-bulletin-template-path.js", () => ({
   getTemplatePath: () => join(tempTemplateDir, "UPDATES.md"),
 }));
 
 const { syncUpdateBulletinOnStartup } =
-  await import("../config/update-bulletin.js");
+  await import("../prompts/update-bulletin.js");
 
 const TEST_TEMPLATE = "## What's New\n\nTest release notes.\n";
 const COMMENT_ONLY_TEMPLATE =

@@ -3,7 +3,6 @@ import * as net from "node:net";
 
 import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
-import { resolveGuardianName } from "../../config/user-reference.js";
 import {
   findContactChannel,
   findGuardianForChannel,
@@ -13,6 +12,7 @@ import {
 import { revokeMember } from "../../contacts/contacts-write.js";
 import type { ChannelStatus } from "../../contacts/types.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
+import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
   type ChannelReadinessService,

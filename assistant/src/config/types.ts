@@ -34,6 +34,7 @@ export type {
   SkillsConfig,
   SkillsInstallConfig,
   SkillsLoadConfig,
+  SlackConfig,
   SwarmConfig,
   ThinkingConfig,
   TimeoutConfig,

@@ -1015,7 +1015,7 @@ jobs:
           rm -rf daemon-bin/bundled-skills
           cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" daemon-bin/bundled-skills
           rm -rf daemon-bin/templates
-          cp -R "$ASSISTANT_SRC_DIR/src/config/templates" daemon-bin/templates
+          cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" daemon-bin/templates
           rm -rf daemon-bin/hook-templates
           cp -R "$ASSISTANT_SRC_DIR/hook-templates" daemon-bin/hook-templates
           rm -rf daemon-bin/prebuilt

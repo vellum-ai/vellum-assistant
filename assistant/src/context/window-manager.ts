@@ -52,6 +52,11 @@ export interface ContextWindowResult {
   reason?: string;
 }
 
+export interface ShouldCompactResult {
+  needed: boolean;
+  estimatedTokens: number;
+}
+
 export interface ContextWindowCompactOptions {
   lastCompactedAt?: number;
   /** Bypass the threshold check and force compaction. Used for context-too-large error recovery. */
@@ -69,6 +74,12 @@ export interface ContextWindowCompactOptions {
    * than the normal `config.targetInputTokens` during forced recovery.
    */
   targetInputTokensOverride?: number;
+  /**
+   * Pre-computed token estimate from a prior `shouldCompact()` call.
+   * When provided, `maybeCompact()` skips its own `estimatePromptTokens()`
+   * call, avoiding a redundant O(history) tokenization pass.
+   */
+  precomputedEstimate?: number;
 }
 
 export interface ContextWindowManagerOptions {
@@ -89,19 +100,20 @@ export class ContextWindowManager {
   }
 
   /**
-   * Cheap pre-check: returns true when the estimated token count exceeds
-   * the compaction threshold, so callers can show a status indicator
-   * only when compaction is likely to run.
+   * Cheap pre-check: returns whether the estimated token count exceeds
+   * the compaction threshold, along with the estimated token count so
+   * callers can pass it into `maybeCompact()` via `precomputedEstimate`
+   * to avoid a redundant tokenization pass.
    */
-  shouldCompact(messages: Message[]): boolean {
-    if (!this.config.enabled) return false;
+  shouldCompact(messages: Message[]): ShouldCompactResult {
+    if (!this.config.enabled) return { needed: false, estimatedTokens: 0 };
     const estimated = estimatePromptTokens(messages, this.systemPrompt, {
       providerName: this.provider.name,
     });
     const threshold = Math.floor(
       this.config.maxInputTokens * this.config.compactThreshold,
     );
-    return estimated >= threshold;
+    return { needed: estimated >= threshold, estimatedTokens: estimated };
   }
 
   async maybeCompact(
@@ -109,11 +121,11 @@ export class ContextWindowManager {
     signal?: AbortSignal,
     options?: ContextWindowCompactOptions,
   ): Promise<ContextWindowResult> {
-    const previousEstimatedInputTokens = estimatePromptTokens(
-      messages,
-      this.systemPrompt,
-      { providerName: this.provider.name },
-    );
+    const previousEstimatedInputTokens =
+      options?.precomputedEstimate ??
+      estimatePromptTokens(messages, this.systemPrompt, {
+        providerName: this.provider.name,
+      });
     const thresholdTokens = Math.floor(
       this.config.maxInputTokens * this.config.compactThreshold,
     );

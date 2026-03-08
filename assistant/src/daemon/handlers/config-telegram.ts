@@ -1,6 +1,5 @@
 import * as net from "node:net";
 
-import { getIngressPublicBaseUrl } from "../../config/env.js";
 import {
   invalidateConfigCache,
   loadRawConfig,
@@ -25,7 +24,6 @@ import type {
   TelegramConfigRequest,
   TelegramConfigResponse,
 } from "../ipc-protocol.js";
-import { triggerGatewayReconcile } from "./config-ingress.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN =
@@ -150,12 +148,10 @@ export async function setTelegramConfig(
     };
   }
 
-  // Store metadata with bot username (kept for consumers that haven't migrated yet)
-  upsertCredentialMetadata("telegram", "bot_token", {
-    accountInfo: botUsername,
-  });
+  // Store credential metadata record for policy checks
+  upsertCredentialMetadata("telegram", "bot_token", {});
 
-  // Dual-write: persist bot username to config for the new config-based path
+  // Persist bot username to config for the config-based path
   const raw = loadRawConfig();
   setNestedValue(raw, "telegram.botUsername", botUsername);
   saveRawConfig(raw);
@@ -220,12 +216,6 @@ export async function setTelegramConfig(
     });
   }
 
-  // Trigger gateway reconcile so the webhook registration updates immediately
-  const effectiveUrl = getIngressPublicBaseUrl();
-  if (effectiveUrl) {
-    triggerGatewayReconcile(effectiveUrl);
-  }
-
   return result;
 }
 
@@ -248,12 +238,6 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
 
   const r1 = await deleteSecureKeyAsync("credential:telegram:bot_token");
   const r2 = await deleteSecureKeyAsync("credential:telegram:webhook_secret");
-
-  // Trigger reconcile to deregister webhook
-  const effectiveUrl = getIngressPublicBaseUrl();
-  if (effectiveUrl) {
-    triggerGatewayReconcile(effectiveUrl);
-  }
 
   if (r1 === "error" || r2 === "error") {
     const hasBotToken = !!getSecureKey("credential:telegram:bot_token");

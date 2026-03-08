@@ -5,15 +5,53 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "slack-channel-cfg-test-"));
 
+// In-memory config store for tests
+let configStore: Record<string, unknown> = {};
+
+function setNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const keys = path.split(".");
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if (current[key] == null || typeof current[key] !== "object") {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  }
+  current[keys[keys.length - 1]] = value;
+}
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
+    slack: {
+      deliverAuthBypass: false,
+      teamId:
+        ((configStore.slack as Record<string, unknown>)?.teamId as string) ??
+        "",
+      teamName:
+        ((configStore.slack as Record<string, unknown>)?.teamName as string) ??
+        "",
+      botUserId:
+        ((configStore.slack as Record<string, unknown>)?.botUserId as string) ??
+        "",
+      botUsername:
+        ((configStore.slack as Record<string, unknown>)
+          ?.botUsername as string) ?? "",
+    },
   }),
   loadConfig: () => ({}),
-  loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
+  loadRawConfig: () => structuredClone(configStore),
+  saveRawConfig: (raw: Record<string, unknown>) => {
+    configStore = structuredClone(raw);
+  },
   saveConfig: () => {},
   invalidateConfigCache: () => {},
+  setNestedValue,
 }));
 
 mock.module("../util/platform.js", () => ({
@@ -149,6 +187,7 @@ describe("Slack channel config handler", () => {
   beforeEach(() => {
     secureKeyStore = {};
     credentialMetadataStore = [];
+    configStore = {};
     globalThis.fetch = originalFetch;
   });
 
@@ -171,18 +210,16 @@ describe("Slack channel config handler", () => {
     expect(result.connected).toBe(true);
   });
 
-  test("GET returns metadata when available", () => {
+  test("GET returns metadata from config when available", () => {
     secureKeyStore["credential:slack_channel:bot_token"] = "xoxb-test";
-    credentialMetadataStore.push({
-      service: "slack_channel",
-      field: "bot_token",
-      accountInfo: JSON.stringify({
+    configStore = {
+      slack: {
         teamId: "T123",
         teamName: "TestTeam",
         botUserId: "U_BOT",
         botUsername: "testbot",
-      }),
-    });
+      },
+    };
 
     const result = getSlackChannelConfig();
     expect(result.teamId).toBe("T123");
@@ -209,7 +246,7 @@ describe("Slack channel config handler", () => {
     );
   });
 
-  test("POST validates bot token via Slack auth.test API", async () => {
+  test("POST validates bot token via Slack auth.test API and writes config", async () => {
     globalThis.fetch = (async () => {
       return new Response(
         JSON.stringify({
@@ -231,6 +268,13 @@ describe("Slack channel config handler", () => {
     expect(result.hasBotToken).toBe(true);
     expect(result.teamId).toBe("T_TEAM");
     expect(result.teamName).toBe("MyTeam");
+
+    // Assert metadata was written to config (not credential metadata)
+    const slack = configStore.slack as Record<string, unknown>;
+    expect(slack.teamId).toBe("T_TEAM");
+    expect(slack.teamName).toBe("MyTeam");
+    expect(slack.botUserId).toBe("U_BOT");
+    expect(slack.botUsername).toBe("mybot");
   });
 
   test("POST returns error when Slack auth.test rejects bot token", async () => {
@@ -252,7 +296,7 @@ describe("Slack channel config handler", () => {
     expect(result.error).toContain("invalid_auth");
   });
 
-  test("DELETE clears credentials", async () => {
+  test("DELETE clears credentials and config", async () => {
     secureKeyStore["credential:slack_channel:bot_token"] = "xoxb-test";
     secureKeyStore["credential:slack_channel:app_token"] = "xapp-test";
     credentialMetadataStore.push({
@@ -263,6 +307,14 @@ describe("Slack channel config handler", () => {
       service: "slack_channel",
       field: "app_token",
     });
+    configStore = {
+      slack: {
+        teamId: "T123",
+        teamName: "TestTeam",
+        botUserId: "U_BOT",
+        botUsername: "testbot",
+      },
+    };
 
     const result = await clearSlackChannelConfig();
     expect(result.success).toBe(true);
@@ -277,5 +329,12 @@ describe("Slack channel config handler", () => {
       secureKeyStore["credential:slack_channel:app_token"],
     ).toBeUndefined();
     expect(credentialMetadataStore).toHaveLength(0);
+
+    // Assert config values were cleared
+    const slack = configStore.slack as Record<string, unknown>;
+    expect(slack.teamId).toBe("");
+    expect(slack.teamName).toBe("");
+    expect(slack.botUserId).toBe("");
+    expect(slack.botUsername).toBe("");
   });
 });

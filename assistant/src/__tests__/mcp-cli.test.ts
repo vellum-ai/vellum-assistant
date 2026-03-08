@@ -54,7 +54,7 @@ mock.module("../mcp/client.js", () => ({
   },
 }));
 
-const { registerMcpCommand } = await import("../cli/mcp.js");
+const { registerMcpCommand } = await import("../cli/commands/mcp.js");
 
 // ── Helpers ───────────────────────────────────────────────────────────
 

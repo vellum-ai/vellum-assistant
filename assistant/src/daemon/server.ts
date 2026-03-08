@@ -14,7 +14,6 @@ import {
   parseInterfaceId,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import { buildSystemPrompt } from "../config/system-prompt.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { bootstrapHomeBaseAppLink } from "../home-base/bootstrap.js";
@@ -32,6 +31,7 @@ import {
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
 import { getLatestConversation } from "../memory/conversation-queries.js";
+import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import {
   getFailoverProvider,
@@ -1127,7 +1127,20 @@ export class DaemonServer {
 
     // Register pending interactions so channel approval interception can
     // find the session by requestId when confirmation/secret events fire.
-    const onEvent = makePendingInteractionRegistrar(session, conversationId);
+    const registrar = makePendingInteractionRegistrar(session, conversationId);
+    const onEvent = options?.onEvent
+      ? (msg: ServerMessage) => {
+          registrar(msg);
+          try {
+            options.onEvent!(msg);
+          } catch (err) {
+            log.error(
+              { err, conversationId },
+              "onEvent callback failed; continuing agent loop",
+            );
+          }
+        }
+      : registrar;
     if (options?.isInteractive === true) {
       // Interactive HTTP paths (e.g. channel ingress) still run without an IPC
       // socket. Route prompter events through the registrar callback so
@@ -1265,7 +1278,20 @@ export class DaemonServer {
 
     // Register pending interactions so channel approval interception can
     // find the session by requestId when confirmation/secret events fire.
-    const onEvent = makePendingInteractionRegistrar(session, conversationId);
+    const registrar = makePendingInteractionRegistrar(session, conversationId);
+    const onEvent = options?.onEvent
+      ? (msg: ServerMessage) => {
+          registrar(msg);
+          try {
+            options.onEvent!(msg);
+          } catch (err) {
+            log.error(
+              { err, conversationId },
+              "onEvent callback failed; continuing agent loop",
+            );
+          }
+        }
+      : registrar;
     if (options?.isInteractive === true) {
       // Interactive HTTP paths (e.g. channel ingress) still run without an IPC
       // socket. Route prompter events through the registrar callback so

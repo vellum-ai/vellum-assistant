@@ -247,15 +247,15 @@ The assistant runtime reads this URL via the centralized `public-ingress-urls.ts
 
 All public-facing URLs are constructed by `assistant/src/inbound/public-ingress-urls.ts`:
 
-| Function                       | URL Pattern                                                                               |
-| ------------------------------ | ----------------------------------------------------------------------------------------- |
-| `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` or `INGRESS_PUBLIC_BASE_URL` |
-| `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`                                         |
-| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`                                                          |
-| `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`                                                  |
-| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`                                                       |
-| `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                         |
-| `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                               |
+| Function                       | URL Pattern                                                                                                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getPublicBaseUrl()`           | Resolves the canonical base URL from `ingress.publicBaseUrl` in workspace config or `INGRESS_PUBLIC_BASE_URL` env var (assistant-side; the gateway reads via `ConfigFileCache`) |
+| `getTwilioVoiceWebhookUrl()`   | `${base}/webhooks/twilio/voice?callSessionId=...`                                                                                                                               |
+| `getTwilioStatusCallbackUrl()` | `${base}/webhooks/twilio/status`                                                                                                                                                |
+| `getTwilioConnectActionUrl()`  | `${base}/webhooks/twilio/connect-action`                                                                                                                                        |
+| `getTwilioRelayUrl()`          | `ws(s)://.../webhooks/twilio/relay`                                                                                                                                             |
+| `getOAuthCallbackUrl()`        | `${base}/webhooks/oauth/callback`                                                                                                                                               |
+| `getTelegramWebhookUrl()`      | `${base}/webhooks/telegram`                                                                                                                                                     |
 
 ### Telegram Messaging Flow
 
@@ -276,7 +276,7 @@ Outbound proactive (assistant → user, initiated by messaging provider):
 
 The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which defaults to `http://127.0.0.1:${GATEWAY_PORT}` and can be overridden via the `GATEWAY_INTERNAL_BASE_URL` environment variable. This allows distributed deployments where the gateway and runtime are not co-located (e.g., separate containers or hosts).
 
-The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS`) is not set, the endpoint returns 503 rather than allowing unauthenticated access.
+The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`telegram.deliverAuthBypass` in `workspace/config.json`) is not set, the endpoint returns 503 rather than allowing unauthenticated access. The bypass requires `APP_VERSION=0.0.0-dev`.
 
 **Bot-account limitations:** The Telegram Bot API only supports sending messages to chats that have previously interacted with the bot. Bots cannot enumerate chats, read message history, or search messages. A future MTProto user-account session track may lift some of these restrictions.
 
@@ -585,22 +585,23 @@ Entry points:
 Both paths converge at:
   → Daemon handler validates token via Telegram getMe API
     → setSecureKey("credential:telegram:bot_token", token)
-    → upsertCredentialMetadata("telegram", "bot_token", {accountInfo: username})
+    → upsertCredentialMetadata("telegram", "bot_token", {})
+    → Stores bot username in config at telegram.botUsername
     → Auto-generates webhook secret if missing
       → setSecureKey("credential:telegram:webhook_secret", secret)
       → upsertCredentialMetadata("telegram", "webhook_secret", {})
       → On storage failure: rolls back bot_token + metadata, returns error
     → If webhook secret already exists: upserts metadata anyway (self-heal)
-    → Triggers gateway webhook reconcile
-      → Gateway credential reader picks up new credentials
+    → Credential watcher detects storage change
+      → Invalidates credential cache, triggers side-effect callback
         → Webhook reconciliation registers webhook with Telegram
 ```
 
 The `telegram_config` IPC message supports three actions:
 
 - **`get`** — returns connection status (`hasBotToken`, `botUsername`, `connected`, `hasWebhookSecret`) without exposing secret values
-- **`set`** — validates the bot token against the Telegram API, stores it in secure storage, auto-generates a webhook secret if none exists (with rollback on failure), self-heals webhook_secret metadata if it already exists, and triggers gateway webhook reconciliation
-- **`clear`** — deregisters the webhook by calling Telegram's `deleteWebhook` API directly (while the token is still available), then deletes the bot token and webhook secret from both secure storage and credential metadata, and triggers gateway reconciliation
+- **`set`** — validates the bot token against the Telegram API, stores it in secure storage, auto-generates a webhook secret if none exists (with rollback on failure), and self-heals webhook_secret metadata if it already exists. The gateway's credential watcher detects the storage change and triggers webhook reconciliation automatically
+- **`clear`** — deregisters the webhook by calling Telegram's `deleteWebhook` API directly (while the token is still available), then deletes the bot token and webhook secret from both secure storage and credential metadata. The gateway's credential watcher detects the storage change and updates its readiness state automatically
 
 The gateway reads Telegram credentials via its `credential-reader` module (`gateway/src/credential-reader.ts`), which uses a broker-first fallback strategy: it tries the keychain broker first (a Unix domain socket served by the assistant daemon that proxies macOS Keychain reads), then falls back to the encrypted file store (`~/.vellum/protected/keys.enc`). When the broker is unavailable (e.g., daemon not running, non-macOS platform, or socket env var unset), the encrypted store is used directly.
 
@@ -608,11 +609,11 @@ The gateway reads Telegram credentials via its `credential-reader` module (`gate
 
 On startup, the gateway automatically reconciles the Telegram webhook registration:
 
-1. Reads `INGRESS_PUBLIC_BASE_URL` and Telegram credentials (bot token, webhook secret) from secure storage via the credential reader
+1. Reads the ingress public base URL via `ConfigFileCache.getString("ingress", "publicBaseUrl")` (falling back to the `INGRESS_PUBLIC_BASE_URL` env var) and Telegram credentials (bot token, webhook secret) from secure storage via the credential reader
 2. Calls `getWebhookInfo` to log the current registration state
 3. Unconditionally calls `setWebhook` with the expected URL, secret, and allowed updates (idempotent — Telegram does not expose the current secret via `getWebhookInfo`, so a compare-then-set approach would miss secret rotations)
 
-This also runs when the credential watcher detects changes to Telegram credentials. If the ingress URL changes (e.g., tunnel restart), the assistant daemon triggers an immediate internal reconcile via `POST /internal/telegram/reconcile`, so the webhook re-registers automatically without a gateway restart. Manual webhook registration is no longer required.
+This also runs when the credential watcher detects changes to Telegram credentials. If the ingress URL changes (e.g., tunnel restart), the config file watcher detects the change, invalidates the `ConfigFileCache`, and triggers webhook reconciliation directly — no daemon involvement is needed. Manual webhook registration is no longer required.
 
 ### Routing Auto-Configuration
 
@@ -979,11 +980,11 @@ All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhoo
 
 For **inbound Twilio signature validation** at the gateway, URL reconstruction now supports multiple candidates in order:
 
-1. `config.ingressPublicBaseUrl` (if configured)
+1. `ConfigFileCache.getString("ingress", "publicBaseUrl")` (if configured)
 2. Forwarded public URL headers from the tunnel/proxy (`X-Forwarded-Proto` + `X-Forwarded-Host`/`X-Original-Host` fallbacks)
 3. Raw request URL (always included as the final fallback)
 
-This makes ingress URL updates smoother in local tunnel workflows because Twilio webhooks can continue validating immediately. For Telegram, ingress URL changes trigger an immediate internal reconcile, so neither channel requires a gateway restart.
+This makes ingress URL updates smoother in local tunnel workflows because Twilio webhooks can continue validating immediately. For Telegram, the config file watcher detects ingress URL changes and triggers webhook reconciliation directly, so neither channel requires a gateway restart.
 
 ### Runtime HTTP Endpoints
 

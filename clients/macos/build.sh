@@ -202,7 +202,7 @@ build_binaries() {
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
     # Copy non-JS assets not embedded by bun --compile (resolved via resolveBundledDir)
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
-    cp -R "$ASSISTANT_SRC_DIR/src/config/templates" "$SCRIPT_DIR/daemon-bin/templates"
+    cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
     cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/prebuilt"
@@ -377,9 +377,9 @@ fi
 
 # Always refresh non-JS assets from source (not embedded by bun --compile)
 mkdir -p "$SCRIPT_DIR/daemon-bin"
-if [ -d "$ASSISTANT_SRC_DIR/src/config/templates" ]; then
+if [ -d "$ASSISTANT_SRC_DIR/src/prompts/templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
-    cp -R "$ASSISTANT_SRC_DIR/src/config/templates" "$SCRIPT_DIR/daemon-bin/templates"
+    cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
 fi
 if [ -d "$ASSISTANT_SRC_DIR/hook-templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"

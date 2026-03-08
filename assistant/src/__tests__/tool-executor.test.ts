@@ -2248,7 +2248,6 @@ describe("buildSanitizedEnv — baseline: credential exclusion", () => {
       "GPG_TTY",
       "GNUPGHOME",
       "INTERNAL_GATEWAY_BASE_URL",
-      "GATEWAY_BASE_URL",
     ];
 
     const env = buildSanitizedEnv();

@@ -75,7 +75,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../config/system-prompt.js", () => ({
+mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
 mock.module("../config/skills.js", () => ({
@@ -173,7 +173,7 @@ mock.module("../memory/retrieval-budget.js", () => ({
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     shouldCompact() {
-      return false;
+      return { needed: false, estimatedTokens: 0 };
     }
     async maybeCompact() {
       return { compacted: false };

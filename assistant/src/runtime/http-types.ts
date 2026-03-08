@@ -2,7 +2,11 @@
  * Shared types for the runtime HTTP server and its route handlers.
  */
 import type { ChannelId, InterfaceId } from "../channels/types.js";
-import type { SurfaceData, SurfaceType } from "../daemon/ipc-contract/surfaces.js";
+import type {
+  SurfaceData,
+  SurfaceType,
+} from "../daemon/ipc-contract/surfaces.js";
+import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import type { Session } from "../daemon/session.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import type {
@@ -122,6 +126,8 @@ export interface RuntimeMessageSessionOptions {
   isInteractive?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
+  onEvent?: (msg: ServerMessage) => void;
 }
 
 export type MessageProcessor = (

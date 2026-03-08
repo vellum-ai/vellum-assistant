@@ -73,7 +73,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // ── Import after mocks ───────────────────────────────────────────────
-const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
 // Load task_list_add description from the bundled skill TOOLS.json
 const tasksToolsJson = JSON.parse(

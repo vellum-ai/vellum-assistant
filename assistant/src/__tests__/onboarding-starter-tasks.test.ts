@@ -60,7 +60,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const { buildStarterTaskPlaybookSection, buildSystemPrompt } =
-  await import("../config/system-prompt.js");
+  await import("../prompts/system-prompt.js");
 
 describe("buildStarterTaskPlaybookSection", () => {
   test("returns a string with the section heading", () => {
