@@ -34,6 +34,5 @@ Commands:
   browser                                  Browser automation and extension relay
   x|twitter [options]                      Post on X and manage connections. Supports OAuth (official API) and browser session paths.
   map [options] <domain>                   Auto-navigate a domain and produce a deduplicated API map. Launches Chrome with CDP, starts a Ride Shotgun learn session, then analyzes captured network traffic.
-  influencer [options]                     Research influencers on Instagram, TikTok, and X/Twitter. Uses the Chrome extension relay to browse each platform. Requires the user to be logged in on each platform in Chrome.
   sequence [options]                       Manage email sequences
 `;
