@@ -148,12 +148,10 @@ export async function setTelegramConfig(
     };
   }
 
-  // Store metadata with bot username (kept for consumers that haven't migrated yet)
-  upsertCredentialMetadata("telegram", "bot_token", {
-    accountInfo: botUsername,
-  });
+  // Store credential metadata record for policy checks
+  upsertCredentialMetadata("telegram", "bot_token", {});
 
-  // Dual-write: persist bot username to config for the new config-based path
+  // Persist bot username to config for the config-based path
   const raw = loadRawConfig();
   setNestedValue(raw, "telegram.botUsername", botUsername);
   saveRawConfig(raw);

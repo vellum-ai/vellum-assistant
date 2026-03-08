@@ -344,12 +344,12 @@ describe("Telegram config handler", () => {
     );
     // Verify webhook secret was generated
     expect(secureKeyStore["credential:telegram:webhook_secret"]).toBeDefined();
-    // Verify metadata was stored
-    expect(
-      credentialMetadataStore.find(
-        (m) => m.service === "telegram" && m.field === "bot_token",
-      )?.accountInfo,
-    ).toBe("test_bot");
+    // Verify metadata record exists (for policy checks) without accountInfo
+    const botTokenMeta = credentialMetadataStore.find(
+      (m) => m.service === "telegram" && m.field === "bot_token",
+    );
+    expect(botTokenMeta).toBeDefined();
+    expect(botTokenMeta?.accountInfo).toBeUndefined();
   });
 
   test("set action with invalid token returns error", async () => {
