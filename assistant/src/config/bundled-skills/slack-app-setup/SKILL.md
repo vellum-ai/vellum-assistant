@@ -97,6 +97,20 @@ Collect the app token securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
 
+After collection, validate the app token format:
+
+```bash
+APP_TOKEN=$(assistant credentials reveal slack_channel:app_token)
+if [[ "$APP_TOKEN" != xapp-* ]]; then
+  echo "ERROR: App token must start with xapp-"
+  assistant credentials delete slack_channel:app_token
+  exit 1
+fi
+echo "App token format valid"
+```
+
+If the token does not start with `xapp-`, inform the user it is invalid, delete it, and ask them to re-enter (repeat the collection above).
+
 ## Step 3: Install App & Collect Bot Token
 
 Tell the user to navigate to **Settings > Install App** in the sidebar, then click **Install to Workspace** and authorize the requested permissions (already pre-configured from the manifest).
@@ -105,7 +119,7 @@ After installation, collect the bot token securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "Paste the Bot User OAuth Token shown after installing"`
 
-## Step 4: Validate Bot Token
+## Step 4: Validate Bot Token & Store Workspace Metadata
 
 ```bash
 BOT_TOKEN=$(assistant credentials reveal slack_channel:bot_token)
@@ -114,7 +128,20 @@ AUTH_RESPONSE=$(curl -sf -X POST "https://slack.com/api/auth.test" \
 echo "$AUTH_RESPONSE" | jq .
 ```
 
-If `ok` is `true`, report the bot username and workspace from the response. If `ok` is `false`, the token is invalid — ask the user to re-enter (repeat Step 3).
+If `ok` is `false`, the token is invalid — ask the user to re-enter (repeat Step 3).
+
+If `ok` is `true`, parse the response and persist workspace metadata so the Settings UI can display the connected bot and workspace:
+
+```bash
+TEAM_ID=$(echo "$AUTH_RESPONSE" | jq -r '.team_id')
+TEAM_NAME=$(echo "$AUTH_RESPONSE" | jq -r '.team')
+BOT_USER_ID=$(echo "$AUTH_RESPONSE" | jq -r '.user_id')
+BOT_USERNAME=$(echo "$AUTH_RESPONSE" | jq -r '.user')
+ACCOUNT_INFO="{\"teamId\":\"$TEAM_ID\",\"teamName\":\"$TEAM_NAME\",\"botUserId\":\"$BOT_USER_ID\",\"botUsername\":\"$BOT_USERNAME\"}"
+assistant credentials set slack_channel:bot_token "$BOT_TOKEN" --account-info "$ACCOUNT_INFO"
+```
+
+Report the bot username and workspace from the response.
 
 Socket Mode connects automatically once both credentials are stored — no further action needed.
 

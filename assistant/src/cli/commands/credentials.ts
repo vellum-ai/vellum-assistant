@@ -237,6 +237,10 @@ Examples:
       "--allowed-tools <tools>",
       "Comma-separated tool names that may use this credential",
     )
+    .option(
+      "--account-info <json>",
+      "JSON string of account metadata to associate with this credential",
+    )
     .addHelpText(
       "after",
       `
@@ -250,13 +254,19 @@ updated with any provided flags. Omitted flags leave existing metadata intact.
 Examples:
   $ assistant credentials set twilio:account_sid AC1234567890
   $ assistant credentials set fal:api_key key_live_abc --label "fal-prod" --description "Image generation"
-  $ assistant credentials set github:token ghp_abc --allowed-tools "bash,host_bash"`,
+  $ assistant credentials set github:token ghp_abc --allowed-tools "bash,host_bash"
+  $ assistant credentials set slack_channel:bot_token xoxb-abc --account-info '{"teamId":"T123","teamName":"My Workspace"}'`,
     )
     .action(
       async (
         name: string,
         value: string,
-        opts: { label?: string; description?: string; allowedTools?: string },
+        opts: {
+          label?: string;
+          description?: string;
+          allowedTools?: string;
+          accountInfo?: string;
+        },
         cmd: Command,
       ) => {
         try {
@@ -293,6 +303,7 @@ Examples:
             alias: opts.label,
             usageDescription: opts.description,
             allowedTools,
+            accountInfo: opts.accountInfo,
           });
 
           writeOutput(cmd, {
