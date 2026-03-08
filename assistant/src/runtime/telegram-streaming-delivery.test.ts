@@ -412,6 +412,88 @@ describe("TelegramStreamingDelivery", () => {
     expect(delivery.finishSucceeded).toBe(true);
   });
 
+  // ── Test 5h: no-messageId response doesn't cause duplicate messages on continued deltas ─
+  test("no-messageId response doesn't cause duplicate messages on continued deltas", async () => {
+    // Simulate the exact bug from the screenshot: initial send succeeds
+    // without messageId, then more deltas create overlapping new messages
+    mockDeliverChannelReply.mockReset();
+    mockDeliverChannelReply.mockImplementation(
+      async (): Promise<ChannelDeliveryResult> => {
+        // All sends return no messageId (simulates gateway omitting it)
+        return { ok: true };
+      },
+    );
+
+    const delivery = createDelivery();
+
+    // First batch: triggers sendInitialMessage (>= 20 chars)
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "Alright, hit me with something",
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+    expect(callPayload(0).text).toBe("Alright, hit me with something");
+
+    // More deltas arrive — should NOT trigger another sendInitialMessage
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: " longer and let's see if it comes through as one",
+    });
+    await flushPromises();
+    // Still only 1 call — text accumulates in buffer
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: " message now!",
+    });
+    await delivery.finish();
+
+    // finish() should send the remainder as a single new message
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(2);
+    const finishPayload = callPayload(1);
+    expect(finishPayload.text).toBe(
+      " longer and let's see if it comes through as one message now!",
+    );
+    expect(finishPayload.messageId).toBeUndefined();
+    expect(delivery.finishSucceeded).toBe(true);
+  });
+
+  // ── Test 5i: combined threshold accounts for pre-tool currentMessageText ─
+  test("combined threshold accounts for pre-tool currentMessageText", async () => {
+    const delivery = createDelivery();
+
+    // Send 15 chars (below 20 threshold)
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "Hello, world!! ", // 15 chars
+    });
+    await flushPromises();
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(0);
+
+    // tool_use_start moves 15 chars to currentMessageText
+    delivery.onEvent({
+      type: "tool_use_start",
+      toolName: "lookup",
+      input: {},
+    });
+
+    // Send only 6 more chars — buffer alone (6) < 20, but combined (21) >= 20
+    delivery.onEvent({
+      type: "assistant_text_delta",
+      text: "Great!",
+    });
+    await flushPromises();
+
+    // Should have triggered initial send with combined text
+    expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
+    expect(callPayload(0).text).toBe("Hello, world!! Great!");
+
+    await delivery.finish();
+    expect(delivery.finishSucceeded).toBe(true);
+  });
+
   // ── Test 6: skips final edit when text hasn't changed ───────────────
   test("skips final edit when text hasn't changed", async () => {
     const delivery = createDelivery();
