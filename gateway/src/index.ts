@@ -919,21 +919,10 @@ async function main() {
     }
   });
 
+  // The credential watcher callback handles startup side effects (Telegram
+  // webhook reconciliation, Slack Socket Mode) during the initial poll, so no
+  // additional post-start triggers are needed here.
   await credentialWatcher.start();
-
-  // ── Startup side effects (run after credential watcher initial poll) ──
-  if (isTelegramConfigured()) {
-    registerTelegramCommands();
-    reconcileTelegramWebhook(config, telegramCaches).catch((err) => {
-      log.error({ err }, "Failed to reconcile Telegram webhook on startup");
-    });
-  }
-
-  if (slackReady) {
-    startSlackSocket().catch((err) => {
-      log.error({ err }, "Failed to start Slack Socket Mode on startup");
-    });
-  }
 
   const configFileWatcher = new ConfigFileWatcher((event) => {
     // Invalidate the config file cache so subsequent reads pick up fresh values
