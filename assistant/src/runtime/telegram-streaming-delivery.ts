@@ -109,6 +109,7 @@ export class TelegramStreamingDelivery {
     // tool_use_start) before any Telegram message was created. Send it now.
     if (
       !this.currentMessageId &&
+      !this.textDelivered &&
       this.currentMessageText.length > 0 &&
       this.buffer.length === 0
     ) {
@@ -186,7 +187,8 @@ export class TelegramStreamingDelivery {
     if (
       !this.currentMessageId &&
       !this.initialSendInFlight &&
-      this.buffer.length >= MIN_INITIAL_CHARS
+      !this.textDelivered &&
+      this.buffer.length + this.currentMessageText.length >= MIN_INITIAL_CHARS
     ) {
       this.sendInitialMessage();
     } else if (this.currentMessageId) {
