@@ -187,6 +187,16 @@ public final class HTTPTransport {
 
     // MARK: - Endpoint Builder
 
+    /// A restricted character set for encoding query parameter values.
+    /// `.urlQueryAllowed` permits `&`, `=`, `+`, and `#` which are
+    /// query-string metacharacters. File paths containing these characters
+    /// would break parameter parsing, so we exclude them.
+    private static let queryValueAllowed: CharacterSet = {
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "&=+#")
+        return cs
+    }()
+
     /// All HTTP endpoints used by the transport, centralized for consistent
     /// URL construction. Query parameters that are integral to the endpoint
     /// identity are modelled as associated values.
@@ -334,13 +344,13 @@ public final class HTTPTransport {
             let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
             return ("/v1/usage/breakdown", "from=\(from)&to=\(to)&groupBy=\(encoded)")
         case .workspaceTree(let path):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             return ("/v1/workspace/tree", path.isEmpty ? nil : "path=\(encoded)")
         case .workspaceFile(let path):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             return ("/v1/workspace/file", "path=\(encoded)")
         case .workspaceFileContent(let path):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             return ("/v1/workspace/file/content", "path=\(encoded)")
         }
     }
@@ -434,13 +444,13 @@ public final class HTTPTransport {
             let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
             return ("\(prefix)/usage/breakdown/", "from=\(from)&to=\(to)&groupBy=\(encoded)")
         case .workspaceTree(let path):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             return ("\(prefix)/workspace/tree/", path.isEmpty ? nil : "path=\(encoded)")
         case .workspaceFile(let path):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             return ("\(prefix)/workspace/file/", "path=\(encoded)")
         case .workspaceFileContent(let path):
-            let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+            let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
             return ("\(prefix)/workspace/file/content/", "path=\(encoded)")
         }
     }
