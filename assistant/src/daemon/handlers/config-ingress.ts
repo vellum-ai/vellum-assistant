@@ -151,8 +151,7 @@ export async function handleIngressConfig(
       // `pkill -f gateway`).
       // Only export the URL when ingress is enabled; clearing it when
       // disabled ensures the gateway stops accepting inbound webhooks.
-      const isEnabled =
-        (ingress.enabled as boolean | undefined) ?? (value ? true : false);
+      const isEnabled = (ingress.enabled as boolean | undefined) ?? false;
       if (value && isEnabled) {
         setIngressPublicBaseUrl(value);
       } else if (isEnabled && getOriginalIngressEnv() !== undefined) {
