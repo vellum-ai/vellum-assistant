@@ -209,15 +209,15 @@ Twilio is the telephony provider for voice calls. Configuration is managed throu
 
 The runtime exposes a RESTful HTTP API for Twilio configuration, credential management, and phone number operations:
 
-| Method | Path                                        | Description                                                                                                                                                     |
-| ------ | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/v1/integrations/twilio/config`            | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned)                                                                               |
-| POST   | `/v1/integrations/twilio/credentials`       | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file)                                                                   |
-| DELETE | `/v1/integrations/twilio/credentials`       | Removes stored credentials. Preserves the phone number in both config and secure key so re-entering credentials resumes working without reassigning the number. |
-| GET    | `/v1/integrations/twilio/numbers`           | Lists all incoming phone numbers on the Twilio account with their capabilities                                                                                  |
-| POST   | `/v1/integrations/twilio/numbers/provision` | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available.                        |
-| POST   | `/v1/integrations/twilio/numbers/assign`    | Assigns an existing Twilio phone number (E.164) and auto-configures webhooks when ingress is available                                                          |
-| POST   | `/v1/integrations/twilio/numbers/release`   | Releases a phone number from the Twilio account and clears local references                                                                                     |
+| Method | Path                                        | Description                                                                                                                                 |
+| ------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/integrations/twilio/config`            | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned)                                                           |
+| POST   | `/v1/integrations/twilio/credentials`       | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file)                                               |
+| DELETE | `/v1/integrations/twilio/credentials`       | Removes stored credentials. Preserves the phone number in config so re-entering credentials resumes working without reassigning the number. |
+| GET    | `/v1/integrations/twilio/numbers`           | Lists all incoming phone numbers on the Twilio account with their capabilities                                                              |
+| POST   | `/v1/integrations/twilio/numbers/provision` | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available.    |
+| POST   | `/v1/integrations/twilio/numbers/assign`    | Assigns an existing Twilio phone number (E.164) and auto-configures webhooks when ingress is available                                      |
+| POST   | `/v1/integrations/twilio/numbers/release`   | Releases a phone number from the Twilio account and clears local references                                                                 |
 
 All endpoints are JWT-authenticated (require a valid JWT with appropriate scopes). Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/integrations/twilio/*` routes.
 
@@ -249,9 +249,8 @@ At runtime, `getTwilioConfig()` resolves the phone number using this priority ch
 
 1. **`TWILIO_PHONE_NUMBER` env var** — highest priority, explicit override for dev/CI.
 2. **`twilio.phoneNumber` in config** — the primary source of truth, written by `provision_number` and `assign_number`.
-3. **`credential:twilio:phone_number` secure key** — backward-compatible fallback for setups that predate the config-first model.
 
-If no number is found after all three sources, an error is thrown.
+If no number is found after both sources, an error is thrown.
 
 ### Assistant-Scoped Guardian State
 

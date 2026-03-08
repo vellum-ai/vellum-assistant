@@ -116,7 +116,6 @@ mock.module("../calls/twilio-provider.js", () => ({
 const secureKeyStore: Record<string, string | undefined> = {
   "credential:twilio:account_sid": "AC_test",
   "credential:twilio:auth_token": "test_token",
-  "credential:twilio:phone_number": "+15550001111",
 };
 
 mock.module("../security/secure-keys.js", () => ({

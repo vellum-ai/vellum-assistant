@@ -23,7 +23,6 @@ import { syncTwilioWebhooks } from "../../../daemon/handlers/config-ingress.js";
 import type { IngressConfig } from "../../../inbound/public-ingress-urls.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKey,
   setSecureKeyAsync,
 } from "../../../security/secure-keys.js";
 import {
@@ -288,19 +287,6 @@ export async function handleProvisionTwilioNumber(
     available[0].phoneNumber,
   );
 
-  const phoneStored = await setSecureKeyAsync(
-    "credential:twilio:phone_number",
-    purchased.phoneNumber,
-  );
-  if (!phoneStored) {
-    return Response.json({
-      success: false,
-      hasCredentials: hasTwilioCredentials(),
-      phoneNumber: purchased.phoneNumber,
-      error: `Phone number ${purchased.phoneNumber} was purchased but could not be saved. Use assign to assign it manually.`,
-    });
-  }
-
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;
   twilio.phoneNumber = purchased.phoneNumber;
@@ -342,18 +328,6 @@ export async function handleAssignTwilioNumber(
       },
       { status: 400 },
     );
-  }
-
-  const phoneStored = await setSecureKeyAsync(
-    "credential:twilio:phone_number",
-    body.phoneNumber,
-  );
-  if (!phoneStored) {
-    return Response.json({
-      success: false,
-      hasCredentials: hasTwilioCredentials(),
-      error: "Failed to store phone number in secure storage",
-    });
   }
 
   const raw = loadRawConfig();
@@ -423,11 +397,6 @@ export async function handleReleaseTwilioNumber(
   }
   pruneAssistantPhoneNumbers(twilio, phoneNumber, "remove");
   saveRawConfig({ ...raw, twilio });
-
-  const storedPhone = getSecureKey("credential:twilio:phone_number");
-  if (storedPhone === phoneNumber) {
-    await deleteSecureKeyAsync("credential:twilio:phone_number");
-  }
 
   return Response.json({
     success: true,
