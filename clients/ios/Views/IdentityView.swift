@@ -8,7 +8,6 @@ import VellumAssistantShared
 final class IdentityViewModel {
     var identity: RemoteIdentityInfo?
     var skills: [SkillInfo] = []
-    var workspaceFiles: [WorkspaceFileInfo] = []
     var isLoading = false
 
     func fetchAll(client: any DaemonClientProtocol) async {
@@ -18,9 +17,8 @@ final class IdentityViewModel {
         identity = await identityResult
         isLoading = false
 
-        // Fetch skills and workspace files via IPC (fire-and-forget subscribe)
+        // Fetch skills via IPC (fire-and-forget subscribe)
         await fetchSkills(daemonClient: daemonClient)
-        await fetchWorkspaceFiles(daemonClient: daemonClient)
     }
 
     private func fetchSkills(daemonClient: DaemonClient) async {
@@ -53,37 +51,6 @@ final class IdentityViewModel {
             skills = response.skills.filter { $0.state == "enabled" }
         }
     }
-
-    private func fetchWorkspaceFiles(daemonClient: DaemonClient) async {
-        let stream = daemonClient.subscribe()
-        do {
-            try daemonClient.sendWorkspaceFilesList()
-        } catch {
-            return
-        }
-
-        let response: WorkspaceFilesListResponseMessage? = await withTaskGroup(of: WorkspaceFilesListResponseMessage?.self) { group in
-            group.addTask {
-                for await message in stream {
-                    if case .workspaceFilesListResponse(let msg) = message {
-                        return msg
-                    }
-                }
-                return nil
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
-
-        if let response {
-            workspaceFiles = response.files.filter { $0.exists }
-        }
-    }
 }
 
 // MARK: - View
@@ -91,7 +58,6 @@ final class IdentityViewModel {
 struct IdentityView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @State private var viewModel = IdentityViewModel()
-    @State private var viewingFile: WorkspaceFileInfo?
     var onConnectTapped: (() -> Void)?
 
     var body: some View {
@@ -113,12 +79,6 @@ struct IdentityView: View {
             guard clientProvider.isConnected else { return }
             await viewModel.fetchAll(client: clientProvider.client)
         }
-        .sheet(item: $viewingFile) { file in
-            WorkspaceFileSheet(
-                file: file,
-                client: clientProvider.client as? DaemonClient
-            )
-        }
     }
 
     // MARK: - ID Card Content
@@ -133,9 +93,7 @@ struct IdentityView: View {
                     skillsSection
                 }
 
-                if !viewModel.workspaceFiles.isEmpty {
-                    workspaceFilesSection
-                }
+                workspaceFilesSection
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.top, VSpacing.md)
@@ -310,36 +268,18 @@ struct IdentityView: View {
 
     private var workspaceFilesSection: some View {
         VStack(spacing: 0) {
-            sectionHeader(icon: .fileText, title: "Workspace Files")
+            sectionHeader(icon: .fileText, title: "Workspace")
 
-            VStack(spacing: 0) {
-                ForEach(Array(viewModel.workspaceFiles.enumerated()), id: \.element.id) { index, file in
-                    workspaceFileRow(file, isLast: index == viewModel.workspaceFiles.count - 1)
-                }
-            }
-        }
-        .background(VColor.surface)
-        .cornerRadius(VRadius.lg)
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.surfaceBorder, lineWidth: 1)
-        )
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Workspace files")
-    }
-
-    private func workspaceFileRow(_ file: WorkspaceFileInfo, isLast: Bool) -> some View {
-        VStack(spacing: 0) {
-            Button {
-                viewingFile = file
+            NavigationLink {
+                WorkspaceBrowserView(client: clientProvider.client as? DaemonClient)
             } label: {
                 HStack(spacing: VSpacing.sm) {
-                    VIconView(file.name.hasSuffix("/") ? .folder : .fileText, size: 16)
+                    VIconView(.folder, size: 16)
                         .foregroundColor(VColor.accent)
                         .frame(width: 24)
                         .accessibilityHidden(true)
 
-                    Text(file.name)
+                    Text("Browse Workspace")
                         .font(VFont.body)
                         .foregroundColor(VColor.textPrimary)
 
@@ -352,15 +292,13 @@ struct IdentityView: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.vertical, VSpacing.sm)
             }
-
-            if !isLast {
-                Divider()
-                    .padding(.leading, VSpacing.lg + 24 + VSpacing.sm)
-            }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(file.name)
-        .accessibilityHint("Opens file viewer")
+        .background(VColor.surface)
+        .cornerRadius(VRadius.lg)
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.surfaceBorder, lineWidth: 1)
+        )
     }
 
     // MARK: - Shared Section Header
