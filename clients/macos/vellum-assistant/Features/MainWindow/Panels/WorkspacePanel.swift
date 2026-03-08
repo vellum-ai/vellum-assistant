@@ -14,7 +14,7 @@ final class WorkspaceBrowserState {
     var selectedFileDetail: WorkspaceFileResponse?
     var isLoadingTree = false
     var isLoadingFile = false
-    var error: String?
+    var fileLoadTask: Task<Void, Never>?
 }
 
 // MARK: - Workspace Panel
@@ -110,16 +110,14 @@ private struct WorkspaceTreeRow: View {
             } label: {
                 HStack(spacing: VSpacing.xs) {
                     if entry.isDirectory {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
+                        VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
                             .foregroundColor(VColor.textMuted)
                             .frame(width: 12)
                     } else {
                         Spacer().frame(width: 12)
                     }
 
-                    Image(systemName: entry.isDirectory ? "folder.fill" : "doc.text")
-                        .font(.system(size: 12))
+                    VIconView(entry.isDirectory ? .folder : .fileText, size: 12)
                         .foregroundColor(entry.isDirectory ? VColor.iconAccent : VColor.textSecondary)
 
                     Text(entry.name)
@@ -168,11 +166,18 @@ private struct WorkspaceTreeRow: View {
                 }
             }
         } else {
-            state.selectedFilePath = entry.path
+            let targetPath = entry.path
+            state.selectedFilePath = targetPath
             state.isLoadingFile = true
             state.selectedFileDetail = nil
-            state.selectedFileDetail = await daemonClient.fetchWorkspaceFile(path: entry.path)
-            state.isLoadingFile = false
+            state.fileLoadTask?.cancel()
+            let task = Task {
+                let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
+                guard !Task.isCancelled, state.selectedFilePath == targetPath else { return }
+                state.selectedFileDetail = detail
+                state.isLoadingFile = false
+            }
+            state.fileLoadTask = task
         }
     }
 }
@@ -206,8 +211,7 @@ private struct WorkspaceFileViewer: View {
     private var emptyState: some View {
         VStack {
             Spacer()
-            Image(systemName: "doc.text")
-                .font(.system(size: 32))
+            VIconView(.fileText, size: 32)
                 .foregroundColor(VColor.textMuted)
                 .padding(.bottom, VSpacing.sm)
             Text("Select a file to view")
@@ -251,8 +255,7 @@ private struct WorkspaceFileViewer: View {
         VStack(spacing: VSpacing.lg) {
             Spacer()
 
-            Image(systemName: "doc.text")
-                .font(.system(size: 40))
+            VIconView(.fileText, size: 40)
                 .foregroundColor(VColor.textMuted)
 
             VStack(spacing: VSpacing.sm) {
@@ -276,6 +279,7 @@ private struct WorkspaceFileViewer: View {
 
     private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
+            // TODO: Add auth headers for remote/cloud support — bare URLs work for local daemon only
             if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
                 AsyncImage(url: url) { phase in
                     switch phase {
@@ -287,8 +291,7 @@ private struct WorkspaceFileViewer: View {
                             .padding(VSpacing.md)
                     case .failure:
                         VStack {
-                            Image(systemName: "exclamationmark.triangle")
-                                .font(.system(size: 24))
+                            VIconView(.triangleAlert, size: 24)
                                 .foregroundColor(VColor.warning)
                             Text("Failed to load image")
                                 .font(VFont.body)
@@ -313,10 +316,9 @@ private struct WorkspaceFileViewer: View {
 
     private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
+            // TODO: Add auth headers for remote/cloud support — bare URLs work for local daemon only
             if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
-                VideoPlayer(player: AVPlayer(url: url))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(VSpacing.md)
+                WorkspaceVideoPlayer(url: url)
             } else {
                 Text("Unable to load video URL")
                     .font(VFont.body)
@@ -330,8 +332,7 @@ private struct WorkspaceFileViewer: View {
         VStack(spacing: VSpacing.lg) {
             Spacer()
 
-            Image(systemName: "doc.fill")
-                .font(.system(size: 40))
+            VIconView(.file, size: 40)
                 .foregroundColor(VColor.textMuted)
 
             VStack(spacing: VSpacing.sm) {
@@ -362,5 +363,32 @@ private struct WorkspaceFileViewer: View {
         formatter.allowedUnits = [.useKB, .useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: Int64(bytes))
+    }
+}
+
+// MARK: - Video Player
+
+private struct WorkspaceVideoPlayer: View {
+    let url: URL
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        Group {
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(VSpacing.md)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onAppear {
+            player = AVPlayer(url: url)
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
+        }
     }
 }
