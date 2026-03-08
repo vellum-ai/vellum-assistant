@@ -60,7 +60,9 @@ export async function recover(): Promise<void> {
   // 6. Start daemon + gateway (same as wake)
   if (!entry.resources) {
     throw new Error(
-      `Recovered assistant '${name}' is missing resource configuration. Re-hatch to fix.`,
+      `Recovered assistant '${name}' is missing resource configuration. ` +
+        `Data has been restored to ~/.vellum but the assistant cannot start without allocated ports. ` +
+        `Run 'vellum retire ${name}' then 'vellum hatch' to re-provision with proper resource allocation.`,
     );
   }
   await startLocalDaemon(false, entry.resources);
