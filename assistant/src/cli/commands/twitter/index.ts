@@ -9,7 +9,11 @@ import * as net from "node:net";
 
 import { Command } from "commander";
 
-import { createMessageParser, serialize } from "../../../daemon/ipc-protocol.js";
+import {
+  createMessageParser,
+  serialize,
+} from "../../../daemon/ipc-protocol.js";
+import { getSocketPath, readSessionToken } from "../../../util/platform.js";
 import {
   getBookmarks,
   getFollowers,
@@ -26,12 +30,7 @@ import {
 } from "./client.js";
 import type { TwitterStrategy } from "./router.js";
 import { routedPostTweet } from "./router.js";
-import {
-  clearSession,
-  importFromRecording,
-  loadSession,
-} from "./session.js";
-import { getSocketPath, readSessionToken } from "../../../util/platform.js";
+import { clearSession, importFromRecording, loadSession } from "./session.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
