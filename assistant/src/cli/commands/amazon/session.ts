@@ -8,7 +8,7 @@ import {
   type CookieSession,
   createSessionStore,
   importFromRecordingBase,
-} from "../util/cookie-session.js";
+} from "../../../util/cookie-session.js";
 
 export type AmazonSession = CookieSession;
 

@@ -51,15 +51,15 @@
 import type {
   ExtensionCommand,
   ExtensionResponse,
-} from "../browser-extension-relay/protocol.js";
-import { extensionRelayServer } from "../browser-extension-relay/server.js";
+} from "../../../browser-extension-relay/protocol.js";
+import { extensionRelayServer } from "../../../browser-extension-relay/server.js";
 import {
   initAuthSigningKey,
   isSigningKeyInitialized,
   loadOrCreateSigningKey,
-} from "../runtime/auth/token-service.js";
-import { gatewayPost } from "../runtime/gateway-internal-client.js";
-import type { ExtractedCredential } from "../tools/browser/network-recording-types.js";
+} from "../../../runtime/auth/token-service.js";
+import { gatewayPost } from "../../../runtime/gateway-internal-client.js";
+import type { ExtractedCredential } from "../../../tools/browser/network-recording-types.js";
 import { type AmazonSession, loadSession, saveSession } from "./session.js";
 
 export const AMAZON_BASE = "https://www.amazon.com";
