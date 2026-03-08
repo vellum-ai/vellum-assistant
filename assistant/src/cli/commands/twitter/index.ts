@@ -619,6 +619,16 @@ Examples:
       ) => {
         await run(cmd, async () => {
           const strategy = (opts.strategy ?? "browser") as TwitterStrategy;
+          if (
+            strategy !== "oauth" &&
+            strategy !== "browser" &&
+            strategy !== "auto" &&
+            strategy !== "managed"
+          ) {
+            throw new Error(
+              `Invalid strategy "${opts.strategy}". Must be oauth, browser, auto, or managed.`,
+            );
+          }
           const { result: user, pathUsed } = await routedGetUserByScreenName(
             screenName.replace(/^@/, ""),
             { strategy },
@@ -671,6 +681,16 @@ Examples:
           if (!idMatch)
             throw new Error(`Could not extract tweet ID from: ${tweetIdOrUrl}`);
           const strategy = (opts.strategy ?? "browser") as TwitterStrategy;
+          if (
+            strategy !== "oauth" &&
+            strategy !== "browser" &&
+            strategy !== "auto" &&
+            strategy !== "managed"
+          ) {
+            throw new Error(
+              `Invalid strategy "${opts.strategy}". Must be oauth, browser, auto, or managed.`,
+            );
+          }
           const { result: tweets, pathUsed } = await routedGetTweetDetail(
             idMatch[1],
             { strategy },
@@ -721,6 +741,16 @@ Examples:
       ) => {
         await run(cmd, async () => {
           const strategy = (opts.strategy ?? "browser") as TwitterStrategy;
+          if (
+            strategy !== "oauth" &&
+            strategy !== "browser" &&
+            strategy !== "auto" &&
+            strategy !== "managed"
+          ) {
+            throw new Error(
+              `Invalid strategy "${opts.strategy}". Must be oauth, browser, auto, or managed.`,
+            );
+          }
           const product = opts.product as "Top" | "Latest" | "People" | "Media";
           const { result: tweets, pathUsed } = await routedSearchTweets(
             query,

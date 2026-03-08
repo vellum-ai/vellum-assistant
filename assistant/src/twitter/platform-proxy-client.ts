@@ -375,6 +375,6 @@ export async function searchRecentTweets(
   return proxyTwitterCall({
     method: "GET",
     path: "/2/tweets/search/recent",
-    query: { query: queryStr, ...query },
+    query: { ...query, query: queryStr },
   });
 }

@@ -201,9 +201,14 @@ export async function routedGetUserByScreenName(
       });
       const data = response.data as Record<string, unknown>;
       const userData = (data?.data ?? data) as Record<string, unknown>;
+      if (!userData.id) {
+        throw Object.assign(new Error(`User not found: @${screenName}`), {
+          pathUsed: "managed" as const,
+        });
+      }
       return {
         result: {
-          userId: String(userData.id ?? ""),
+          userId: String(userData.id),
           screenName: String(
             userData.username ?? userData.screen_name ?? screenName,
           ),
@@ -279,19 +284,50 @@ export async function routedGetTweetDetail(
   if (opts.strategy === "managed") {
     try {
       const response = await managedGetTweet(tweetId, {
-        "tweet.fields": "id,text,created_at,author_id",
+        "tweet.fields": "id,text,created_at,author_id,conversation_id",
       });
       const data = response.data as Record<string, unknown>;
       const tweetData = (data?.data ?? data) as Record<string, unknown>;
-      const tweets: TweetEntry[] = [
-        {
-          tweetId: String(tweetData.id ?? ""),
-          text: String(tweetData.text ?? ""),
-          url: `https://x.com/i/status/${tweetData.id}`,
-          createdAt: String(tweetData.created_at ?? ""),
-        },
-      ];
-      return { result: tweets, pathUsed: "managed" };
+      const primaryTweet: TweetEntry = {
+        tweetId: String(tweetData.id ?? ""),
+        text: String(tweetData.text ?? ""),
+        url: `https://x.com/i/status/${tweetData.id}`,
+        createdAt: String(tweetData.created_at ?? ""),
+      };
+
+      // If the tweet has a conversation_id, fetch the thread via search
+      const conversationId = tweetData.conversation_id as string | undefined;
+      if (conversationId) {
+        try {
+          const threadResponse = await managedSearchRecentTweets(
+            `conversation_id:${conversationId}`,
+            {
+              "tweet.fields": "id,text,created_at,author_id",
+              max_results: "100",
+            },
+          );
+          const threadData = threadResponse.data as Record<string, unknown>;
+          const threadArray = (threadData?.data ?? []) as Array<
+            Record<string, unknown>
+          >;
+          const threadTweets: TweetEntry[] = threadArray.map((t) => ({
+            tweetId: String(t.id ?? ""),
+            text: String(t.text ?? ""),
+            url: `https://x.com/i/status/${t.id}`,
+            createdAt: String(t.created_at ?? ""),
+          }));
+          // Deduplicate: the primary tweet may already be in the search results
+          const seen = new Set(threadTweets.map((t) => t.tweetId));
+          if (!seen.has(primaryTweet.tweetId)) {
+            threadTweets.unshift(primaryTweet);
+          }
+          return { result: threadTweets, pathUsed: "managed" };
+        } catch {
+          // If thread search fails, fall back to returning just the single tweet
+        }
+      }
+
+      return { result: [primaryTweet], pathUsed: "managed" };
     } catch (err) {
       if (err instanceof TwitterProxyError) {
         throw Object.assign(new Error(err.message), {
@@ -318,10 +354,17 @@ export async function routedSearchTweets(
   opts: { strategy: TwitterStrategy },
 ): Promise<RoutedResult<TweetEntry[]>> {
   if (opts.strategy === "managed") {
+    if (product === "People" || product === "Media") {
+      throw Object.assign(
+        new Error(
+          `Product type "${product}" is not supported in managed mode. Only "Top" and "Latest" are supported.`,
+        ),
+        { pathUsed: "managed" as const },
+      );
+    }
     try {
       const queryParams: Record<string, string> = {
         "tweet.fields": "id,text,created_at,author_id",
-        max_results: "10",
       };
       if (product === "Latest") {
         queryParams.sort_order = "recency";
