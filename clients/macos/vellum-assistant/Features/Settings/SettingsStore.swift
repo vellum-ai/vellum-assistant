@@ -1013,7 +1013,10 @@ public final class SettingsStore: ObservableObject {
         )
         guard let platformId else { return nil }
 
-        let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+        // Always use the platform base URL for managed Twitter OAuth API calls.
+        // The assistant's runtimeUrl points to the local daemon endpoint for
+        // self-hosted assistants, which is not the platform API.
+        let baseURL = AuthService.shared.baseURL
         return (platformAssistantId: platformId, organizationId: orgId, baseURL: baseURL)
     }
 
