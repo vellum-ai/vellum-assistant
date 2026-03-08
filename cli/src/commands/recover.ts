@@ -53,18 +53,19 @@ export async function recover(): Promise<void> {
   const entry: AssistantEntry = JSON.parse(readFileSync(metadataPath, "utf-8"));
   saveAssistantEntry(entry);
 
-  // 5. Clean up archive
+  // 5. Validate resources before cleaning up the archive
+  if (!entry.resources) {
+    throw new Error(
+      `Recovery archive entry for '${name}' is missing resource configuration. ` +
+        `The archive has been preserved — fix the archive and retry 'vellum recover'.`,
+    );
+  }
+
+  // 6. Clean up archive
   unlinkSync(archivePath);
   unlinkSync(metadataPath);
 
-  // 6. Start daemon + gateway (same as wake)
-  if (!entry.resources) {
-    throw new Error(
-      `Recovered assistant '${name}' is missing resource configuration. ` +
-        `Data has been restored to ~/.vellum but the assistant cannot start without allocated ports. ` +
-        `Run 'vellum retire ${name}' then 'vellum hatch' to re-provision with proper resource allocation.`,
-    );
-  }
+  // 7. Start daemon + gateway (same as wake)
   await startLocalDaemon(false, entry.resources);
   if (!process.env.VELLUM_DESKTOP_APP) {
     await startGateway(undefined, false, entry.resources);
