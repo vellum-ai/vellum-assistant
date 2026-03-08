@@ -218,6 +218,7 @@ export function processChannelMessageInBackground(
               ? buildApprovalUIMetadata(prompt, pending[0])
               : undefined;
           await telegramStreaming.finish(approvalMeta);
+          deliveryChannels.updateDeliveredSegmentCount(eventId, 1);
         } catch (err) {
           log.error(
             { err, conversationId },
