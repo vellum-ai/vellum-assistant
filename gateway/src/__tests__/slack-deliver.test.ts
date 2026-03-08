@@ -299,6 +299,39 @@ describe("slack-deliver endpoint", () => {
     expect(body.error).toContain("not configured");
   });
 
+  test("force-refreshes credential cache when bot token is initially missing", async () => {
+    let callCount = 0;
+    const credentials = {
+      get: async (key: string, opts?: { force?: boolean }) => {
+        if (key === "credential:slack_channel:bot_token") {
+          callCount++;
+          // First call returns undefined; second call with force returns the token
+          if (callCount === 1 && !opts?.force) return undefined;
+          if (callCount === 2 && opts?.force) return "xoxb-refreshed-token";
+        }
+        return undefined;
+      },
+      invalidate: () => {},
+    } as unknown as CredentialCache;
+
+    const handler = createSlackDeliverHandler(makeConfig(), undefined, {
+      credentials,
+    });
+    const req = makeRequest({ chatId: "C123", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    expect(callCount).toBe(2);
+
+    // Verify the Slack API was called with the refreshed token
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(slackCall).toBeDefined();
+    expect(slackCall!.headers!["authorization"]).toBe(
+      "Bearer xoxb-refreshed-token",
+    );
+  });
+
   test("accepts 'to' as alias for chatId", async () => {
     const handler = createSlackDeliverHandler(
       makeConfig(),

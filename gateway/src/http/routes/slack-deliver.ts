@@ -327,9 +327,21 @@ export function createSlackDeliverHandler(
     if (authResponse) return authResponse;
 
     // Resolve bot token from cache
-    const botToken = caches?.credentials
+    let botToken = caches?.credentials
       ? await caches.credentials.get("credential:slack_channel:bot_token")
       : undefined;
+
+    // One-shot force retry: if token is missing and caches are available,
+    // force-refresh and retry once.
+    if (!botToken && caches?.credentials) {
+      botToken = await caches.credentials.get(
+        "credential:slack_channel:bot_token",
+        { force: true },
+      );
+      if (botToken) {
+        tlog.info("Slack bot token resolved after forced credential refresh");
+      }
+    }
 
     if (!botToken) {
       tlog.error("Slack bot token not configured");
