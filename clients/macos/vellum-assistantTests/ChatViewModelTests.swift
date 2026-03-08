@@ -163,7 +163,8 @@ final class ChatViewModelTests: XCTestCase {
     // MARK: - Session Info
 
     func testSessionInfoStoresSessionId() {
-        let info = SessionInfoMessage(sessionId: "test-123", title: "Test")
+        viewModel.bootstrapCorrelationId = "corr-1"
+        let info = SessionInfoMessage(sessionId: "test-123", title: "Test", correlationId: "corr-1")
         viewModel.handleServerMessage(.sessionInfo(info))
         XCTAssertEqual(viewModel.sessionId, "test-123")
     }
@@ -1303,15 +1304,13 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.sessionId, "Should not claim session_info without correlationId when bootstrapping with one")
     }
 
-    func testSessionInfoWithoutCorrelationIdAcceptedWhenNoBootstrap() {
-        // When a ChatViewModel has no bootstrap correlationId (e.g., backwards compat),
-        // it should still accept session_info without a correlationId.
-        // Simulate the old behavior: directly set up state without going through
-        // bootstrapSession (which would generate a correlationId)
+    func testSessionInfoWithoutCorrelationIdRejectedWhenNoBootstrap() {
+        // After removing backwards compat, session_info without a correlationId
+        // is rejected even when there is no bootstrap correlationId set.
         let info = SessionInfoMessage(sessionId: "test-session", title: "Test")
         viewModel.handleServerMessage(.sessionInfo(info))
 
-        XCTAssertEqual(viewModel.sessionId, "test-session", "Should accept session_info when no correlationId was set")
+        XCTAssertNil(viewModel.sessionId, "Should reject session_info when no bootstrapCorrelationId is set")
     }
 
     // MARK: - Session Error (Typed Error State)
