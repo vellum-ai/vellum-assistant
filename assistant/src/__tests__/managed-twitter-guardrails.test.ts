@@ -156,6 +156,7 @@ import type {
   TwitterAuthStartRequest,
 } from "../daemon/ipc-protocol.js";
 import {
+  mapProxyError,
   resolvePrerequisites,
   TwitterProxyError,
 } from "../twitter/platform-proxy-client.js";
@@ -288,37 +289,13 @@ describe("Managed Twitter guardrails", () => {
 
   describe("non-owner users are blocked from managed Twitter UI and control-plane calls", () => {
     test("proxy client surfaces owner_only error for non-owner 403", () => {
-      // Verify the error mapping: a 403 with "owner" in the message must
-      // surface an actionable owner_only error, not a generic forbidden
-      const error = (() => {
-        // Simulate what mapProxyError does for a 403 with owner-only detail
-        const status = 403;
-        const body = { detail: "Only the owner can perform this action" };
-        const detail = String(body.detail).toLowerCase();
-        if (detail.includes("owner") && detail.includes("credential")) {
-          return new TwitterProxyError(
-            "Connect Twitter in Settings as the assistant owner",
-            "owner_credential_required",
-            false,
-            status,
-          );
-        }
-        if (detail.includes("owner")) {
-          return new TwitterProxyError(
-            "Sign in as the assistant owner",
-            "owner_only",
-            false,
-            status,
-          );
-        }
-        return new TwitterProxyError(
-          `Forbidden: ${detail}`,
-          "forbidden",
-          false,
-          status,
-        );
-      })();
+      // Exercise the production mapProxyError path with a 403 containing
+      // "owner" in the detail — must yield an actionable owner_only error.
+      const error = mapProxyError(403, {
+        detail: "Only the owner can perform this action",
+      });
 
+      expect(error).toBeInstanceOf(TwitterProxyError);
       expect(error.code).toBe("owner_only");
       expect(error.message).toBe("Sign in as the assistant owner");
       expect(error.retryable).toBe(false);
@@ -326,34 +303,19 @@ describe("Managed Twitter guardrails", () => {
     });
 
     test("proxy client surfaces owner_credential_required for missing credential 403", () => {
-      const status = 403;
-      const body = {
+      // Exercise the production mapProxyError path with a 403 containing
+      // both "owner" and "credential" — must yield owner_credential_required.
+      const error = mapProxyError(403, {
         detail: "Owner credential required to access this resource",
-      };
-      const detail = String(body.detail).toLowerCase();
+      });
 
-      let error: TwitterProxyError;
-      if (detail.includes("owner") && detail.includes("credential")) {
-        error = new TwitterProxyError(
-          "Connect Twitter in Settings as the assistant owner",
-          "owner_credential_required",
-          false,
-          status,
-        );
-      } else {
-        error = new TwitterProxyError(
-          `Forbidden: ${detail}`,
-          "forbidden",
-          false,
-          status,
-        );
-      }
-
+      expect(error).toBeInstanceOf(TwitterProxyError);
       expect(error.code).toBe("owner_credential_required");
       expect(error.message).toBe(
         "Connect Twitter in Settings as the assistant owner",
       );
       expect(error.retryable).toBe(false);
+      expect(error.statusCode).toBe(403);
     });
   });
 
