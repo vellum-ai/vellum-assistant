@@ -112,7 +112,10 @@ function computeManagedPrerequisites(mode: "local_byo" | "managed"): {
   const assistantApiKeyPresent = !!getSecureKey(
     "credential:vellum:assistant_api_key",
   );
-  const platformAssistantIdResolvable = !!getPlatformBaseUrl();
+  const platformAssistantIdResolvable = !!(
+    getPlatformBaseUrl() ||
+    (loadRawConfig()?.platform as Record<string, unknown> | undefined)?.baseUrl
+  );
 
   const managedPrerequisites: ManagedPrerequisites = {
     integrationModeManaged,
