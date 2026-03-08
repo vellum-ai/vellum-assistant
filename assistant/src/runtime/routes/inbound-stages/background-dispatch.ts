@@ -249,8 +249,13 @@ export function processChannelMessageInBackground(
       }
 
       if (replyCallbackUrl) {
-        if (telegramStreaming?.hasDeliveredText) {
-          // Streaming already delivered the text — only send attachments
+        // Streaming fully succeeded — only send attachments since text
+        // was already delivered via streaming edits.
+        const streamingFullyDelivered =
+          telegramStreaming?.hasDeliveredText &&
+          telegramStreaming.finishSucceeded;
+
+        if (streamingFullyDelivered) {
           await deliverAttachmentsOnly(
             conversationId,
             externalChatId,
@@ -259,7 +264,19 @@ export function processChannelMessageInBackground(
             assistantId,
           );
         } else {
-          // Non-streaming path (existing behavior)
+          // Non-streaming path, or streaming partially failed (some text
+          // was delivered but finish/finalization threw). In the partial
+          // failure case the user has a truncated message, so we deliver
+          // the full response to ensure nothing is lost.
+          if (
+            telegramStreaming?.hasDeliveredText &&
+            !telegramStreaming.finishSucceeded
+          ) {
+            log.warn(
+              { conversationId },
+              "Telegram streaming partially failed — falling back to full text delivery",
+            );
+          }
           await deliverReplyViaCallback(
             conversationId,
             externalChatId,

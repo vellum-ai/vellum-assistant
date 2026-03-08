@@ -28,6 +28,7 @@ export class TelegramStreamingDelivery {
   private messageCount = 0; // Total messages sent
   private finished = false;
   private textDelivered = false; // True once at least some text was sent
+  private finishOk = false; // True only when finish() completes without error
   private initialSendInFlight = false; // Synchronous guard against duplicate initial sends
   private initialSendPromise: Promise<ChannelDeliveryResult> | null = null; // Tracks in-flight initial send
 
@@ -76,6 +77,7 @@ export class TelegramStreamingDelivery {
         this.buffer = "";
         // Send as new message
         await this.sendNewMessage(this.currentMessageText, approval);
+        this.finishOk = true;
         return;
       }
     }
@@ -87,6 +89,7 @@ export class TelegramStreamingDelivery {
     // 400 error.
     if (this.currentMessageId && (this.currentMessageText || approval)) {
       if (!approval && this.currentMessageText === this.lastSentText) {
+        this.finishOk = true;
         return;
       }
       await deliverChannelReply(
@@ -102,10 +105,16 @@ export class TelegramStreamingDelivery {
       );
       this.lastSentText = this.currentMessageText;
     }
+    this.finishOk = true;
   }
 
   get hasDeliveredText(): boolean {
     return this.textDelivered;
+  }
+
+  /** True only when finish() completed without throwing. */
+  get finishSucceeded(): boolean {
+    return this.finishOk;
   }
 
   // ── Internal ────────────────────────────────────────────────────────
