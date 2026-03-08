@@ -31,8 +31,12 @@ import type {
   ApprovalCopyGenerator,
   MessageProcessor,
 } from "../../http-types.js";
+import { TelegramStreamingDelivery } from "../../telegram-streaming-delivery.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
-import { deliverReplyViaCallback } from "../channel-delivery-routes.js";
+import {
+  deliverAttachmentsOnly,
+  deliverReplyViaCallback,
+} from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
 
 const log = getLogger("runtime-http");
@@ -156,6 +160,16 @@ export function processChannelMessageInBackground(
       }
     }
 
+    const telegramStreaming =
+      sourceChannel === "telegram" && replyCallbackUrl
+        ? new TelegramStreamingDelivery({
+            callbackUrl: replyCallbackUrl,
+            chatId: externalChatId,
+            mintBearerToken,
+            assistantId,
+          })
+        : undefined;
+
     try {
       const cmdIntent =
         commandIntent && typeof commandIntent.type === "string"
@@ -183,6 +197,9 @@ export function processChannelMessageInBackground(
           trustContext: trustCtx,
           isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+          ...(telegramStreaming
+            ? { onEvent: (msg) => telegramStreaming.onEvent(msg) }
+            : {}),
         },
         sourceChannel,
         sourceInterface,
@@ -190,18 +207,49 @@ export function processChannelMessageInBackground(
       deliveryCrud.linkMessage(eventId, userMessageId);
       deliveryStatus.markProcessed(eventId);
 
+      if (telegramStreaming) {
+        try {
+          // Retrieve approval metadata from pending interactions (if any)
+          // so approval buttons can be attached to the final streamed message.
+          const prompt = getChannelApprovalPrompt(conversationId);
+          const pending = getApprovalInfoByConversation(conversationId);
+          const approvalMeta =
+            prompt && pending.length > 0
+              ? buildApprovalUIMetadata(prompt, pending[0])
+              : undefined;
+          await telegramStreaming.finish(approvalMeta);
+        } catch (err) {
+          log.error(
+            { err, conversationId },
+            "Telegram streaming finalization failed",
+          );
+        }
+      }
+
       if (replyCallbackUrl) {
-        await deliverReplyViaCallback(
-          conversationId,
-          externalChatId,
-          replyCallbackUrl,
-          mintBearerToken(),
-          assistantId,
-          {
-            onSegmentDelivered: (count) =>
-              deliveryChannels.updateDeliveredSegmentCount(eventId, count),
-          },
-        );
+        if (telegramStreaming?.hasDeliveredText) {
+          // Streaming already delivered the text — only send attachments
+          await deliverAttachmentsOnly(
+            conversationId,
+            externalChatId,
+            replyCallbackUrl,
+            mintBearerToken(),
+            assistantId,
+          );
+        } else {
+          // Non-streaming path (existing behavior)
+          await deliverReplyViaCallback(
+            conversationId,
+            externalChatId,
+            replyCallbackUrl,
+            mintBearerToken(),
+            assistantId,
+            {
+              onSegmentDelivered: (count) =>
+                deliveryChannels.updateDeliveredSegmentCount(eventId, count),
+            },
+          );
+        }
       }
     } catch (err) {
       log.error(
