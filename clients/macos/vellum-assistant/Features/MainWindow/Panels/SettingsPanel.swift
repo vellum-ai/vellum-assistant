@@ -617,14 +617,24 @@ struct SettingsPanel: View {
                 }
             }
 
-            // Managed mode "coming soon"
+            // Managed mode status
             if store.twitterMode == "managed" {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.info, size: 14)
-                        .foregroundStyle(VColor.textSecondary)
-                    Text("Managed mode is coming soon. Switch to Local (BYO App) to connect now.")
-                        .font(VFont.caption)
-                        .foregroundStyle(VColor.textSecondary)
+                if store.isManagedTwitterEligible {
+                    HStack(spacing: VSpacing.sm) {
+                        VIconView(.circleCheck, size: 14)
+                            .foregroundStyle(VColor.textSecondary)
+                        Text("Managed Twitter is ready. Authentication is handled by the platform.")
+                            .font(VFont.caption)
+                            .foregroundStyle(VColor.textSecondary)
+                    }
+                } else if let reason = store.managedTwitterBlockReason {
+                    HStack(spacing: VSpacing.sm) {
+                        VIconView(.info, size: 14)
+                            .foregroundStyle(VColor.textSecondary)
+                        Text(reason)
+                            .font(VFont.caption)
+                            .foregroundStyle(VColor.textSecondary)
+                    }
                 }
             }
 
