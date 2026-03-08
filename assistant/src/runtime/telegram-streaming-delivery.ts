@@ -22,6 +22,7 @@ export class TelegramStreamingDelivery {
   private buffer = ""; // Accumulated text not yet sent
   private currentMessageId: number | null = null; // ID of current Telegram message
   private currentMessageText = ""; // Full text of current message
+  private lastSentText = ""; // Last text successfully sent to Telegram
   private lastEditAt = 0; // Timestamp of last edit
   private editTimer: ReturnType<typeof setTimeout> | null = null;
   private messageCount = 0; // Total messages sent
@@ -79,8 +80,15 @@ export class TelegramStreamingDelivery {
       }
     }
 
-    // Final edit with approval buttons if present
+    // Final edit with approval buttons if present.
+    // Skip the edit when text hasn't changed since the last successful
+    // delivery and there are no approval buttons to attach — sending the
+    // same text again would trigger Telegram's "message is not modified"
+    // 400 error.
     if (this.currentMessageId && (this.currentMessageText || approval)) {
+      if (!approval && this.currentMessageText === this.lastSentText) {
+        return;
+      }
       await deliverChannelReply(
         this.opts.callbackUrl,
         {
@@ -92,6 +100,7 @@ export class TelegramStreamingDelivery {
         },
         this.opts.mintBearerToken(),
       );
+      this.lastSentText = this.currentMessageText;
     }
   }
 
@@ -136,6 +145,7 @@ export class TelegramStreamingDelivery {
           this.currentMessageId = result.messageId;
         }
         this.textDelivered = true;
+        this.lastSentText = this.currentMessageText;
         this.messageCount++;
         this.lastEditAt = Date.now();
         this.initialSendInFlight = false;
@@ -187,12 +197,16 @@ export class TelegramStreamingDelivery {
             assistantId: this.opts.assistantId,
           },
           this.opts.mintBearerToken(),
-        ).catch((err) => {
-          log.error(
-            { err, chatId: this.opts.chatId },
-            "Failed to edit message at split boundary",
-          );
-        });
+        )
+          .then(() => {
+            this.lastSentText = cutText;
+          })
+          .catch((err) => {
+            log.error(
+              { err, chatId: this.opts.chatId },
+              "Failed to edit message at split boundary",
+            );
+          });
       }
 
       // Reset and send overflow as a new message
@@ -212,6 +226,7 @@ export class TelegramStreamingDelivery {
           if (result.messageId) {
             this.currentMessageId = result.messageId;
           }
+          this.lastSentText = this.currentMessageText;
           this.messageCount++;
           this.lastEditAt = Date.now();
         })
@@ -226,6 +241,7 @@ export class TelegramStreamingDelivery {
     }
 
     if (this.currentMessageId) {
+      const textSnapshot = this.currentMessageText;
       deliverChannelReply(
         this.opts.callbackUrl,
         {
@@ -235,12 +251,16 @@ export class TelegramStreamingDelivery {
           assistantId: this.opts.assistantId,
         },
         this.opts.mintBearerToken(),
-      ).catch((err) => {
-        log.error(
-          { err, chatId: this.opts.chatId },
-          "Failed to edit streaming message",
-        );
-      });
+      )
+        .then(() => {
+          this.lastSentText = textSnapshot;
+        })
+        .catch((err) => {
+          log.error(
+            { err, chatId: this.opts.chatId },
+            "Failed to edit streaming message",
+          );
+        });
     }
     this.lastEditAt = Date.now();
   }
@@ -259,6 +279,7 @@ export class TelegramStreamingDelivery {
 
     // Send a final edit if we have an active message
     if (this.currentMessageId && this.currentMessageText) {
+      const textSnapshot = this.currentMessageText;
       deliverChannelReply(
         this.opts.callbackUrl,
         {
@@ -268,17 +289,22 @@ export class TelegramStreamingDelivery {
           assistantId: this.opts.assistantId,
         },
         this.opts.mintBearerToken(),
-      ).catch((err) => {
-        log.error(
-          { err, chatId: this.opts.chatId },
-          "Failed to finalize streaming message",
-        );
-      });
+      )
+        .then(() => {
+          this.lastSentText = textSnapshot;
+        })
+        .catch((err) => {
+          log.error(
+            { err, chatId: this.opts.chatId },
+            "Failed to finalize streaming message",
+          );
+        });
     }
 
     // Reset so the next text delta starts a new message
     this.currentMessageId = null;
     this.currentMessageText = "";
+    this.lastSentText = "";
   }
 
   private async sendNewMessage(
@@ -300,6 +326,7 @@ export class TelegramStreamingDelivery {
         this.currentMessageId = result.messageId;
       }
       this.textDelivered = true;
+      this.lastSentText = text;
       this.messageCount++;
     } catch (err) {
       log.error(

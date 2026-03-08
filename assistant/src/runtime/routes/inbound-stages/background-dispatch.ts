@@ -208,15 +208,15 @@ export function processChannelMessageInBackground(
       deliveryStatus.markProcessed(eventId);
 
       if (telegramStreaming) {
+        // Retrieve approval metadata from pending interactions (if any)
+        // so approval buttons can be attached to the final streamed message.
+        const prompt = getChannelApprovalPrompt(conversationId);
+        const pending = getApprovalInfoByConversation(conversationId);
+        const approvalMeta =
+          prompt && pending.length > 0
+            ? buildApprovalUIMetadata(prompt, pending[0])
+            : undefined;
         try {
-          // Retrieve approval metadata from pending interactions (if any)
-          // so approval buttons can be attached to the final streamed message.
-          const prompt = getChannelApprovalPrompt(conversationId);
-          const pending = getApprovalInfoByConversation(conversationId);
-          const approvalMeta =
-            prompt && pending.length > 0
-              ? buildApprovalUIMetadata(prompt, pending[0])
-              : undefined;
           await telegramStreaming.finish(approvalMeta);
           deliveryChannels.updateDeliveredSegmentCount(eventId, 1);
         } catch (err) {
@@ -224,6 +224,27 @@ export function processChannelMessageInBackground(
             { err, conversationId },
             "Telegram streaming finalization failed",
           );
+          // Fallback: deliver approval as a standalone message so buttons
+          // are not permanently lost when finish() fails.
+          if (approvalMeta && replyCallbackUrl) {
+            try {
+              await deliverChannelReply(
+                replyCallbackUrl,
+                {
+                  chatId: externalChatId,
+                  text: approvalMeta.plainTextFallback ?? "Action needed:",
+                  approval: approvalMeta,
+                  assistantId,
+                },
+                mintBearerToken(),
+              );
+            } catch (fallbackErr) {
+              log.error(
+                { err: fallbackErr, conversationId },
+                "Fallback approval delivery also failed",
+              );
+            }
+          }
         }
       }
 
