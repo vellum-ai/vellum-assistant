@@ -377,7 +377,6 @@ Run without a subcommand to display the current strategy. Use "set" to change it
 
 Examples:
   $ assistant x strategy
-  $ assistant x strategy set managed
   $ assistant x strategy set oauth
   $ assistant x strategy set auto`,
     )
@@ -401,19 +400,19 @@ Examples:
   strategyCli
     .command("set")
     .description("Set the Twitter operation strategy")
-    .argument("<value>", "Strategy value: managed, oauth, browser, or auto")
+    .argument("<value>", "Strategy value: oauth, browser, or auto")
     .addHelpText(
       "after",
       `
 Arguments:
-  value   Strategy to use: "managed", "oauth", "browser", or "auto"
+  value   Strategy to use: "oauth", "browser", or "auto"
 
 Sets the preferred strategy for Twitter operations that support dual-path
 routing. The setting is persisted by the assistant and applies to all subsequent
-operations until changed.
+operations until changed. Note: "managed" is determined by integration mode
+and cannot be set manually.
 
 Examples:
-  $ assistant x strategy set managed
   $ assistant x strategy set oauth
   $ assistant x strategy set browser
   $ assistant x strategy set auto`,
