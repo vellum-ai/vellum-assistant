@@ -89,6 +89,32 @@ export class TelegramStreamingDelivery {
       if (!approval && this.currentMessageText === this.lastSentText) {
         return;
       }
+
+      // Enforce Telegram length limits: if the final text exceeds the max,
+      // split it the same way flushEdit() does — finalize the current message
+      // with text up to the limit, then send the overflow as a new message.
+      if (this.currentMessageText.length > TELEGRAM_MAX_TEXT_LEN) {
+        const cutText = this.currentMessageText.slice(0, TELEGRAM_MAX_TEXT_LEN);
+        const overflow = this.currentMessageText.slice(TELEGRAM_MAX_TEXT_LEN);
+
+        // Edit existing message with truncated text (no approval — it goes on the final message)
+        await deliverChannelReply(
+          this.opts.callbackUrl,
+          {
+            chatId: this.opts.chatId,
+            text: cutText,
+            messageId: this.currentMessageId,
+            assistantId: this.opts.assistantId,
+          },
+          this.opts.mintBearerToken(),
+        );
+        this.lastSentText = cutText;
+
+        // Send overflow (with approval buttons if present) as a new message
+        await this.sendNewMessage(overflow, approval);
+        return;
+      }
+
       await deliverChannelReply(
         this.opts.callbackUrl,
         {
@@ -277,8 +303,8 @@ export class TelegramStreamingDelivery {
       this.buffer = "";
     }
 
-    // Send a final edit if we have an active message
     if (this.currentMessageId && this.currentMessageText) {
+      // Send a final edit for the active message
       const textSnapshot = this.currentMessageText;
       deliverChannelReply(
         this.opts.callbackUrl,
@@ -297,6 +323,35 @@ export class TelegramStreamingDelivery {
           log.error(
             { err, chatId: this.opts.chatId },
             "Failed to finalize streaming message",
+          );
+        });
+    } else if (!this.currentMessageId && this.currentMessageText) {
+      // No Telegram message was created yet (e.g., text was under the
+      // MIN_INITIAL_CHARS threshold when tool_use_start arrived). Send
+      // the buffered text as a new message so it isn't lost.
+      const textSnapshot = this.currentMessageText;
+      deliverChannelReply(
+        this.opts.callbackUrl,
+        {
+          chatId: this.opts.chatId,
+          text: textSnapshot,
+          assistantId: this.opts.assistantId,
+        },
+        this.opts.mintBearerToken(),
+      )
+        .then((result) => {
+          if (result.messageId) {
+            // Message sent successfully; don't set currentMessageId since
+            // we're about to reset for the next segment anyway.
+          }
+          this.textDelivered = true;
+          this.lastSentText = textSnapshot;
+          this.messageCount++;
+        })
+        .catch((err) => {
+          log.error(
+            { err, chatId: this.opts.chatId },
+            "Failed to send pre-tool buffered text",
           );
         });
     }
