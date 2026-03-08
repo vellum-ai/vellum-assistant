@@ -6,7 +6,7 @@ import {
   getInfluencerProfile,
   type InfluencerSearchCriteria,
   searchInfluencers,
-} from "./client.ts";
+} from "./client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
