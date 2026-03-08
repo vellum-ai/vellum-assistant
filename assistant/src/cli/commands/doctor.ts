@@ -343,11 +343,11 @@ Examples:
           try {
             const wasmStat = statSync(fullPath);
             if (wasmStat.size === 0) {
-              missingWasm.push(`${wasm} (empty)`);
+              missingWasm.push(`${wasm.file} (empty)`);
               wasmOk = false;
             }
           } catch {
-            missingWasm.push(`${wasm} (unreadable)`);
+            missingWasm.push(`${wasm.file} (unreadable)`);
             wasmOk = false;
           }
         }
