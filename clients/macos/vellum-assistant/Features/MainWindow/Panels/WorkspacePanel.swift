@@ -222,12 +222,14 @@ private struct WorkspaceFileViewer: View {
     private func fileContent(_ detail: WorkspaceFileResponse) -> some View {
         let mime = detail.mimeType.lowercased()
 
-        if mime.hasPrefix("text/") || mime == "application/json" {
+        if !detail.isBinary, detail.content != nil {
             textViewer(detail)
         } else if mime.hasPrefix("image/") {
             imageViewer(detail)
         } else if mime.hasPrefix("video/") {
             videoViewer(detail)
+        } else if !detail.isBinary, detail.content == nil {
+            fileTooLarge(detail)
         } else {
             binaryFallback(detail)
         }
@@ -241,6 +243,33 @@ private struct WorkspaceFileViewer: View {
                 .textSelection(.enabled)
                 .padding(VSpacing.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func fileTooLarge(_ detail: WorkspaceFileResponse) -> some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            Image(systemName: "doc.text")
+                .font(.system(size: 40))
+                .foregroundColor(VColor.textMuted)
+
+            VStack(spacing: VSpacing.sm) {
+                Text(detail.name)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text("File too large to preview")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+
+                Text(formatFileSize(detail.size))
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
