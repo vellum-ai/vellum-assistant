@@ -299,6 +299,8 @@ struct IdentityView: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.surfaceBorder, lineWidth: 1)
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Workspace files")
     }
 
     // MARK: - Shared Section Header
