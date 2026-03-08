@@ -304,6 +304,9 @@ export function resolveChannelCapabilities(
     case undefined:
     case "dashboard":
     case "http-api":
+    case "mac":
+    case "macos":
+    case "ios":
       channel = "vellum";
       break;
     default:
