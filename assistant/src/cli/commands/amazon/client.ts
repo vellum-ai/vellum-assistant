@@ -48,18 +48,20 @@
  * not that we're rate-limited. Check the response body before classifying the error.
  */
 
-import type {
-  ExtensionCommand,
-  ExtensionResponse,
-} from "../../../browser-extension-relay/protocol.js";
-import { extensionRelayServer } from "../../../browser-extension-relay/server.js";
-import {
-  initAuthSigningKey,
-  isSigningKeyInitialized,
-  loadOrCreateSigningKey,
-} from "../../../runtime/auth/token-service.js";
-import { gatewayPost } from "../../../runtime/gateway-internal-client.js";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
+
 import type { ExtractedCredential } from "../../../tools/browser/network-recording-types.js";
+
+const execFileAsync = promisify(execFile);
+
+interface RelayResponse {
+  ok: boolean;
+  tabId?: number;
+  result?: unknown;
+  error?: string;
+}
+
 import { type AmazonSession, loadSession, saveSession } from "./session.js";
 
 export const AMAZON_BASE = "https://www.amazon.com";
@@ -67,35 +69,77 @@ export const AMAZON_BASE = "https://www.amazon.com";
 // ---------------------------------------------------------------------------
 // Relay command routing
 // ---------------------------------------------------------------------------
-// When running inside the daemon, extensionRelayServer has a live WebSocket.
-// When running out-of-process (CLI), the relay isn't available, so we fall
-// back to the daemon's HTTP endpoint POST /v1/browser-relay/command.
+// All relay commands are dispatched via the `assistant browser chrome relay`
+// CLI subprocess. Action names are converted from snake_case to kebab-case.
+// The `evaluate` action pipes JavaScript via stdin to avoid shell escaping.
 // ---------------------------------------------------------------------------
 
 export async function sendRelayCommand(
   command: Record<string, unknown>,
-): Promise<ExtensionResponse> {
-  // Try in-process relay first (works when running inside the daemon)
-  const status = extensionRelayServer.getStatus();
-  if (status.connected) {
-    return extensionRelayServer.sendCommand(
-      command as Omit<ExtensionCommand, "id">,
-    );
+): Promise<{
+  success: boolean;
+  tabId?: number;
+  result?: unknown;
+  error?: string;
+}> {
+  const action = command.action as string;
+  const cmdArgs = ["browser", "chrome", "relay", action.replace(/_/g, "-")];
+
+  // Map command fields to CLI flags
+  for (const [key, value] of Object.entries(command)) {
+    if (key === "action") continue;
+    if (key === "code") continue; // handled via stdin for evaluate
+    if (key === "cookie") {
+      cmdArgs.push("--cookie", JSON.stringify(value));
+      continue;
+    }
+    const flag = key.replace(/([A-Z])/g, "-$1").toLowerCase();
+    cmdArgs.push(`--${flag === "tabid" ? "tab-id" : flag}`, String(value));
   }
 
-  // Fall back to HTTP relay endpoint via the gateway.
-  // The gateway validates edge JWTs (aud=vellum-gateway) and mints an
-  // exchange token for the runtime. In CLI out-of-process contexts the
-  // signing key may not be initialized yet — load it from disk.
-  if (!isSigningKeyInitialized()) {
-    initAuthSigningKey(loadOrCreateSigningKey());
+  // For evaluate commands, pipe code via stdin to avoid shell escaping issues
+  if (action === "evaluate" && command.code) {
+    return new Promise((resolve, reject) => {
+      const proc = spawn("assistant", cmdArgs);
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (d: Buffer) => {
+        stdout += d;
+      });
+      proc.stderr.on("data", (d: Buffer) => {
+        stderr += d;
+      });
+      proc.on("close", (code) => {
+        try {
+          const result: RelayResponse = JSON.parse(stdout);
+          resolve({
+            success: result.ok,
+            tabId: result.tabId,
+            result: result.result,
+            error: result.error,
+          });
+        } catch {
+          if (code !== 0) {
+            reject(new Error(stderr || stdout || `Exit code ${code}`));
+          } else {
+            reject(new Error(`Invalid JSON from relay: ${stdout}`));
+          }
+        }
+      });
+      proc.on("error", reject);
+      proc.stdin.write(command.code as string);
+      proc.stdin.end();
+    });
   }
 
-  const { data } = await gatewayPost<ExtensionResponse>(
-    "/v1/browser-relay/command",
-    command,
-  );
-  return data;
+  const { stdout } = await execFileAsync("assistant", cmdArgs);
+  const result: RelayResponse = JSON.parse(stdout);
+  return {
+    success: result.ok,
+    tabId: result.tabId,
+    result: result.result,
+    error: result.error,
+  };
 }
 
 /** Thrown when the session is missing or expired. The CLI handles this specially. */
@@ -177,7 +221,7 @@ async function _syncCookiesToBrowser(
   for (const cookie of cookies) {
     const domain = cookie.domain || ".amazon.com";
     const cleanDomain = domain.startsWith(".") ? domain.slice(1) : domain;
-    await extensionRelayServer.sendCommand({
+    await sendRelayCommand({
       action: "set_cookie",
       cookie: {
         url: `https://${cleanDomain}`,
@@ -201,7 +245,12 @@ async function _syncCookiesToBrowser(
  * Returns the JSON-parsed result value.
  */
 export async function cdpEval(tabId: number, script: string): Promise<unknown> {
-  let resp: ExtensionResponse;
+  let resp: {
+    success: boolean;
+    tabId?: number;
+    result?: unknown;
+    error?: string;
+  };
   try {
     resp = await sendRelayCommand({ action: "evaluate", tabId, code: script });
   } catch (err) {
