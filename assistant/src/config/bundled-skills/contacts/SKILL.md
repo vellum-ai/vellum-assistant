@@ -194,7 +194,7 @@ fi
 # Prefer backend-provided canonical link when available.
 if [ -z "$INVITE_URL" ]; then
   BOT_USERNAME=$(assistant config get telegram.botUsername)
-  if [ -z "$BOT_USERNAME" ]; then
+  if [ -z "$BOT_USERNAME" ] || [ "$BOT_USERNAME" = "(not set)" ]; then
     echo "error:no_share_url_or_bot_username"
     exit 1
   fi
