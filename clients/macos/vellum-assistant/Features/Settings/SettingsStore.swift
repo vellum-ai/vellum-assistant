@@ -991,7 +991,7 @@ public final class SettingsStore: ObservableObject {
 
     /// Resolves the platform assistant ID and organization ID for managed Twitter calls.
     /// Returns nil if the required context is unavailable.
-    private func resolveManagedTwitterContext(userId: String? = nil) -> (platformAssistantId: String, organizationId: String, baseURL: String)? {
+    private func resolveManagedTwitterContext() async -> (platformAssistantId: String, organizationId: String, baseURL: String)? {
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
             ?? LockfileAssistant.loadLatest()
@@ -999,6 +999,10 @@ public final class SettingsStore: ObservableObject {
 
         guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
               !orgId.isEmpty else { return nil }
+
+        // Resolve the current user ID from the auth session so self-hosted local
+        // assistants can look up their persisted platform assistant ID.
+        let userId: String? = try? await AuthService.shared.getSession().data?.user?.id
 
         let platformId = PlatformAssistantIdResolver.resolve(
             lockfileAssistantId: assistant.assistantId,
@@ -1016,7 +1020,7 @@ public final class SettingsStore: ObservableObject {
     /// Fetches managed Twitter connection status from the platform.
     func refreshManagedTwitterStatus() {
         Task { @MainActor in
-            guard let ctx = resolveManagedTwitterContext() else {
+            guard let ctx = await resolveManagedTwitterContext() else {
                 managedTwitterConnected = false
                 managedTwitterAccountInfo = nil
                 return
@@ -1051,7 +1055,7 @@ public final class SettingsStore: ObservableObject {
         Task { @MainActor in
             defer { managedTwitterConnectInProgress = false }
 
-            guard let ctx = resolveManagedTwitterContext() else {
+            guard let ctx = await resolveManagedTwitterContext() else {
                 managedTwitterError = "Unable to resolve platform assistant. Check your account settings."
                 return
             }
@@ -1081,7 +1085,7 @@ public final class SettingsStore: ObservableObject {
         Task { @MainActor in
             defer { managedTwitterConnectInProgress = false }
 
-            guard let ctx = resolveManagedTwitterContext() else {
+            guard let ctx = await resolveManagedTwitterContext() else {
                 managedTwitterError = "Unable to resolve platform assistant. Check your account settings."
                 return
             }
