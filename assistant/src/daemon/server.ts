@@ -1127,7 +1127,13 @@ export class DaemonServer {
 
     // Register pending interactions so channel approval interception can
     // find the session by requestId when confirmation/secret events fire.
-    const onEvent = makePendingInteractionRegistrar(session, conversationId);
+    const registrar = makePendingInteractionRegistrar(session, conversationId);
+    const onEvent = options?.onEvent
+      ? (msg: ServerMessage) => {
+          registrar(msg);
+          options.onEvent!(msg);
+        }
+      : registrar;
     if (options?.isInteractive === true) {
       // Interactive HTTP paths (e.g. channel ingress) still run without an IPC
       // socket. Route prompter events through the registrar callback so
@@ -1265,7 +1271,13 @@ export class DaemonServer {
 
     // Register pending interactions so channel approval interception can
     // find the session by requestId when confirmation/secret events fire.
-    const onEvent = makePendingInteractionRegistrar(session, conversationId);
+    const registrar = makePendingInteractionRegistrar(session, conversationId);
+    const onEvent = options?.onEvent
+      ? (msg: ServerMessage) => {
+          registrar(msg);
+          options.onEvent!(msg);
+        }
+      : registrar;
     if (options?.isInteractive === true) {
       // Interactive HTTP paths (e.g. channel ingress) still run without an IPC
       // socket. Route prompter events through the registrar callback so

@@ -141,6 +141,8 @@ export interface SessionCreateOptions {
   strictPrivateSideEffects?: boolean;
   /** Channel command intent metadata (e.g. Telegram /start). */
   commandIntent?: { type: string; payload?: string; languageCode?: string };
+  /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
+  onEvent?: (msg: ServerMessage) => void;
 }
 
 /**
