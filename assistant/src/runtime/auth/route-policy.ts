@@ -263,6 +263,11 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Debug
   { endpoint: "debug", scopes: ["settings.read"] },
 
+  // Workspace file browsing
+  { endpoint: "workspace/tree", scopes: ["settings.read"] },
+  { endpoint: "workspace/file", scopes: ["settings.read"] },
+  { endpoint: "workspace/file/content", scopes: ["settings.read"] },
+
   // Browser relay
   { endpoint: "browser-relay/status", scopes: ["settings.read"] },
   { endpoint: "browser-relay/command", scopes: ["settings.write"] },
