@@ -163,11 +163,12 @@ export class TelegramStreamingDelivery {
     this.currentMessageText = this.buffer;
     this.buffer = "";
 
+    const textSnapshot = this.currentMessageText;
     const promise = deliverChannelReply(
       this.opts.callbackUrl,
       {
         chatId: this.opts.chatId,
-        text: this.currentMessageText,
+        text: textSnapshot,
         assistantId: this.opts.assistantId,
       },
       this.opts.mintBearerToken(),
@@ -180,7 +181,7 @@ export class TelegramStreamingDelivery {
           this.currentMessageId = result.messageId;
         }
         this.textDelivered = true;
-        this.lastSentText = this.currentMessageText;
+        this.lastSentText = textSnapshot;
         this.messageCount++;
         this.lastEditAt = Date.now();
         this.initialSendInFlight = false;
@@ -247,12 +248,13 @@ export class TelegramStreamingDelivery {
       // Reset and send overflow as a new message
       this.currentMessageId = null;
       this.currentMessageText = overflow;
+      const overflowSnapshot = this.currentMessageText;
 
       deliverChannelReply(
         this.opts.callbackUrl,
         {
           chatId: this.opts.chatId,
-          text: this.currentMessageText,
+          text: overflowSnapshot,
           assistantId: this.opts.assistantId,
         },
         this.opts.mintBearerToken(),
@@ -261,7 +263,7 @@ export class TelegramStreamingDelivery {
           if (result.messageId) {
             this.currentMessageId = result.messageId;
           }
-          this.lastSentText = this.currentMessageText;
+          this.lastSentText = overflowSnapshot;
           this.messageCount++;
           this.lastEditAt = Date.now();
         })
