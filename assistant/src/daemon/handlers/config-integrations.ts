@@ -13,7 +13,6 @@ import {
 } from "../../security/secure-keys.js";
 import {
   deleteCredentialMetadata,
-  getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import type {
@@ -126,7 +125,9 @@ export async function handleTwitterIntegrationConfig(
       const connected = !!getSecureKey(
         "credential:integration:twitter:access_token",
       );
-      const meta = getCredentialMetadata("integration:twitter", "access_token");
+      const accountInfo = getNestedValue(raw, "twitter.accountInfo") as
+        | string
+        | undefined;
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: true,
@@ -134,7 +135,7 @@ export async function handleTwitterIntegrationConfig(
         managedAvailable: false,
         localClientConfigured,
         connected,
-        accountInfo: meta?.accountInfo ?? undefined,
+        accountInfo: accountInfo ?? undefined,
         strategy,
         strategyConfigured,
       });
@@ -302,6 +303,9 @@ export async function handleTwitterIntegrationConfig(
       const hasDeleteError = deleteResults.some((r) => r === "error");
       if (!hasDeleteError) {
         deleteCredentialMetadata("integration:twitter", "access_token");
+        const raw = loadRawConfig();
+        setNestedValue(raw, "twitter.accountInfo", "");
+        saveRawConfig(raw);
       }
       ctx.send(socket, {
         type: "twitter_integration_config_response",
@@ -330,6 +334,9 @@ export async function handleTwitterIntegrationConfig(
       const disconnectFailed = dr1 === "error" || dr2 === "error";
       if (!disconnectFailed) {
         deleteCredentialMetadata("integration:twitter", "access_token");
+        const raw = loadRawConfig();
+        setNestedValue(raw, "twitter.accountInfo", "");
+        saveRawConfig(raw);
       }
       ctx.send(socket, {
         type: "twitter_integration_config_response",
