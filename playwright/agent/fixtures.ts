@@ -506,19 +506,44 @@ function skipAssistantOnboarding(): void {
  * Writes the ANTHROPIC_API_KEY from the environment into the app's
  * UserDefaults so the macOS app sees a valid key and skips the auth
  * setup screen.
+ *
+ * After writing, we restart cfprefsd so the freshly-launched app
+ * process reads the updated value on its first UserDefaults access.
+ * CI setup steps may kill/restart system daemons (e.g. tccd), leaving
+ * cfprefsd with a stale in-memory cache that doesn't include the
+ * newly-written key.
  */
 function ensureApiKeyInDefaults(): void {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return;
 
-  const domain = "com.vellum.vellum-assistant";
+  const domain = defaultsDomain();
   try {
     execSync(
-      `defaults write ${domain} vellum_provider_anthropic ${JSON.stringify(apiKey)}`,
+      `defaults write ${domain} vellum_provider_anthropic -string ${JSON.stringify(apiKey)}`,
       { timeout: 5_000 },
     );
-  } catch {
-    // Best-effort — tests may still work if auth is handled differently
+
+    // Restart cfprefsd so the app process sees the write immediately.
+    // cfprefsd auto-relaunches; the brief restart forces it to re-read
+    // the on-disk plist, eliminating stale-cache races.
+    execSync("killall cfprefsd 2>/dev/null || true", { timeout: 5_000 });
+
+    // Verify the write is readable after the cfprefsd restart.
+    const readBack = execSync(
+      `defaults read ${domain} vellum_provider_anthropic`,
+      { encoding: "utf-8", timeout: 5_000 },
+    ).trim();
+
+    if (!readBack) {
+      console.error(
+        "[fixture] API key written but defaults read returned empty — app may show auth screen",
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[fixture] Failed to write/verify API key in defaults: ${err instanceof Error ? err.message : err}`,
+    );
   }
 }
 
