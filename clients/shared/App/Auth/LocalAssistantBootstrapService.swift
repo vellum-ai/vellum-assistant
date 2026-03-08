@@ -127,14 +127,18 @@ public final class LocalAssistantBootstrapService {
         if let storage = credentialStorage {
             let userId = try? await resolveUserId()
             if let uid = userId {
-                PlatformAssistantIdResolver.persist(
+                let persisted = PlatformAssistantIdResolver.persist(
                     platformAssistantId: platformAssistantId,
                     runtimeAssistantId: runtimeAssistantId,
                     organizationId: organizationId,
                     userId: uid,
                     credentialStorage: storage
                 )
-                log.info("Persisted platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                if persisted {
+                    log.info("Persisted platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                } else {
+                    log.warning("Failed to persist platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                }
             } else {
                 log.warning("Could not resolve user ID — platform assistant ID mapping not persisted")
             }
