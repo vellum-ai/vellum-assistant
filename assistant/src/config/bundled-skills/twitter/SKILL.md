@@ -22,7 +22,7 @@ OAuth uses the official X API v2. It is the most reliable connection method and 
 
 ### Browser session (no developer credentials needed)
 
-The browser path is quick to start and useful when the user does not have X developer app credentials. It captures auth cookies from Chrome and uses them to interact with X.
+The browser path is quick to start and useful when the user does not have X developer app credentials. It captures auth cookies from Chrome and uses them to interact with X. Chrome management uses `assistant browser chrome launch` and `assistant browser chrome minimize` CLI commands internally.
 
 - Supports: **all operations** (post, reply, timeline, search, home, bookmarks, notifications, likes, followers, following, media)
 - Setup: Run `assistant x refresh` to open Chrome and capture session cookies automatically.

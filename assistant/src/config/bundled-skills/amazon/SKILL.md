@@ -60,10 +60,10 @@ Alternatively, run `assistant amazon variations <asin> --json` to list just the 
 
 ## Important Behavior
 
+- **Chrome extension relay required.** The Amazon CLI uses `assistant browser chrome relay` internally for browser automation. The Chrome extension must be connected before Amazon commands will work. If a command fails with a connection error, tell the user: "Please open Chrome, click the Vellum extension icon, and click Connect — then I'll retry."
 - **Always confirm before placing order.** Never call `order place` without explicit user approval. Show the cart and total first.
 - **Be proactive.** If the user says "order AA batteries", don't ask clarifying questions upfront — search, find the product, and suggest it. Only ask when you need a choice the user hasn't specified.
 - **Handle expired sessions gracefully.** If any command returns `"error": "session_expired"`, run `assistant amazon refresh --json` to re-capture the session.
-- **Handle extension errors.** If a command fails with a message about the browser extension not being connected, tell the user: "Please open Chrome, click the Vellum extension icon, and click Connect — then I'll retry." Do NOT try to interact with the relay directly.
 - **Show prices.** Always show prices when presenting products or the cart summary.
 - **Use `--json` flag** on all commands for reliable parsing.
 - **Do NOT use the browser skill.** All Amazon interaction goes through the CLI, not browser automation.
