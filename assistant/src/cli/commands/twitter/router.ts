@@ -52,11 +52,21 @@ export async function routedPostTweet(
       const data = response.data as Record<string, unknown>;
       const tweetData = (data?.data ?? data) as Record<string, unknown>;
       const tweetId = String(tweetData.id ?? "");
+      if (!tweetId) {
+        throw Object.assign(
+          new Error(
+            "Managed post succeeded but the proxy response did not include a tweet ID",
+          ),
+          {
+            pathUsed: "managed" as const,
+          },
+        );
+      }
       return {
         result: {
           tweetId,
           text,
-          url: tweetId ? `https://x.com/i/status/${tweetId}` : "",
+          url: `https://x.com/i/status/${tweetId}`,
         },
         pathUsed: "managed",
       };
