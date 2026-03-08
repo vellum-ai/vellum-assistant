@@ -5026,12 +5026,15 @@ public struct IPCTwitterAuthResult: Codable, Sendable {
     public let type: String
     public let success: Bool
     public let accountInfo: String?
+    /// Machine-readable error code for programmatic handling (e.g. "managed_missing_api_key", "managed_auth_via_platform").
+    public let errorCode: String?
     public let error: String?
 
-    public init(type: String, success: Bool, accountInfo: String? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, accountInfo: String? = nil, errorCode: String? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.accountInfo = accountInfo
+        self.errorCode = errorCode
         self.error = error
     }
 }

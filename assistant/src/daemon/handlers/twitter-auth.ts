@@ -64,8 +64,9 @@ export async function handleTwitterAuthStart(
         ctx.send(socket, {
           type: "twitter_auth_result",
           success: false,
+          errorCode: "managed_missing_api_key",
           error:
-            "managed_missing_api_key: Assistant API key is not configured. Set up your API key to use managed Twitter.",
+            "Assistant API key is not configured. Set up your API key to use managed Twitter.",
         });
         return;
       }
@@ -73,8 +74,9 @@ export async function handleTwitterAuthStart(
       ctx.send(socket, {
         type: "twitter_auth_result",
         success: false,
+        errorCode: "managed_auth_via_platform",
         error:
-          "managed_auth_via_platform: In managed mode, Twitter authentication is handled by the platform. Use the desktop client to connect.",
+          "In managed mode, Twitter authentication is handled by the platform. Use the desktop client to connect.",
       });
       return;
     }

@@ -88,6 +88,7 @@ public final class SettingsStore: ObservableObject {
     @Published var twitterConnected: Bool = false
     @Published var twitterAccountInfo: String?
     @Published var twitterAuthInProgress: Bool = false
+    @Published var twitterAuthErrorCode: String?
     @Published var twitterAuthError: String?
 
     /// Whether all managed Twitter prerequisites are met.
@@ -568,8 +569,10 @@ public final class SettingsStore: ObservableObject {
             if response.success {
                 self.twitterConnected = true
                 self.twitterAccountInfo = response.accountInfo
+                self.twitterAuthErrorCode = nil
                 self.twitterAuthError = nil
             } else {
+                self.twitterAuthErrorCode = response.errorCode
                 self.twitterAuthError = response.error
             }
             self.refreshTwitterStatus()
@@ -955,6 +958,7 @@ public final class SettingsStore: ObservableObject {
 
     func connectTwitter() {
         twitterAuthInProgress = true
+        twitterAuthErrorCode = nil
         twitterAuthError = nil
         do {
             guard let daemonClient else {

@@ -221,6 +221,8 @@ export interface TwitterAuthResult {
   type: "twitter_auth_result";
   success: boolean;
   accountInfo?: string;
+  /** Machine-readable error code for programmatic handling (e.g. "managed_missing_api_key", "managed_auth_via_platform"). */
+  errorCode?: string;
   error?: string;
 }
 

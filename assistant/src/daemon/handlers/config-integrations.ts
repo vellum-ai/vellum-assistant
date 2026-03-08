@@ -191,9 +191,10 @@ export async function handleTwitterIntegrationConfig(
         managedAvailable,
         managedPrerequisites,
         localClientConfigured: hasTwitterClientId(),
-        connected: !!getSecureKey(
-          "credential:integration:twitter:access_token",
-        ),
+        connected:
+          currentMode === "managed"
+            ? false
+            : !!getSecureKey("credential:integration:twitter:access_token"),
         strategy,
         strategyConfigured,
       });
@@ -223,9 +224,10 @@ export async function handleTwitterIntegrationConfig(
         managedAvailable,
         managedPrerequisites,
         localClientConfigured: hasTwitterClientId(),
-        connected: !!getSecureKey(
-          "credential:integration:twitter:access_token",
-        ),
+        connected:
+          currentMode === "managed"
+            ? false
+            : !!getSecureKey("credential:integration:twitter:access_token"),
         strategy: value as "oauth" | "browser" | "auto",
         strategyConfigured: true,
       });
@@ -242,9 +244,10 @@ export async function handleTwitterIntegrationConfig(
         managedAvailable,
         managedPrerequisites,
         localClientConfigured: hasTwitterClientId(),
-        connected: !!getSecureKey(
-          "credential:integration:twitter:access_token",
-        ),
+        connected:
+          currentMode === "managed"
+            ? false
+            : !!getSecureKey("credential:integration:twitter:access_token"),
       });
     } else if (msg.action === "set_local_client") {
       const { managedAvailable, managedPrerequisites } = managed();
@@ -321,9 +324,10 @@ export async function handleTwitterIntegrationConfig(
         managedAvailable,
         managedPrerequisites,
         localClientConfigured: true,
-        connected: !!getSecureKey(
-          "credential:integration:twitter:access_token",
-        ),
+        connected:
+          currentMode === "managed"
+            ? false
+            : !!getSecureKey("credential:integration:twitter:access_token"),
       });
     } else if (msg.action === "clear_local_client") {
       // If connected, disconnect first
