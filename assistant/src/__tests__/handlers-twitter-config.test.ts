@@ -55,6 +55,19 @@ mock.module("../config/loader.js", () => ({
   setNestedValue,
 }));
 
+// Mock platform base URL for managed prerequisites
+let mockPlatformBaseUrl = "";
+
+mock.module("../config/env.js", () => ({
+  getPlatformBaseUrl: () => mockPlatformBaseUrl,
+  getPlatformAssistantId: () => "",
+  getPlatformInternalApiKey: () => "",
+  getGatewayPort: () => 7830,
+  getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
+  getIngressPublicBaseUrl: () => undefined,
+  setIngressPublicBaseUrl: () => {},
+}));
+
 mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
@@ -228,6 +241,7 @@ describe("Twitter integration config handler", () => {
     setSecureKeyOverride = null;
     credentialMetadataStore = [];
     deletedMetadata.length = 0;
+    mockPlatformBaseUrl = "";
   });
 
   test("get action returns correct status when not configured", () => {
@@ -245,6 +259,11 @@ describe("Twitter integration config handler", () => {
       success: boolean;
       mode: string;
       managedAvailable: boolean;
+      managedPrerequisites: {
+        integrationModeManaged: boolean;
+        assistantApiKeyPresent: boolean;
+        platformAssistantIdResolvable: boolean;
+      };
       localClientConfigured: boolean;
       connected: boolean;
     };
@@ -252,6 +271,11 @@ describe("Twitter integration config handler", () => {
     expect(res.success).toBe(true);
     expect(res.mode).toBe("local_byo");
     expect(res.managedAvailable).toBe(false);
+    expect(res.managedPrerequisites).toEqual({
+      integrationModeManaged: false,
+      assistantApiKeyPresent: false,
+      platformAssistantIdResolvable: false,
+    });
     expect(res.localClientConfigured).toBe(false);
     expect(res.connected).toBe(false);
   });
@@ -1135,5 +1159,186 @@ describe("Twitter integration config handler", () => {
       expect(res.success).toBe(true);
       expect(res.strategy).toBe(value);
     }
+  });
+
+  // --- Managed prerequisites tests ---
+
+  test("managedAvailable is true when all prerequisites are met", () => {
+    rawConfigStore = { twitter: { integrationMode: "managed" } };
+    secureKeyStore["credential:vellum:assistant_api_key"] = "test-api-key";
+    mockPlatformBaseUrl = "https://platform.example.com";
+
+    const msg: TwitterIntegrationConfigRequest = {
+      type: "twitter_integration_config",
+      action: "get",
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as {
+      type: string;
+      success: boolean;
+      managedAvailable: boolean;
+      managedPrerequisites: {
+        integrationModeManaged: boolean;
+        assistantApiKeyPresent: boolean;
+        platformAssistantIdResolvable: boolean;
+      };
+      connected: boolean;
+    };
+    expect(res.managedAvailable).toBe(true);
+    expect(res.managedPrerequisites).toEqual({
+      integrationModeManaged: true,
+      assistantApiKeyPresent: true,
+      platformAssistantIdResolvable: true,
+    });
+    // In managed mode, connected is conservative (false)
+    expect(res.connected).toBe(false);
+  });
+
+  test("managedAvailable is true regardless of cloud mode when prerequisites are met", () => {
+    // No cloud config set — should still work
+    rawConfigStore = { twitter: { integrationMode: "managed" } };
+    secureKeyStore["credential:vellum:assistant_api_key"] = "test-api-key";
+    mockPlatformBaseUrl = "https://platform.example.com";
+
+    const msg: TwitterIntegrationConfigRequest = {
+      type: "twitter_integration_config",
+      action: "get",
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as {
+      type: string;
+      managedAvailable: boolean;
+    };
+    expect(res.managedAvailable).toBe(true);
+  });
+
+  test("managedAvailable is false when mode is local_byo", () => {
+    rawConfigStore = { twitter: { integrationMode: "local_byo" } };
+    secureKeyStore["credential:vellum:assistant_api_key"] = "test-api-key";
+    mockPlatformBaseUrl = "https://platform.example.com";
+
+    const msg: TwitterIntegrationConfigRequest = {
+      type: "twitter_integration_config",
+      action: "get",
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as {
+      type: string;
+      managedAvailable: boolean;
+      managedPrerequisites: {
+        integrationModeManaged: boolean;
+        assistantApiKeyPresent: boolean;
+        platformAssistantIdResolvable: boolean;
+      };
+    };
+    expect(res.managedAvailable).toBe(false);
+    expect(res.managedPrerequisites.integrationModeManaged).toBe(false);
+    expect(res.managedPrerequisites.assistantApiKeyPresent).toBe(true);
+    expect(res.managedPrerequisites.platformAssistantIdResolvable).toBe(true);
+  });
+
+  test("managedAvailable is false when assistant API key is missing", () => {
+    rawConfigStore = { twitter: { integrationMode: "managed" } };
+    // No assistant API key set
+    mockPlatformBaseUrl = "https://platform.example.com";
+
+    const msg: TwitterIntegrationConfigRequest = {
+      type: "twitter_integration_config",
+      action: "get",
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as {
+      type: string;
+      managedAvailable: boolean;
+      managedPrerequisites: {
+        integrationModeManaged: boolean;
+        assistantApiKeyPresent: boolean;
+        platformAssistantIdResolvable: boolean;
+      };
+    };
+    expect(res.managedAvailable).toBe(false);
+    expect(res.managedPrerequisites.integrationModeManaged).toBe(true);
+    expect(res.managedPrerequisites.assistantApiKeyPresent).toBe(false);
+    expect(res.managedPrerequisites.platformAssistantIdResolvable).toBe(true);
+  });
+
+  test("managedAvailable is false when platform base URL is missing", () => {
+    rawConfigStore = { twitter: { integrationMode: "managed" } };
+    secureKeyStore["credential:vellum:assistant_api_key"] = "test-api-key";
+    mockPlatformBaseUrl = ""; // No platform URL
+
+    const msg: TwitterIntegrationConfigRequest = {
+      type: "twitter_integration_config",
+      action: "get",
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as {
+      type: string;
+      managedAvailable: boolean;
+      managedPrerequisites: {
+        integrationModeManaged: boolean;
+        assistantApiKeyPresent: boolean;
+        platformAssistantIdResolvable: boolean;
+      };
+    };
+    expect(res.managedAvailable).toBe(false);
+    expect(res.managedPrerequisites.integrationModeManaged).toBe(true);
+    expect(res.managedPrerequisites.assistantApiKeyPresent).toBe(true);
+    expect(res.managedPrerequisites.platformAssistantIdResolvable).toBe(false);
+  });
+
+  test("set_mode to managed updates managedAvailable based on real prerequisites", () => {
+    secureKeyStore["credential:vellum:assistant_api_key"] = "test-api-key";
+    mockPlatformBaseUrl = "https://platform.example.com";
+
+    const msg: TwitterIntegrationConfigRequest = {
+      type: "twitter_integration_config",
+      action: "set_mode",
+      mode: "managed",
+    };
+
+    const { ctx, sent } = createTestContext();
+    handleMessage(msg, {} as net.Socket, ctx);
+
+    expect(sent).toHaveLength(1);
+    const res = sent[0] as {
+      type: string;
+      success: boolean;
+      mode: string;
+      managedAvailable: boolean;
+      managedPrerequisites: {
+        integrationModeManaged: boolean;
+        assistantApiKeyPresent: boolean;
+        platformAssistantIdResolvable: boolean;
+      };
+    };
+    expect(res.success).toBe(true);
+    expect(res.mode).toBe("managed");
+    expect(res.managedAvailable).toBe(true);
+    expect(res.managedPrerequisites).toEqual({
+      integrationModeManaged: true,
+      assistantApiKeyPresent: true,
+      platformAssistantIdResolvable: true,
+    });
   });
 });

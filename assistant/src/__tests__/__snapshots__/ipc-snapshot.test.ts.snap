@@ -2282,6 +2282,11 @@ exports[`IPC message snapshots ServerMessage types twitter_integration_config_re
   "connected": false,
   "localClientConfigured": true,
   "managedAvailable": false,
+  "managedPrerequisites": {
+    "assistantApiKeyPresent": false,
+    "integrationModeManaged": false,
+    "platformAssistantIdResolvable": false,
+  },
   "mode": "local_byo",
   "success": true,
   "type": "twitter_integration_config_response",

@@ -1484,6 +1484,11 @@ const serverMessages: Record<ServerMessageType, ServerMessage> = {
     success: true,
     mode: "local_byo",
     managedAvailable: false,
+    managedPrerequisites: {
+      integrationModeManaged: false,
+      assistantApiKeyPresent: false,
+      platformAssistantIdResolvable: false,
+    },
     localClientConfigured: true,
     connected: false,
   },

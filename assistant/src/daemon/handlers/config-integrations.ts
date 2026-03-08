@@ -1,5 +1,6 @@
 import * as net from "node:net";
 
+import { getPlatformBaseUrl } from "../../config/env.js";
 import {
   getNestedValue,
   loadRawConfig,
@@ -17,6 +18,7 @@ import {
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import type {
+  ManagedPrerequisites,
   TwitterIntegrationConfigRequest,
   VercelApiConfigRequest,
 } from "../ipc-protocol.js";
@@ -101,19 +103,50 @@ function hasTwitterClientId(): boolean {
   return !!getSecureKey("credential:integration:twitter:client_id");
 }
 
+/** Compute managed Twitter prerequisites from config, secure storage, and environment. */
+function computeManagedPrerequisites(mode: "local_byo" | "managed"): {
+  managedAvailable: boolean;
+  managedPrerequisites: ManagedPrerequisites;
+} {
+  const integrationModeManaged = mode === "managed";
+  const assistantApiKeyPresent = !!getSecureKey(
+    "credential:vellum:assistant_api_key",
+  );
+  const platformAssistantIdResolvable = !!getPlatformBaseUrl();
+
+  const managedPrerequisites: ManagedPrerequisites = {
+    integrationModeManaged,
+    assistantApiKeyPresent,
+    platformAssistantIdResolvable,
+  };
+
+  const managedAvailable =
+    integrationModeManaged &&
+    assistantApiKeyPresent &&
+    platformAssistantIdResolvable;
+
+  return { managedAvailable, managedPrerequisites };
+}
+
 export async function handleTwitterIntegrationConfig(
   msg: TwitterIntegrationConfigRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   try {
+    // Read the current mode once — individual branches may override after persisting a new mode.
+    const rawForMode = loadRawConfig();
+    let currentMode =
+      (getNestedValue(rawForMode, "twitter.integrationMode") as
+        | "local_byo"
+        | "managed"
+        | undefined) ?? "local_byo";
+
+    /** Helper: compute managed prereqs for the current (possibly updated) mode. */
+    const managed = () => computeManagedPrerequisites(currentMode);
+
     if (msg.action === "get") {
       const raw = loadRawConfig();
-      const mode =
-        (getNestedValue(raw, "twitter.integrationMode") as
-          | "local_byo"
-          | "managed"
-          | undefined) ?? "local_byo";
       const strategy =
         (getNestedValue(raw, "twitter.operationStrategy") as
           | "oauth"
@@ -123,15 +156,18 @@ export async function handleTwitterIntegrationConfig(
       const strategyConfigured =
         getNestedValue(raw, "twitter.operationStrategy") !== undefined;
       const localClientConfigured = hasTwitterClientId();
-      const connected = !!getSecureKey(
-        "credential:integration:twitter:access_token",
-      );
+      const connected =
+        currentMode === "managed"
+          ? false
+          : !!getSecureKey("credential:integration:twitter:access_token");
       const meta = getCredentialMetadata("integration:twitter", "access_token");
+      const { managedAvailable, managedPrerequisites } = managed();
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: true,
-        mode,
-        managedAvailable: false,
+        mode: currentMode,
+        managedAvailable,
+        managedPrerequisites,
         localClientConfigured,
         connected,
         accountInfo: meta?.accountInfo ?? undefined,
@@ -148,10 +184,12 @@ export async function handleTwitterIntegrationConfig(
           | undefined) ?? "auto";
       const strategyConfigured =
         getNestedValue(raw, "twitter.operationStrategy") !== undefined;
+      const { managedAvailable, managedPrerequisites } = managed();
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: true,
-        managedAvailable: false,
+        managedAvailable,
+        managedPrerequisites,
         localClientConfigured: hasTwitterClientId(),
         connected: !!getSecureKey(
           "credential:integration:twitter:access_token",
@@ -163,10 +201,12 @@ export async function handleTwitterIntegrationConfig(
       const valid = ["oauth", "browser", "auto"];
       const value = msg.strategy;
       if (!value || !valid.includes(value)) {
+        const { managedAvailable, managedPrerequisites } = managed();
         ctx.send(socket, {
           type: "twitter_integration_config_response",
           success: false,
-          managedAvailable: false,
+          managedAvailable,
+          managedPrerequisites,
           localClientConfigured: false,
           connected: false,
           error: `Invalid strategy value: ${String(value)}. Must be one of: ${valid.join(", ")}`,
@@ -176,10 +216,12 @@ export async function handleTwitterIntegrationConfig(
       const raw = loadRawConfig();
       setNestedValue(raw, "twitter.operationStrategy", value);
       saveRawConfig(raw);
+      const { managedAvailable, managedPrerequisites } = managed();
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: true,
-        managedAvailable: false,
+        managedAvailable,
+        managedPrerequisites,
         localClientConfigured: hasTwitterClientId(),
         connected: !!getSecureKey(
           "credential:integration:twitter:access_token",
@@ -189,24 +231,29 @@ export async function handleTwitterIntegrationConfig(
       });
     } else if (msg.action === "set_mode") {
       const raw = loadRawConfig();
-      setNestedValue(raw, "twitter.integrationMode", msg.mode ?? "local_byo");
+      currentMode = msg.mode ?? "local_byo";
+      setNestedValue(raw, "twitter.integrationMode", currentMode);
       saveRawConfig(raw);
+      const { managedAvailable, managedPrerequisites } = managed();
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: true,
-        mode: msg.mode ?? "local_byo",
-        managedAvailable: false,
+        mode: currentMode,
+        managedAvailable,
+        managedPrerequisites,
         localClientConfigured: hasTwitterClientId(),
         connected: !!getSecureKey(
           "credential:integration:twitter:access_token",
         ),
       });
     } else if (msg.action === "set_local_client") {
+      const { managedAvailable, managedPrerequisites } = managed();
       if (!msg.clientId) {
         ctx.send(socket, {
           type: "twitter_integration_config_response",
           success: false,
-          managedAvailable: false,
+          managedAvailable,
+          managedPrerequisites,
           localClientConfigured: false,
           connected: false,
           error: "clientId is required for set_local_client action",
@@ -225,7 +272,8 @@ export async function handleTwitterIntegrationConfig(
         ctx.send(socket, {
           type: "twitter_integration_config_response",
           success: false,
-          managedAvailable: false,
+          managedAvailable,
+          managedPrerequisites,
           localClientConfigured: false,
           connected: false,
           error: "Failed to store client ID in secure storage",
@@ -253,7 +301,8 @@ export async function handleTwitterIntegrationConfig(
           ctx.send(socket, {
             type: "twitter_integration_config_response",
             success: false,
-            managedAvailable: false,
+            managedAvailable,
+            managedPrerequisites,
             localClientConfigured: !!previousClientId,
             connected: false,
             error: "Failed to store client secret in secure storage",
@@ -269,7 +318,8 @@ export async function handleTwitterIntegrationConfig(
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: true,
-        managedAvailable: false,
+        managedAvailable,
+        managedPrerequisites,
         localClientConfigured: true,
         connected: !!getSecureKey(
           "credential:integration:twitter:access_token",
@@ -303,10 +353,12 @@ export async function handleTwitterIntegrationConfig(
       if (!hasDeleteError) {
         deleteCredentialMetadata("integration:twitter", "access_token");
       }
+      const { managedAvailable, managedPrerequisites } = managed();
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: !hasDeleteError,
-        managedAvailable: false,
+        managedAvailable,
+        managedPrerequisites,
         localClientConfigured: hasDeleteError ? hasTwitterClientId() : false,
         connected: hasDeleteError
           ? !!getSecureKey("credential:integration:twitter:access_token")
@@ -331,10 +383,12 @@ export async function handleTwitterIntegrationConfig(
       if (!disconnectFailed) {
         deleteCredentialMetadata("integration:twitter", "access_token");
       }
+      const { managedAvailable, managedPrerequisites } = managed();
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: !disconnectFailed,
-        managedAvailable: false,
+        managedAvailable,
+        managedPrerequisites,
         localClientConfigured: hasTwitterClientId(),
         connected: disconnectFailed
           ? !!getSecureKey("credential:integration:twitter:access_token")
@@ -346,10 +400,12 @@ export async function handleTwitterIntegrationConfig(
           : {}),
       });
     } else {
+      const { managedAvailable, managedPrerequisites } = managed();
       ctx.send(socket, {
         type: "twitter_integration_config_response",
         success: false,
-        managedAvailable: false,
+        managedAvailable,
+        managedPrerequisites,
         localClientConfigured: false,
         connected: false,
         error: `Unknown action: ${String(msg.action)}`,

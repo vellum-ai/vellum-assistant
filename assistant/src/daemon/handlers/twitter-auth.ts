@@ -57,6 +57,27 @@ export async function handleTwitterAuthStart(
     const mode =
       (getNestedValue(raw, "twitter.integrationMode") as string | undefined) ??
       "local_byo";
+    if (mode === "managed") {
+      // In managed mode, check prerequisites and return specific guidance
+      const hasApiKey = !!getSecureKey("credential:vellum:assistant_api_key");
+      if (!hasApiKey) {
+        ctx.send(socket, {
+          type: "twitter_auth_result",
+          success: false,
+          error:
+            "managed_missing_api_key: Assistant API key is not configured. Set up your API key to use managed Twitter.",
+        });
+        return;
+      }
+      // Prerequisites met — auth should happen via the platform desktop client
+      ctx.send(socket, {
+        type: "twitter_auth_result",
+        success: false,
+        error:
+          "managed_auth_via_platform: In managed mode, Twitter authentication is handled by the platform. Use the desktop client to connect.",
+      });
+      return;
+    }
     if (mode !== "local_byo") {
       ctx.send(socket, {
         type: "twitter_auth_result",

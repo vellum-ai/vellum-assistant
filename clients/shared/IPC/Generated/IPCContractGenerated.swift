@@ -2735,6 +2735,21 @@ public struct IPCListSurfaceData: Codable, Sendable {
     }
 }
 
+public struct IPCManagedPrerequisites: Codable, Sendable {
+    /// Whether twitter.integrationMode is set to "managed" in config.
+    public let integrationModeManaged: Bool
+    /// Whether the assistant API key credential exists in secure storage.
+    public let assistantApiKeyPresent: Bool
+    /// Whether the platform base URL is configured (platform registration resolvable).
+    public let platformAssistantIdResolvable: Bool
+
+    public init(integrationModeManaged: Bool, assistantApiKeyPresent: Bool, platformAssistantIdResolvable: Bool) {
+        self.integrationModeManaged = integrationModeManaged
+        self.assistantApiKeyPresent = assistantApiKeyPresent
+        self.platformAssistantIdResolvable = platformAssistantIdResolvable
+    }
+}
+
 public struct IPCMemoryRecalled: Codable, Sendable {
     public let type: String
     public let provider: String
@@ -5076,6 +5091,8 @@ public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
     public let success: Bool
     public let mode: String?
     public let managedAvailable: Bool
+    /// Detailed prerequisite status for managed Twitter availability.
+    public let managedPrerequisites: IPCManagedPrerequisites?
     public let localClientConfigured: Bool
     public let connected: Bool
     public let accountInfo: String?
@@ -5084,11 +5101,12 @@ public struct IPCTwitterIntegrationConfigResponse: Codable, Sendable {
     public let strategyConfigured: Bool?
     public let error: String?
 
-    public init(type: String, success: Bool, mode: String? = nil, managedAvailable: Bool, localClientConfigured: Bool, connected: Bool, accountInfo: String? = nil, strategy: String? = nil, strategyConfigured: Bool? = nil, error: String? = nil) {
+    public init(type: String, success: Bool, mode: String? = nil, managedAvailable: Bool, managedPrerequisites: IPCManagedPrerequisites? = nil, localClientConfigured: Bool, connected: Bool, accountInfo: String? = nil, strategy: String? = nil, strategyConfigured: Bool? = nil, error: String? = nil) {
         self.type = type
         self.success = success
         self.mode = mode
         self.managedAvailable = managedAvailable
+        self.managedPrerequisites = managedPrerequisites
         self.localClientConfigured = localClientConfigured
         self.connected = connected
         self.accountInfo = accountInfo
