@@ -71,22 +71,26 @@ async function readStdin(): Promise<string> {
 export function registerBrowserRelayCommand(program: Command): void {
   const browser = program
     .command("browser")
-    .description("Browser automation and extension relay");
+    .description("Browser automation commands");
 
   browser.addHelpText(
     "after",
     `
-Browser automation commands that communicate with Chrome tabs through the
-browser extension relay. The extension must be installed and connected.
+Browser automation commands. Use a browser-specific subcommand to interact
+with browser tabs and extensions.
 
 Examples:
-  $ assistant browser relay find-tab --url "*://*.instagram.com/*"
-  $ assistant browser relay evaluate --tab-id 123 --code "document.title"
-  $ assistant browser relay screenshot --tab-id 123
-  $ assistant browser relay status`,
+  $ assistant browser chrome relay find-tab --url "*://*.instagram.com/*"
+  $ assistant browser chrome relay evaluate --tab-id 123 --code "document.title"
+  $ assistant browser chrome relay screenshot --tab-id 123
+  $ assistant browser chrome relay status`,
   );
 
-  const relay = browser
+  const chrome = browser
+    .command("chrome")
+    .description("Chrome browser automation via the extension relay");
+
+  const relay = chrome
     .command("relay")
     .description(
       "Send commands to Chrome tabs via the browser extension relay",
@@ -111,10 +115,10 @@ Available subcommands:
   status        Check browser extension relay connection status
 
 Examples:
-  $ assistant browser relay find-tab --url "*://*.amazon.com/*"
-  $ assistant browser relay new-tab --url "https://example.com"
-  $ assistant browser relay evaluate --tab-id 42 --code "document.title"
-  $ echo "document.querySelectorAll('a').length" | assistant browser relay evaluate --tab-id 42`,
+  $ assistant browser chrome relay find-tab --url "*://*.amazon.com/*"
+  $ assistant browser chrome relay new-tab --url "https://example.com"
+  $ assistant browser chrome relay evaluate --tab-id 42 --code "document.title"
+  $ echo "document.querySelectorAll('a').length" | assistant browser chrome relay evaluate --tab-id 42`,
   );
 
   // -- find-tab --
@@ -136,8 +140,8 @@ Arguments:
 Returns the tab ID of the first matching tab, or an error if no match is found.
 
 Examples:
-  $ assistant browser relay find-tab --url "*://*.amazon.com/*"
-  $ assistant browser relay find-tab --url "*://mail.google.com/*"`,
+  $ assistant browser chrome relay find-tab --url "*://*.amazon.com/*"
+  $ assistant browser chrome relay find-tab --url "*://mail.google.com/*"`,
     )
     .action(async (opts: { url: string }) => {
       await relayCommand({ action: "find_tab", url: opts.url });
@@ -158,8 +162,8 @@ Arguments:
 Returns the tab ID of the newly created tab.
 
 Examples:
-  $ assistant browser relay new-tab --url "https://example.com"
-  $ assistant browser relay new-tab --url "https://www.instagram.com/explore/"`,
+  $ assistant browser chrome relay new-tab --url "https://example.com"
+  $ assistant browser chrome relay new-tab --url "https://www.instagram.com/explore/"`,
     )
     .action(async (opts: { url: string }) => {
       await relayCommand({ action: "new_tab", url: opts.url });
@@ -180,7 +184,7 @@ Arguments:
   --url <url>     The URL to navigate the tab to.
 
 Examples:
-  $ assistant browser relay navigate --tab-id 123 --url "https://example.com/page2"`,
+  $ assistant browser chrome relay navigate --tab-id 123 --url "https://example.com/page2"`,
     )
     .action(async (opts: { tabId: number; url: string }) => {
       await relayCommand({
@@ -208,9 +212,9 @@ If --code is omitted, reads JavaScript from stdin. This is useful for long
 scripts that would be unwieldy as a single CLI argument.
 
 Examples:
-  $ assistant browser relay evaluate --tab-id 123 --code "document.title"
-  $ echo "document.querySelectorAll('a').length" | assistant browser relay evaluate --tab-id 123
-  $ cat scrape.js | assistant browser relay evaluate --tab-id 123`,
+  $ assistant browser chrome relay evaluate --tab-id 123 --code "document.title"
+  $ echo "document.querySelectorAll('a').length" | assistant browser chrome relay evaluate --tab-id 123
+  $ cat scrape.js | assistant browser chrome relay evaluate --tab-id 123`,
     )
     .action(async (opts: { tabId: number; code?: string }) => {
       let code: string;
@@ -251,8 +255,8 @@ Arguments:
 Returns all cookies matching the specified domain.
 
 Examples:
-  $ assistant browser relay get-cookies --domain ".instagram.com"
-  $ assistant browser relay get-cookies --domain ".amazon.com"`,
+  $ assistant browser chrome relay get-cookies --domain ".instagram.com"
+  $ assistant browser chrome relay get-cookies --domain ".amazon.com"`,
     )
     .action(async (opts: { domain: string }) => {
       await relayCommand({ action: "get_cookies", domain: opts.domain });
@@ -272,7 +276,7 @@ Arguments:
                     at minimum "name", "value", and "domain" fields.
 
 Examples:
-  $ assistant browser relay set-cookie --cookie '{"name":"session","value":"abc123","domain":".example.com"}'`,
+  $ assistant browser chrome relay set-cookie --cookie '{"name":"session","value":"abc123","domain":".example.com"}'`,
     )
     .action(async (opts: { cookie: string }) => {
       let parsed: unknown;
@@ -307,8 +311,8 @@ Arguments:
 Returns a base64-encoded screenshot image.
 
 Examples:
-  $ assistant browser relay screenshot --tab-id 123
-  $ assistant browser relay screenshot`,
+  $ assistant browser chrome relay screenshot --tab-id 123
+  $ assistant browser chrome relay screenshot`,
     )
     .action(async (opts: { tabId?: number }) => {
       await relayCommand({
@@ -329,7 +333,7 @@ Reports whether the browser extension relay is connected, including the
 connection ID, last heartbeat time, and number of pending commands.
 
 Examples:
-  $ assistant browser relay status`,
+  $ assistant browser chrome relay status`,
     )
     .action(async () => {
       try {
