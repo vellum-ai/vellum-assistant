@@ -285,7 +285,6 @@ mock.module("../memory/conversation-queries.js", () => ({
   countConversations: () => 0,
   searchConversations: () => [],
   getMessagesPaginated: () => ({ messages: [], hasMore: false }),
-  getNextMessage: () => null,
 }));
 
 mock.module("../memory/conversation-title-service.js", () => ({
