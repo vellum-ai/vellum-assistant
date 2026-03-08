@@ -194,6 +194,72 @@ describe("whatsapp-webhook", () => {
     expect(body.error).toBe("Webhook signature validation not configured");
   });
 
+  it("force-refreshes app secret when initial cache read returns undefined, then proceeds normally", async () => {
+    let callCount = 0;
+    const caches = {
+      credentials: {
+        get: async (key: string, opts?: { force?: boolean }) => {
+          if (key === "credential:whatsapp:app_secret") {
+            callCount++;
+            // First call (non-forced) returns undefined; second call (forced) returns a valid secret
+            if (callCount === 1 && !opts?.force) return undefined;
+            return "refreshed-app-secret";
+          }
+          if (key === "credential:whatsapp:webhook_verify_token")
+            return "verify-token";
+          if (key === "credential:whatsapp:phone_number_id")
+            return "test-phone-id";
+          if (key === "credential:whatsapp:access_token")
+            return "test-access-token";
+          return undefined;
+        },
+        invalidate: () => {},
+      } as unknown as CredentialCache,
+    };
+
+    normalizeWhatsAppWebhookMock.mockImplementation(() => []);
+
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, caches);
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    // Should succeed (200) because the forced refresh returned a valid secret
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+    // The credential cache should have been called at least twice for app_secret
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("returns 500 when force-refresh also returns undefined for app secret", async () => {
+    const caches = {
+      credentials: {
+        get: async (key: string) => {
+          // Always return undefined for app_secret — both normal and forced reads
+          if (key === "credential:whatsapp:app_secret") return undefined;
+          if (key === "credential:whatsapp:webhook_verify_token")
+            return "verify-token";
+          if (key === "credential:whatsapp:phone_number_id")
+            return "test-phone-id";
+          if (key === "credential:whatsapp:access_token")
+            return "test-access-token";
+          return undefined;
+        },
+        invalidate: () => {},
+      } as unknown as CredentialCache,
+    };
+
+    const { handler } = createWhatsAppWebhookHandler(baseConfig, caches);
+    const res = await handler(
+      buildPostReq({ object: "whatsapp_business_account", entry: [] }),
+    );
+
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.error).toBe("Webhook signature validation not configured");
+  });
+
   it("rejects POST when signature verification fails", async () => {
     verifyWhatsAppWebhookSignatureMock.mockImplementation(() => false);
 

@@ -114,9 +114,25 @@ export function createWhatsAppWebhookHandler(
       ? await caches.credentials.get("credential:whatsapp:app_secret")
       : undefined;
 
+    // If the initial cache read returned undefined but a credential cache is available,
+    // attempt one forced refresh before fail-closing — the credential may have been
+    // written after the TTL cache was last populated.
+    let effectiveAppSecret = appSecret;
+    if (!effectiveAppSecret && caches?.credentials) {
+      effectiveAppSecret = await caches.credentials.get(
+        "credential:whatsapp:app_secret",
+        { force: true },
+      );
+      if (effectiveAppSecret) {
+        tlog.info(
+          "WhatsApp app secret resolved after forced credential refresh",
+        );
+      }
+    }
+
     // Signature validation is required — reject requests when the app secret is not configured
     // rather than silently accepting unauthenticated payloads (fail-closed).
-    if (!appSecret) {
+    if (!effectiveAppSecret) {
       tlog.warn("WhatsApp app secret is not configured — rejecting request");
       return Response.json(
         { error: "Webhook signature validation not configured" },
@@ -127,7 +143,7 @@ export function createWhatsAppWebhookHandler(
     let signatureValid = verifyWhatsAppWebhookSignature(
       req.headers,
       rawBody,
-      appSecret,
+      effectiveAppSecret,
     );
 
     // One-shot force retry: if verification failed and caches are available,
