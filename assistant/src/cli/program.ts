@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { Command } from "commander";
 
 import { registerHooksCommand } from "../hooks/cli.js";
-import { registerAmazonCommand } from "./commands/amazon.js";
+import { registerAmazonCommand } from "./commands/amazon/index.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
