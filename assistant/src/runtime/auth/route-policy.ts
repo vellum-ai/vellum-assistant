@@ -295,7 +295,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
 for (const { endpoint, scopes } of ACTOR_ENDPOINTS) {
   registerPolicy(endpoint, {
     requiredScopes: scopes,
-    allowedPrincipalTypes: ["actor", "svc_gateway", "ipc"],
+    allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "ipc"],
   });
 }
 

@@ -41,12 +41,12 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 
 **Subject patterns:**
 
-| Pattern                                  | Principal Type | Description                                   |
-| ---------------------------------------- | -------------- | --------------------------------------------- |
-| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client                   |
-| `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks)           |
-| `ipc:<assistantId>:<sessionId>`          | `ipc`          | Internal IPC connections                      |
-| `svc:daemon:self`                        | n/a            | Daemon self-identification (for internal use) |
+| Pattern                                  | Principal Type | Description                                 |
+| ---------------------------------------- | -------------- | ------------------------------------------- |
+| `actor:<assistantId>:<actorPrincipalId>` | `actor`        | Desktop, iOS, or CLI client                 |
+| `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks)         |
+| `ipc:<assistantId>:<sessionId>`          | `ipc`          | Internal IPC connections                    |
+| `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (CLI bootstrap, local) |
 
 **Scope profiles:**
 
