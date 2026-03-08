@@ -5,18 +5,23 @@
  * management, so we only verify that old inline CDP patterns are absent.
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-const AMAZON_CLI_PATH = join(
+const AMAZON_CLI_DIR = join(
   import.meta.dirname ?? __dirname,
   "..",
   "cli",
   "commands",
-  "amazon.ts",
+  "amazon",
 );
-const amazonSource = readFileSync(AMAZON_CLI_PATH, "utf-8");
+
+// Read all .ts files in the amazon/ directory and concatenate their source
+const amazonSource = readdirSync(AMAZON_CLI_DIR)
+  .filter((f) => f.endsWith(".ts"))
+  .map((f) => readFileSync(join(AMAZON_CLI_DIR, f), "utf-8"))
+  .join("\n");
 
 describe("Amazon CLI CDP integration", () => {
   test("does not define its own CDP_BASE constant", () => {
