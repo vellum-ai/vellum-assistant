@@ -83,7 +83,13 @@ export class TelegramStreamingDelivery {
           },
           "finish() sending as new message because currentMessageId is null",
         );
-        this.currentMessageText += this.buffer;
+        if (this.textDelivered) {
+          // Initial text already delivered but no messageId — just send remainder
+          this.currentMessageText = this.buffer;
+        } else {
+          // Initial send failed, buffer has been restored — send everything
+          this.currentMessageText += this.buffer;
+        }
         this.buffer = "";
         // Send as new message
         await this.sendNewMessage(this.currentMessageText, approval);
@@ -125,6 +131,7 @@ export class TelegramStreamingDelivery {
 
         // Send overflow (with approval buttons if present) as a new message
         await this.sendNewMessage(overflow, approval);
+        this.finishOk = true;
         return;
       }
 
