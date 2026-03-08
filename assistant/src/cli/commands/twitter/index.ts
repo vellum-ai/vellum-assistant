@@ -25,15 +25,18 @@ import {
   getHomeTimeline,
   getLikes,
   getNotifications,
-  getTweetDetail,
   getUserByScreenName,
   getUserMedia,
-  getUserTweets,
-  searchTweets,
   SessionExpiredError,
 } from "./client.js";
 import type { TwitterStrategy } from "./router.js";
-import { routedPostTweet } from "./router.js";
+import {
+  routedGetTweetDetail,
+  routedGetUserByScreenName,
+  routedGetUserTweets,
+  routedPostTweet,
+  routedSearchTweets,
+} from "./router.js";
 import { clearSession, importFromRecording, loadSession } from "./session.js";
 
 // ---------------------------------------------------------------------------
@@ -588,30 +591,44 @@ Examples:
     .description("Fetch a user's recent tweets")
     .argument("<screenName>", "Twitter screen name (without @)")
     .option("--count <n>", "Number of tweets to fetch", "20")
+    .option(
+      "--strategy <strategy>",
+      "Operation strategy: managed or browser (default: browser)",
+    )
     .addHelpText(
       "after",
       `
 Arguments:
   screenName   Twitter screen name without the @ prefix (e.g. "elonmusk", not "@elonmusk")
 
-Fetches a user's recent tweets via the browser session. Resolves the screen name
-to a user ID first, then retrieves their tweet timeline. The --count flag controls
-how many tweets to return (default: 20).
+Fetches a user's recent tweets. Resolves the screen name to a user ID first,
+then retrieves their tweet timeline. The --count flag controls how many tweets
+to return (default: 20). Use --strategy managed to route through the platform proxy.
 
 Examples:
   $ assistant x timeline elonmusk
   $ assistant x timeline vaborsh --count 50
-  $ assistant x timeline openai --count 10 --json`,
+  $ assistant x timeline openai --count 10 --json
+  $ assistant x timeline elonmusk --strategy managed`,
     )
     .action(
-      async (screenName: string, opts: { count: string }, cmd: Command) => {
+      async (
+        screenName: string,
+        opts: { count: string; strategy?: string },
+        cmd: Command,
+      ) => {
         await run(cmd, async () => {
-          const user = await getUserByScreenName(screenName.replace(/^@/, ""));
-          const tweets = await getUserTweets(
+          const strategy = (opts.strategy ?? "browser") as TwitterStrategy;
+          const { result: user, pathUsed } = await routedGetUserByScreenName(
+            screenName.replace(/^@/, ""),
+            { strategy },
+          );
+          const { result: tweets } = await routedGetUserTweets(
             user.userId,
             parseInt(opts.count, 10),
+            { strategy },
           );
-          return { user, tweets };
+          return { user, tweets, pathUsed };
         });
       },
     );
@@ -622,6 +639,10 @@ Examples:
   tw.command("tweet")
     .description("Fetch a tweet and its reply thread")
     .argument("<tweetIdOrUrl>", "Tweet ID or URL")
+    .option(
+      "--strategy <strategy>",
+      "Operation strategy: managed or browser (default: browser)",
+    )
     .addHelpText(
       "after",
       `
@@ -629,24 +650,35 @@ Arguments:
   tweetIdOrUrl   A bare tweet ID (e.g. 1234567890) or a full tweet URL
                  (e.g. https://x.com/user/status/1234567890)
 
-Fetches a single tweet and its reply thread via the browser session. The tweet
-ID is extracted from the last numeric segment of the input. Returns an array of
-tweets representing the conversation thread.
+Fetches a single tweet and its reply thread. The tweet ID is extracted from the
+last numeric segment of the input. Returns an array of tweets representing the
+conversation thread. Use --strategy managed to route through the platform proxy.
 
 Examples:
   $ assistant x tweet 1234567890
   $ assistant x tweet https://x.com/elonmusk/status/1234567890
-  $ assistant x tweet https://x.com/openai/status/9876543210 --json`,
+  $ assistant x tweet https://x.com/openai/status/9876543210 --json
+  $ assistant x tweet 1234567890 --strategy managed`,
     )
-    .action(async (tweetIdOrUrl: string, _opts: unknown, cmd: Command) => {
-      await run(cmd, async () => {
-        const idMatch = tweetIdOrUrl.match(/(\d+)\s*$/);
-        if (!idMatch)
-          throw new Error(`Could not extract tweet ID from: ${tweetIdOrUrl}`);
-        const tweets = await getTweetDetail(idMatch[1]);
-        return { tweets };
-      });
-    });
+    .action(
+      async (
+        tweetIdOrUrl: string,
+        opts: { strategy?: string },
+        cmd: Command,
+      ) => {
+        await run(cmd, async () => {
+          const idMatch = tweetIdOrUrl.match(/(\d+)\s*$/);
+          if (!idMatch)
+            throw new Error(`Could not extract tweet ID from: ${tweetIdOrUrl}`);
+          const strategy = (opts.strategy ?? "browser") as TwitterStrategy;
+          const { result: tweets, pathUsed } = await routedGetTweetDetail(
+            idMatch[1],
+            { strategy },
+          );
+          return { tweets, pathUsed };
+        });
+      },
+    );
 
   // =========================================================================
   // search — search tweets
@@ -655,6 +687,10 @@ Examples:
     .description("Search tweets")
     .argument("<query>", "Search query")
     .option("--product <type>", "Top, Latest, People, or Media", "Top")
+    .option(
+      "--strategy <strategy>",
+      "Operation strategy: managed or browser (default: browser)",
+    )
     .addHelpText(
       "after",
       `
@@ -668,22 +704,33 @@ The --product flag selects the search result type:
   People   — user accounts matching the query
   Media    — tweets containing images or video
 
-Uses the browser session path. Requires an active browser session.
+Use --strategy managed to route through the platform proxy (uses Twitter's
+recent search API).
 
 Examples:
   $ assistant x search "AI agents"
   $ assistant x search "from:elonmusk SpaceX" --product Latest
-  $ assistant x search "machine learning" --product Media --json`,
+  $ assistant x search "machine learning" --product Media --json
+  $ assistant x search "AI agents" --strategy managed`,
     )
-    .action(async (query: string, opts: { product: string }, cmd: Command) => {
-      await run(cmd, async () => {
-        const tweets = await searchTweets(
-          query,
-          opts.product as "Top" | "Latest" | "People" | "Media",
-        );
-        return { query, tweets };
-      });
-    });
+    .action(
+      async (
+        query: string,
+        opts: { product: string; strategy?: string },
+        cmd: Command,
+      ) => {
+        await run(cmd, async () => {
+          const strategy = (opts.strategy ?? "browser") as TwitterStrategy;
+          const product = opts.product as "Top" | "Latest" | "People" | "Media";
+          const { result: tweets, pathUsed } = await routedSearchTweets(
+            query,
+            product,
+            { strategy },
+          );
+          return { query, tweets, pathUsed };
+        });
+      },
+    );
 
   // =========================================================================
   // bookmarks — fetch bookmarks
