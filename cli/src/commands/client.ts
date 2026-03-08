@@ -58,14 +58,11 @@ function parseArgs(): ParsedArgs {
       );
       process.exit(1);
     }
-  } else if (
-    process.env.RUNTIME_URL ||
-    flagArgs.includes("--url") ||
-    flagArgs.includes("-u")
-  ) {
-    // Explicit URL provided via env var or flag — skip assistant resolution
-    entry = loadLatestAssistant();
   } else {
+    const hasExplicitUrl =
+      process.env.RUNTIME_URL ||
+      flagArgs.includes("--url") ||
+      flagArgs.includes("-u");
     const active = getActiveAssistant();
     if (active) {
       entry = findAssistantByName(active);
@@ -75,6 +72,9 @@ function parseArgs(): ParsedArgs {
         );
         process.exit(1);
       }
+    } else if (hasExplicitUrl) {
+      // URL provided but no active assistant — use latest for remaining defaults
+      entry = loadLatestAssistant();
     } else {
       console.error(
         "No active assistant set. Set one with 'vellum use <name>' or specify a name: 'vellum client <name>'.",
