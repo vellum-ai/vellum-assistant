@@ -37,6 +37,10 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
+// Track config writes for accountInfo-to-config assertions
+let lastSavedRawConfig: Record<string, unknown> | undefined;
+let configCacheInvalidated = false;
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
@@ -45,9 +49,38 @@ mock.module("../config/loader.js", () => ({
     ingress: { publicBaseUrl: "https://test.example.com" },
   }),
   loadRawConfig: () => ({}),
-  saveRawConfig: () => {},
+  saveRawConfig: (raw: Record<string, unknown>) => {
+    lastSavedRawConfig = raw;
+  },
   saveConfig: () => {},
-  invalidateConfigCache: () => {},
+  invalidateConfigCache: () => {
+    configCacheInvalidated = true;
+  },
+  getNestedValue: (obj: Record<string, unknown>, path: string): unknown => {
+    const keys = path.split(".");
+    let current: unknown = obj;
+    for (const key of keys) {
+      if (current == null || typeof current !== "object") return undefined;
+      current = (current as Record<string, unknown>)[key];
+    }
+    return current;
+  },
+  setNestedValue: (
+    obj: Record<string, unknown>,
+    path: string,
+    value: unknown,
+  ): void => {
+    const keys = path.split(".");
+    let current = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+      const key = keys[i];
+      if (current[key] == null || typeof current[key] !== "object") {
+        current[key] = {};
+      }
+      current = current[key] as Record<string, unknown>;
+    }
+    current[keys[keys.length - 1]] = value;
+  },
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({
@@ -64,12 +97,23 @@ mock.module("../security/secure-keys.js", () => ({
     secureKeyStore[account] = value;
     return true;
   },
+  setSecureKeyAsync: async (account: string, value: string) => {
+    secureKeyStore[account] = value;
+    return true;
+  },
   deleteSecureKey: (account: string) => {
     if (account in secureKeyStore) {
       delete secureKeyStore[account];
       return "deleted";
     }
     return "not-found";
+  },
+  deleteSecureKeyAsync: async (account: string) => {
+    if (account in secureKeyStore) {
+      delete secureKeyStore[account];
+      return "deleted" as const;
+    }
+    return "not-found" as const;
   },
   listSecureKeys: () => Object.keys(secureKeyStore),
   getBackendType: () => "encrypted",
@@ -109,6 +153,11 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   _setMetadataPath: () => {},
 }));
 
+// Mock post-connect hooks (needed for direct storeOAuth2Tokens tests)
+mock.module("../tools/credentials/post-connect-hooks.js", () => ({
+  runPostConnectHook: async () => {},
+}));
+
 // Mock OAuth2 flow (required by other handlers that may be loaded transitively)
 mock.module("../security/oauth2.js", () => ({
   startOAuth2Flow: async () => ({}),
@@ -121,6 +170,7 @@ import type {
   OAuthConnectStartRequest,
   ServerMessage,
 } from "../daemon/ipc-protocol.js";
+import { storeOAuth2Tokens } from "../oauth/token-persistence.js";
 import { DebouncerMap } from "../util/debounce.js";
 
 function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
@@ -157,6 +207,8 @@ describe("OAuth connect handler", () => {
     orchestratorError = null;
     lastOrchestratorOptions = undefined;
     shouldCallOpenUrl = false;
+    lastSavedRawConfig = undefined;
+    configCacheInvalidated = false;
   });
 
   test("missing service returns error", async () => {
@@ -358,5 +410,44 @@ describe("OAuth connect handler", () => {
 
     const openUrlMsg = sent.find((m) => m.type === "open_url");
     expect(openUrlMsg).toBeDefined();
+  });
+
+  test("storeOAuth2Tokens writes accountInfo to config", async () => {
+    const result = await storeOAuth2Tokens({
+      service: "integration:gmail",
+      tokens: { accessToken: "test-access-token" },
+      grantedScopes: ["email"],
+      rawTokenResponse: {},
+      clientId: "test-client-id",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      identityAccountInfo: "user@example.com",
+    });
+
+    expect(result.accountInfo).toBe("user@example.com");
+
+    // Verify accountInfo was written to config
+    expect(lastSavedRawConfig).toBeDefined();
+    const integrations = lastSavedRawConfig!.integrations as Record<
+      string,
+      unknown
+    >;
+    const accountInfoMap = integrations.accountInfo as Record<string, unknown>;
+    expect(accountInfoMap["integration:gmail"]).toBe("user@example.com");
+    expect(configCacheInvalidated).toBe(true);
+  });
+
+  test("storeOAuth2Tokens does not write to config when no accountInfo", async () => {
+    const result = await storeOAuth2Tokens({
+      service: "integration:gmail",
+      tokens: { accessToken: "test-access-token" },
+      grantedScopes: ["email"],
+      rawTokenResponse: {},
+      clientId: "test-client-id",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+    });
+
+    expect(result.accountInfo).toBeUndefined();
+    expect(lastSavedRawConfig).toBeUndefined();
+    expect(configCacheInvalidated).toBe(false);
   });
 });
