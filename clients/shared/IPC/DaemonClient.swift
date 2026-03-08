@@ -1063,6 +1063,16 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     // MARK: - Workspace API
 
+    /// A restricted character set for encoding query parameter values.
+    /// `.urlQueryAllowed` permits `&`, `=`, `+`, and `#` which are
+    /// query-string metacharacters. File paths containing these characters
+    /// would break parameter parsing, so we exclude them.
+    private static let queryValueAllowed: CharacterSet = {
+        var cs = CharacterSet.urlQueryAllowed
+        cs.remove(charactersIn: "&=+#")
+        return cs
+    }()
+
     /// Fetch the workspace directory tree.
     /// Delegates to HTTPTransport for remote connections, or calls the local daemon HTTP server.
     public func fetchWorkspaceTree(path: String = "") async -> WorkspaceTreeResponse? {
@@ -1070,7 +1080,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return await httpTransport.fetchWorkspaceTree(path: path)
         }
 
-        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
         let queryPath = path.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?path=\(encoded)"
         guard let request = buildLocalRequest(target: .daemon, path: queryPath, timeout: 10) else { return nil }
 
@@ -1090,7 +1100,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return await httpTransport.fetchWorkspaceFile(path: path)
         }
 
-        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
         guard let request = buildLocalRequest(
             target: .daemon,
             path: "v1/workspace/file?path=\(encoded)",
@@ -1113,7 +1123,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return httpTransport.workspaceFileContentURL(path: path)
         }
 
-        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? path
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
         guard let port = httpPort else { return nil }
         return URL(string: "http://localhost:\(port)/v1/workspace/file/content?path=\(encoded)")
     }
@@ -1781,18 +1791,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         } catch {
             return nil
         }
-    }
-
-    // MARK: - Workspace Files
-
-    /// Request the list of workspace files from the daemon.
-    public func sendWorkspaceFilesList() throws {
-        try send(WorkspaceFilesListRequestMessage())
-    }
-
-    /// Request the content of a workspace file from the daemon.
-    public func sendWorkspaceFileRead(path: String) throws {
-        try send(WorkspaceFileReadRequestMessage(path: path))
     }
 
     // MARK: - Document Persistence
