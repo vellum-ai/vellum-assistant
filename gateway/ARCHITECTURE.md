@@ -276,7 +276,7 @@ Outbound proactive (assistant → user, initiated by messaging provider):
 
 The `replyCallbackUrl` included in the inbound forward is built from the `gatewayInternalBaseUrl` config field, which defaults to `http://127.0.0.1:${GATEWAY_PORT}` and can be overridden via the `GATEWAY_INTERNAL_BASE_URL` environment variable. This allows distributed deployments where the gateway and runtime are not co-located (e.g., separate containers or hosts).
 
-The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`GATEWAY_TELEGRAM_DELIVER_AUTH_BYPASS`) is not set, the endpoint returns 503 rather than allowing unauthenticated access.
+The `/deliver/telegram` endpoint requires bearer auth unconditionally (fail-closed). If no bearer token is configured and the dev-only bypass flag (`telegram.deliverAuthBypass` in `workspace/config.json`) is not set, the endpoint returns 503 rather than allowing unauthenticated access. The bypass requires `APP_VERSION=0.0.0-dev`.
 
 **Bot-account limitations:** The Telegram Bot API only supports sending messages to chats that have previously interacted with the bot. Bots cannot enumerate chats, read message history, or search messages. A future MTProto user-account session track may lift some of these restrictions.
 
