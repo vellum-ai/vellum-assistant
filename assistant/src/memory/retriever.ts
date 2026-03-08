@@ -839,6 +839,7 @@ export async function buildMemoryRecall(
         : "memory.semantic_search_failure");
     if (!embeddingResult.degradation) {
       const isQdrantIssue =
+        embeddingResult.queryVector != null ||
         isQdrantConnectionError(collected.semanticSearchError) ||
         collected.semanticSearchError instanceof QdrantCircuitOpenError;
       const reason: DegradationReason = isQdrantIssue
