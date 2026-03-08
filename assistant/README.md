@@ -51,9 +51,9 @@ cp .env.example .env
 
 ## Update Bulletin
 
-When a release includes relevant updates, the assistant materializes release notes from the bundled `src/prompts/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
+When a release includes relevant updates, the assistant materializes release notes from the bundled `src/config/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
 
-**For release maintainers:** Update `assistant/src/prompts/templates/UPDATES.md` with release notes before each relevant release. Leave the template empty (or comment-only) for releases with no user/assistant-facing changes.
+**For release maintainers:** Update `assistant/src/config/templates/UPDATES.md` with release notes before each relevant release. Leave the template empty (or comment-only) for releases with no user/assistant-facing changes.
 
 ## Usage
 

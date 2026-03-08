@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BUNDLED_SKILLS_DIR = resolve(
   __dirname,
-  "../../assistant/src/skills/bundled-skills",
+  "../../assistant/src/config/bundled-skills",
 );
 
 // --- Frontmatter parsing (same logic as lint-skill-spec.mjs) ---
