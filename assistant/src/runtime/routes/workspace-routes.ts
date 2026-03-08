@@ -1,4 +1,7 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+/**
+ * Route handlers for workspace file browsing and content serving.
+ */
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -107,6 +110,94 @@ function handleWorkspaceFile(ctx: RouteContext): Response {
 }
 
 // ---------------------------------------------------------------------------
+// GET /v1/workspace/file/content — raw file bytes with range support
+// ---------------------------------------------------------------------------
+
+function handleWorkspaceFileContent(ctx: RouteContext): Response {
+  const path = ctx.url.searchParams.get("path");
+  if (!path) {
+    return httpError(
+      "BAD_REQUEST",
+      "Missing required query parameter: path",
+      400,
+    );
+  }
+
+  const resolved = resolveWorkspacePath(path);
+  if (resolved === undefined) {
+    return httpError("BAD_REQUEST", "Invalid path", 400);
+  }
+
+  if (!existsSync(resolved)) {
+    return httpError("NOT_FOUND", "File not found", 404);
+  }
+
+  const file = Bun.file(resolved);
+  const fileSize = file.size;
+  const mimeType = file.type;
+
+  const rangeHeader = ctx.req.headers.get("Range");
+
+  if (rangeHeader) {
+    let start: number;
+    let end: number;
+
+    // Parse suffix range: bytes=-N (last N bytes)
+    const suffixMatch = rangeHeader.match(/bytes=-(\d+)/);
+    if (suffixMatch) {
+      const suffixLen = parseInt(suffixMatch[1]);
+      start = Math.max(0, fileSize - suffixLen);
+      end = fileSize - 1;
+    } else {
+      // Parse standard range: bytes=start-end
+      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+      if (!match) {
+        // Unparseable range — return full file
+        return new Response(file, {
+          headers: {
+            "Content-Type": mimeType,
+            "Content-Length": String(fileSize),
+            "Accept-Ranges": "bytes",
+          },
+        });
+      }
+      start = parseInt(match[1]);
+      end = match[2] ? parseInt(match[2]) : fileSize - 1;
+    }
+
+    // Clamp end to file size
+    end = Math.min(end, fileSize - 1);
+
+    // Reject invalid ranges
+    if (start > end || start >= fileSize) {
+      return new Response(null, {
+        status: 416,
+        headers: { "Content-Range": `bytes */${fileSize}` },
+      });
+    }
+
+    const slice = file.slice(start, end + 1);
+    return new Response(slice, {
+      status: 206,
+      headers: {
+        "Content-Type": mimeType,
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": String(end - start + 1),
+      },
+    });
+  }
+
+  return new Response(file, {
+    headers: {
+      "Content-Type": mimeType,
+      "Content-Length": String(fileSize),
+      "Accept-Ranges": "bytes",
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -116,6 +207,11 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
       endpoint: "workspace/tree",
       method: "GET",
       handler: (ctx) => handleWorkspaceTree(ctx),
+    },
+    {
+      endpoint: "workspace/file/content",
+      method: "GET",
+      handler: (ctx) => handleWorkspaceFileContent(ctx),
     },
     {
       endpoint: "workspace/file",
