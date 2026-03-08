@@ -35,7 +35,7 @@ export async function execute(
   const appPath = path.join(appDir, `${appDisplayName}.app`);
 
   try {
-    execSync(`open -a "${appPath}"`, {
+    execSync(`open -a "${appPath}" --args --skip-onboarding --e2e-overlay`, {
       encoding: "utf-8",
       timeout: 10_000,
     });

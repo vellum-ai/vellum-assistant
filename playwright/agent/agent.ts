@@ -5,7 +5,7 @@
  * and runs the agent in a loop until a test result is reported.
  */
 
-import { appendFileSync, mkdirSync, writeFileSync } from "fs";
+import { appendFileSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
 import path from "path";
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -87,6 +87,35 @@ export interface AgentOptions {
   verbose?: boolean;
   /** Playwright parallel worker index (0-based). Used to isolate temp files across workers. */
   workerIndex?: number;
+  /** Human-readable test name shown in the e2e status overlay. */
+  testName?: string;
+}
+
+const E2E_STATUS_FILE = "/tmp/vellum-e2e-status.json";
+
+interface E2EStatus {
+  iteration: number;
+  maxIterations: number;
+  tool: string;
+  summary: string;
+  elapsed: string;
+  testName: string;
+}
+
+function writeE2EStatus(status: E2EStatus): void {
+  try {
+    writeFileSync(E2E_STATUS_FILE, JSON.stringify(status));
+  } catch {
+    // Non-critical — overlay simply won't update.
+  }
+}
+
+function clearE2EStatus(): void {
+  try {
+    unlinkSync(E2E_STATUS_FILE);
+  } catch {
+    // File may not exist.
+  }
 }
 
 export async function runAgent(options: AgentOptions): Promise<TestResult> {
@@ -99,6 +128,7 @@ export async function runAgent(options: AgentOptions): Promise<TestResult> {
     return await runAgentLoop(options, signal);
   } finally {
     clearTimeout(timeoutId);
+    clearE2EStatus();
   }
 }
 
@@ -109,7 +139,7 @@ function traceLog(logPath: string | undefined, entry: string): void {
 }
 
 async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise<TestResult> {
-  const { testContent, page, screenshotDir, traceLogPath, verbose = false, workerIndex = 0 } = options;
+  const { testContent, page, screenshotDir, traceLogPath, verbose = false, workerIndex = 0, testName = "unknown" } = options;
 
   // Initialize trace log
   if (traceLogPath) {
@@ -128,6 +158,15 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
   ];
 
   const startTime = Date.now();
+
+  writeE2EStatus({
+    iteration: 0,
+    maxIterations: MAX_ITERATIONS,
+    tool: "—",
+    summary: "Starting agent...",
+    elapsed: "0:00",
+    testName,
+  });
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     if (signal.aborted) {
@@ -229,6 +268,23 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
 
       traceLog(traceLogPath, `[iter ${iteration + 1}/${MAX_ITERATIONS}] CALL ${block.name}(${JSON.stringify(block.input)})`);
 
+      const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+      const minutes = Math.floor(elapsedSec / 60);
+      const seconds = elapsedSec % 60;
+      const elapsedStr = `${minutes}:${String(seconds).padStart(2, "0")}`;
+
+      const inputStr = JSON.stringify(block.input);
+      const summaryText = inputStr.length > 60 ? inputStr.slice(0, 57) + "..." : inputStr;
+
+      writeE2EStatus({
+        iteration: iteration + 1,
+        maxIterations: MAX_ITERATIONS,
+        tool: block.name,
+        summary: summaryText,
+        elapsed: elapsedStr,
+        testName,
+      });
+
       const { result, testResult } = await executeTool(
         page,
         block.name,
@@ -277,6 +333,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
 
     // If the agent reported a result, we're done
     if (finalTestResult) {
+      clearE2EStatus();
       return finalTestResult;
     }
   }

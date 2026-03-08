@@ -276,6 +276,7 @@ for (const file of caseFiles) {
         traceLogPath,
         verbose: !!process.env.VERBOSE,
         workerIndex: testInfo.workerIndex,
+        testName,
       });
 
       // Stop the screen recording BEFORE attaching so the file is finalized
