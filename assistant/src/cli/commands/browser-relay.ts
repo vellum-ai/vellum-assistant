@@ -1,5 +1,10 @@
 import type { Command } from "commander";
 
+import type {
+  ExtensionCommand,
+  ExtensionResponse,
+} from "../../browser-extension-relay/protocol.js";
+import { extensionRelayServer } from "../../browser-extension-relay/server.js";
 import {
   initAuthSigningKey,
   isSigningKeyInitialized,
@@ -16,17 +21,25 @@ import {
 
 async function relayCommand(command: Record<string, unknown>): Promise<void> {
   try {
-    if (!isSigningKeyInitialized()) {
-      initAuthSigningKey(loadOrCreateSigningKey());
-    }
+    // Try in-process relay first (works when running inside the daemon)
+    let data: ExtensionResponse;
+    const status = extensionRelayServer.getStatus();
+    if (status.connected) {
+      data = await extensionRelayServer.sendCommand(
+        command as Omit<ExtensionCommand, "id">,
+      );
+    } else {
+      // Fall back to HTTP relay endpoint via the gateway
+      if (!isSigningKeyInitialized()) {
+        initAuthSigningKey(loadOrCreateSigningKey());
+      }
 
-    const { data } = await gatewayPost<{
-      id: string;
-      success: boolean;
-      result?: unknown;
-      error?: string;
-      tabId?: number;
-    }>("/v1/browser-relay/command", command);
+      const resp = await gatewayPost<ExtensionResponse>(
+        "/v1/browser-relay/command",
+        command,
+      );
+      data = resp.data;
+    }
 
     if (data.success) {
       process.stdout.write(
@@ -337,6 +350,24 @@ Examples:
     )
     .action(async () => {
       try {
+        // Try in-process relay first (works when running inside the daemon)
+        const inProcessStatus = extensionRelayServer.getStatus();
+        if (inProcessStatus.connected) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              connected: inProcessStatus.connected,
+              connectionId: inProcessStatus.connectionId,
+              lastHeartbeatAt: inProcessStatus.lastHeartbeatAt
+                ? new Date(inProcessStatus.lastHeartbeatAt).toISOString()
+                : null,
+              pendingCommandCount: inProcessStatus.pendingCommandCount,
+            }) + "\n",
+          );
+          return;
+        }
+
+        // Fall back to HTTP relay endpoint via the gateway
         if (!isSigningKeyInitialized()) {
           initAuthSigningKey(loadOrCreateSigningKey());
         }
