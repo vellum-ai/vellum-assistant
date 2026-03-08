@@ -139,6 +139,7 @@ import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
+import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -960,6 +961,7 @@ export class RuntimeHttpServer {
       ...brainGraphRouteDefinitions({ mintUiPageToken }),
       ...eventsRouteDefinitions(),
       ...migrationRouteDefinitions(),
+      ...workspaceRouteDefinitions(),
 
       // Internal OAuth callback (gateway -> runtime)
       {
