@@ -8,7 +8,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — declared before imports that depend on platform/logger
@@ -67,6 +75,12 @@ mock.module("../util/platform.js", () => ({
   isLinux: () => false,
   isWindows: () => false,
 }));
+
+// Restore all mocked modules after this file's tests complete to prevent
+// cross-test contamination when running grouped with other test files.
+afterAll(() => {
+  mock.restore();
+});
 
 import {
   deepMergeMissing,
