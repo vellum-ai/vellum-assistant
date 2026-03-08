@@ -45,12 +45,17 @@ const textFile = join(testWorkspaceDir, "hello.txt");
 const jsonFile = join(testWorkspaceDir, "data.json");
 const nestedFile = join(subDir, "nested.txt");
 const binaryFile = join(testWorkspaceDir, "image.png");
+const dotenvFile = join(testWorkspaceDir, ".env");
+const dotDir = join(testWorkspaceDir, ".hidden");
 
 beforeAll(() => {
   mkdirSync(subDir, { recursive: true });
+  mkdirSync(dotDir, { recursive: true });
   writeFileSync(textFile, "Hello, world!");
   writeFileSync(jsonFile, '{"key":"value"}');
   writeFileSync(nestedFile, "nested content");
+  writeFileSync(dotenvFile, "SECRET=hunter2");
+  writeFileSync(join(dotDir, "secret.txt"), "hidden content");
   // Write a minimal PNG (8-byte signature + IHDR + IEND)
   const pngSignature = Buffer.from([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -228,6 +233,36 @@ describe("GET /v1/workspace/tree", () => {
     expect(fileEntry?.type).toBe("file");
   });
 
+  test("dotfiles and dot-directories are excluded", async () => {
+    const ctx = makeCtx({});
+    const res = await handler(ctx);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      entries: Array<{ name: string }>;
+    };
+    const names = body.entries.map((e) => e.name);
+    expect(names).not.toContain(".env");
+    expect(names).not.toContain(".hidden");
+  });
+
+  test("directory entries have null size and mimeType", async () => {
+    const ctx = makeCtx({});
+    const res = await handler(ctx);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      entries: Array<{
+        name: string;
+        type: string;
+        size: number | null;
+        mimeType: string | null;
+      }>;
+    };
+    const dirEntry = body.entries.find((e) => e.type === "directory");
+    expect(dirEntry).toBeDefined();
+    expect(dirEntry!.size).toBeNull();
+    expect(dirEntry!.mimeType).toBeNull();
+  });
+
   test("directories sorted before files", async () => {
     const ctx = makeCtx({});
     const res = await handler(ctx);
@@ -379,6 +414,12 @@ describe("GET /v1/workspace/file/content", () => {
     expect(res.status).toBe(206);
     const text = await res.text();
     expect(text).toBe("orld!");
+  });
+
+  test("directory path returns 400", async () => {
+    const ctx = makeCtx({ path: "subdir" });
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
   });
 
   test("Accept-Ranges header is present", async () => {

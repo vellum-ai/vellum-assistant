@@ -1,7 +1,13 @@
 /**
  * Route handlers for workspace file browsing and content serving.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -17,12 +23,12 @@ interface TreeEntry {
   name: string;
   path: string;
   type: "file" | "directory";
-  size: number | undefined;
-  mimeType: string | undefined;
+  size: number | null;
+  mimeType: string | null;
   modifiedAt: string;
 }
 
-function handleWorkspaceTree(ctx: { url: URL }): Response {
+function handleWorkspaceTree(ctx: RouteContext): Response {
   const requestedPath = ctx.url.searchParams.get("path") ?? "";
   const resolved = resolveWorkspacePath(requestedPath);
   if (resolved === undefined) {
@@ -33,21 +39,33 @@ function handleWorkspaceTree(ctx: { url: URL }): Response {
     const dirents = readdirSync(resolved, { withFileTypes: true });
     const workspaceDir = getWorkspaceDir();
 
-    const entries: TreeEntry[] = dirents.map((entry) => {
+    const entries: TreeEntry[] = [];
+    for (const entry of dirents) {
+      // Filter out dotfiles/directories (.env, .git, .private, etc.)
+      if (entry.name.startsWith(".")) continue;
+
       const fullPath = join(resolved, entry.name);
       const isDir = entry.isDirectory();
-      const stats = statSync(fullPath);
+
+      let stats: ReturnType<typeof lstatSync>;
+      try {
+        stats = lstatSync(fullPath);
+      } catch {
+        // Skip entries that can't be stat'd (broken symlinks, permission denied, etc.)
+        continue;
+      }
+
       const relativePath = fullPath.slice(workspaceDir.length + 1);
 
-      return {
+      entries.push({
         name: entry.name,
         path: relativePath,
         type: isDir ? "directory" : "file",
-        size: isDir ? undefined : stats.size,
-        mimeType: isDir ? undefined : Bun.file(fullPath).type,
+        size: isDir ? null : stats.size,
+        mimeType: isDir ? null : Bun.file(fullPath).type,
         modifiedAt: stats.mtime.toISOString(),
-      };
-    });
+      });
+    }
 
     // Sort: directories first, then files, alphabetically within each group
     entries.sort((a, b) => {
@@ -129,6 +147,14 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
   }
 
   if (!existsSync(resolved)) {
+    return httpError("NOT_FOUND", "File not found", 404);
+  }
+
+  try {
+    if (!statSync(resolved).isFile()) {
+      return httpError("BAD_REQUEST", "Path is not a file", 400);
+    }
+  } catch {
     return httpError("NOT_FOUND", "File not found", 404);
   }
 
