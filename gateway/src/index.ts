@@ -260,6 +260,10 @@ async function main() {
   ): (() => Response | null) => {
     return () => {
       if (!check()) {
+        log.warn(
+          { integration: name },
+          `${name} integration not configured — rejecting request with 503`,
+        );
         return Response.json(
           { error: `${name} integration not configured` },
           { status: 503 },
