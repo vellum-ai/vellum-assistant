@@ -94,20 +94,12 @@ struct WorkspaceFileSheet: View {
         } else if resolvedMime.hasPrefix("video/"), let contentURL = client?.workspaceFileContentURL(path: filePath) {
             VideoPlayer(player: AVPlayer(url: contentURL))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if resolvedMime.hasPrefix("text/") || resolvedMime == "application/json",
-                  let content = fileResponse?.content {
-            ScrollView {
-                markdownContent(content)
-                    .padding(VSpacing.lg)
-            }
-        } else if let content = fileResponse?.content, !content.isEmpty {
-            // Fallback: if we got text content regardless of MIME type, show it
+        } else if let response = fileResponse, !response.isBinary, let content = response.content {
             ScrollView {
                 markdownContent(content)
                     .padding(VSpacing.lg)
             }
         } else if let response = fileResponse {
-            // Binary/unknown file — show metadata
             metadataView(response)
         } else {
             Text("No content")
