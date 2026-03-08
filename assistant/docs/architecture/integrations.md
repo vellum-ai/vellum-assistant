@@ -310,11 +310,11 @@ Note: OAuth2 scopes (`tweet.read`, `tweet.write`, `users.read`, `offline.access`
 | `assistant/src/oauth/token-persistence.ts`             | Token storage helper: persists tokens, metadata, and runs post-connect hooks                              |
 | `assistant/src/daemon/handlers/oauth-connect.ts`       | Generic OAuth connect IPC handler (`oauth_connect_start` / `oauth_connect_result`)                        |
 | `assistant/src/daemon/handlers/twitter-auth.ts`        | Legacy Twitter OAuth2 flow handlers (`twitter_auth_start`, `twitter_auth_status`)                         |
-| `assistant/src/twitter/client.ts`                      | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol                                |
-| `assistant/src/twitter/oauth-client.ts`                | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()`               |
-| `assistant/src/twitter/router.ts`                      | Strategy router: selects OAuth or browser path based on `twitter.operationStrategy` config                |
-| `assistant/src/twitter/session.ts`                     | Twitter browser session persistence (cookie import/export)                                                |
-| `assistant/src/cli/twitter.ts`                         | `vellum x` CLI command group (post, reply, strategy, refresh, status, login, logout, and read operations) |
+| `assistant/src/cli/commands/twitter/client.ts`         | Twitter CDP client: GraphQL mutations/queries via Chrome DevTools Protocol                                |
+| `assistant/src/cli/commands/twitter/oauth-client.ts`   | OAuth-backed Twitter client: X API v2 post/reply via stored tokens using `withValidToken()`               |
+| `assistant/src/cli/commands/twitter/router.ts`         | Strategy router: selects OAuth or browser path based on `twitter.operationStrategy` config                |
+| `assistant/src/cli/commands/twitter/session.ts`        | Twitter browser session persistence (cookie import/export)                                                |
+| `assistant/src/cli/commands/twitter/index.ts`          | `vellum x` CLI command group (post, reply, strategy, refresh, status, login, logout, and read operations) |
 | `assistant/src/skills/bundled-skills/twitter/SKILL.md` | X (Twitter) bundled skill instructions                                                                    |
 
 ---
