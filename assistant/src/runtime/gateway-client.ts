@@ -31,6 +31,8 @@ export interface ChannelReplyPayload {
   ephemeral?: boolean;
   /** Slack user ID — required when `ephemeral` is true. */
   user?: string;
+  /** Telegram message_id for editing an existing message instead of sending a new one. */
+  messageId?: number;
   /** When provided, instructs the delivery endpoint to update an existing message instead of posting a new one. */
   messageTs?: string;
   /** When true, auto-generate Block Kit blocks from text via textToBlocks(). */
@@ -43,6 +45,8 @@ export interface ChannelDeliveryResult {
   ok: boolean;
   /** The message timestamp returned by the delivery endpoint (e.g. Slack message ts). */
   ts?: string;
+  /** The Telegram message_id returned when a new message was sent. */
+  messageId?: number;
 }
 
 interface ManagedOutboundCallbackContext {
@@ -90,11 +94,14 @@ export async function deliverChannelReply(
     );
   }
 
-  let result: ChannelDeliveryResult = { ok: true };
+  const result: ChannelDeliveryResult = { ok: true };
   try {
     const responseBody = (await response.json()) as Record<string, unknown>;
     if (typeof responseBody.ts === "string") {
-      result = { ok: true, ts: responseBody.ts };
+      result.ts = responseBody.ts;
+    }
+    if (typeof responseBody.messageId === "number") {
+      result.messageId = responseBody.messageId;
     }
   } catch {
     // Response may not be JSON for non-Slack channels; that's fine.
