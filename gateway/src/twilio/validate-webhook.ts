@@ -201,22 +201,45 @@ export async function validateTwilioWebhookRequest(
   }
 
   // Resolve the auth token from cache
-  const authToken = caches?.credentials
+  let authToken = caches?.credentials
     ? await caches.credentials.get("credential:twilio:auth_token")
     : undefined;
 
   // Resolve ingress URL from cache
-  const ingressUrl = caches?.configFile
+  let ingressUrl = caches?.configFile
     ? caches.configFile.getString("ingress", "publicBaseUrl")
     : undefined;
 
-  const resolved: ResolvedValidationContext = { authToken, ingressUrl };
+  let resolved: ResolvedValidationContext = { authToken, ingressUrl };
 
-  const validationDiagnostics = buildValidationDiagnostics(req, resolved);
-  const { logContext: validationLogContext, signatureUrlCandidates } =
+  let validationDiagnostics = buildValidationDiagnostics(req, resolved);
+  let { logContext: validationLogContext, signatureUrlCandidates } =
     validationDiagnostics;
 
   // Fail-closed: reject if no auth token is configured
+  // One-shot force retry: if missing and caches available, try force refresh
+  if (!authToken && caches?.credentials) {
+    const freshAuthToken = await caches.credentials.get(
+      "credential:twilio:auth_token",
+      { force: true },
+    );
+    if (freshAuthToken) {
+      let freshIngressUrl = ingressUrl;
+      if (caches.configFile) {
+        caches.configFile.refreshNow();
+        freshIngressUrl = caches.configFile.getString(
+          "ingress",
+          "publicBaseUrl",
+        );
+      }
+      authToken = freshAuthToken;
+      ingressUrl = freshIngressUrl;
+      resolved = { authToken: freshAuthToken, ingressUrl: freshIngressUrl };
+      validationDiagnostics = buildValidationDiagnostics(req, resolved);
+      ({ logContext: validationLogContext, signatureUrlCandidates } =
+        validationDiagnostics);
+    }
+  }
   if (!authToken) {
     log.error(
       validationLogContext,

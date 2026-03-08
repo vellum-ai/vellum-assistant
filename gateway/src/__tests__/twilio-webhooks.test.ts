@@ -718,3 +718,80 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     });
   });
 });
+
+describe("Twilio webhook force retry on credential-missing", () => {
+  test("succeeds after force-refreshing a missing auth token", async () => {
+    const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
+    fetchMock = mock(
+      async () =>
+        new Response(twiml, {
+          status: 200,
+          headers: { "Content-Type": "text/xml" },
+        }),
+    );
+
+    // First get() returns undefined; second get({ force: true }) returns the token
+    let callCount = 0;
+    const credentials = {
+      get: async (_key: string, opts?: { force?: boolean }) => {
+        callCount++;
+        if (callCount === 1 && !opts?.force) return undefined;
+        return AUTH_TOKEN;
+      },
+      invalidate: () => {},
+    } as unknown as CredentialCache;
+
+    const configFile = {
+      getString: (section: string, key: string) => {
+        if (section === "ingress" && key === "publicBaseUrl") return undefined;
+        return undefined;
+      },
+      getRecord: () => undefined,
+      refreshNow: () => {},
+    } as unknown as ConfigFileCache;
+
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), {
+      credentials,
+      configFile,
+    });
+
+    const url =
+      "http://localhost:7830/webhooks/twilio/voice?callSessionId=sess-force";
+    const params = { CallSid: "CA123" };
+    const req = buildSignedRequest(url, params, AUTH_TOKEN);
+
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    // The credential cache should have been called at least twice (initial + force)
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+
+  test("returns 403 when force refresh also returns undefined", async () => {
+    // Both get() and get({ force: true }) return undefined
+    const credentials = {
+      get: async () => undefined,
+      invalidate: () => {},
+    } as unknown as CredentialCache;
+
+    const configFile = {
+      getString: () => undefined,
+      getRecord: () => undefined,
+      refreshNow: () => {},
+    } as unknown as ConfigFileCache;
+
+    const handler = createTwilioVoiceWebhookHandler(makeConfig(), {
+      credentials,
+      configFile,
+    });
+
+    const url = "http://localhost:7830/webhooks/twilio/voice";
+    const req = new Request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "CallSid=CA123",
+    });
+
+    const res = await handler(req);
+    expect(res.status).toBe(403);
+  });
+});
