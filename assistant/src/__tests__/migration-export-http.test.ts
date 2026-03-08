@@ -493,9 +493,9 @@ describe("auth policy shape", () => {
     expect(policy!.requiredScopes).toEqual(["settings.write"]);
     // Verify only the expected principal types are allowed
     expect(policy!.allowedPrincipalTypes).toEqual(
-      expect.arrayContaining(["actor", "svc_gateway", "ipc"]),
+      expect.arrayContaining(["actor", "svc_gateway", "svc_daemon", "ipc"]),
     );
-    expect(policy!.allowedPrincipalTypes).toHaveLength(3);
+    expect(policy!.allowedPrincipalTypes).toHaveLength(4);
   });
 
   test("export policy matches validate policy shape", async () => {
