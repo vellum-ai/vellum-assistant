@@ -49,7 +49,7 @@ function parseArgs(): ParsedArgs {
     }
   }
 
-  let entry: ReturnType<typeof findAssistantByName>;
+  let entry: ReturnType<typeof findAssistantByName> = null;
   if (positionalName) {
     entry = findAssistantByName(positionalName);
     if (!entry) {
