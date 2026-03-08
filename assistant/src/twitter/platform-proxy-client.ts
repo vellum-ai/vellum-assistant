@@ -322,3 +322,59 @@ export async function getMe(
     query,
   });
 }
+
+/**
+ * Look up a user by screen name through the platform proxy.
+ */
+export async function getUserByUsername(
+  username: string,
+  query?: Record<string, string>,
+): Promise<TwitterProxyResponse> {
+  return proxyTwitterCall({
+    method: "GET",
+    path: `/2/users/by/username/${encodeURIComponent(username)}`,
+    query,
+  });
+}
+
+/**
+ * Fetch a user's tweets through the platform proxy.
+ */
+export async function getUserTweets(
+  userId: string,
+  query?: Record<string, string>,
+): Promise<TwitterProxyResponse> {
+  return proxyTwitterCall({
+    method: "GET",
+    path: `/2/users/${encodeURIComponent(userId)}/tweets`,
+    query,
+  });
+}
+
+/**
+ * Fetch a single tweet by ID through the platform proxy.
+ */
+export async function getTweet(
+  tweetId: string,
+  query?: Record<string, string>,
+): Promise<TwitterProxyResponse> {
+  return proxyTwitterCall({
+    method: "GET",
+    path: `/2/tweets/${encodeURIComponent(tweetId)}`,
+    query,
+  });
+}
+
+/**
+ * Search recent tweets through the platform proxy.
+ */
+export async function searchRecentTweets(
+  queryStr: string,
+  query?: Record<string, string>,
+): Promise<TwitterProxyResponse> {
+  return proxyTwitterCall({
+    method: "GET",
+    path: "/2/tweets/search/recent",
+    query: { ...query, query: queryStr },
+  });
+}
