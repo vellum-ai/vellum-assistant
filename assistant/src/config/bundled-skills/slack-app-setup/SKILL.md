@@ -171,4 +171,8 @@ To disconnect Slack:
 ```bash
 assistant credentials delete slack_channel:bot_token
 assistant credentials delete slack_channel:app_token
+assistant config set slack.teamId ""
+assistant config set slack.teamName ""
+assistant config set slack.botUserId ""
+assistant config set slack.botUsername ""
 ```
