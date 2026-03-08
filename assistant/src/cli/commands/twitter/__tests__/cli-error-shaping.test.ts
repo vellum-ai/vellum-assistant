@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { SessionExpiredError } from "../twitter/client.js";
+import { SessionExpiredError } from "../client.js";
 
 // ---------------------------------------------------------------------------
 // We test the error-shaping logic directly by reproducing the branching in

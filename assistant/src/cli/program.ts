@@ -27,7 +27,7 @@ import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerSessionsCommand } from "./commands/sessions.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerTrustCommand } from "./commands/trust.js";
-import { registerTwitterCommand } from "./commands/twitter.js";
+import { registerTwitterCommand } from "./commands/twitter/index.js";
 
 const require = createRequire(import.meta.url);
 const { version } = require("../../package.json") as { version: string };

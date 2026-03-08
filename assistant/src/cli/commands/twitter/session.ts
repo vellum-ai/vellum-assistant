@@ -4,12 +4,12 @@
  * logic; keeps Twitter-specific cookie validation and CSRF extraction.
  */
 
-import type { CookieSession } from "../util/cookie-session.js";
+import type { CookieSession } from "../../../util/cookie-session.js";
 import {
   createSessionStore,
   importFromRecordingBase,
-} from "../util/cookie-session.js";
-import { ConfigError } from "../util/errors.js";
+} from "../../../util/cookie-session.js";
+import { ConfigError } from "../../../util/errors.js";
 
 export type TwitterSession = CookieSession;
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // --- Mocks (must be declared before importing the module under test) ---
 
-mock.module("../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -24,7 +24,7 @@ import {
   oauthPostTweet,
   oauthSupportsOperation,
   UnsupportedOAuthOperationError,
-} from "../twitter/oauth-client.js";
+} from "../oauth-client.js";
 
 // --- Global fetch mock ---
 

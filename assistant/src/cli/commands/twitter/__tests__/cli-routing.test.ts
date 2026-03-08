@@ -16,7 +16,7 @@ let mockBrowserPostResult: {
 let mockBrowserPostError: Error | null = null;
 
 // Mock the OAuth client
-mock.module("../twitter/oauth-client.js", () => ({
+mock.module("../oauth-client.js", () => ({
   oauthIsAvailable: (token?: string) => token != null && token.length > 0,
   oauthSupportsOperation: (op: string) => op === "post" || op === "reply",
   oauthPostTweet: async (
@@ -48,7 +48,7 @@ class MockSessionExpiredError extends Error {
 }
 
 // Mock the browser client
-mock.module("../twitter/client.js", () => ({
+mock.module("../client.js", () => ({
   postTweet: async (_text: string, _opts?: { inReplyToTweetId?: string }) => {
     if (mockBrowserPostError) throw mockBrowserPostError;
     if (mockBrowserPostResult) return mockBrowserPostResult;
@@ -58,7 +58,7 @@ mock.module("../twitter/client.js", () => ({
 }));
 
 // Mock the logger to silence output
-mock.module("../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   getLogger: () => ({
     info: () => {},
     warn: () => {},
@@ -75,7 +75,7 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-import { routedPostTweet } from "../twitter/router.js";
+import { routedPostTweet } from "../router.js";
 
 beforeEach(() => {
   mockOauthPostResult = null;
