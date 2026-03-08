@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { CLI_HELP_REFERENCE } from "../cli/reference.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
-import { getConfig } from "../config/loader.js";
+import { getConfig, getNestedValue, loadRawConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { listCredentialMetadata } from "../tools/credentials/metadata-store.js";
@@ -634,11 +634,14 @@ function buildIntegrationSection(): string {
   );
   if (oauthCreds.length === 0) return "";
 
+  const raw = loadRawConfig();
   const lines = ["## Connected Services", ""];
   for (const cred of oauthCreds) {
-    const state = cred.accountInfo
-      ? `Connected (${cred.accountInfo})`
-      : "Connected";
+    const acctInfo = getNestedValue(
+      raw,
+      `integrations.accountInfo.${cred.service}`,
+    ) as string | undefined;
+    const state = acctInfo ? `Connected (${acctInfo})` : "Connected";
     lines.push(`- **${cred.service}**: ${state}`);
   }
 
