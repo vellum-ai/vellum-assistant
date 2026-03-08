@@ -9,6 +9,11 @@ import {
   gatewayGet,
   gatewayPost,
 } from "../../runtime/gateway-internal-client.js";
+import {
+  ensureChromeWithCdp,
+  minimizeChromeWindow,
+  restoreChromeWindow,
+} from "../../tools/browser/chrome-cdp.js";
 
 // ---------------------------------------------------------------------------
 // Shared relay helper
@@ -89,6 +94,21 @@ Examples:
   const chrome = browser
     .command("chrome")
     .description("Chrome browser automation via the extension relay");
+
+  chrome.addHelpText(
+    "after",
+    `
+Manages a dedicated Chrome instance with Chrome DevTools Protocol (CDP)
+enabled, separate from the user's regular Chrome profile. The CDP instance
+uses a dedicated user data directory at ~/Library/Application Support/Google/Chrome-CDP
+and defaults to port 9222.
+
+Examples:
+  $ assistant browser chrome launch
+  $ assistant browser chrome launch --start-url "https://example.com" --port 9333
+  $ assistant browser chrome minimize
+  $ assistant browser chrome restore`,
+  );
 
   const relay = chrome
     .command("relay")
@@ -357,6 +377,128 @@ Examples:
             pendingCommandCount: data.pendingCommandCount,
           }) + "\n",
         );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stdout.write(
+          JSON.stringify({ ok: false, error: message }) + "\n",
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // chrome launch
+  // ---------------------------------------------------------------------------
+
+  chrome
+    .command("launch")
+    .description(
+      "Launch or connect to a Chrome instance with CDP (Chrome DevTools Protocol)",
+    )
+    .option("--start-url <url>", "Initial URL to open when launching Chrome")
+    .option("--port <port>", "CDP port (default: 9222)", parseInt)
+    .addHelpText(
+      "after",
+      `
+Launches a Chrome instance with Chrome DevTools Protocol (CDP) enabled, or
+returns the existing session if Chrome is already running with open tabs.
+Idempotent — returns immediately if Chrome is already running with tabs.
+Kills stale CDP instances (CDP endpoint up but no tabs) and relaunches.
+Polls up to 15 seconds for the CDP endpoint to become ready.
+
+Arguments:
+  --start-url <url>   Initial URL to open in the new Chrome window. If
+                      omitted, Chrome opens to its default start page.
+  --port <port>       CDP port to use. Defaults to 9222.
+
+Examples:
+  $ assistant browser chrome launch
+  $ assistant browser chrome launch --start-url "https://x.com/login" --port 9333`,
+    )
+    .action(async (opts: { startUrl?: string; port?: number }) => {
+      try {
+        const session = await ensureChromeWithCdp({
+          startUrl: opts.startUrl,
+          port: opts.port,
+        });
+        process.stdout.write(
+          JSON.stringify({
+            ok: true,
+            baseUrl: session.baseUrl,
+            launchedByUs: session.launchedByUs,
+            userDataDir: session.userDataDir,
+          }) + "\n",
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stdout.write(
+          JSON.stringify({ ok: false, error: message }) + "\n",
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // chrome minimize
+  // ---------------------------------------------------------------------------
+
+  chrome
+    .command("minimize")
+    .description("Minimize the Chrome CDP window")
+    .option("--port <port>", "CDP port (default: 9222)", parseInt)
+    .addHelpText(
+      "after",
+      `
+Minimizes the Chrome window associated with the CDP session. Uses the
+Browser.setWindowBounds CDP method to set the window state to minimized.
+
+Arguments:
+  --port <port>   CDP port to connect to. Defaults to 9222.
+
+Examples:
+  $ assistant browser chrome minimize
+  $ assistant browser chrome minimize --port 9333`,
+    )
+    .action(async (opts: { port?: number }) => {
+      try {
+        const cdpBase = opts.port ? `http://localhost:${opts.port}` : undefined;
+        await minimizeChromeWindow(cdpBase);
+        process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stdout.write(
+          JSON.stringify({ ok: false, error: message }) + "\n",
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  // ---------------------------------------------------------------------------
+  // chrome restore
+  // ---------------------------------------------------------------------------
+
+  chrome
+    .command("restore")
+    .description("Restore the Chrome CDP window from minimized state")
+    .option("--port <port>", "CDP port (default: 9222)", parseInt)
+    .addHelpText(
+      "after",
+      `
+Restores (un-minimizes) the Chrome window associated with the CDP session.
+Uses the Browser.setWindowBounds CDP method to set the window state to normal.
+
+Arguments:
+  --port <port>   CDP port to connect to. Defaults to 9222.
+
+Examples:
+  $ assistant browser chrome restore
+  $ assistant browser chrome restore --port 9333`,
+    )
+    .action(async (opts: { port?: number }) => {
+      try {
+        const cdpBase = opts.port ? `http://localhost:${opts.port}` : undefined;
+        await restoreChromeWindow(cdpBase);
+        process.stdout.write(JSON.stringify({ ok: true }) + "\n");
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         process.stdout.write(
