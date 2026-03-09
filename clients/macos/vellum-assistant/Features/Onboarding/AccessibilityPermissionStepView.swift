@@ -15,7 +15,7 @@ struct AccessibilityPermissionStepView: View {
                     .foregroundColor(VColor.textPrimary)
                     .textSelection(.enabled)
 
-                Text("Do not request Accessibility permission during initial onboarding. Enable computer control later from Home Base when you explicitly choose it.")
+                Text("Do not request Accessibility permission during initial onboarding. Enable computer control later from Settings when you explicitly choose it.")
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
@@ -31,7 +31,7 @@ struct AccessibilityPermissionStepView: View {
                     .foregroundColor(VColor.textPrimary)
                     .textSelection(.enabled)
 
-                Text("Home Base task: Enable computer control. Accessibility and screen permissions are requested only after that user-initiated step.")
+                Text("Accessibility and screen permissions are requested only after you explicitly enable computer control in Settings.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textSelection(.enabled)

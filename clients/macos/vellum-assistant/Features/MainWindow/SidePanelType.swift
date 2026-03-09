@@ -1,7 +1,6 @@
 enum SidePanelType: Hashable, CaseIterable {
     case generated
     case settings
-    case directory
     case debug
     case documentEditor
     case avatarCustomization
@@ -13,7 +12,6 @@ enum SidePanelType: Hashable, CaseIterable {
         switch rawValue {
         case "generated": self = .generated
         case "settings": self = .settings
-        case "directory": self = .directory
         case "debug": self = .debug
         case "documentEditor": self = .documentEditor
         case "avatarCustomization": self = .avatarCustomization
@@ -22,6 +20,8 @@ enum SidePanelType: Hashable, CaseIterable {
         case "usageDashboard": self = .usageDashboard
         // Legacy values from older builds — map to the unified Intelligence panel
         case "identity", "agent": self = .intelligence
+        // Legacy Home Base panel — removed
+        case "directory": return nil
         default: return nil
         }
     }

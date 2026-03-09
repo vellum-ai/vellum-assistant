@@ -88,7 +88,6 @@ struct MainWindowView: View {
     let trafficLightPadding: CGFloat = 78
 
     /// Whether the BOOTSTRAP.md first-run ritual is still in progress.
-    /// When true, the client shows a chat-only interface — no Home Base dashboard.
     private var isBootstrapOnboardingActive: Bool {
         FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.vellum/workspace/BOOTSTRAP.md")
     }

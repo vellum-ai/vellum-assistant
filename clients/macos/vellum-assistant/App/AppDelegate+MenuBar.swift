@@ -409,7 +409,7 @@ extension AppDelegate {
     @objc func openAppCollection() {
         guard !isBootstrapping else { return }
         showMainWindow()
-        mainWindow?.windowState.selection = .panel(.directory)
+        mainWindow?.windowState.selection = .panel(.apps)
     }
 
     @objc func checkForUpdates() {

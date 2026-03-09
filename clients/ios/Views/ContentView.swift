@@ -7,7 +7,7 @@ struct ContentView: View {
     @Bindable var authManager: AuthManager
     @ObservedObject var ambientAgent: AmbientAgentManager
     @State private var connectPhase: ConnectPhase = .initial
-    @State private var selectedTab: Tab = .home
+    @State private var selectedTab: Tab = .chats
     @State private var navigateToConnect = false
     /// Single thread store shared between the Chats tab (ThreadListView) and the
     /// Private Threads settings panel (PrivateThreadsSection). Keeping one store
@@ -21,7 +21,7 @@ struct ContentView: View {
         _threadStore = StateObject(wrappedValue: IOSThreadStore(daemonClient: daemonClient))
     }
 
-    private enum Tab { case home, chats, tasks, identity, settings }
+    private enum Tab { case chats, tasks, identity, settings }
 
     private enum ConnectPhase {
         case initial    // Haven't attempted connection yet
@@ -223,17 +223,6 @@ struct ContentView: View {
 
     private var tabContent: some View {
         TabView(selection: $selectedTab) {
-            HomeBaseView(
-                onConnectTapped: navigateToConnectSettings,
-                onNewConversation: navigateToNewConversation
-            )
-                .environmentObject(clientProvider)
-                .id(ObjectIdentifier(clientProvider.client as AnyObject))
-                .tag(Tab.home)
-                .tabItem {
-                    Label { Text("Home") } icon: { VIconView(.house, size: 12) }
-                }
-
             ChatsTabView(store: threadStore, onConnectTapped: navigateToConnectSettings)
                 .environmentObject(clientProvider)
                 .id(ObjectIdentifier(clientProvider.client as AnyObject))
