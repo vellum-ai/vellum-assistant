@@ -69,6 +69,7 @@ public final class AuthManager {
     public func startWorkOSLogin() async {
         isSubmitting = true
         errorMessage = nil
+        defer { isSubmitting = false }
 
         do {
             let config = try await authService.getConfig()
@@ -134,17 +135,39 @@ public final class AuthManager {
                 accessToken: tokenResponse.access_token
             )
 
-            if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
-                state = .authenticated(user)
+            log.info(
+                "Provider-token auth completed with status=\(response.status, privacy: .public) isAuthenticated=\(response.meta?.is_authenticated == true, privacy: .public) hasUser=\(response.data?.user != nil, privacy: .public)"
+            )
+
+            if response.status == 200, response.meta?.is_authenticated != false {
+                if let user = response.data?.user {
+                    state = .authenticated(user)
+                    log.info("WorkOS login completed from provider-token response for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
+                } else {
+                    log.info("Provider-token auth returned no user payload; validating session via auth/session")
+                    let session = try await authService.getSession()
+                    if session.status == 200, session.meta?.is_authenticated != false, let user = session.data?.user {
+                        state = .authenticated(user)
+                        log.info("WorkOS login completed after session revalidation for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
+                    } else {
+                        log.error(
+                            "Session revalidation after provider-token auth did not return an authenticated user. status=\(session.status, privacy: .public) isAuthenticated=\(session.meta?.is_authenticated == true, privacy: .public) hasUser=\(session.data?.user != nil, privacy: .public)"
+                        )
+                        errorMessage = "Authentication was not completed. Please try again."
+                    }
+                }
             } else {
+                log.error(
+                    "Provider-token auth did not complete authentication. status=\(response.status, privacy: .public) isAuthenticated=\(response.meta?.is_authenticated == true, privacy: .public)"
+                )
                 errorMessage = "Authentication was not completed. Please try again."
             }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             log.info("User cancelled WorkOS login")
         } catch {
+            log.error("WorkOS login failed: \(error.localizedDescription)")
             errorMessage = error.localizedDescription
         }
-        isSubmitting = false
     }
 
     public func logout() async {

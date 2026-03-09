@@ -131,10 +131,14 @@ struct OnboardingFlowView: View {
             }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
+            let currentAssistant = LockfileAssistant.loadLatest()
+            log.info(
+                "Observed auth state change in onboarding: isAuthenticated=\(isAuthenticated, privacy: .public) managedBootstrapEnabled=\(self.managedBootstrapEnabled, privacy: .public) lockfileAssistantId=\(currentAssistant?.assistantId ?? "<none>", privacy: .public)"
+            )
             if isAuthenticated {
-                let currentAssistant = LockfileAssistant.loadLatest()
                 if let assistant = currentAssistant {
                     if assistant.isManaged {
+                        log.info("Authenticated with managed assistant \(assistant.assistantId, privacy: .public); starting managed bootstrap")
                         Task {
                             await performManagedBootstrap()
                         }
@@ -146,6 +150,7 @@ struct OnboardingFlowView: View {
                         onComplete()
                     }
                 } else if managedBootstrapEnabled {
+                    log.info("Authenticated with no lockfile assistant; starting managed bootstrap")
                     Task {
                         await performManagedBootstrap()
                     }
@@ -204,6 +209,7 @@ struct OnboardingFlowView: View {
     private func performManagedBootstrap() async {
         isBootstrappingManaged = true
         managedBootstrapError = nil
+        log.info("Beginning managed assistant bootstrap")
 
         do {
             let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
@@ -212,8 +218,10 @@ struct OnboardingFlowView: View {
             switch outcome {
             case .reusedExisting(let existing):
                 assistant = existing
+                log.info("Managed bootstrap reused existing assistant \(assistant.id, privacy: .public)")
             case .createdNew(let created):
                 assistant = created
+                log.info("Managed bootstrap created new assistant \(assistant.id, privacy: .public)")
             }
 
             let runtimeUrl = AuthService.shared.baseURL
@@ -229,14 +237,17 @@ struct OnboardingFlowView: View {
 
             guard success else {
                 managedBootstrapError = "Failed to save assistant configuration. Please try again."
+                log.error("Managed bootstrap failed to persist lockfile entry for assistant \(assistant.id, privacy: .public)")
                 return
             }
 
             UserDefaults.standard.set(assistant.id, forKey: "connectedAssistantId")
 
             isBootstrappingManaged = false
+            log.info("Managed bootstrap completed for assistant \(assistant.id, privacy: .public); proceeding to app")
             onComplete()
         } catch {
+            log.error("Managed bootstrap failed: \(error.localizedDescription)")
             managedBootstrapError = error.localizedDescription
         }
     }

@@ -68,6 +68,7 @@ public enum SessionTokenManager {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = APIKeyManager.shared.setAPIKey(token, provider: provider)
+                writePlatformTokenFile(token)
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: .sessionTokenDidChange, object: nil)
                 }
@@ -80,6 +81,7 @@ public enum SessionTokenManager {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 _ = APIKeyManager.shared.deleteAPIKey(provider: provider)
+                removePlatformTokenFile()
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: .sessionTokenDidChange, object: nil)
                 }
