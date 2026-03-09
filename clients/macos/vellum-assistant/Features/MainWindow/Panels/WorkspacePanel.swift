@@ -15,6 +15,10 @@ final class WorkspaceBrowserState {
     var isLoadingTree = false
     var isLoadingFile = false
     var fileLoadTask: Task<Void, Never>?
+    var editableContent: String = ""
+    var originalContent: String = ""
+    var isDirty: Bool = false
+    var isSaving: Bool = false
 }
 
 // MARK: - Workspace Panel
@@ -175,11 +179,17 @@ private struct WorkspaceTreeRow: View {
             state.selectedFilePath = targetPath
             state.isLoadingFile = true
             state.selectedFileDetail = nil
+            state.isDirty = false
+            state.editableContent = ""
             state.fileLoadTask?.cancel()
             let task = Task {
                 let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
                 guard !Task.isCancelled, state.selectedFilePath == targetPath else { return }
                 state.selectedFileDetail = detail
+                state.editableContent = detail?.content ?? ""
+                state.originalContent = detail?.content ?? ""
+                state.isDirty = false
+                state.isSaving = false
                 state.isLoadingFile = false
             }
             state.fileLoadTask = task
@@ -245,15 +255,49 @@ private struct WorkspaceFileViewer: View {
     }
 
     private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
-        ScrollView([.horizontal, .vertical]) {
-            Text(detail.content ?? "")
+        VStack(spacing: 0) {
+            if state.isDirty {
+                HStack {
+                    Spacer()
+                    Button {
+                        Task { await saveFile(path: detail.path) }
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            if state.isSaving {
+                                ProgressView().controlSize(.small)
+                            }
+                            Text("Save")
+                                .font(VFont.bodyMedium)
+                        }
+                    }
+                    .disabled(state.isSaving)
+                    .keyboardShortcut("s", modifiers: .command)
+                    .padding(.trailing, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                }
+            }
+
+            TextEditor(text: $state.editableContent)
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
-                .textSelection(.enabled)
+                .scrollContentBackground(.hidden)
                 .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: state.editableContent) { _, newValue in
+                    state.isDirty = newValue != state.originalContent
+                }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func saveFile(path: String) async {
+        state.isSaving = true
+        let data = Data(state.editableContent.utf8)
+        let success = await daemonClient.writeWorkspaceFile(path: path, content: data)
+        if success {
+            state.originalContent = state.editableContent
+            state.isDirty = false
+        }
+        state.isSaving = false
     }
 
     private func fileTooLarge(_ detail: WorkspaceFileResponse) -> some View {
