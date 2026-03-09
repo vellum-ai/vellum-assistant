@@ -317,7 +317,7 @@ struct MessageListView: View {
                 showIcon: false
             )
         }
-        .frame(maxWidth: 520, alignment: .leading)
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
@@ -455,7 +455,7 @@ struct MessageListView: View {
                             onAbort: { onAbortSubagent?(subagent.id) },
                             onTap: { onSubagentTap?(subagent.id) }
                         )
-                            .frame(maxWidth: 520, alignment: .leading)
+                            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                             .padding(.leading, 36)
                             .id("subagent-\(subagent.id)")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -961,7 +961,7 @@ private struct MessageCellView: View {
                 showIcon: false
             )
         }
-        .frame(maxWidth: 520, alignment: .leading)
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
     }
 
@@ -1054,7 +1054,7 @@ private struct MessageCellView: View {
                 onAbort: { onAbortSubagent?(subagent.id) },
                 onTap: { onSubagentTap?(subagent.id) }
             )
-                .frame(maxWidth: 520, alignment: .leading)
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                 .padding(.leading, 36)
                 .id("subagent-\(subagent.id)")
         }
