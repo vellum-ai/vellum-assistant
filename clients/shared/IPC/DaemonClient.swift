@@ -996,15 +996,39 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         // Local daemon path — build request using the daemon HTTP port.
         let sEncoded = surfaceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? surfaceId
         let qEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+        let surfacePath = "v1/surfaces/\(sEncoded)?sessionId=\(qEncoded)"
         guard let request = buildLocalRequest(
             target: .daemon,
-            path: "v1/surfaces/\(sEncoded)?sessionId=\(qEncoded)",
+            path: surfacePath,
             timeout: 10
         ) else { return nil }
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+            guard let http = response as? HTTPURLResponse else { return nil }
+
+            if http.statusCode == 401 {
+                guard let platform = recoveryPlatform, let deviceId = recoveryDeviceId else {
+                    log.warning("Local HTTP 401 for \(surfacePath, privacy: .public) — no recovery credentials configured")
+                    return nil
+                }
+                log.info("Local HTTP 401 for \(surfacePath, privacy: .public) — attempting re-bootstrap")
+                let success = await bootstrapActorToken(platform: platform, deviceId: deviceId)
+                guard success else {
+                    log.warning("Local HTTP re-bootstrap failed for \(surfacePath, privacy: .public)")
+                    return nil
+                }
+                // Retry with fresh token
+                guard let retryRequest = buildLocalRequest(target: .daemon, path: surfacePath, timeout: 10) else { return nil }
+                let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
+                    log.warning("Local HTTP retry failed for \(surfacePath, privacy: .public) status=\((retryResponse as? HTTPURLResponse)?.statusCode ?? -1)")
+                    return nil
+                }
+                return Surface.parseSurfaceDataFromResponse(retryData)
+            }
+
+            guard (200...299).contains(http.statusCode) else { return nil }
             return Surface.parseSurfaceDataFromResponse(data)
         } catch {
             return nil
