@@ -97,7 +97,7 @@ struct APIKeyStepView: View {
             }
         }
 
-        OnboardingFooter(currentStep: state.currentStep, totalSteps: userHostedEnabled ? 3 : 2)
+        OnboardingFooter(currentStep: state.currentStep, totalSteps: userHostedEnabled ? 4 : 3)
             .padding(.bottom, VSpacing.lg)
     }
 
@@ -199,7 +199,7 @@ struct APIKeyStepView: View {
 
     private var primaryButton: some View {
         OnboardingButton(
-            title: userHostedEnabled && hostingMode != .local && hostingMode != .docker ? "Continue" : "Hatch!",
+            title: "Continue",
             style: .primary,
             disabled: primaryButtonDisabled
         ) {
@@ -267,10 +267,10 @@ struct APIKeyStepView: View {
             if userHostedEnabled && hostingMode != .local && hostingMode != .docker {
                 state.advance()
             } else if userHostedEnabled {
-                state.isHatching = true
+                state.advance()
             } else {
                 state.cloudProvider = "local"
-                state.isHatching = true
+                state.advance()
             }
     }
 
