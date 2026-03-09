@@ -44,7 +44,7 @@ let package = Package(
                 .enableUpcomingFeature("BareSlashRegexLiterals")
             ],
             linkerSettings: [
-                .linkedFramework("Network"),  // Required for DaemonClient (NWConnection)
+                .linkedFramework("Network"),  // Required for KeychainBrokerServer (NWListener/NWConnection)
                 .linkedFramework("AuthenticationServices"),  // Required for shared AuthManager (ASWebAuthenticationSession)
             ]
         ),
