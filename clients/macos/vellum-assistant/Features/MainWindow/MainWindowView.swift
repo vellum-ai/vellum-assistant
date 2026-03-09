@@ -475,7 +475,7 @@ struct MainWindowView: View {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                                withAnimation(.easeOut(duration: 0.12)) {
                                     sidebar.showPreferencesDrawer = false
                                 }
                             }
@@ -544,7 +544,7 @@ struct MainWindowView: View {
                         .frame(width: drawerWidth)
                         .offset(x: 16 + VSpacing.sm, y: -drawerY)
                         .zIndex(10)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
                     }
                 }
                 .overlay {

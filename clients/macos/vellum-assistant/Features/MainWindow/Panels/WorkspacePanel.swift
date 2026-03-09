@@ -284,32 +284,8 @@ private struct WorkspaceFileViewer: View {
 
     private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            // TODO: Add auth headers for remote/cloud support — bare URLs work for local daemon only
             if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding(VSpacing.md)
-                    case .failure:
-                        VStack {
-                            VIconView(.triangleAlert, size: 24)
-                                .foregroundColor(VColor.warning)
-                            Text("Failed to load image")
-                                .font(VFont.body)
-                                .foregroundColor(VColor.textMuted)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    case .empty:
-                        ProgressView()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
+                AuthenticatedImageView(url: url)
             } else {
                 Text("Unable to load image URL")
                     .font(VFont.body)
@@ -321,7 +297,6 @@ private struct WorkspaceFileViewer: View {
 
     private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
-            // TODO: Add auth headers for remote/cloud support — bare URLs work for local daemon only
             if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
                 WorkspaceVideoPlayer(url: url)
             } else {
@@ -371,11 +346,62 @@ private struct WorkspaceFileViewer: View {
     }
 }
 
+// MARK: - Authenticated Image View
+
+private struct AuthenticatedImageView: View {
+    let url: URL
+    @State private var image: NSImage?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(VSpacing.md)
+            } else if failed {
+                VStack {
+                    VIconView(.triangleAlert, size: 24)
+                        .foregroundColor(VColor.warning)
+                    Text("Failed to load image")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task {
+            var request = URLRequest(url: url)
+            if let token = ActorTokenManager.getToken(), !token.isEmpty {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                    failed = true
+                    return
+                }
+                image = NSImage(data: data)
+                if image == nil { failed = true }
+            } catch {
+                failed = true
+            }
+        }
+    }
+}
+
 // MARK: - Video Player
 
 private struct WorkspaceVideoPlayer: View {
     let url: URL
     @State private var player: AVPlayer?
+    @State private var tempFileURL: URL?
+    @State private var failed = false
 
     var body: some View {
         Group {
@@ -383,21 +409,53 @@ private struct WorkspaceVideoPlayer: View {
                 VideoPlayer(player: player)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(VSpacing.md)
+            } else if failed {
+                VStack {
+                    VIconView(.triangleAlert, size: 24)
+                        .foregroundColor(VColor.warning)
+                    Text("Failed to load video")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .onAppear {
-            player = AVPlayer(url: url)
-        }
-        .onChange(of: url) { _, newURL in
+        .task { await loadVideo() }
+        .onChange(of: url) { _, _ in
             player?.pause()
-            player = AVPlayer(url: newURL)
+            player = nil
+            Task { await loadVideo() }
         }
         .onDisappear {
             player?.pause()
             player = nil
+            if let tempFileURL {
+                try? FileManager.default.removeItem(at: tempFileURL)
+            }
+        }
+    }
+
+    private func loadVideo() async {
+        var request = URLRequest(url: url)
+        if let token = ActorTokenManager.getToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                failed = true
+                return
+            }
+            let tmpDir = FileManager.default.temporaryDirectory
+            let tmpFile = tmpDir.appendingPathComponent(UUID().uuidString + ".mp4")
+            try data.write(to: tmpFile)
+            tempFileURL = tmpFile
+            player = AVPlayer(url: tmpFile)
+        } catch {
+            failed = true
         }
     }
 }
