@@ -9,6 +9,12 @@ struct WorkspaceBrowserView: View {
     @State private var entries: [WorkspaceTreeEntry] = []
     @State private var isLoading = true
     @State private var selectedFile: WorkspaceTreeEntry?
+    @State private var showingNewFileAlert = false
+    @State private var showingNewFolderAlert = false
+    @State private var newItemName: String = ""
+    @State private var deletingEntry: WorkspaceTreeEntry?
+    @State private var renamingEntry: WorkspaceTreeEntry?
+    @State private var renameText: String = ""
 
     var body: some View {
         Group {
@@ -26,27 +32,212 @@ struct WorkspaceBrowserView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List {
-                    ForEach(entries) { entry in
-                        if entry.isDirectory {
-                            NavigationLink(destination: WorkspaceBrowserView(client: client, initialPath: entry.path)) {
-                                directoryRow(entry)
-                            }
-                        } else {
-                            Button { selectedFile = entry } label: {
-                                fileRow(entry)
-                            }
-                        }
-                    }
-                }
-                .listStyle(.plain)
+                entryList
             }
         }
         .navigationTitle(initialPath.isEmpty ? "Workspace" : lastPathComponent(initialPath))
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button {
+                        newItemName = ""
+                        showingNewFileAlert = true
+                    } label: {
+                        Label { Text("New File") } icon: { VIconView(.filePlus, size: 14) }
+                    }
+                    Button {
+                        newItemName = ""
+                        showingNewFolderAlert = true
+                    } label: {
+                        Label { Text("New Folder") } icon: { VIconView(.folder, size: 14) }
+                    }
+                } label: {
+                    VIconView(.plus, size: 16)
+                        .accessibilityLabel("Add item")
+                }
+            }
+        }
         .sheet(item: $selectedFile) { file in
             WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, client: client)
         }
         .task { await loadDirectory() }
+        .alert("New File", isPresented: $showingNewFileAlert) {
+            newFileAlertContent
+        }
+        .alert("New Folder", isPresented: $showingNewFolderAlert) {
+            newFolderAlertContent
+        }
+        .alert("Rename", isPresented: renameAlertBinding) {
+            renameAlertContent
+        }
+        .alert("Delete", isPresented: deleteAlertBinding) {
+            deleteAlertContent
+        } message: {
+            Text("Delete \"\(deletingEntry?.name ?? "")\"? This cannot be undone.")
+        }
+    }
+
+    // MARK: - Entry List
+
+    private var entryList: some View {
+        List {
+            ForEach(entries) { entry in
+                entryRow(entry)
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            deletingEntry = entry
+                        } label: {
+                            Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
+                        }
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button {
+                            renamingEntry = entry
+                            renameText = entry.name
+                        } label: {
+                            Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+                        }
+                        .tint(.blue)
+                    }
+                    .contextMenu {
+                        entryContextMenu(entry)
+                    }
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func entryRow(_ entry: WorkspaceTreeEntry) -> some View {
+        if entry.isDirectory {
+            NavigationLink(destination: WorkspaceBrowserView(client: client, initialPath: entry.path)) {
+                directoryRow(entry)
+            }
+        } else {
+            Button { selectedFile = entry } label: {
+                fileRow(entry)
+            }
+        }
+    }
+
+    // MARK: - Context Menu
+
+    @ViewBuilder
+    private func entryContextMenu(_ entry: WorkspaceTreeEntry) -> some View {
+        Button {
+            renamingEntry = entry
+            renameText = entry.name
+        } label: {
+            Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+        }
+
+        Button(role: .destructive) {
+            deletingEntry = entry
+        } label: {
+            Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
+        }
+
+        if entry.isDirectory {
+            Divider()
+
+            Button {
+                newItemName = ""
+                showingNewFileAlert = true
+            } label: {
+                Label { Text("New File") } icon: { VIconView(.filePlus, size: 14) }
+            }
+
+            Button {
+                newItemName = ""
+                showingNewFolderAlert = true
+            } label: {
+                Label { Text("New Folder") } icon: { VIconView(.folder, size: 14) }
+            }
+        }
+    }
+
+    // MARK: - Alert Bindings
+
+    private var renameAlertBinding: Binding<Bool> {
+        Binding(
+            get: { renamingEntry != nil },
+            set: { if !$0 { renamingEntry = nil } }
+        )
+    }
+
+    private var deleteAlertBinding: Binding<Bool> {
+        Binding(
+            get: { deletingEntry != nil },
+            set: { if !$0 { deletingEntry = nil } }
+        )
+    }
+
+    // MARK: - Alert Content
+
+    @ViewBuilder
+    private var newFileAlertContent: some View {
+        TextField("Filename", text: $newItemName)
+        Button("Create") {
+            let path = buildPath(newItemName)
+            Task {
+                if let client, await client.writeWorkspaceFile(path: path, content: Data()) {
+                    await reloadDirectory()
+                }
+            }
+        }
+        Button("Cancel", role: .cancel) {}
+    }
+
+    @ViewBuilder
+    private var newFolderAlertContent: some View {
+        TextField("Folder name", text: $newItemName)
+        Button("Create") {
+            let path = buildPath(newItemName)
+            Task {
+                if let client, await client.createWorkspaceDirectory(path: path) {
+                    await reloadDirectory()
+                }
+            }
+        }
+        Button("Cancel", role: .cancel) {}
+    }
+
+    @ViewBuilder
+    private var renameAlertContent: some View {
+        TextField("New name", text: $renameText)
+        Button("Rename") {
+            guard let entry = renamingEntry else { return }
+            let oldPath = entry.path
+            let parentPath = oldPath.contains("/")
+                ? String(oldPath[...oldPath.lastIndex(of: "/")!])
+                : ""
+            let newPath = parentPath + renameText
+            Task {
+                if let client, await client.renameWorkspaceItem(oldPath: oldPath, newPath: newPath) {
+                    await reloadDirectory()
+                }
+            }
+            renamingEntry = nil
+        }
+        Button("Cancel", role: .cancel) {
+            renamingEntry = nil
+        }
+    }
+
+    @ViewBuilder
+    private var deleteAlertContent: some View {
+        Button("Delete", role: .destructive) {
+            guard let entry = deletingEntry else { return }
+            Task {
+                if let client, await client.deleteWorkspaceItem(path: entry.path) {
+                    await reloadDirectory()
+                }
+            }
+            deletingEntry = nil
+        }
+        Button("Cancel", role: .cancel) {
+            deletingEntry = nil
+        }
     }
 
     // MARK: - Row Views
@@ -110,6 +301,21 @@ struct WorkspaceBrowserView: View {
             entries = response.entries
         }
         isLoading = false
+    }
+
+    private func reloadDirectory() async {
+        guard let client else { return }
+        if let response = await client.fetchWorkspaceTree(path: initialPath) {
+            entries = response.entries
+        }
+    }
+
+    private func buildPath(_ name: String) -> String {
+        if initialPath.isEmpty {
+            return name
+        }
+        let base = initialPath.hasSuffix("/") ? initialPath : initialPath + "/"
+        return base + name
     }
 
     private func lastPathComponent(_ path: String) -> String {
