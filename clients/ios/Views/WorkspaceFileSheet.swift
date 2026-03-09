@@ -11,6 +11,9 @@ struct WorkspaceFileSheet: View {
     @State private var fileResponse: WorkspaceFileResponse?
     @State private var isLoading = true
     @State private var error: String?
+    @State private var editableContent: String = ""
+    @State private var isDirty = false
+    @State private var isSaving = false
 
     var displayName: String {
         let trimmed = filePath.hasSuffix("/") ? String(filePath.dropLast()) : filePath
@@ -47,6 +50,14 @@ struct WorkspaceFileSheet: View {
             .navigationTitle(displayName)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    if isDirty {
+                        Button("Save") {
+                            Task { await saveFile() }
+                        }
+                        .disabled(isSaving)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
@@ -54,6 +65,9 @@ struct WorkspaceFileSheet: View {
         }
         .task {
             await loadContent()
+            if let content = fileResponse?.content {
+                editableContent = content
+            }
         }
     }
 
@@ -67,11 +81,13 @@ struct WorkspaceFileSheet: View {
             AuthenticatedImageView(url: contentURL, client: client)
         } else if resolvedMime.hasPrefix("video/"), let contentURL = client?.workspaceFileContentURL(path: filePath) {
             WorkspaceVideoPlayer(url: contentURL, client: client)
-        } else if let response = fileResponse, !response.isBinary, let content = response.content {
-            ScrollView {
-                markdownContent(content)
-                    .padding(VSpacing.lg)
-            }
+        } else if let response = fileResponse, !response.isBinary, response.content != nil {
+            TextEditor(text: $editableContent)
+                .font(VFont.mono)
+                .padding(VSpacing.sm)
+                .onChange(of: editableContent) { _, newValue in
+                    isDirty = newValue != (fileResponse?.content ?? "")
+                }
         } else if let response = fileResponse {
             metadataView(response)
         } else {
@@ -120,25 +136,6 @@ struct WorkspaceFileSheet: View {
         }
     }
 
-    // MARK: - Markdown Rendering
-
-    @ViewBuilder
-    private func markdownContent(_ raw: String) -> some View {
-        if let attributed = try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-            Text(attributed)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            Text(raw)
-                .font(VFont.body)
-                .foregroundColor(VColor.textPrimary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
     // MARK: - Loading
 
     private func loadContent() async {
@@ -154,6 +151,15 @@ struct WorkspaceFileSheet: View {
             error = "Unable to read file."
         }
         isLoading = false
+    }
+
+    private func saveFile() async {
+        guard let path = fileResponse?.path else { return }
+        isSaving = true
+        let data = Data(editableContent.utf8)
+        let success = await client?.writeWorkspaceFile(path: path, content: data) ?? false
+        if success { isDirty = false }
+        isSaving = false
     }
 
     // MARK: - Helpers

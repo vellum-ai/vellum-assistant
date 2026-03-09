@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 struct WorkspaceBrowserView: View {
@@ -15,6 +16,7 @@ struct WorkspaceBrowserView: View {
     @State private var deletingEntry: WorkspaceTreeEntry?
     @State private var renamingEntry: WorkspaceTreeEntry?
     @State private var renameText: String = ""
+    @State private var showDocumentPicker = false
 
     var body: some View {
         Group {
@@ -38,24 +40,38 @@ struct WorkspaceBrowserView: View {
         .navigationTitle(initialPath.isEmpty ? "Workspace" : lastPathComponent(initialPath))
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button {
-                        newItemName = ""
-                        showingNewFileAlert = true
-                    } label: {
-                        Label { Text("New File") } icon: { VIconView(.filePlus, size: 14) }
+                HStack(spacing: VSpacing.md) {
+                    Button { showDocumentPicker = true } label: {
+                        VIconView(.upload, size: 16)
+                            .accessibilityLabel("Import files")
                     }
-                    Button {
-                        newItemName = ""
-                        showingNewFolderAlert = true
+
+                    Menu {
+                        Button {
+                            newItemName = ""
+                            showingNewFileAlert = true
+                        } label: {
+                            Label { Text("New File") } icon: { VIconView(.filePlus, size: 14) }
+                        }
+                        Button {
+                            newItemName = ""
+                            showingNewFolderAlert = true
+                        } label: {
+                            Label { Text("New Folder") } icon: { VIconView(.folder, size: 14) }
+                        }
                     } label: {
-                        Label { Text("New Folder") } icon: { VIconView(.folder, size: 14) }
+                        VIconView(.plus, size: 16)
+                            .accessibilityLabel("Add item")
                     }
-                } label: {
-                    VIconView(.plus, size: 16)
-                        .accessibilityLabel("Add item")
                 }
             }
+        }
+        .fileImporter(
+            isPresented: $showDocumentPicker,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: true
+        ) { result in
+            handleFileImport(result)
         }
         .sheet(item: $selectedFile) { file in
             WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, client: client)
@@ -287,6 +303,23 @@ struct WorkspaceBrowserView: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(entry.name)
         .accessibilityHint("Opens file viewer")
+    }
+
+    // MARK: - File Import
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result else { return }
+        for url in urls {
+            let didAccess = url.startAccessingSecurityScopedResource()
+            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else { continue }
+            let fileName = url.lastPathComponent
+            let targetPath = initialPath.isEmpty ? fileName : "\(initialPath)/\(fileName)"
+            Task {
+                let success = await client?.writeWorkspaceFile(path: targetPath, content: data) ?? false
+                if success { await reloadDirectory() }
+            }
+        }
     }
 
     // MARK: - Helpers
