@@ -31,12 +31,18 @@ public final class ContactsStore: ObservableObject {
 
     private let daemonClient: DaemonClient
     private var contactsChangedTask: Task<Void, Never>?
+    private var subscriptionTask: Task<Void, Never>?
 
     // MARK: - Init
 
     public init(daemonClient: DaemonClient) {
         self.daemonClient = daemonClient
         subscribeToContactsChanged()
+    }
+
+    deinit {
+        subscriptionTask?.cancel()
+        contactsChangedTask?.cancel()
     }
 
     // MARK: - Actions
@@ -142,13 +148,15 @@ public final class ContactsStore: ObservableObject {
 
     /// Subscribe to contactsChanged broadcasts with 500ms debounce.
     private func subscribeToContactsChanged() {
-        Task {
+        subscriptionTask = Task { [weak self] in
+            guard let self else { return }
             let stream = daemonClient.subscribe()
 
             for await message in stream {
+                guard !Task.isCancelled else { return }
                 if case .contactsChanged = message {
-                    contactsChangedTask?.cancel()
-                    contactsChangedTask = Task { @MainActor [weak self] in
+                    self.contactsChangedTask?.cancel()
+                    self.contactsChangedTask = Task { @MainActor [weak self] in
                         try? await Task.sleep(nanoseconds: 500_000_000)
                         guard !Task.isCancelled else { return }
                         self?.loadContacts()

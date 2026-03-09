@@ -19,7 +19,6 @@ final class ContactsViewModel: ObservableObject {
     // MARK: - Dependencies
 
     let contactsStore: ContactsStore?
-    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Init
 
