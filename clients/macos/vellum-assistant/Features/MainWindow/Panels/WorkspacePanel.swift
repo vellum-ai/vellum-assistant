@@ -285,7 +285,7 @@ private struct WorkspaceFileViewer: View {
     private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
             if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
-                AuthenticatedImageView(url: url)
+                AuthenticatedImageView(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load image URL")
                     .font(VFont.body)
@@ -298,7 +298,7 @@ private struct WorkspaceFileViewer: View {
     private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
         Group {
             if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
-                WorkspaceVideoPlayer(url: url)
+                WorkspaceVideoPlayer(url: url, daemonClient: daemonClient)
             } else {
                 Text("Unable to load video URL")
                     .font(VFont.body)
@@ -350,6 +350,7 @@ private struct WorkspaceFileViewer: View {
 
 private struct AuthenticatedImageView: View {
     let url: URL
+    let daemonClient: DaemonClient
     @State private var image: NSImage?
     @State private var failed = false
 
@@ -379,7 +380,7 @@ private struct AuthenticatedImageView: View {
             image = nil
             failed = false
             do {
-                let loadedImage = try await Self.fetchImage(url: url)
+                let loadedImage = try await fetchImage(url: url)
                 image = loadedImage
                 if image == nil { failed = true }
             } catch {
@@ -388,7 +389,7 @@ private struct AuthenticatedImageView: View {
         }
     }
 
-    private static func fetchImage(url: URL) async throws -> NSImage? {
+    private func fetchImage(url: URL) async throws -> NSImage? {
         var request = URLRequest(url: url)
         if let token = ActorTokenManager.getToken(), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -397,9 +398,14 @@ private struct AuthenticatedImageView: View {
         guard let http = response as? HTTPURLResponse else {
             return nil
         }
-        // On 401, clear stale credentials and retry once
+        // On 401, re-bootstrap actor token via daemon and retry once
         if http.statusCode == 401 {
-            ActorTokenManager.deleteAllCredentials()
+            guard let platform = daemonClient.recoveryPlatform,
+                  let deviceId = daemonClient.recoveryDeviceId else {
+                return nil
+            }
+            let success = await daemonClient.bootstrapActorToken(platform: platform, deviceId: deviceId)
+            guard success else { return nil }
             var retryRequest = URLRequest(url: url)
             if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
                 retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
@@ -421,6 +427,7 @@ private struct AuthenticatedImageView: View {
 
 private struct WorkspaceVideoPlayer: View {
     let url: URL
+    let daemonClient: DaemonClient
     @State private var player: AVPlayer?
     @State private var tempFileURL: URL?
     @State private var failed = false
@@ -467,7 +474,7 @@ private struct WorkspaceVideoPlayer: View {
 
     private func loadVideo() async {
         do {
-            let result = try await Self.downloadVideo(url: url)
+            let result = try await downloadVideo(url: url)
             guard let localURL = result else {
                 failed = true
                 return
@@ -481,8 +488,8 @@ private struct WorkspaceVideoPlayer: View {
 
     /// Downloads video to a temp file using streaming (avoids buffering entire file in memory).
     /// Returns the local file URL on success, nil on non-success HTTP status.
-    /// On 401, clears stale credentials and retries once.
-    private static func downloadVideo(url: URL) async throws -> URL? {
+    /// On 401, re-bootstraps actor token via daemon and retries once.
+    private func downloadVideo(url: URL) async throws -> URL? {
         var request = URLRequest(url: url)
         if let token = ActorTokenManager.getToken(), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -491,10 +498,15 @@ private struct WorkspaceVideoPlayer: View {
         guard let http = response as? HTTPURLResponse else {
             return nil
         }
-        // On 401, clear stale credentials and retry once
+        // On 401, re-bootstrap actor token via daemon and retry once
         if http.statusCode == 401 {
             try? FileManager.default.removeItem(at: downloadedURL)
-            ActorTokenManager.deleteAllCredentials()
+            guard let platform = daemonClient.recoveryPlatform,
+                  let deviceId = daemonClient.recoveryDeviceId else {
+                return nil
+            }
+            let success = await daemonClient.bootstrapActorToken(platform: platform, deviceId: deviceId)
+            guard success else { return nil }
             var retryRequest = URLRequest(url: url)
             if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
                 retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
