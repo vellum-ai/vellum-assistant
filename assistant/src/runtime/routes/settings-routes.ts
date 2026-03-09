@@ -460,7 +460,7 @@ function handleHomeBaseGet(ensureLinked: boolean): Response {
           title: app.name,
           subtitle: "Dashboard",
           description: app.description ?? "",
-          icon: app.icon ?? "",
+          icon: app.icon ?? "🏠",
           metrics: [],
         };
       } else {
@@ -705,10 +705,51 @@ async function handleToolPermissionSimulate(body: {
 // Environment variables
 // ---------------------------------------------------------------------------
 
+/**
+ * Allowlist of env-var prefixes/names safe to expose via diagnostics.
+ * Everything else is redacted to prevent secret leakage.
+ */
+const SAFE_ENV_VAR_PREFIXES = [
+  "NODE_",
+  "BUN_",
+  "npm_",
+  "LANG",
+  "LC_",
+  "TERM",
+  "SHELL",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "PATH",
+  "PWD",
+  "OLDPWD",
+  "HOSTNAME",
+  "DISPLAY",
+  "XDG_",
+  "COLORTERM",
+  "EDITOR",
+  "VISUAL",
+  "TZ",
+  "TMPDIR",
+  "VELLUM_",
+  "BASE_DATA_DIR",
+  "QDRANT_HTTP_PORT",
+  "PORT",
+  "DEBUG",
+];
+
+function isEnvVarSafe(key: string): boolean {
+  return SAFE_ENV_VAR_PREFIXES.some(
+    (prefix) => key === prefix || key.startsWith(prefix),
+  );
+}
+
 function handleEnvVars(): Response {
   const vars: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) vars[key] = value;
+    if (value !== undefined && isEnvVarSafe(key)) {
+      vars[key] = value;
+    }
   }
   return Response.json({ vars });
 }
