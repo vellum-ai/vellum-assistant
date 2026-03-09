@@ -53,9 +53,6 @@ mock.module("../../../../twitter/platform-proxy-client.js", () => ({
   TwitterProxyError: MockTwitterProxyError,
 }));
 
-// Mock the browser client — no longer used by router
-mock.module("../client.js", () => ({}));
-
 // Mock the logger to silence output
 mock.module("../../../../util/logger.js", () => ({
   getLogger: () => ({
