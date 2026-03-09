@@ -81,8 +81,8 @@ final class SurfaceManager: ObservableObject {
     // MARK: - Action Callback
 
     /// Called when a user interacts with a surface action button.
-    /// Parameters: sessionId, surfaceId, actionId, optional data dictionary.
-    var onAction: ((String, String, String, [String: Any]?) -> Void)?
+    /// Parameters: sessionId (optional), surfaceId, actionId, optional data dictionary.
+    var onAction: ((String?, String, String, [String: Any]?) -> Void)?
 
     /// Called when a persistent app's JS makes a data request via the RPC bridge.
     /// Parameters: surfaceId, callId, method, appId, recordId, data.

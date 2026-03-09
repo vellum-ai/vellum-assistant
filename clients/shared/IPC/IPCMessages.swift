@@ -380,12 +380,20 @@ extension IPCPingMessage {
 }
 
 /// Sent when user interacts with a surface.
-/// Backed by generated `IPCUiSurfaceAction`.
-public typealias UiSurfaceActionMessage = IPCUiSurfaceAction
+/// Hand-written to allow optional `sessionId` (the generated `IPCUiSurfaceAction` requires non-nil).
+public struct UiSurfaceActionMessage: Codable, Sendable {
+    public let type: String
+    public let sessionId: String?
+    public let surfaceId: String
+    public let actionId: String
+    public let data: [String: AnyCodable]?
 
-extension IPCUiSurfaceAction {
-    public init(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
-        self.init(type: "ui_surface_action", sessionId: sessionId, surfaceId: surfaceId, actionId: actionId, data: data)
+    public init(sessionId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
+        self.type = "ui_surface_action"
+        self.sessionId = sessionId
+        self.surfaceId = surfaceId
+        self.actionId = actionId
+        self.data = data
     }
 }
 
@@ -943,7 +951,7 @@ public typealias SurfaceActionData = IPCSurfaceAction
 /// Surface update command from daemon.
 /// Wire type: `"ui_surface_update"`
 public struct UiSurfaceUpdateMessage: Decodable, Sendable {
-    public let sessionId: String
+    public let sessionId: String?
     public let surfaceId: String
     public let data: AnyCodable
 }
@@ -954,7 +962,7 @@ public typealias UiSurfaceDismissMessage = IPCUiSurfaceDismiss
 
 /// Surface completion message from daemon, sent when user interaction completes a surface.
 public struct UiSurfaceCompleteMessage: Decodable, Sendable {
-    public let sessionId: String
+    public let sessionId: String?
     public let surfaceId: String
     public let summary: String
     public let submittedData: [String: AnyCodable]?
