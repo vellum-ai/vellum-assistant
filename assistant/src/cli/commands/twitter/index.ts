@@ -938,6 +938,7 @@ async function minimizeChrome(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 interface LearnResult {
+  recordingId?: string;
   recordingPath?: string;
 }
 
@@ -1003,9 +1004,8 @@ async function startLearnSession(
   const startTime = Date.now();
 
   return new Promise<LearnResult>((resolve, reject) => {
-    const poll = setInterval(async () => {
+    const tick = async () => {
       if (Date.now() - startTime > timeoutMs) {
-        clearInterval(poll);
         reject(
           new Error(`Learn session timed out after ${durationSeconds + 30}s`),
         );
@@ -1017,7 +1017,10 @@ async function startLearnSession(
           `/v1/computer-use/ride-shotgun/status/${watchId}`,
           { method: "GET" },
         );
-        if (!statusRes.ok) return;
+        if (!statusRes.ok) {
+          setTimeout(tick, pollIntervalMs);
+          return;
+        }
 
         const status = (await statusRes.json()) as {
           status: string;
@@ -1027,7 +1030,6 @@ async function startLearnSession(
         };
 
         if (status.bootstrapFailureReason) {
-          clearInterval(poll);
           reject(
             new Error(
               `Learn session failed: ${status.bootstrapFailureReason}`,
@@ -1037,7 +1039,6 @@ async function startLearnSession(
         }
 
         if (status.status === "completed") {
-          clearInterval(poll);
           if (status.recordingId) {
             resolve({
               recordingId: status.recordingId,
@@ -1055,6 +1056,10 @@ async function startLearnSession(
       } catch {
         // Status endpoint not reachable — continue polling
       }
-    }, pollIntervalMs);
+
+      setTimeout(tick, pollIntervalMs);
+    };
+
+    setTimeout(tick, pollIntervalMs);
   });
 }
