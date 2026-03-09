@@ -359,7 +359,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "computer-use/tasks", scopes: ["chat.write"] },
   { endpoint: "computer-use/ride-shotgun/start", scopes: ["chat.write"] },
   { endpoint: "computer-use/ride-shotgun/stop", scopes: ["chat.write"] },
-  { endpoint: "computer-use/ride-shotgun/status", scopes: ["chat.read"] },
+  { endpoint: "computer-use/ride-shotgun/status", scopes: ["chat.write"] },
   { endpoint: "computer-use/watch", scopes: ["chat.write"] },
 
   // Recordings

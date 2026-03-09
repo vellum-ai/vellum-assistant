@@ -1019,7 +1019,8 @@ async function startLearnSession(
 
       // Poll session status to detect failures early
       try {
-        const statusRes = await fetch(statusUrl, { headers });
+        const fetchAbort = AbortSignal.timeout(10_000);
+        const statusRes = await fetch(statusUrl, { headers, signal: fetchAbort });
         if (statusRes.ok) {
           const status = (await statusRes.json()) as {
             status: string;
