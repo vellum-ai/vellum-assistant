@@ -74,12 +74,12 @@ public struct VSlider: View {
         ZStack(alignment: .leading) {
             // Unfilled track (edge-to-edge)
             Rectangle()
-                .fill(adaptiveColor(light: Moss._100, dark: Moss._700))
+                .fill(VColor.sliderTrack)
                 .frame(height: trackHeight)
 
             // Filled track (from left edge to thumb center)
             Rectangle()
-                .fill(adaptiveColor(light: Forest._300, dark: Forest._500))
+                .fill(VColor.sliderFill)
                 .frame(width: thumbOffset + thumbWidth / 2, height: trackHeight)
         }
         .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
