@@ -2,13 +2,13 @@ import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import * as readline from "node:readline";
 
+import { httpSend, httpHealthCheck, readHttpToken } from "./cli/http-client.js";
 import {
   type MainScreenLayout,
   renderMainScreen,
   updateDaemonText,
   updateStatusText,
 } from "./cli/main-screen.jsx";
-import { httpSend, httpHealthCheck, readHttpToken } from "./cli/http-client.js";
 import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
 import { ensureDaemonRunning } from "./daemon/lifecycle.js";
 import type {
@@ -144,7 +144,6 @@ export async function startCli(): Promise<void> {
   let reconnecting = false;
   let reconnectDelay = RECONNECT_BASE_DELAY_MS;
   let sseAbortController: AbortController | null = null;
-  let connected = false;
   const spinner = new Spinner();
 
   process.stdout.write("\x1b[2J\x1b[H");
@@ -855,7 +854,6 @@ export async function startCli(): Promise<void> {
       sseAbortController.abort();
       sseAbortController = null;
     }
-    connected = false;
   }
 
   /** Reconnect the SSE stream (e.g., after switching conversations). */
@@ -888,8 +886,6 @@ export async function startCli(): Promise<void> {
       if (!response.ok || !response.body) {
         throw new Error(`SSE connection failed: ${response.status}`);
       }
-
-      connected = true;
 
       // Read the SSE stream
       const reader = response.body.getReader();
@@ -939,7 +935,7 @@ export async function startCli(): Promise<void> {
               }
             }
           }
-        } catch (err) {
+        } catch {
           if (controller.signal.aborted) return; // intentional disconnect
           // Connection lost — trigger reconnect
         } finally {
@@ -948,7 +944,6 @@ export async function startCli(): Promise<void> {
 
         // If not intentionally disconnected, reconnect
         if (!controller.signal.aborted && !reconnecting) {
-          connected = false;
           reconnect();
         }
       };
