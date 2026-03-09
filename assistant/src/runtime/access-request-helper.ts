@@ -7,17 +7,12 @@
  *
  * Access requests are a special case: they always create a canonical request
  * and emit a notification signal, even when no same-channel guardian binding
- * exists. Guardian identity resolution uses a contacts-first fallback strategy:
- *   1. Source-channel guardian contact channel.
- *   2. Any active guardian channel (deterministic, most-recently-verified).
- *   3. No guardian identity (trusted/vellum-only resolution path).
+ * exists. Guardian identity resolution is anchored on the assistant's vellum
+ * principal so access requests cannot bind to stale/cross-assistant contacts.
  */
 
 import type { ChannelId } from "../channels/types.js";
-import {
-  findGuardianForChannel,
-  listGuardianChannels,
-} from "../contacts/contact-store.js";
+import { findGuardianForChannel } from "../contacts/contact-store.js";
 import type { ChannelStatus } from "../contacts/types.js";
 import {
   createCanonicalGuardianDelivery,
@@ -74,9 +69,9 @@ export type AccessRequestResult =
  * Returns a result indicating whether the guardian was notified and whether
  * a new request was created or an existing one was deduped.
  *
- * Guardian identity resolution: contacts-first for source channel, then any
- * active guardian channel, then null (notification pipeline handles delivery
- * via trusted/vellum channels when no binding exists).
+ * Guardian identity resolution uses the assistant's vellum principal as the
+ * trust anchor and only accepts source-channel contacts that match it. This
+ * prevents stale or cross-assistant contacts from being bound to the request.
  *
  * This is intentionally synchronous with respect to the canonical store writes
  * and fire-and-forget for the notification signal emission.
@@ -98,62 +93,52 @@ export function notifyGuardianOfAccessRequest(
     return { notified: false, reason: "no_sender_id" };
   }
 
-  // Resolve guardian identity with contacts-first strategy:
-  // 1. Source-channel guardian contact channel
-  // 2. Any active guardian channel (deterministic, most-recently-verified)
-  // 3. null (notification pipeline handles delivery via trusted channels)
+  // Resolve guardian identity with assistant-anchored strategy:
+  // 1. Ensure the assistant has a vellum guardian principal (trust anchor)
+  // 2. Use source-channel guardian only when principal matches anchor
+  // 3. Fallback to vellum guardian identity for this assistant principal
   let guardianExternalUserId: string | null = null;
   let guardianPrincipalId: string | null = null;
   let guardianBindingChannel: string | null = null;
-  let guardianResolutionSource: "contacts" | "contacts-fallback" | "none" =
-    "none";
+  let guardianResolutionSource:
+    | "source-channel-contact"
+    | "vellum-anchor"
+    | "none" = "none";
 
-  // Try contacts-first: source channel
+  const assistantGuardianPrincipalId =
+    ensureVellumGuardianBinding(canonicalAssistantId);
+
+  // Try source-channel guardian, but only if it maps to the assistant's
+  // anchored principal. This blocks cross-assistant/stale contact selection.
   const sourceGuardian = findGuardianForChannel(sourceChannel);
-  if (sourceGuardian) {
+  if (
+    sourceGuardian &&
+    sourceGuardian.contact.principalId === assistantGuardianPrincipalId
+  ) {
     guardianExternalUserId = sourceGuardian.channel.externalUserId;
     guardianPrincipalId = sourceGuardian.contact.principalId;
     guardianBindingChannel = sourceGuardian.channel.type;
-    guardianResolutionSource = "contacts";
-  } else {
-    // Try contacts-first: any active guardian channel
-    const allGuardianChannels = listGuardianChannels();
-    if (allGuardianChannels && allGuardianChannels.channels.length > 0) {
-      const fallbackChannel = allGuardianChannels.channels[0];
-      guardianExternalUserId = fallbackChannel.externalUserId;
-      guardianPrincipalId = allGuardianChannels.contact.principalId;
-      guardianBindingChannel = fallbackChannel.type;
-      guardianResolutionSource = "contacts-fallback";
-      log.debug(
-        {
-          sourceChannel,
-          fallbackChannel: guardianBindingChannel,
-          canonicalAssistantId,
-        },
-        "Using cross-channel guardian contact fallback for access request",
-      );
-    }
-    // If no guardian found via contacts, guardianResolutionSource stays "none"
+    guardianResolutionSource = "source-channel-contact";
   }
 
-  // Self-heal: access_request requires a principal. If none found via
-  // contacts, bootstrap the vellum binding.
+  // Access requests always require a principal. If source-channel resolution
+  // did not match the assistant anchor, use the anchored vellum identity.
   if (!guardianPrincipalId) {
-    log.info(
-      { sourceChannel, canonicalAssistantId },
-      "No guardian principal for access request — self-healing vellum binding",
-    );
-    const healedPrincipalId = ensureVellumGuardianBinding(canonicalAssistantId);
     const vellumGuardian = findGuardianForChannel("vellum");
-    if (vellumGuardian) {
+    if (
+      vellumGuardian &&
+      vellumGuardian.contact.principalId === assistantGuardianPrincipalId
+    ) {
       guardianExternalUserId =
         vellumGuardian.channel.externalUserId ?? guardianExternalUserId;
       guardianPrincipalId =
-        vellumGuardian.contact.principalId ?? healedPrincipalId;
+        vellumGuardian.contact.principalId ?? assistantGuardianPrincipalId;
       guardianBindingChannel = guardianBindingChannel ?? "vellum";
+      guardianResolutionSource = "vellum-anchor";
     } else {
-      guardianPrincipalId = healedPrincipalId;
+      guardianPrincipalId = assistantGuardianPrincipalId;
       guardianBindingChannel = guardianBindingChannel ?? "vellum";
+      guardianResolutionSource = "vellum-anchor";
     }
   }
 

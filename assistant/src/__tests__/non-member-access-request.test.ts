@@ -412,7 +412,7 @@ describe("access-request-helper unit tests", () => {
     expect(emitSignalCalls.length).toBe(1);
   });
 
-  test("notifyGuardianOfAccessRequest uses cross-channel binding when source-channel binding is missing", () => {
+  test("notifyGuardianOfAccessRequest falls back to assistant-anchored vellum identity when source-channel binding is missing", () => {
     // Only voice binding exists
     createGuardianBinding({
       channel: "phone",
@@ -437,14 +437,14 @@ describe("access-request-helper unit tests", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
-    expect(pending[0].guardianExternalUserId).toBe("guardian-voice");
+    expect(pending[0].guardianPrincipalId).toBeDefined();
 
-    // Signal payload includes fallback channel
+    // Signal payload includes anchored fallback channel
     const payload = emitSignalCalls[0].contextPayload as Record<
       string,
       unknown
     >;
-    expect(payload.guardianBindingChannel).toBe("phone");
+    expect(payload.guardianBindingChannel).toBe("vellum");
   });
 
   test("notifyGuardianOfAccessRequest prefers source-channel binding over cross-channel fallback", () => {
