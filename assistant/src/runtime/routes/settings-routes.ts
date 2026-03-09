@@ -441,7 +441,8 @@ function handleTwitterAuthStatus(): Response {
     )?.baseUrl as string | undefined;
     const platformAssistantIdResolvable = !!(
       (platformBaseUrlFromEnv || platformBaseUrlFromConfig) &&
-      getPlatformAssistantId()
+      (getSecureKey("credential:vellum:platform_assistant_id") ||
+        getPlatformAssistantId())
     );
 
     const managedPrerequisites = {

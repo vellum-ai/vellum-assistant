@@ -9,7 +9,7 @@
  * Prerequisites:
  * - Platform base URL (env `PLATFORM_BASE_URL` or config `platform.baseUrl`)
  * - Auth token (secure key `credential:vellum:assistant_api_key`)
- * - Platform assistant ID (env `PLATFORM_ASSISTANT_ID`)
+ * - Platform assistant ID (secure key store or env `PLATFORM_ASSISTANT_ID`)
  */
 
 import { getPlatformAssistantId, getPlatformBaseUrl } from "../config/env.js";
@@ -64,10 +64,13 @@ export function resolveAuthToken(): string | undefined {
 }
 
 /**
- * Resolve the platform assistant ID from environment.
+ * Resolve the platform assistant ID from secure storage (local) or environment (containerized).
  */
 export function resolvePlatformAssistantId(): string {
-  return getPlatformAssistantId();
+  return (
+    getSecureKey("credential:vellum:platform_assistant_id") ||
+    getPlatformAssistantId()
+  );
 }
 
 /**
