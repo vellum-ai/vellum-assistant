@@ -196,10 +196,13 @@ export interface RuntimeHttpServerOptions {
           data: SurfaceData;
           actions?: Array<{ id: string; label: string; style?: string }>;
         }>;
+        removeQueuedMessage?: (requestId: string) => boolean;
       }
     | undefined;
   /** Dependencies for session management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
   sessionManagementDeps?: SessionManagementDeps;
+  /** Context for model config set operations (session eviction, config reload suppression). */
+  modelSetContext?: import("../daemon/handlers/config-model.js").ModelSetContext;
 }
 
 export interface RuntimeAttachmentMetadata {

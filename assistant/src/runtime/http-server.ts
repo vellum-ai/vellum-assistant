@@ -91,6 +91,7 @@ import {
   TWILIO_WEBHOOK_RE,
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
+import { appManagementRouteDefinitions } from "./routes/app-management-routes.js";
 import { handleServePage } from "./routes/app-routes.js";
 import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
@@ -136,6 +137,7 @@ import {
 } from "./routes/pairing-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { sessionManagementRouteDefinitions } from "./routes/session-management-routes.js";
+import { sessionQueryRouteDefinitions } from "./routes/session-query-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
@@ -197,6 +199,7 @@ export class RuntimeHttpServer {
   private sendMessageDeps?: SendMessageDeps;
   private findSession?: RuntimeHttpServerOptions["findSession"];
   private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
+  private modelSetContext?: RuntimeHttpServerOptions["modelSetContext"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -213,6 +216,7 @@ export class RuntimeHttpServer {
     this.sendMessageDeps = options.sendMessageDeps;
     this.findSession = options.findSession;
     this.sessionManagementDeps = options.sessionManagementDeps;
+    this.modelSetContext = options.modelSetContext;
     this.router = new HttpRouter(this.buildRouteTable());
   }
 
@@ -688,11 +692,22 @@ export class RuntimeHttpServer {
         getPairingContext: () => this.pairingContext,
       }),
       ...appRouteDefinitions(),
+      ...appManagementRouteDefinitions(),
       ...secretRouteDefinitions(),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...workspaceRouteDefinitions(),
+      ...sessionQueryRouteDefinitions({
+        modelSetContext: this.modelSetContext,
+        findSessionForQueue: this.findSession
+          ? (id) => {
+              const s = this.findSession!(id);
+              if (!s?.removeQueuedMessage) return undefined;
+              return { removeQueuedMessage: s.removeQueuedMessage.bind(s) };
+            }
+          : undefined,
+      }),
 
       // Browser relay — not extracted into a domain module because
       // these two routes depend on the in-process extensionRelayServer
