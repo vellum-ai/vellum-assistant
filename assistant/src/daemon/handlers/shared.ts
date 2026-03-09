@@ -163,7 +163,6 @@ export interface HandlerContext {
   clearAllSessions(): number;
   getOrCreateSession(
     conversationId: string,
-    rebindClient?: boolean,
     options?: SessionCreateOptions,
   ): Promise<Session>;
   /** Refresh the eviction timestamp for a session that was accessed directly. */

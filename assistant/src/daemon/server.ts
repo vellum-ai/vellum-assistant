@@ -582,7 +582,7 @@ export class DaemonServer {
       send: (msg) => this.broadcast(msg),
       broadcast: (msg) => this.broadcast(msg),
       clearAllSessions: () => this.clearAllSessions(),
-      getOrCreateSession: (id, _rebind?, options?) =>
+      getOrCreateSession: (id, options?) =>
         this.getOrCreateSession(id, options),
       touchSession: (id) => this.evictor.touch(id),
       heartbeatService: this._heartbeatService,
