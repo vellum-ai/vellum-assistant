@@ -52,7 +52,7 @@ jobs:
         run: bash scripts/compare-benchmarks.sh baseline/benchmark-results.json benchmark-results.json
 
       - name: Upload results as new baseline
-        if: steps.run-benchmarks.outcome == 'success'
+        if: always() && steps.run-benchmarks.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-baseline
