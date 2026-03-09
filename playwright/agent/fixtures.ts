@@ -7,7 +7,7 @@
  */
 
 import { execSync } from "child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import os from "os";
 import path from "path";
 
@@ -101,11 +101,14 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   await ensureAssistantHatched();
   skipAssistantOnboarding();
   ensureApiKeyInDefaults();
+  logFixtureState();
 
   return {
     teardown: async () => {
+      collectAppLogs();
       retireAssistant();
       quitApp(appDisplayName);
+      collectHatchLogs();
       cleanupTestDataDir(baseDataDir);
     },
   };
@@ -392,9 +395,8 @@ async function ensureAssistantHatched(): Promise<void> {
   );
 }
 
-/** Returns true if the lockfile exists and contains at least one assistant. */
 function hasAssistantInLockfile(): boolean {
-  const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
+  const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
   if (!existsSync(lockfilePath)) return false;
   try {
     const raw = readFileSync(lockfilePath, "utf-8");
@@ -414,7 +416,7 @@ function readAssistantFromLockfile(hatchOutput: string): {
   assistantId: string;
 } {
   const diagnostics = buildDiagnostics(hatchOutput);
-  const lockfilePath = path.join(getBaseDir(), ".vellum.lock.json");
+  const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
 
   if (!existsSync(lockfilePath)) {
     throw new Error(
@@ -488,19 +490,128 @@ function skipAssistantOnboarding(): void {
  * Writes the ANTHROPIC_API_KEY from the environment into the app's
  * UserDefaults so the macOS app sees a valid key and skips the auth
  * setup screen.
+ *
+ * Kills cfprefsd before writing so the daemon restarts clean and the
+ * subsequent `defaults write` goes through a fresh process that will
+ * persist the value and serve it to the app's UserDefaults.standard.
  */
 function ensureApiKeyInDefaults(): void {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return;
 
-  const domain = "com.vellum.vellum-assistant";
+  const domain = defaultsDomain(0);
   try {
+    // Kill cfprefsd BEFORE writing so it starts fresh.
+    execSync("killall cfprefsd 2>/dev/null || true", { timeout: 5_000 });
+    execSync("sleep 1", { timeout: 5_000 });
+
     execSync(
-      `defaults write ${domain} vellum_provider_anthropic ${JSON.stringify(apiKey)}`,
+      `defaults write ${domain} vellum_provider_anthropic -string ${JSON.stringify(apiKey)}`,
       { timeout: 5_000 },
     );
+
+    // Verify the write is readable.
+    const readBack = execSync(
+      `defaults read ${domain} vellum_provider_anthropic`,
+      { encoding: "utf-8", timeout: 5_000 },
+    ).trim();
+
+    if (!readBack) {
+      console.error(
+        "[fixture] API key written but defaults read returned empty",
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[fixture] Failed to write/verify API key in defaults: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+}
+
+/**
+ * Copies hatch.log into test-results/agent-logs/ so it is included
+ * in the CI artifact upload alongside screenshots and traces.
+ */
+function collectHatchLogs(): void {
+  const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  const logPath = path.join(configHome, "vellum", "logs", "hatch.log");
+  if (!existsSync(logPath)) return;
+
+  const destDir = path.join(process.cwd(), "test-results", "agent-logs");
+  mkdirSync(destDir, { recursive: true });
+  try {
+    copyFileSync(logPath, path.join(destDir, "hatch.log"));
   } catch {
-    // Best-effort — tests may still work if auth is handled differently
+    // Best-effort
+  }
+}
+
+/**
+ * Collects the app's os_log output for lockfileCheck diagnostics.
+ */
+function collectAppLogs(): void {
+  try {
+    const logs = execSync(
+      `log show --predicate 'subsystem == "com.vellum.vellum-assistant"' --last 5m --style compact 2>/dev/null | tail -100`,
+      { encoding: "utf-8", timeout: 10_000 },
+    ).trim();
+    if (logs) {
+      console.error(`[fixture] App os_log (last 5min, tail 100):\n${logs}`);
+    } else {
+      console.error("[fixture] No app os_log entries found");
+    }
+  } catch {
+    console.error("[fixture] Failed to collect app os_log");
+  }
+}
+
+/**
+ * Logs fixture state for CI diagnostics: lockfile path/contents,
+ * defaults read for API key, HOME and BASE_DATA_DIR values.
+ */
+function logFixtureState(): void {
+  const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
+  const domain = defaultsDomain(0);
+
+  console.error(`[fixture] HOME=${os.homedir()}`);
+  console.error(`[fixture] BASE_DATA_DIR=${process.env.BASE_DATA_DIR ?? "(unset)"}`);
+  console.error(`[fixture] Lockfile path: ${lockfilePath}`);
+  console.error(`[fixture] Lockfile exists: ${existsSync(lockfilePath)}`);
+
+  if (existsSync(lockfilePath)) {
+    try {
+      const raw = readFileSync(lockfilePath, "utf-8");
+      const data = JSON.parse(raw) as { assistants?: unknown[] };
+      const count = Array.isArray(data.assistants) ? data.assistants.length : 0;
+      console.error(`[fixture] Lockfile assistant count: ${count}`);
+      console.error(`[fixture] Lockfile contents: ${raw.slice(0, 500)}`);
+    } catch (err) {
+      console.error(`[fixture] Failed to read lockfile: ${err}`);
+    }
+  }
+
+  try {
+    const apiKey = execSync(
+      `defaults read ${domain} vellum_provider_anthropic 2>&1`,
+      { encoding: "utf-8", timeout: 5_000 },
+    ).trim();
+    console.error(
+      `[fixture] defaults read API key: ${apiKey ? `present (${apiKey.length} chars)` : "EMPTY"}`,
+    );
+  } catch (err) {
+    console.error(
+      `[fixture] defaults read API key FAILED: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+
+  try {
+    const allDefaults = execSync(
+      `defaults read ${domain} 2>&1 | head -30`,
+      { encoding: "utf-8", timeout: 5_000 },
+    ).trim();
+    console.error(`[fixture] All defaults (first 30 lines):\n${allDefaults}`);
+  } catch {
+    // best-effort
   }
 }
 

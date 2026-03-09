@@ -1,7 +1,7 @@
 /**
  * CLI command group: `assistant twitter`
  *
- * Post tweets and interact with Twitter via the command line.
+ * Post tweets and interact with X via the command line.
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
@@ -47,19 +47,13 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
     output({ ok: true, ...(result as Record<string, unknown>) }, getJson(cmd));
   } catch (err) {
     const meta = err as Record<string, unknown>;
-    // For routed errors with any router metadata, emit structured JSON
-    // so callers can see diagnostics (pathUsed, proxyErrorCode, etc.)
-    if (
-      err instanceof Error &&
-      (meta.pathUsed !== undefined || meta.proxyErrorCode !== undefined)
-    ) {
+    // For routed errors with managed-path metadata, emit structured JSON
+    if (err instanceof Error && meta.proxyErrorCode !== undefined) {
       const payload: Record<string, unknown> = {
         ok: false,
         error: err.message,
       };
-      if (meta.pathUsed !== undefined) payload.pathUsed = meta.pathUsed;
-      if (meta.proxyErrorCode !== undefined)
-        payload.proxyErrorCode = meta.proxyErrorCode;
+      payload.proxyErrorCode = meta.proxyErrorCode;
       if (meta.retryable !== undefined) payload.retryable = meta.retryable;
       output(payload, getJson(cmd));
       process.exitCode = 1;
@@ -85,54 +79,64 @@ export function registerTwitterCommand(program: Command): void {
   tw.addHelpText(
     "after",
     `
-Twitter (X) supports multiple paths for interacting with the platform:
+Twitter (X) supports two paths for interacting with the platform:
 
   1. Managed (platform proxy) — routes Twitter API calls through the platform,
      which holds the OAuth credentials. Used when integrationMode is "managed".
   2. OAuth (official API) — uses an authenticated Twitter OAuth application for
      posting and replying. Requires a connected OAuth credential.
 
+Write operations (post, reply) default to OAuth. Pass --managed to route
+through the platform proxy instead. Read operations (timeline, tweet, search)
+always use managed mode.
+
 Examples:
   $ assistant x status
-  $ assistant x post "Hello world" --strategy managed
-  $ assistant x post "Hello world" --strategy oauth --oauth-token "$TOKEN"
+  $ assistant x post "Hello world" --managed
+  $ assistant x post "Hello world" --oauth-token "$TOKEN"
   $ assistant x timeline elonmusk --count 10
   $ assistant x search "from:vaborsh AI agents" --product Latest`,
   );
 
   // =========================================================================
-  // status — check OAuth and integration status
+  // status — check OAuth and managed mode info
   // =========================================================================
   tw.command("status")
-    .description("Check Twitter OAuth and integration status")
+    .description("Check Twitter OAuth and managed mode status")
     .addHelpText(
       "after",
       `
-Shows the current state of the Twitter integration:
+Shows the current state of authentication:
 
   OAuth — whether an OAuth credential is connected and the linked account.
+  Managed — whether managed mode is available and prerequisite status.
 
-If the assistant is not running, OAuth fields will be reported as undefined.
+If the assistant is not running, fields will be reported as undefined.
 
 Examples:
   $ assistant x status
   $ assistant x status --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
+      // Query daemon for OAuth / managed config
       let oauthInfo: Record<string, unknown> = {};
       try {
         const r = await sendTwitterConfigRequest("get");
         oauthInfo = {
           oauthConnected: r.connected ?? false,
           oauthAccount: r.accountInfo ?? undefined,
-          mode: r.mode,
           managedAvailable: r.managedAvailable ?? false,
+          managedPrerequisites: r.managedPrerequisites ?? undefined,
+          localClientConfigured: r.localClientConfigured ?? false,
         };
       } catch {
-        // Daemon may not be running
+        // Daemon may not be running; report what we can
         oauthInfo = {
           oauthConnected: undefined,
           oauthAccount: undefined,
+          managedAvailable: undefined,
+          managedPrerequisites: undefined,
+          localClientConfigured: undefined,
         };
       }
 
@@ -151,13 +155,10 @@ Examples:
   tw.command("post")
     .description("Post a tweet")
     .argument("<text>", "Tweet text")
-    .requiredOption(
-      "--strategy <strategy>",
-      "Operation strategy: oauth or managed",
-    )
+    .option("--managed", "Route through the platform proxy (managed mode)")
     .option(
       "--oauth-token <token>",
-      "OAuth access token (required when strategy is oauth)",
+      "OAuth access token (required for OAuth path)",
     )
     .addHelpText(
       "after",
@@ -165,30 +166,23 @@ Examples:
 Arguments:
   text   The tweet text to post (max 280 characters)
 
-Posts a new tweet using the routed system. The --strategy flag controls which
-path is used. The response includes the tweet ID, URL, and which path was used.
-
-Strategies:
-  oauth    — use the local OAuth token directly
-  managed  — route through the platform proxy (platform holds OAuth credentials)
+Posts a new tweet. By default uses OAuth mode. Pass --managed to route through
+the platform proxy instead. The response includes the tweet ID, URL, and which
+path was used.
 
 Examples:
-  $ assistant x post "Hello world" --strategy oauth --oauth-token "$TOKEN"
-  $ assistant x post "Hello world" --strategy managed`,
+  $ assistant x post "Hello world"
+  $ assistant x post "Hello world" --oauth-token "$TOKEN"
+  $ assistant x post "Hello world" --managed`,
     )
     .action(
       async (
         text: string,
-        opts: { strategy: string; oauthToken?: string },
+        opts: { managed?: boolean; oauthToken?: string },
         cmd: Command,
       ) => {
         await run(cmd, async () => {
-          const mode = opts.strategy as TwitterMode;
-          if (mode !== "oauth" && mode !== "managed") {
-            throw new Error(
-              `Invalid mode "${opts.strategy}". Must be oauth or managed.`,
-            );
-          }
+          const mode: TwitterMode = opts.managed ? "managed" : "oauth";
           const { result, pathUsed } = await routedPostTweet(text, {
             mode,
             oauthToken: opts.oauthToken,
@@ -210,13 +204,10 @@ Examples:
     .description("Reply to a tweet")
     .argument("<tweetUrl>", "Tweet URL or tweet ID")
     .argument("<text>", "Reply text")
-    .requiredOption(
-      "--strategy <strategy>",
-      "Operation strategy: oauth or managed",
-    )
+    .option("--managed", "Route through the platform proxy (managed mode)")
     .option(
       "--oauth-token <token>",
-      "OAuth access token (required when mode is oauth)",
+      "OAuth access token (required for OAuth path)",
     )
     .addHelpText(
       "after",
@@ -227,26 +218,22 @@ Arguments:
 
 Posts a reply to the specified tweet. Accepts either a full tweet URL or a bare
 numeric tweet ID. The tweet ID is extracted from the last numeric segment of the
-URL. The --strategy flag controls which path is used.
+URL. By default uses OAuth mode. Pass --managed to route through the platform proxy.
 
 Examples:
-  $ assistant x reply 1234567890 "Interesting thread" --strategy oauth --oauth-token "$TOKEN"
-  $ assistant x reply 1234567890 "Nice!" --strategy managed`,
+  $ assistant x reply https://x.com/elonmusk/status/1234567890 "Great point!"
+  $ assistant x reply 1234567890 "Interesting thread" --oauth-token "$TOKEN"
+  $ assistant x reply 1234567890 "Nice!" --managed`,
     )
     .action(
       async (
         tweetUrl: string,
         text: string,
-        opts: { strategy: string; oauthToken?: string },
+        opts: { managed?: boolean; oauthToken?: string },
         cmd: Command,
       ) => {
         await run(cmd, async () => {
-          const mode = opts.strategy as TwitterMode;
-          if (mode !== "oauth" && mode !== "managed") {
-            throw new Error(
-              `Invalid mode "${opts.strategy}". Must be oauth or managed.`,
-            );
-          }
+          const mode: TwitterMode = opts.managed ? "managed" : "oauth";
           // Extract tweet ID: either a bare numeric ID or the last numeric segment of a URL
           const idMatch = tweetUrl.match(/(\d+)\s*$/);
           if (!idMatch) {
@@ -275,39 +262,25 @@ Examples:
     .description("Fetch a user's recent tweets")
     .argument("<screenName>", "Twitter screen name (without @)")
     .option("--count <n>", "Number of tweets to fetch", "20")
-    .option(
-      "--strategy <strategy>",
-      "Operation strategy: managed or oauth (default: managed)",
-    )
     .addHelpText(
       "after",
       `
 Arguments:
   screenName   Twitter screen name without the @ prefix (e.g. "elonmusk", not "@elonmusk")
 
-Fetches a user's recent tweets. Resolves the screen name to a user ID first,
-then retrieves their tweet timeline. The --count flag controls how many tweets
-to return (default: 20). Use --strategy managed to route through the platform proxy.
+Fetches a user's recent tweets via managed mode. Resolves the screen name to a
+user ID first, then retrieves their tweet timeline. The --count flag controls
+how many tweets to return (default: 20).
 
 Examples:
   $ assistant x timeline elonmusk
   $ assistant x timeline vaborsh --count 50
-  $ assistant x timeline openai --count 10 --json
-  $ assistant x timeline elonmusk --strategy managed`,
+  $ assistant x timeline openai --count 10 --json`,
     )
     .action(
-      async (
-        screenName: string,
-        opts: { count: string; strategy?: string },
-        cmd: Command,
-      ) => {
+      async (screenName: string, opts: { count: string }, cmd: Command) => {
         await run(cmd, async () => {
-          const mode = (opts.strategy ?? "managed") as TwitterMode;
-          if (mode !== "oauth" && mode !== "managed") {
-            throw new Error(
-              `Invalid mode "${opts.strategy}". Must be oauth or managed.`,
-            );
-          }
+          const mode: TwitterMode = "managed";
           const { result: user, pathUsed } = await routedGetUserByScreenName(
             screenName.replace(/^@/, ""),
             { mode },
@@ -328,10 +301,6 @@ Examples:
   tw.command("tweet")
     .description("Fetch a tweet and its reply thread")
     .argument("<tweetIdOrUrl>", "Tweet ID or URL")
-    .option(
-      "--strategy <strategy>",
-      "Operation strategy: managed or oauth (default: managed)",
-    )
     .addHelpText(
       "after",
       `
@@ -339,40 +308,28 @@ Arguments:
   tweetIdOrUrl   A bare tweet ID (e.g. 1234567890) or a full tweet URL
                  (e.g. https://x.com/user/status/1234567890)
 
-Fetches a single tweet and its reply thread. The tweet ID is extracted from the
-last numeric segment of the input. Returns an array of tweets representing the
-conversation thread. Use --strategy managed to route through the platform proxy.
+Fetches a single tweet and its reply thread via managed mode. The tweet ID is
+extracted from the last numeric segment of the input. Returns an array of tweets
+representing the conversation thread.
 
 Examples:
   $ assistant x tweet 1234567890
   $ assistant x tweet https://x.com/elonmusk/status/1234567890
-  $ assistant x tweet https://x.com/openai/status/9876543210 --json
-  $ assistant x tweet 1234567890 --strategy managed`,
+  $ assistant x tweet https://x.com/openai/status/9876543210 --json`,
     )
-    .action(
-      async (
-        tweetIdOrUrl: string,
-        opts: { strategy?: string },
-        cmd: Command,
-      ) => {
-        await run(cmd, async () => {
-          const idMatch = tweetIdOrUrl.match(/(\d+)\s*$/);
-          if (!idMatch)
-            throw new Error(`Could not extract tweet ID from: ${tweetIdOrUrl}`);
-          const mode = (opts.strategy ?? "managed") as TwitterMode;
-          if (mode !== "oauth" && mode !== "managed") {
-            throw new Error(
-              `Invalid mode "${opts.strategy}". Must be oauth or managed.`,
-            );
-          }
-          const { result: tweets, pathUsed } = await routedGetTweetDetail(
-            idMatch[1],
-            { mode },
-          );
-          return { tweets, pathUsed };
-        });
-      },
-    );
+    .action(async (tweetIdOrUrl: string, _opts: unknown, cmd: Command) => {
+      await run(cmd, async () => {
+        const idMatch = tweetIdOrUrl.match(/(\d+)\s*$/);
+        if (!idMatch)
+          throw new Error(`Could not extract tweet ID from: ${tweetIdOrUrl}`);
+        const mode: TwitterMode = "managed";
+        const { result: tweets, pathUsed } = await routedGetTweetDetail(
+          idMatch[1],
+          { mode },
+        );
+        return { tweets, pathUsed };
+      });
+    });
 
   // =========================================================================
   // search — search tweets
@@ -381,10 +338,6 @@ Examples:
     .description("Search tweets")
     .argument("<query>", "Search query")
     .option("--product <type>", "Top, Latest, People, or Media", "Top")
-    .option(
-      "--strategy <strategy>",
-      "Operation strategy: managed or oauth (default: managed)",
-    )
     .addHelpText(
       "after",
       `
@@ -398,38 +351,23 @@ The --product flag selects the search result type:
   People   — user accounts matching the query
   Media    — tweets containing images or video
 
-Use --strategy managed to route through the platform proxy (uses Twitter's
-recent search API).
-
 Examples:
   $ assistant x search "AI agents"
   $ assistant x search "from:elonmusk SpaceX" --product Latest
-  $ assistant x search "machine learning" --product Media --json
-  $ assistant x search "AI agents" --strategy managed`,
+  $ assistant x search "machine learning" --product Media --json`,
     )
-    .action(
-      async (
-        query: string,
-        opts: { product: string; strategy?: string },
-        cmd: Command,
-      ) => {
-        await run(cmd, async () => {
-          const mode = (opts.strategy ?? "managed") as TwitterMode;
-          if (mode !== "oauth" && mode !== "managed") {
-            throw new Error(
-              `Invalid mode "${opts.strategy}". Must be oauth or managed.`,
-            );
-          }
-          const product = opts.product as "Top" | "Latest" | "People" | "Media";
-          const { result: tweets, pathUsed } = await routedSearchTweets(
-            query,
-            product,
-            { mode },
-          );
-          return { query, tweets, pathUsed };
-        });
-      },
-    );
+    .action(async (query: string, opts: { product: string }, cmd: Command) => {
+      await run(cmd, async () => {
+        const mode: TwitterMode = "managed";
+        const product = opts.product as "Top" | "Latest" | "People" | "Media";
+        const { result: tweets, pathUsed } = await routedSearchTweets(
+          query,
+          product,
+          { mode },
+        );
+        return { query, tweets, pathUsed };
+      });
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -439,7 +377,7 @@ Examples:
 /**
  * Send a Twitter integration config request to the daemon via HTTP.
  *
- * Maps to HTTP endpoints on the settings routes:
+ * Maps the "get" action to HTTP:
  *   - "get" → GET /v1/integrations/twitter/auth/status
  */
 async function sendTwitterConfigRequest(

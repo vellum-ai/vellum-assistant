@@ -13,9 +13,14 @@ extension AppDelegate {
     func startAuthenticatedFlow() {
         Task {
             await authManager.checkSession()
-            if authManager.isAuthenticated || APIKeyManager.hasAnyKey() {
+            let isAuthed = authManager.isAuthenticated
+            let hasKey = APIKeyManager.hasAnyKey()
+            log.error("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
+            if isAuthed || hasKey {
+                log.error("[authFlow] → proceedToApp()")
                 proceedToApp()
             } else {
+                log.error("[authFlow] → showAuthWindow()")
                 showAuthWindow()
             }
         }
