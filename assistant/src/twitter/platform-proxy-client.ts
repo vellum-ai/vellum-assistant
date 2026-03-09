@@ -231,8 +231,10 @@ export function mapProxyError(
  * The proxy endpoint is:
  *   POST {platformBaseURL}/v1/assistants/{platform_assistant_id}/external-provider-proxy/twitter/
  *
- * The request body describes the Twitter API call to make:
- *   { method, path, body?, query? }
+ * The request body wraps the Twitter API call in an envelope:
+ *   { request: { method, path, body?, query?, headers? }, on_behalf_of_user_id? }
+ *
+ * The response is an envelope: { status, headers, body } where body is the Twitter payload.
  *
  * Auth uses `Authorization: Api-Key {auth_token}` (the assistant API key).
  */

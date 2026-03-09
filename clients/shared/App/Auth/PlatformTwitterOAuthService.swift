@@ -92,8 +92,7 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
         "offline.access",
     ]
 
-    /// The redirect URL the platform navigates to after OAuth completes.
-    /// Points to a desktop completion page served by the platform.
+    /// The redirect path the platform navigates to after OAuth completes.
     public static let redirectAfterConnect = "/"
 
     /// Creates a new service instance.
