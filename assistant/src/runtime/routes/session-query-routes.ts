@@ -32,8 +32,8 @@ import type { RouteDefinition } from "../http-router.js";
 // ---------------------------------------------------------------------------
 
 export interface SessionQueryRouteDeps {
-  /** Context for model set operations (config reload suppression, session eviction). */
-  modelSetContext?: ModelSetContext;
+  /** Lazy factory for model set context (config reload suppression, session eviction). */
+  getModelSetContext?: () => ModelSetContext;
   /** Lookup an active session by ID for queued message deletion. */
   findSessionForQueue?: (
     id: string,
@@ -63,7 +63,7 @@ export function sessionQueryRouteDefinitions(
       method: "PUT",
       policyKey: "model",
       handler: async ({ req }) => {
-        if (!deps.modelSetContext) {
+        if (!deps.getModelSetContext) {
           return httpError(
             "INTERNAL_ERROR",
             "Model set not available",
@@ -75,7 +75,7 @@ export function sessionQueryRouteDefinitions(
           return httpError("BAD_REQUEST", "Missing required field: modelId", 400);
         }
         try {
-          const info = setModel(body.modelId, deps.modelSetContext);
+          const info = setModel(body.modelId, deps.getModelSetContext());
           return Response.json(info);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
@@ -92,7 +92,7 @@ export function sessionQueryRouteDefinitions(
       method: "PUT",
       policyKey: "model/image-gen",
       handler: async ({ req }) => {
-        if (!deps.modelSetContext) {
+        if (!deps.getModelSetContext) {
           return httpError(
             "INTERNAL_ERROR",
             "Image gen model set not available",
@@ -104,7 +104,7 @@ export function sessionQueryRouteDefinitions(
           return httpError("BAD_REQUEST", "Missing required field: modelId", 400);
         }
         try {
-          setImageGenModel(body.modelId, deps.modelSetContext);
+          setImageGenModel(body.modelId, deps.getModelSetContext());
           return Response.json({ ok: true });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
