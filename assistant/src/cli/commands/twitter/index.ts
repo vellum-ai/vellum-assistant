@@ -6,18 +6,13 @@
  */
 
 import { execFile } from "node:child_process";
-import * as net from "node:net";
 import { promisify } from "node:util";
 
 import { Command } from "commander";
 
 const execFileAsync = promisify(execFile);
 
-import {
-  createMessageParser,
-  serialize,
-} from "../../../daemon/message-protocol.js";
-import { getSocketPath, readSessionToken } from "../../../util/platform.js";
+import { httpSend } from "../../http-client.js";
 import {
   getBookmarks,
   getFollowers,
@@ -308,14 +303,7 @@ Examples:
       // Query daemon for OAuth / strategy config
       let oauthInfo: Record<string, unknown> = {};
       try {
-        const daemonResponse = await sendDaemonMessage(
-          {
-            type: "twitter_integration_config",
-            action: "get",
-          } as import("../../../daemon/message-protocol.js").ClientMessage,
-          "twitter_integration_config_response",
-        );
-        const r = daemonResponse as Record<string, unknown>;
+        const r = await sendTwitterConfigRequest("get");
         oauthInfo = {
           oauthConnected: r.connected ?? false,
           oauthAccount: r.accountInfo ?? undefined,
@@ -374,14 +362,7 @@ Examples:
     .action(async (_opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
       try {
-        const daemonResponse = await sendDaemonMessage(
-          {
-            type: "twitter_integration_config",
-            action: "get_strategy",
-          } as import("../../../daemon/message-protocol.js").ClientMessage,
-          "twitter_integration_config_response",
-        );
-        const r = daemonResponse as Record<string, unknown>;
+        const r = await sendTwitterConfigRequest("get_strategy");
         output({ ok: true, strategy: r.strategy ?? "auto" }, json);
       } catch (err) {
         outputError(err instanceof Error ? err.message : String(err));
@@ -410,15 +391,7 @@ Examples:
     .action(async (value: string, _opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
       try {
-        const daemonResponse = await sendDaemonMessage(
-          {
-            type: "twitter_integration_config",
-            action: "set_strategy",
-            strategy: value,
-          } as import("../../../daemon/message-protocol.js").ClientMessage,
-          "twitter_integration_config_response",
-        );
-        const r = daemonResponse as Record<string, unknown>;
+        const r = await sendTwitterConfigRequest("set_strategy", { strategy: value });
         if (r.success) {
           output({ ok: true, strategy: r.strategy }, json);
         } else {
@@ -878,98 +851,61 @@ Examples:
 }
 
 // ---------------------------------------------------------------------------
-// Daemon IPC helper — send a message and wait for the first response
+// Daemon HTTP helper — send requests to the daemon's HTTP API
 // ---------------------------------------------------------------------------
 
-function sendDaemonMessage(
-  message: import("../../../daemon/message-protocol.js").ClientMessage,
-  expectedResponseType: string,
+/**
+ * Send a Twitter integration config request to the daemon via HTTP.
+ *
+ * Maps the old IPC `twitter_integration_config` message actions to HTTP
+ * endpoints on the settings routes:
+ *   - "get" / "get_strategy" → GET /v1/integrations/twitter/auth/status
+ *   - "set_strategy"         → PUT /v1/settings/client (key=twitter.strategy)
+ */
+async function sendTwitterConfigRequest(
+  action: string,
+  extra?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const socketPath = getSocketPath();
-    const sessionToken = readSessionToken();
-    const socket = net.createConnection(socketPath);
-    const parser = createMessageParser();
-
-    const timeoutHandle = setTimeout(() => {
-      socket.destroy();
-      reject(new Error("Request timed out after 10s"));
-    }, 10_000);
-    timeoutHandle.unref();
-
-    let authenticated = !sessionToken;
-    let messageSent = false;
-
-    const sendPayload = () => {
-      if (messageSent) return;
-      messageSent = true;
-      socket.write(serialize(message));
+  if (action === "get" || action === "get_strategy") {
+    const response = await httpSend("/v1/integrations/twitter/auth/status", {
+      method: "GET",
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Assistant returned an error: ${text}`);
+    }
+    const data = (await response.json()) as Record<string, unknown>;
+    // Map the HTTP response shape to the old IPC response shape
+    return {
+      type: "twitter_integration_config_response",
+      success: true,
+      connected: data.connected ?? false,
+      accountInfo: data.accountInfo,
+      strategy: data.strategy ?? "auto",
+      strategyConfigured: data.strategyConfigured ?? false,
+      mode: data.mode,
     };
+  }
 
-    socket.on("error", (err) => {
-      clearTimeout(timeoutHandle);
-      reject(
-        new Error(
-          `Cannot connect to assistant: ${err.message}. Is the assistant running?`,
-        ),
-      );
+  if (action === "set_strategy") {
+    const strategy = extra?.strategy as string | undefined;
+    if (!strategy) throw new Error("strategy is required for set_strategy");
+    const response = await httpSend("/v1/settings/client", {
+      method: "PUT",
+      body: JSON.stringify({ key: "twitter.strategy", value: strategy }),
     });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Assistant returned an error: ${text}`);
+    }
+    return {
+      type: "twitter_integration_config_response",
+      success: true,
+      strategy,
+    };
+  }
 
-    socket.on("data", (chunk) => {
-      const messages = parser.feed(chunk.toString("utf-8"));
-      for (const msg of messages) {
-        const m = msg as unknown as Record<string, unknown>;
-
-        if (!authenticated && m.type === "auth_result") {
-          if ((m as { success: boolean }).success) {
-            authenticated = true;
-            sendPayload();
-          } else {
-            clearTimeout(timeoutHandle);
-            socket.destroy();
-            reject(new Error("Authentication failed"));
-          }
-          continue;
-        }
-
-        // Reject immediately on daemon error frames so the CLI surfaces the
-        // real failure reason instead of hanging until the timeout fires.
-        if (m.type === "error") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          reject(
-            new Error(
-              (m as { message?: string }).message ??
-                "Assistant returned an error",
-            ),
-          );
-          return;
-        }
-
-        // Only resolve on the expected response type; skip everything else
-        if (m.type === expectedResponseType) {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          resolve(m);
-          return;
-        }
-        // Skip all other message types (auth_result, daemon_status, pong, session_info, tasks_changed, etc.)
-      }
-    });
-
-    socket.on("connect", () => {
-      if (sessionToken) {
-        socket.write(
-          serialize({
-            type: "auth",
-            token: sessionToken,
-          } as unknown as import("../../../daemon/message-protocol.js").ClientMessage),
-        );
-      } else {
-        sendPayload();
-      }
-    });
-  });
+  throw new Error(`Unsupported twitter_integration_config action: ${action}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1038,95 +974,33 @@ async function startLearnSession(
   const cdpSession = await launchChromeCdp("https://x.com/login");
   await navigateToX(cdpSession.baseUrl);
 
-  return new Promise((resolve, reject) => {
-    const socketPath = getSocketPath();
-    const sessionToken = readSessionToken();
-    const socket = net.createConnection(socketPath);
-    const parser = createMessageParser();
-
-    socket.on("error", (err) => {
-      reject(
-        new Error(
-          `Cannot connect to assistant: ${err.message}. Is the assistant running?`,
-        ),
-      );
-    });
-
-    const timeoutHandle = setTimeout(
-      () => {
-        socket.destroy();
-        reject(
-          new Error(`Learn session timed out after ${durationSeconds + 30}s`),
-        );
-      },
-      (durationSeconds + 30) * 1000,
-    );
-    timeoutHandle.unref();
-
-    let authenticated = !sessionToken;
-
-    const sendStartCommand = () => {
-      socket.write(
-        serialize({
-          type: "ride_shotgun_start",
-          durationSeconds,
-          intervalSeconds: 5,
-          mode: "learn",
-          targetDomain: "x.com",
-        } as unknown as import("../../../daemon/message-protocol.js").ClientMessage),
-      );
-    };
-
-    socket.on("data", (chunk) => {
-      const messages = parser.feed(chunk.toString("utf-8"));
-      for (const msg of messages) {
-        const m = msg as unknown as Record<string, unknown>;
-
-        if (!authenticated && m.type === "auth_result") {
-          if ((m as { success: boolean }).success) {
-            authenticated = true;
-            sendStartCommand();
-          } else {
-            clearTimeout(timeoutHandle);
-            socket.destroy();
-            reject(new Error("Authentication failed"));
-          }
-          continue;
-        }
-
-        if (m.type === "auth_result") {
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_error") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          reject(new Error((m as { message: string }).message));
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_result") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          resolve({
-            recordingId: m.recordingId as string | undefined,
-            recordingPath: m.recordingPath as string | undefined,
-          });
-        }
-      }
-    });
-
-    socket.on("connect", () => {
-      if (sessionToken) {
-        socket.write(
-          serialize({
-            type: "auth",
-            token: sessionToken,
-          } as unknown as import("../../../daemon/message-protocol.js").ClientMessage),
-        );
-      } else {
-        sendStartCommand();
-      }
-    });
+  // Start ride shotgun via HTTP
+  const response = await httpSend("/v1/computer-use/ride-shotgun/start", {
+    method: "POST",
+    body: JSON.stringify({
+      durationSeconds,
+      intervalSeconds: 5,
+      mode: "learn",
+      targetDomain: "x.com",
+    }),
   });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `Cannot connect to assistant: ${response.status} ${body}. Is the assistant running?`,
+    );
+  }
+
+  const result = (await response.json()) as {
+    watchId?: string;
+    sessionId?: string;
+    recordingId?: string;
+    recordingPath?: string;
+  };
+
+  return {
+    recordingId: result.recordingId,
+    recordingPath: result.recordingPath,
+  };
 }

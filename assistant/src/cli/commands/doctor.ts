@@ -1,22 +1,21 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import * as net from "node:net";
 
 import type { Command } from "commander";
 
 import { loadRawConfig } from "../../config/loader.js";
+import { getRuntimeHttpPort } from "../../config/env.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
-import { IpcError } from "../../util/errors.js";
 import {
   getDataDir,
   getDbPath,
   getLogPath,
   getRootDir,
-  getSocketPath,
   getWorkspaceDir,
   getWorkspaceHooksDir,
   getWorkspaceSkillsDir,
 } from "../../util/platform.js";
+import { getHttpBaseUrl, httpHealthCheck } from "../http-client.js";
 import { log } from "../logger.js";
 
 export function registerDoctorCommand(program: Command): void {
@@ -37,13 +36,13 @@ Output symbols:
 Diagnostic checks performed:
   1.  Bun is installed           Verifies bun is available in PATH
   2.  API key configured         Checks for a valid provider API key in config or env
-  3.  Assistant reachable         Connects to the assistant Unix socket
+  3.  Assistant reachable         HTTP health check against the assistant server
   4.  Database exists/readable   Opens the SQLite database and runs a test query
   5.  Directory structure        Verifies required ~/.vellum/ directories exist
   6.  Disk space                 Ensures at least 100MB free on the data partition
   7.  Log file size              Warns if the log file exceeds 50MB
   8.  Database integrity         Runs SQLite PRAGMA integrity_check
-  9.  Socket permissions         Verifies the assistant socket has 0600 or 0700 mode
+  9.  HTTP token permissions     Verifies the http-token file has 0600 or 0700 mode
   10. Trust rule syntax          Validates trust.json structure and rule fields
   11. WASM files                 Checks that tree-sitter WASM binaries are present
   12. Browser runtime            Verifies Playwright and Chromium availability
@@ -60,9 +59,10 @@ Examples:
       log.info("Vellum Doctor\n");
 
       // 0. Connection policy info
-      const socketPath = getSocketPath();
+      const httpUrl = getHttpBaseUrl();
+      const httpPort = getRuntimeHttpPort();
       const autostart = shouldAutoStartDaemon();
-      log.info(`  Socket:    ${socketPath}`);
+      log.info(`  HTTP:      ${httpUrl}`);
       log.info(`  Autostart: ${autostart ? "enabled" : "disabled"}\n`);
 
       // 1. Bun installed
@@ -104,35 +104,19 @@ Examples:
         );
       }
 
-      // 3. Daemon reachable
+      // 3. Daemon reachable (HTTP health check)
       try {
-        const sock = getSocketPath();
-        if (!existsSync(sock)) {
+        const healthy = await httpHealthCheck(2000);
+        if (healthy) {
+          pass("Assistant reachable");
+        } else {
           fail(
             "Assistant reachable",
-            "socket not found (is the assistant running?)",
+            "HTTP health check failed (is the assistant running?)",
           );
-        } else {
-          await new Promise<void>((resolve, reject) => {
-            const s = net.createConnection(sock);
-            const timer = setTimeout(() => {
-              s.destroy();
-              reject(new IpcError("timeout"));
-            }, 2000);
-            s.on("connect", () => {
-              clearTimeout(timer);
-              s.end();
-              resolve();
-            });
-            s.on("error", (err) => {
-              clearTimeout(timer);
-              reject(err);
-            });
-          });
-          pass("Assistant reachable");
         }
       } catch {
-        fail("Assistant reachable", "could not connect to assistant socket");
+        fail("Assistant reachable", "could not connect to assistant HTTP server");
       }
 
       // 4. DB exists and readable
@@ -247,25 +231,25 @@ Examples:
         fail("Database integrity check", "database file not found");
       }
 
-      // 9. Socket permissions
-      const sockPath = getSocketPath();
-      if (existsSync(sockPath)) {
+      // 9. HTTP token
+      const tokenPath = `${rootDir}/http-token`;
+      if (existsSync(tokenPath)) {
         try {
-          const sockStat = statSync(sockPath);
-          const mode = sockStat.mode & 0o777;
+          const tokenStat = statSync(tokenPath);
+          const mode = tokenStat.mode & 0o777;
           if (mode === 0o600 || mode === 0o700) {
-            pass(`Socket permissions (${mode.toString(8).padStart(4, "0")})`);
+            pass(`HTTP token permissions (${mode.toString(8).padStart(4, "0")})`);
           } else {
             fail(
-              "Socket permissions",
+              "HTTP token permissions",
               `expected 0600 or 0700, got 0${mode.toString(8)}`,
             );
           }
         } catch {
-          fail("Socket permissions", "could not stat socket");
+          fail("HTTP token permissions", "could not stat http-token file");
         }
       } else {
-        pass("Socket permissions (socket not present — assistant not running)");
+        pass("HTTP token (not present — assistant not running)");
       }
 
       // 10. Trust rule syntax

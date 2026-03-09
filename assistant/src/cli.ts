@@ -1,5 +1,4 @@
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import * as net from "node:net";
 import { dirname } from "node:path";
 import * as readline from "node:readline";
 
@@ -9,15 +8,12 @@ import {
   updateDaemonText,
   updateStatusText,
 } from "./cli/main-screen.jsx";
-import { hasNoAuthOverride } from "./daemon/connection-policy.js";
+import { httpSend, httpHealthCheck, readHttpToken } from "./cli/http-client.js";
 import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
 import { ensureDaemonRunning } from "./daemon/lifecycle.js";
-import {
-  type ClientMessage,
-  type ConfirmationRequest,
-  createMessageParser,
-  serialize,
-  type ServerMessage,
+import type {
+  ConfirmationRequest,
+  ServerMessage,
 } from "./daemon/message-protocol.js";
 import {
   copyToClipboard,
@@ -25,19 +21,16 @@ import {
   formatSessionForExport,
 } from "./util/clipboard.js";
 import { formatDiff, formatNewFileDiff } from "./util/diff.js";
-import {
-  getHistoryPath,
-  getSocketPath,
-  readSessionToken,
-} from "./util/platform.js";
+import { getHistoryPath } from "./util/platform.js";
 import { Spinner } from "./util/spinner.js";
 import { timeAgo } from "./util/time.js";
 import { truncate } from "./util/truncate.js";
 
-const HEARTBEAT_INTERVAL_MS = 30_000;
-const HEARTBEAT_TIMEOUT_MS = 10_000;
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
+
+/** Stable conversation key used by the built-in CLI. */
+const CLI_CONVERSATION_KEY = "builtin-cli:default";
 
 export function sanitizeUrlForDisplay(rawUrl: unknown): string {
   const value = typeof rawUrl === "string" ? rawUrl : String(rawUrl ?? "");
@@ -131,9 +124,7 @@ export function formatConfirmationCommandPreview(
 }
 
 export async function startCli(): Promise<void> {
-  const socketPath = getSocketPath();
-  let socket: net.Socket;
-  let parser = createMessageParser();
+  let conversationKey = CLI_CONVERSATION_KEY;
   let sessionId = "";
   let pendingUserContent: string | null = null;
   let generating = false;
@@ -152,8 +143,8 @@ export async function startCli(): Promise<void> {
   let toolStreaming = false;
   let reconnecting = false;
   let reconnectDelay = RECONNECT_BASE_DELAY_MS;
-  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
+  let sseAbortController: AbortController | null = null;
+  let connected = false;
   const spinner = new Spinner();
 
   process.stdout.write("\x1b[2J\x1b[H");
@@ -228,12 +219,59 @@ export async function startCli(): Promise<void> {
     rl.prompt();
   }
 
-  function send(msg: ClientMessage): boolean {
-    if (socket && !socket.destroyed) {
-      socket.write(serialize(msg));
-      return true;
+  /** Send a confirmation decision via HTTP. */
+  async function sendConfirmation(
+    requestId: string,
+    decision: string,
+  ): Promise<void> {
+    try {
+      await httpSend("/v1/confirm", {
+        method: "POST",
+        body: JSON.stringify({ requestId, decision }),
+      });
+    } catch {
+      process.stdout.write("[Failed to send confirmation]\n");
     }
-    return false;
+  }
+
+  /** Add a trust rule and then confirm via HTTP. */
+  async function sendTrustRuleAndConfirm(
+    requestId: string,
+    pattern: string,
+    scope: string,
+    decision: "allow" | "deny",
+    confirmDecision: string,
+  ): Promise<void> {
+    try {
+      await httpSend("/v1/trust-rules", {
+        method: "POST",
+        body: JSON.stringify({ requestId, pattern, scope, decision }),
+      });
+      await httpSend("/v1/confirm", {
+        method: "POST",
+        body: JSON.stringify({ requestId, decision: confirmDecision }),
+      });
+    } catch {
+      process.stdout.write("[Failed to send trust rule]\n");
+    }
+  }
+
+  /** Send a user message via HTTP POST. */
+  async function sendUserMessage(content: string): Promise<boolean> {
+    try {
+      const response = await httpSend("/v1/messages", {
+        method: "POST",
+        body: JSON.stringify({
+          conversationKey,
+          content,
+          sourceChannel: "vellum",
+          interface: "cli",
+        }),
+      });
+      return response.ok || response.status === 202;
+    } catch {
+      return false;
+    }
   }
 
   function renderConfirmationPrompt(req: ConfirmationRequest): void {
@@ -325,11 +363,7 @@ export async function startCli(): Promise<void> {
 
       pendingConfirmation = false;
       if (choice === "a") {
-        send({
-          type: "confirmation_response",
-          requestId: req.requestId,
-          decision: "allow",
-        });
+        sendConfirmation(req.requestId, "allow");
         return;
       }
 
@@ -338,11 +372,7 @@ export async function startCli(): Promise<void> {
         trimmed === "t" &&
         req.temporaryOptionsAvailable?.includes("allow_10m")
       ) {
-        send({
-          type: "confirmation_response",
-          requestId: req.requestId,
-          decision: "allow_10m",
-        });
+        sendConfirmation(req.requestId, "allow_10m");
         return;
       }
 
@@ -350,29 +380,17 @@ export async function startCli(): Promise<void> {
         trimmed === "T" &&
         req.temporaryOptionsAvailable?.includes("allow_thread")
       ) {
-        send({
-          type: "confirmation_response",
-          requestId: req.requestId,
-          decision: "allow_thread",
-        });
+        sendConfirmation(req.requestId, "allow_thread");
         return;
       }
 
       if (choice === "d") {
-        send({
-          type: "confirmation_response",
-          requestId: req.requestId,
-          decision: "deny",
-        });
+        sendConfirmation(req.requestId, "deny");
         return;
       }
 
       // Default to deny for unrecognized input
-      send({
-        type: "confirmation_response",
-        requestId: req.requestId,
-        decision: "deny",
-      });
+      sendConfirmation(req.requestId, "deny");
     });
   }
 
@@ -410,11 +428,7 @@ export async function startCli(): Promise<void> {
       } else {
         // Invalid selection → deny
         pendingConfirmation = false;
-        send({
-          type: "confirmation_response",
-          requestId: req.requestId,
-          decision: "deny",
-        });
+        sendConfirmation(req.requestId, "deny");
       }
     });
   }
@@ -447,20 +461,17 @@ export async function startCli(): Promise<void> {
       pendingConfirmation = false;
       const idx = parsed - 1;
       if (idx >= 0 && idx < req.scopeOptions.length) {
-        send({
-          type: "confirmation_response",
-          requestId: req.requestId,
-          decision,
+        const trustDecision = decision === "always_deny" ? "deny" : "allow";
+        sendTrustRuleAndConfirm(
+          req.requestId,
           selectedPattern,
-          selectedScope: req.scopeOptions[idx].scope,
-        });
+          req.scopeOptions[idx].scope,
+          trustDecision,
+          "allow",
+        );
       } else {
         // Invalid selection → deny
-        send({
-          type: "confirmation_response",
-          requestId: req.requestId,
-          decision: "deny",
-        });
+        sendConfirmation(req.requestId, "deny");
       }
     });
   }
@@ -479,10 +490,19 @@ export async function startCli(): Promise<void> {
     process.stdout.write("  [n] New session\n\n");
     process.stdout.write("  Pick a session> ");
 
-    rl.once("line", (answer) => {
+    rl.once("line", async (answer) => {
       const trimmed = answer.trim().toLowerCase();
       if (trimmed === "n") {
-        send({ type: "session_create" });
+        // Create a new conversation by using a unique key
+        conversationKey = `builtin-cli:${Date.now()}`;
+        sessionId = "";
+        pendingSessionPick = false;
+        // Reconnect SSE with new conversation key
+        await reconnectSse();
+        process.stdout.write(
+          `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
+        );
+        prompt();
         return;
       }
       const parsed = parseInt(trimmed, 10);
@@ -493,15 +513,39 @@ export async function startCli(): Promise<void> {
       }
       const idx = parsed - 1;
       if (idx >= 0 && idx < sessions.length) {
-        if (sessions[idx].id === sessionId) {
+        const selected = sessions[idx];
+        if (selected.id === sessionId) {
           // Already on this session
           pendingSessionPick = false;
           process.stdout.write(
-            `\n  Session: ${sessions[idx].title}\n  Type your message. Ctrl+D to detach.\n\n`,
+            `\n  Session: ${selected.title}\n  Type your message. Ctrl+D to detach.\n\n`,
           );
           prompt();
         } else {
-          send({ type: "session_switch", sessionId: sessions[idx].id });
+          try {
+            const resp = await httpSend("/v1/conversations/switch", {
+              method: "POST",
+              body: JSON.stringify({ conversationId: selected.id }),
+            });
+            if (resp.ok) {
+              const data = (await resp.json()) as { sessionId: string; title: string };
+              sessionId = data.sessionId;
+              // Use the session ID as conversation key for the SSE stream
+              conversationKey = `builtin-cli:${sessionId}`;
+              pendingSessionPick = false;
+              await reconnectSse();
+              process.stdout.write(
+                `\n  Session: ${data.title}\n  Type your message. Ctrl+D to detach.\n\n`,
+              );
+              prompt();
+            } else {
+              process.stdout.write("  Failed to switch session.\n");
+              renderSessionPicker(sessions);
+            }
+          } catch {
+            process.stdout.write("  Failed to switch session.\n");
+            renderSessionPicker(sessions);
+          }
         }
       } else {
         process.stdout.write("  Invalid selection.\n");
@@ -522,21 +566,15 @@ export async function startCli(): Promise<void> {
           const content = pendingUserContent;
           pendingUserContent = null;
           lastResponse = "";
-          if (
-            send({
-              type: "user_message",
-              sessionId,
-              content,
-              channel: "vellum",
-              interface: "cli",
-            })
-          ) {
-            generating = true;
-            spinner.start("Thinking...");
-          } else {
-            process.stdout.write("[Not connected — message not sent]\n");
-            prompt();
-          }
+          sendUserMessage(content).then((ok) => {
+            if (ok) {
+              generating = true;
+              spinner.start("Thinking...");
+            } else {
+              process.stdout.write("[Not connected — message not sent]\n");
+              prompt();
+            }
+          });
         } else {
           prompt();
         }
@@ -620,10 +658,6 @@ export async function startCli(): Promise<void> {
       }
 
       case "generation_handoff": {
-        // The current request's generation is done; show usage and re-prompt.
-        // Always clear `generating` — this CLI client's generation is finished
-        // when it receives a handoff. If other work is queued, those completions
-        // go to other request callbacks, not this CLI socket.
         spinner.stop();
         generating = false;
         if (lastUsage) {
@@ -812,47 +846,125 @@ export async function startCli(): Promise<void> {
         prompt();
         break;
       }
-
-      case "pong":
-        // Heartbeat response — clear the timeout
-        if (heartbeatTimeout) {
-          clearTimeout(heartbeatTimeout);
-          heartbeatTimeout = null;
-        }
-        break;
     }
   }
 
-  function stopHeartbeat(): void {
-    if (heartbeatTimer) {
-      clearInterval(heartbeatTimer);
-      heartbeatTimer = null;
+  /** Disconnect the current SSE stream. */
+  function disconnectSse(): void {
+    if (sseAbortController) {
+      sseAbortController.abort();
+      sseAbortController = null;
     }
-    if (heartbeatTimeout) {
-      clearTimeout(heartbeatTimeout);
-      heartbeatTimeout = null;
-    }
+    connected = false;
   }
 
-  function startHeartbeat(): void {
-    stopHeartbeat();
-    heartbeatTimer = setInterval(() => {
-      if (socket.destroyed) return;
-      send({ type: "ping" });
-      if (heartbeatTimeout) {
-        clearTimeout(heartbeatTimeout);
+  /** Reconnect the SSE stream (e.g., after switching conversations). */
+  async function reconnectSse(): Promise<void> {
+    disconnectSse();
+    await connectSse();
+  }
+
+  /** Connect the SSE event stream for the current conversation. */
+  async function connectSse(): Promise<void> {
+    const token = readHttpToken();
+    const controller = new AbortController();
+    sseAbortController = controller;
+
+    const url = `/v1/events?conversationKey=${encodeURIComponent(conversationKey)}`;
+    const headers: Record<string, string> = {
+      Accept: "text/event-stream",
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    try {
+      const response = await httpSend(url, {
+        method: "GET",
+        headers: { Accept: "text/event-stream" },
+        signal: controller.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        throw new Error(`SSE connection failed: ${response.status}`);
       }
-      heartbeatTimeout = setTimeout(() => {
-        // No pong received — daemon is unresponsive, trigger reconnect
-        socket.destroy();
-      }, HEARTBEAT_TIMEOUT_MS);
-    }, HEARTBEAT_INTERVAL_MS);
+
+      connected = true;
+
+      // Read the SSE stream
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      const readLoop = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // Parse SSE frames from the buffer
+            const frames = buffer.split("\n\n");
+            // Keep the last (potentially incomplete) frame in the buffer
+            buffer = frames.pop() ?? "";
+
+            for (const frame of frames) {
+              if (!frame.trim()) continue;
+              // Skip heartbeat comments
+              if (frame.startsWith(":")) continue;
+
+              // Parse event type and data
+              let data = "";
+              for (const line of frame.split("\n")) {
+                if (line.startsWith("data: ")) {
+                  data += line.slice(6);
+                }
+              }
+
+              if (!data) continue;
+
+              try {
+                const event = JSON.parse(data) as {
+                  message: ServerMessage;
+                  sessionId?: string;
+                };
+                // Extract the sessionId from the event envelope if we don't have one
+                if (!sessionId && event.sessionId) {
+                  sessionId = event.sessionId;
+                }
+                handleMessage(event.message);
+              } catch {
+                // Skip malformed events
+              }
+            }
+          }
+        } catch (err) {
+          if (controller.signal.aborted) return; // intentional disconnect
+          // Connection lost — trigger reconnect
+        } finally {
+          reader.releaseLock();
+        }
+
+        // If not intentionally disconnected, reconnect
+        if (!controller.signal.aborted && !reconnecting) {
+          connected = false;
+          reconnect();
+        }
+      };
+
+      // Start reading in the background (don't await — it runs for the lifetime of the connection)
+      readLoop();
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      throw err;
+    }
   }
 
   async function reconnect(): Promise<void> {
     if (reconnecting) return;
     reconnecting = true;
-    stopHeartbeat();
+    disconnectSse();
     spinner.stop();
 
     // Reset generation state — any in-flight request is lost
@@ -871,7 +983,7 @@ export async function startCli(): Promise<void> {
     // Retry with exponential backoff (1s → 2s → 4s → … → 30s cap) until connected
     while (true) {
       const delaySec = (reconnectDelay / 1000).toFixed(0);
-      process.stdout.write(`\n  Reconnecting to daemon in ${delaySec}s...\n`);
+      process.stdout.write(`\n  Reconnecting to assistant in ${delaySec}s...\n`);
       await new Promise((r) => setTimeout(r, reconnectDelay));
 
       // Increase backoff for next attempt before trying
@@ -879,94 +991,19 @@ export async function startCli(): Promise<void> {
 
       try {
         if (shouldAutoStartDaemon()) await ensureDaemonRunning();
-        await connect();
+        // Verify the daemon is healthy before attempting SSE
+        const healthy = await httpHealthCheck(2000);
+        if (!healthy) throw new Error("Health check failed");
+        await connectSse();
         reconnectDelay = RECONNECT_BASE_DELAY_MS;
         reconnecting = false;
+        updateDaemonText(mainScreenLayout, "connected");
+        updateStatusText(mainScreenLayout, "ready");
         return;
       } catch {
         // Will retry with increased backoff
       }
     }
-  }
-
-  function connect(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      parser = createMessageParser();
-      const newSocket = net.createConnection(socketPath);
-      let connected = false;
-      let authenticated = false;
-
-      newSocket.on("connect", () => {
-        connected = true;
-        socket = newSocket;
-
-        // Authenticate with session token before the server will
-        // accept any other messages.
-        const token = readSessionToken();
-        if (!token) {
-          if (hasNoAuthOverride()) {
-            // VELLUM_DAEMON_NOAUTH=1: the operator has explicitly opted
-            // into unauthenticated connections (e.g. SSH-forwarded socket
-            // where the token file lives on the remote host). Connect
-            // without auth and let the server decide.
-            authenticated = true;
-            startHeartbeat();
-            resolve();
-            return;
-          }
-          reject(
-            new Error("Session token not found — is the assistant running?"),
-          );
-          newSocket.destroy();
-          return;
-        }
-        newSocket.write(serialize({ type: "auth", token }));
-      });
-
-      newSocket.on("data", (data) => {
-        const messages = parser.feed(data.toString()) as ServerMessage[];
-        for (const msg of messages) {
-          // Wait for auth_result before processing other messages
-          if (!authenticated) {
-            if (msg.type === "auth_result") {
-              if ((msg as { success: boolean }).success) {
-                authenticated = true;
-                startHeartbeat();
-                resolve();
-              } else {
-                reject(
-                  new Error(
-                    (msg as { message?: string }).message ??
-                      "Authentication failed",
-                  ),
-                );
-                newSocket.destroy();
-              }
-            }
-            continue;
-          }
-          handleMessage(msg);
-        }
-      });
-
-      newSocket.on("close", () => {
-        stopHeartbeat();
-        if (!connected) return; // handled by 'error'
-        // Only auto-reconnect if we're not intentionally exiting
-        if (!reconnecting) {
-          reconnect();
-        }
-      });
-
-      newSocket.on("error", (err) => {
-        stopHeartbeat();
-        if (!connected) {
-          reject(err);
-          return;
-        }
-        // Connected socket error — will trigger 'close' → reconnect
-      });
-    });
   }
 
   function handleLine(line: string): void {
@@ -1001,7 +1038,34 @@ export async function startCli(): Promise<void> {
 
     if (content === "/sessions") {
       pendingSessionPick = true;
-      send({ type: "session_list" });
+      // Fetch session list via HTTP
+      httpSend("/v1/conversations/search?q=*&limit=20", { method: "GET" })
+        .then(async (resp) => {
+          if (resp.ok) {
+            const data = (await resp.json()) as {
+              results: Array<{
+                conversationId: string;
+                title: string;
+                updatedAt: string;
+              }>;
+            };
+            const sessions = data.results.map((r) => ({
+              id: r.conversationId,
+              title: r.title || "Untitled",
+              updatedAt: new Date(r.updatedAt).getTime(),
+            }));
+            renderSessionPicker(sessions);
+          } else {
+            pendingSessionPick = false;
+            process.stdout.write("[Failed to fetch sessions]\n");
+            prompt();
+          }
+        })
+        .catch(() => {
+          pendingSessionPick = false;
+          process.stdout.write("[Failed to fetch sessions]\n");
+          prompt();
+        });
       return;
     }
 
@@ -1022,17 +1086,58 @@ export async function startCli(): Promise<void> {
     }
 
     if (content === "/copy-session") {
-      if (!send({ type: "history_request", sessionId })) {
-        process.stdout.write("[Not connected — command not sent]\n");
-        prompt();
-        return;
-      }
-      pendingCopySession = true;
+      // Fetch history via HTTP
+      httpSend(
+        `/v1/messages?conversationKey=${encodeURIComponent(conversationKey)}`,
+        { method: "GET" },
+      )
+        .then(async (resp) => {
+          if (resp.ok) {
+            const data = (await resp.json()) as {
+              messages: Array<{ role: string; content: string }>;
+            };
+            if (data.messages.length === 0) {
+              process.stdout.write("\n  No messages to copy.\n\n");
+            } else {
+              try {
+                const formatted = formatSessionForExport(
+                  data.messages.map((m) => ({
+                    role: m.role as "user" | "assistant",
+                    text: m.content,
+                  })),
+                );
+                copyToClipboard(formatted);
+                process.stdout.write(
+                  `\n  Copied session (${data.messages.length} messages) to clipboard.\n\n`,
+                );
+              } catch (err) {
+                process.stdout.write(
+                  `\n  Clipboard error: ${(err as Error).message}\n\n`,
+                );
+              }
+            }
+          } else {
+            process.stdout.write("[Failed to fetch history]\n");
+          }
+          prompt();
+        })
+        .catch(() => {
+          process.stdout.write("[Failed to fetch history]\n");
+          prompt();
+        });
       return;
     }
 
     if (content === "/new") {
-      send({ type: "session_create" });
+      // Create a new conversation by using a unique key
+      conversationKey = `builtin-cli:${Date.now()}`;
+      sessionId = "";
+      reconnectSse().then(() => {
+        process.stdout.write(
+          `\n  New session started.\n  Type your message. Ctrl+D to detach.\n\n`,
+        );
+        prompt();
+      });
       return;
     }
 
@@ -1052,25 +1157,124 @@ export async function startCli(): Promise<void> {
     if (content === "/model" || content.startsWith("/model ")) {
       const modelArg = content.slice("/model".length).trim();
       if (modelArg) {
-        send({ type: "model_set", model: modelArg });
+        httpSend("/v1/model", {
+          method: "PUT",
+          body: JSON.stringify({ modelId: modelArg }),
+        })
+          .then(async (resp) => {
+            if (resp.ok) {
+              const data = (await resp.json()) as {
+                model: string;
+                provider: string;
+              };
+              process.stdout.write(
+                `\n  Model: ${data.model} (${data.provider})\n\n`,
+              );
+            } else {
+              process.stdout.write("[Failed to set model]\n");
+            }
+            prompt();
+          })
+          .catch(() => {
+            process.stdout.write("[Failed to set model]\n");
+            prompt();
+          });
       } else {
-        send({ type: "model_get" });
+        httpSend("/v1/model", { method: "GET" })
+          .then(async (resp) => {
+            if (resp.ok) {
+              const data = (await resp.json()) as {
+                model: string;
+                provider: string;
+              };
+              process.stdout.write(
+                `\n  Model: ${data.model} (${data.provider})\n\n`,
+              );
+            } else {
+              process.stdout.write("[Failed to get model info]\n");
+            }
+            prompt();
+          })
+          .catch(() => {
+            process.stdout.write("[Failed to get model info]\n");
+            prompt();
+          });
       }
       return;
     }
 
     if (content === "/history") {
-      send({ type: "history_request", sessionId });
+      httpSend(
+        `/v1/messages?conversationKey=${encodeURIComponent(conversationKey)}`,
+        { method: "GET" },
+      )
+        .then(async (resp) => {
+          if (resp.ok) {
+            const data = (await resp.json()) as {
+              messages: Array<{ role: string; content: string }>;
+            };
+            process.stdout.write("\n");
+            if (data.messages.length === 0) {
+              process.stdout.write("  No messages in this session.\n");
+            } else {
+              for (const m of data.messages) {
+                const label = m.role === "user" ? "you" : "assistant";
+                const preview = truncate(m.content, 120);
+                process.stdout.write(
+                  `  ${label}> ${preview.replace(/\n/g, " ")}\n`,
+                );
+              }
+            }
+            process.stdout.write("\n");
+          } else {
+            process.stdout.write("[Failed to fetch history]\n");
+          }
+          prompt();
+        })
+        .catch(() => {
+          process.stdout.write("[Failed to fetch history]\n");
+          prompt();
+        });
       return;
     }
 
     if (content === "/undo") {
-      send({ type: "undo", sessionId });
+      if (!sessionId) {
+        process.stdout.write("\n  No active session.\n\n");
+        prompt();
+        return;
+      }
+      httpSend(`/v1/conversations/${encodeURIComponent(sessionId)}/undo`, {
+        method: "POST",
+      })
+        .then(async (resp) => {
+          if (resp.ok) {
+            const data = (await resp.json()) as { removedCount: number };
+            if (data.removedCount === 0) {
+              process.stdout.write("\n  Nothing to undo.\n\n");
+            } else {
+              lastResponse = "";
+              process.stdout.write(
+                `\n  Removed last exchange (${data.removedCount} messages).\n\n`,
+              );
+            }
+          } else {
+            process.stdout.write("[Failed to undo]\n");
+          }
+          prompt();
+        })
+        .catch(() => {
+          process.stdout.write("[Failed to undo]\n");
+          prompt();
+        });
       return;
     }
 
     if (content === "/usage") {
-      send({ type: "usage_request", sessionId });
+      process.stdout.write(
+        "\n  [Usage tracking is not available via HTTP yet]\n\n",
+      );
+      prompt();
       return;
     }
 
@@ -1100,34 +1304,23 @@ export async function startCli(): Promise<void> {
       return;
     }
 
-    if (!sessionId) {
-      pendingUserContent = content;
-      spinner.start("Waiting for session...");
-      return;
-    }
-
+    // Regular user message
     lastResponse = "";
-    if (
-      !send({
-        type: "user_message",
-        sessionId,
-        content,
-        channel: "vellum",
-        interface: "cli",
-      })
-    ) {
-      process.stdout.write("[Not connected — message not sent]\n");
-      prompt();
-      return;
-    }
-    generating = true;
-    spinner.start("Thinking...");
+    sendUserMessage(content).then((ok) => {
+      if (!ok) {
+        process.stdout.write("[Not connected — message not sent]\n");
+        prompt();
+        return;
+      }
+      generating = true;
+      spinner.start("Thinking...");
+    });
   }
 
   rl.on("line", handleLine);
 
   rl.on("close", () => {
-    stopHeartbeat();
+    disconnectSse();
     process.stdout.write("\x1b[r\x1b[2J\x1b[H");
     process.stdout.write("\x1b[2mDetached.\x1b[0m\n");
     process.exit(0);
@@ -1136,8 +1329,13 @@ export async function startCli(): Promise<void> {
   // Ctrl+C: cancel generation if in progress, otherwise detach
   process.on("SIGINT", () => {
     spinner.stop();
-    if (generating) {
-      send({ type: "cancel" });
+    if (generating && sessionId) {
+      httpSend(
+        `/v1/conversations/${encodeURIComponent(sessionId)}/cancel`,
+        { method: "POST" },
+      ).catch(() => {
+        // Best-effort cancel
+      });
     } else {
       rl.close();
     }
@@ -1149,7 +1347,13 @@ export async function startCli(): Promise<void> {
   });
 
   // Initial connection
-  await connect();
+  await connectSse();
   updateDaemonText(mainScreenLayout, "connected");
   updateStatusText(mainScreenLayout, "ready");
+
+  // Show initial prompt since HTTP doesn't have the session_info flow
+  process.stdout.write(
+    `\n  Type your message. Ctrl+D to detach.\n\n`,
+  );
+  prompt();
 }
