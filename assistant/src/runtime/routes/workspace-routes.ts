@@ -1,8 +1,16 @@
 /**
  * Route handlers for workspace file browsing and content serving.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 import { getWorkspaceDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
@@ -219,6 +227,98 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
 }
 
 // ---------------------------------------------------------------------------
+// POST /v1/workspace/mkdir — create directories
+// ---------------------------------------------------------------------------
+
+async function handleWorkspaceMkdir(ctx: RouteContext): Promise<Response> {
+  const body = (await ctx.req.json()) as { path?: string };
+  const path = body.path;
+  if (!path) {
+    return httpError("BAD_REQUEST", "path is required", 400);
+  }
+
+  const resolved = resolveWorkspacePath(path);
+  if (resolved === undefined) {
+    return httpError("BAD_REQUEST", "Invalid path", 400);
+  }
+
+  if (existsSync(resolved)) {
+    if (statSync(resolved).isDirectory()) {
+      return Response.json({ path }, { status: 200 });
+    }
+    return httpError("CONFLICT", "Path exists as a file", 409);
+  }
+
+  mkdirSync(resolved, { recursive: true });
+  return Response.json({ path }, { status: 201 });
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/workspace/rename — rename/move files and directories
+// ---------------------------------------------------------------------------
+
+async function handleWorkspaceRename(ctx: RouteContext): Promise<Response> {
+  const body = (await ctx.req.json()) as {
+    oldPath?: string;
+    newPath?: string;
+  };
+  const { oldPath, newPath } = body;
+  if (!oldPath || !newPath) {
+    return httpError("BAD_REQUEST", "oldPath and newPath are required", 400);
+  }
+
+  const resolvedOld = resolveWorkspacePath(oldPath);
+  if (resolvedOld === undefined) {
+    return httpError("BAD_REQUEST", "Invalid oldPath", 400);
+  }
+
+  const resolvedNew = resolveWorkspacePath(newPath);
+  if (resolvedNew === undefined) {
+    return httpError("BAD_REQUEST", "Invalid newPath", 400);
+  }
+
+  if (!existsSync(resolvedOld)) {
+    return httpError("NOT_FOUND", "Source path not found", 404);
+  }
+
+  if (existsSync(resolvedNew)) {
+    return httpError("CONFLICT", "Destination already exists", 409);
+  }
+
+  mkdirSync(dirname(resolvedNew), { recursive: true });
+  renameSync(resolvedOld, resolvedNew);
+  return Response.json({ oldPath, newPath }, { status: 200 });
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/workspace/delete — delete files and directories
+// ---------------------------------------------------------------------------
+
+async function handleWorkspaceDelete(ctx: RouteContext): Promise<Response> {
+  const body = (await ctx.req.json()) as { path?: string };
+  const path = body.path;
+  if (path == null) {
+    return httpError("BAD_REQUEST", "path is required", 400);
+  }
+
+  const resolved = resolveWorkspacePath(path);
+  if (resolved === undefined) {
+    return httpError("BAD_REQUEST", "Invalid path", 400);
+  }
+
+  if (resolved === getWorkspaceDir()) {
+    return httpError("BAD_REQUEST", "Cannot delete workspace root", 400);
+  }
+
+  if (!existsSync(resolved)) {
+    return httpError("NOT_FOUND", "Path not found", 404);
+  }
+
+  rmSync(resolved, { recursive: true, force: true });
+  return new Response(null, { status: 204 });
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -238,6 +338,21 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
       endpoint: "workspace/file",
       method: "GET",
       handler: (ctx) => handleWorkspaceFile(ctx),
+    },
+    {
+      endpoint: "workspace/mkdir",
+      method: "POST",
+      handler: (ctx) => handleWorkspaceMkdir(ctx),
+    },
+    {
+      endpoint: "workspace/rename",
+      method: "POST",
+      handler: (ctx) => handleWorkspaceRename(ctx),
+    },
+    {
+      endpoint: "workspace/delete",
+      method: "POST",
+      handler: (ctx) => handleWorkspaceDelete(ctx),
     },
   ];
 }

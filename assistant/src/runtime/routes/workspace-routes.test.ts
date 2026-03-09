@@ -5,6 +5,7 @@
  * directory listing, file metadata, and raw content serving with range support.
  */
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -89,9 +90,27 @@ function makeCtx(
   };
 }
 
-function getHandler(endpoint: string) {
+/** Build a RouteContext-like object for POST handler testing with a JSON body. */
+function makePostCtx(endpoint: string, body: unknown) {
+  const url = new URL(`http://localhost/v1/${endpoint}`);
+  return {
+    url,
+    req: new Request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    server: {} as ReturnType<typeof Bun.serve>,
+    authContext: {} as never,
+    params: {},
+  };
+}
+
+function getHandler(endpoint: string, method?: string) {
   const routes = workspaceRouteDefinitions();
-  const route = routes.find((r) => r.endpoint === endpoint);
+  const route = routes.find(
+    (r) => r.endpoint === endpoint && (!method || r.method === method),
+  );
   if (!route) throw new Error(`No route found for endpoint: ${endpoint}`);
   return route.handler;
 }
@@ -426,5 +445,211 @@ describe("GET /v1/workspace/file/content", () => {
     const ctx = makeCtx({ path: "hello.txt" });
     const res = await handler(ctx);
     expect(res.headers.get("Accept-Ranges")).toBe("bytes");
+  });
+});
+
+// ===========================================================================
+// POST /v1/workspace/mkdir
+// ===========================================================================
+
+describe("POST /v1/workspace/mkdir", () => {
+  const handler = getHandler("workspace/mkdir", "POST");
+
+  test("creates directory and returns 201", async () => {
+    const ctx = makePostCtx("workspace/mkdir", { path: "new-dir" });
+    const res = await handler(ctx);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { path: string };
+    expect(body.path).toBe("new-dir");
+    expect(existsSync(join(testWorkspaceDir, "new-dir"))).toBe(true);
+  });
+
+  test("nested directory creation works", async () => {
+    const ctx = makePostCtx("workspace/mkdir", {
+      path: "deep/nested/dir",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(201);
+    expect(existsSync(join(testWorkspaceDir, "deep/nested/dir"))).toBe(true);
+  });
+
+  test("idempotent on existing directory returns 200", async () => {
+    // subdir already exists from beforeAll
+    const ctx = makePostCtx("workspace/mkdir", { path: "subdir" });
+    const res = await handler(ctx);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { path: string };
+    expect(body.path).toBe("subdir");
+  });
+
+  test("returns 409 if path exists as a file", async () => {
+    const ctx = makePostCtx("workspace/mkdir", { path: "hello.txt" });
+    const res = await handler(ctx);
+    expect(res.status).toBe(409);
+  });
+
+  test("rejects path traversal", async () => {
+    const ctx = makePostCtx("workspace/mkdir", {
+      path: "../../etc/evil",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects missing path", async () => {
+    const ctx = makePostCtx("workspace/mkdir", {});
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
+  });
+});
+
+// ===========================================================================
+// POST /v1/workspace/rename
+// ===========================================================================
+
+describe("POST /v1/workspace/rename", () => {
+  const handler = getHandler("workspace/rename", "POST");
+
+  test("renames file", async () => {
+    // Create a file to rename
+    const srcPath = join(testWorkspaceDir, "rename-me.txt");
+    writeFileSync(srcPath, "rename test");
+
+    const ctx = makePostCtx("workspace/rename", {
+      oldPath: "rename-me.txt",
+      newPath: "renamed.txt",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      oldPath: string;
+      newPath: string;
+    };
+    expect(body.oldPath).toBe("rename-me.txt");
+    expect(body.newPath).toBe("renamed.txt");
+    expect(existsSync(srcPath)).toBe(false);
+    expect(existsSync(join(testWorkspaceDir, "renamed.txt"))).toBe(true);
+  });
+
+  test("renames directory", async () => {
+    const srcDir = join(testWorkspaceDir, "dir-to-rename");
+    mkdirSync(srcDir, { recursive: true });
+    writeFileSync(join(srcDir, "child.txt"), "child");
+
+    const ctx = makePostCtx("workspace/rename", {
+      oldPath: "dir-to-rename",
+      newPath: "dir-renamed",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(200);
+    expect(existsSync(srcDir)).toBe(false);
+    expect(
+      existsSync(join(testWorkspaceDir, "dir-renamed", "child.txt")),
+    ).toBe(true);
+  });
+
+  test("rejects missing source with 404", async () => {
+    const ctx = makePostCtx("workspace/rename", {
+      oldPath: "nonexistent.txt",
+      newPath: "dest.txt",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(404);
+  });
+
+  test("rejects existing destination with 409", async () => {
+    const ctx = makePostCtx("workspace/rename", {
+      oldPath: "hello.txt",
+      newPath: "data.json",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(409);
+  });
+
+  test("rejects path traversal on oldPath", async () => {
+    const ctx = makePostCtx("workspace/rename", {
+      oldPath: "../../etc/passwd",
+      newPath: "dest.txt",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects path traversal on newPath", async () => {
+    const ctx = makePostCtx("workspace/rename", {
+      oldPath: "hello.txt",
+      newPath: "../../etc/evil",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects missing fields", async () => {
+    const ctx1 = makePostCtx("workspace/rename", { oldPath: "hello.txt" });
+    const res1 = await handler(ctx1);
+    expect(res1.status).toBe(400);
+
+    const ctx2 = makePostCtx("workspace/rename", { newPath: "dest.txt" });
+    const res2 = await handler(ctx2);
+    expect(res2.status).toBe(400);
+  });
+});
+
+// ===========================================================================
+// POST /v1/workspace/delete
+// ===========================================================================
+
+describe("POST /v1/workspace/delete", () => {
+  const handler = getHandler("workspace/delete", "POST");
+
+  test("deletes file and returns 204", async () => {
+    const filePath = join(testWorkspaceDir, "delete-me.txt");
+    writeFileSync(filePath, "delete me");
+
+    const ctx = makePostCtx("workspace/delete", { path: "delete-me.txt" });
+    const res = await handler(ctx);
+    expect(res.status).toBe(204);
+    expect(existsSync(filePath)).toBe(false);
+  });
+
+  test("deletes directory recursively and returns 204", async () => {
+    const dirPath = join(testWorkspaceDir, "delete-dir");
+    mkdirSync(dirPath, { recursive: true });
+    writeFileSync(join(dirPath, "child.txt"), "child");
+
+    const ctx = makePostCtx("workspace/delete", { path: "delete-dir" });
+    const res = await handler(ctx);
+    expect(res.status).toBe(204);
+    expect(existsSync(dirPath)).toBe(false);
+  });
+
+  test("rejects workspace root deletion with 400", async () => {
+    const ctx = makePostCtx("workspace/delete", { path: "" });
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toBe("Cannot delete workspace root");
+  });
+
+  test("rejects path traversal", async () => {
+    const ctx = makePostCtx("workspace/delete", {
+      path: "../../etc/passwd",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
+  });
+
+  test("returns 404 for missing path", async () => {
+    const ctx = makePostCtx("workspace/delete", {
+      path: "nonexistent.txt",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(404);
+  });
+
+  test("rejects missing path field", async () => {
+    const ctx = makePostCtx("workspace/delete", {});
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
   });
 });
