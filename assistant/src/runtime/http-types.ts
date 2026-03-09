@@ -202,6 +202,20 @@ export interface RuntimeHttpServerOptions {
         removeQueuedMessage?: (requestId: string) => boolean;
       }
     | undefined;
+  /** Lookup an active session by surfaceId (fallback when sessionId is absent). */
+  findSessionBySurfaceId?: (surfaceId: string) =>
+    | {
+        handleSurfaceAction(
+          surfaceId: string,
+          actionId: string,
+          data?: Record<string, unknown>,
+        ): void;
+        surfaceState: Map<
+          string,
+          { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+        >;
+      }
+    | undefined;
   /** Dependencies for session management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
   sessionManagementDeps?: SessionManagementDeps;
   /** Lazy factory for model config set context (session eviction, config reload suppression). */

@@ -207,6 +207,7 @@ export class RuntimeHttpServer {
   private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
   private findSession?: RuntimeHttpServerOptions["findSession"];
+  private findSessionBySurfaceId?: RuntimeHttpServerOptions["findSessionBySurfaceId"];
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
@@ -227,6 +228,7 @@ export class RuntimeHttpServer {
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
     this.findSession = options.findSession;
+    this.findSessionBySurfaceId = options.findSessionBySurfaceId;
     this.getSkillContext = options.getSkillContext;
     this.sessionManagementDeps = options.sessionManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
@@ -933,7 +935,10 @@ export class RuntimeHttpServer {
           })
         : []),
       ...trustRulesRouteDefinitions(),
-      ...surfaceActionRouteDefinitions({ findSession: this.findSession }),
+      ...surfaceActionRouteDefinitions({
+        findSession: this.findSession,
+        findSessionBySurfaceId: this.findSessionBySurfaceId,
+      }),
       ...surfaceContentRouteDefinitions({ findSession: this.findSession }),
       ...guardianActionRouteDefinitions(),
 

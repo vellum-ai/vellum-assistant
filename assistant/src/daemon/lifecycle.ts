@@ -424,6 +424,8 @@ export async function runDaemon(): Promise<void> {
           })),
       },
       findSession: (sessionId) => server.findSession(sessionId),
+      findSessionBySurfaceId: (surfaceId) =>
+        server.findSessionBySurfaceId(surfaceId),
       getSkillContext: () => server.getSkillContext(),
       getModelSetContext: () => server.getHandlerContext(),
       sessionManagementDeps: {

@@ -898,6 +898,22 @@ export class DaemonServer {
   }
 
   /**
+   * Look up an active session that owns a given surfaceId.
+   * Falls back across both normal and computer-use sessions.
+   */
+  findSessionBySurfaceId(
+    surfaceId: string,
+  ): Session | ComputerUseSession | undefined {
+    for (const s of this.cuSessions.values()) {
+      if (s.surfaceState.has(surfaceId)) return s;
+    }
+    for (const s of this.sessions.values()) {
+      if (s.surfaceState.has(surfaceId)) return s;
+    }
+    return undefined;
+  }
+
+  /**
    * Expose the handler context for use by session management HTTP routes.
    * The context is built on-the-fly so it always reflects the current server state.
    */
