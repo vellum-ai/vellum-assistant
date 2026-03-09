@@ -27,6 +27,9 @@ struct SettingsAccountTab: View {
     @State private var isLoadingHatchFlag: Bool = false
     @State private var showingHatchConfirmation: Bool = false
 
+    // -- Display names (resolved from IDENTITY.md, keyed by assistant ID) --
+    @State private var displayNames: [String: String] = [:]
+
     // -- Wake/sleep toggle state --
     @State private var awakeStates: [String: Bool] = [:]
     @State private var transitioningStates: Set<String> = []
@@ -53,6 +56,7 @@ struct SettingsAccountTab: View {
             lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             refreshAwakeStates()
+            refreshDisplayNames()
             identity = IdentityInfo.load()
             if identity == nil,
                let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }),
@@ -274,10 +278,12 @@ struct SettingsAccountTab: View {
                 ForEach(lockfileAssistants, id: \.assistantId) { assistant in
                     HStack(spacing: VSpacing.sm) {
                         VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                            Text(assistant.assistantId)
+                            Text(displayLabel(for: assistant))
                                 .font(VFont.bodyMedium)
                                 .foregroundColor(VColor.textPrimary)
-                            Text(assistant.home.displayLabel)
+                            Text(displayNames[assistant.assistantId] != nil
+                                ? "\(assistant.assistantId) · \(assistant.home.displayLabel)"
+                                : assistant.home.displayLabel)
                                 .font(VFont.caption)
                                 .foregroundColor(VColor.textMuted)
                         }
@@ -307,7 +313,7 @@ struct SettingsAccountTab: View {
                     VDropdown(
                         placeholder: "",
                         selection: $selectedAssistantId,
-                        options: awakeAssistants.map { (label: $0.assistantId, value: $0.assistantId) }
+                        options: awakeAssistants.map { (label: displayLabel(for: $0), value: $0.assistantId) }
                     )
                     .frame(maxWidth: 200)
                 }
@@ -341,6 +347,19 @@ struct SettingsAccountTab: View {
         // Mid-transition — prevent double-toggle
         if transitioningStates.contains(assistant.assistantId) { return true }
         return false
+    }
+
+    private func refreshDisplayNames() {
+        for assistant in lockfileAssistants {
+            if let name = assistant.loadDisplayName() {
+                displayNames[assistant.assistantId] = name
+            }
+        }
+    }
+
+    /// Returns the display name for an assistant, falling back to the assistant ID.
+    private func displayLabel(for assistant: LockfileAssistant) -> String {
+        displayNames[assistant.assistantId] ?? assistant.assistantId
     }
 
     private func refreshAwakeStates() {
@@ -443,7 +462,6 @@ struct SettingsAccountTab: View {
             // Gateway unreachable — fall through to local config fallback
         }
 
-        // Fallback: read from local workspace config
         let config = WorkspaceConfigIO.read()
 
         // Check canonical assistantFeatureFlagValues first (new format)

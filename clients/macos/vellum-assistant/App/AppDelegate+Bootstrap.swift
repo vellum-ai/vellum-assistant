@@ -427,6 +427,9 @@ extension AppDelegate {
                     switch result {
                     case .success:
                         log.info("Proactive token refresh succeeded")
+                        if let token = ActorTokenManager.getToken(), !token.isEmpty {
+                            self.daemonClient.updateTransportBearerToken(token)
+                        }
                     case .terminalError(let reason):
                         log.error("Proactive token refresh failed terminally: \(reason)")
                     case .transientError:
@@ -460,6 +463,12 @@ extension AppDelegate {
 
             if success {
                 log.info("Initial actor token bootstrap succeeded")
+                // Push the new actor token to the HTTP transport so SSE and
+                // API requests authenticate with the full-scope JWT instead
+                // of the http-token file (which may lack required scopes).
+                if let token = ActorTokenManager.getToken(), !token.isEmpty {
+                    daemonClient.updateTransportBearerToken(token)
+                }
                 return
             }
 
