@@ -98,6 +98,9 @@ jobs:
         with:
           bun-version: '1.3.9'
 
+      - name: Design token guard
+        run: bash clients/scripts/check-design-tokens.sh --mode=ratchet
+
       - name: Build binaries
         run: ./build.sh binaries
 

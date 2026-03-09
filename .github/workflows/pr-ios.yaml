@@ -32,6 +32,9 @@ jobs:
       - name: Clear stale SPM artifact cache
         run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
 
+      - name: Design token guard
+        run: bash clients/scripts/check-design-tokens.sh --mode=ratchet
+
       - name: Build for simulator
         working-directory: clients/ios
         run: ./build.sh
