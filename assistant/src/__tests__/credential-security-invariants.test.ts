@@ -230,6 +230,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
       "daemon/session-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_id/client_secret/access tokens)
+      "twitter/platform-proxy-client.ts", // managed Twitter proxy — reads assistant_api_key for Api-Key auth
       "util/cookie-session.ts", // shared cookie-session persistence (session CRUD via credential store)
     ]);
 
