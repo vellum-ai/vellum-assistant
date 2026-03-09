@@ -39,7 +39,6 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
       if (entry.name.startsWith(".")) continue;
 
       const fullPath = join(resolved, entry.name);
-      const isDir = entry.isDirectory();
 
       let stats: ReturnType<typeof statSync>;
       try {
@@ -48,6 +47,8 @@ function handleWorkspaceTree(ctx: RouteContext): Response {
         // Skip entries that can't be stat'd (broken symlinks, permission denied, etc.)
         continue;
       }
+
+      const isDir = stats.isDirectory();
 
       const relativePath = fullPath.slice(workspaceDir.length + 1);
 
