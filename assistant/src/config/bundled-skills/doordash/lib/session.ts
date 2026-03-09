@@ -3,6 +3,7 @@
  * Stores/loads auth cookies from a recording or manual login.
  */
 
+import { execFile } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -11,12 +12,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { ConfigError } from "./shared/errors.js";
 import type {
   ExtractedCredential,
   SessionRecording,
 } from "./shared/recording-types.js";
+
+const execFileAsync = promisify(execFile);
 
 export interface DoorDashSession {
   cookies: ExtractedCredential[];
@@ -72,6 +76,31 @@ export function importFromRecording(recordingPath: string): DoorDashSession {
     cookies: recording.cookies,
     importedAt: new Date().toISOString(),
     recordingId: recording.id,
+  };
+  saveSession(session);
+  return session;
+}
+
+/**
+ * Import cookies that the daemon saved to the credential store under the
+ * target domain key. Copies them into the local DoorDash session file.
+ */
+export async function importFromCredentialStore(
+  targetDomain: string,
+): Promise<DoorDashSession> {
+  const { stdout } = await execFileAsync("assistant", [
+    "credentials",
+    "reveal",
+    `${targetDomain}:session:cookies`,
+  ]);
+  const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
+  if (!cookies.length) {
+    throw new ConfigError("No cookies found in credential store");
+  }
+
+  const session: DoorDashSession = {
+    cookies,
+    importedAt: new Date().toISOString(),
   };
   saveSession(session);
   return session;

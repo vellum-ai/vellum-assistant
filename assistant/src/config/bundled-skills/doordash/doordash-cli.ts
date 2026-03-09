@@ -33,11 +33,17 @@ import {
 import { extractQueries, saveQueries } from "./lib/query-extractor.js";
 import {
   clearSession,
+  importFromCredentialStore,
   importFromRecording,
   loadSession,
 } from "./lib/session.js";
 import { NetworkRecorder } from "./lib/shared/network-recorder.js";
-import { buildDaemonUrl, getDataDir, getHttpPort, readHttpToken } from "./lib/shared/platform.js";
+import {
+  buildDaemonUrl,
+  getDataDir,
+  getHttpPort,
+  readHttpToken,
+} from "./lib/shared/platform.js";
 import { loadRecording, saveRecording } from "./lib/shared/recording-store.js";
 import type { SessionRecording } from "./lib/shared/recording-types.js";
 
@@ -148,13 +154,13 @@ export function registerDoordashCommand(program: Command): void {
         }
 
         const result = await startLearnSession(duration);
-        if (result.recordingPath) {
-          const session = importFromRecording(result.recordingPath);
+        if (result.recordingId) {
+          const session = await importFromCredentialStore("doordash.com");
 
           // Also extract and save captured queries for self-healing
           let queriesCaptured = 0;
           try {
-            const recording = loadRecording(result.recordingId ?? "");
+            const recording = loadRecording(result.recordingId);
             if (recording) {
               const queries = extractQueries(recording);
               if (queries.length > 0) {
@@ -188,7 +194,7 @@ export function registerDoordashCommand(program: Command): void {
           output(
             {
               ok: false,
-              error: "Recording completed but no recording path returned",
+              error: "Recording completed but no recording ID returned",
               recordingId: result.recordingId,
             },
             json,
@@ -1020,7 +1026,10 @@ async function startLearnSession(
       // Poll session status to detect failures early
       try {
         const fetchAbort = AbortSignal.timeout(10_000);
-        const statusRes = await fetch(statusUrl, { headers, signal: fetchAbort });
+        const statusRes = await fetch(statusUrl, {
+          headers,
+          signal: fetchAbort,
+        });
         if (statusRes.ok) {
           const status = (await statusRes.json()) as {
             status: string;
@@ -1073,9 +1082,7 @@ async function startLearnSession(
 
             // Completed but no recordingId — cannot correlate
             reject(
-              new Error(
-                "Learn session completed but no recording was saved.",
-              ),
+              new Error("Learn session completed but no recording was saved."),
             );
             return;
           }
