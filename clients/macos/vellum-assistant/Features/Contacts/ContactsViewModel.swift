@@ -1,9 +1,11 @@
+import Combine
 import Foundation
 import SwiftUI
 import VellumAssistantShared
 
 /// ViewModel for the contacts list, providing daemon IPC integration
-/// for loading and filtering contacts.
+/// for loading and filtering contacts. Delegates data operations to
+/// the shared ContactsStore.
 @MainActor
 final class ContactsViewModel: ObservableObject {
 
@@ -16,16 +18,22 @@ final class ContactsViewModel: ObservableObject {
 
     // MARK: - Dependencies
 
-    private let daemonClient: DaemonClient?
-
-    /// Debounce task for contacts_changed events, avoiding races with
-    /// in-progress channel update response handling in ContactDetailView.
-    private var contactsChangedTask: Task<Void, Never>?
+    let contactsStore: ContactsStore?
 
     // MARK: - Init
 
     init(daemonClient: DaemonClient?) {
-        self.daemonClient = daemonClient
+        if let daemonClient {
+            let store = ContactsStore(daemonClient: daemonClient)
+            self.contactsStore = store
+
+            store.$contacts
+                .assign(to: &$contacts)
+            store.$isLoading
+                .assign(to: &$isLoading)
+        } else {
+            self.contactsStore = nil
+        }
     }
 
     // MARK: - Computed Properties
@@ -68,36 +76,6 @@ final class ContactsViewModel: ObservableObject {
 
     /// Request the list of contacts from the daemon.
     func loadContacts() {
-        guard let daemonClient else { return }
-        isLoading = true
-
-        daemonClient.onContactsResponse = { [weak self] response in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.isLoading = false
-                if response.success, let contacts = response.contacts {
-                    self.contacts = contacts
-                }
-            }
-        }
-
-        daemonClient.onContactsChanged = { [weak self] _ in
-            guard let self else { return }
-            // Debounce to let in-flight channel update responses
-            // (consumed by ContactDetailView.updateChannelStatus) settle
-            // before we fire a new list request.
-            self.contactsChangedTask?.cancel()
-            self.contactsChangedTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                guard !Task.isCancelled else { return }
-                self?.loadContacts()
-            }
-        }
-
-        do {
-            try daemonClient.sendListContacts(limit: 500)
-        } catch {
-            isLoading = false
-        }
+        contactsStore?.loadContacts()
     }
 }
