@@ -94,8 +94,6 @@ assistant/src/runtime/routes/guardian-*.ts @noanflaherty
 assistant/src/runtime/routes/trust-rules-routes.ts @noanflaherty
 assistant/src/daemon/approval-generators.ts @noanflaherty
 assistant/src/daemon/guardian-*.ts @noanflaherty
-assistant/src/daemon/handlers/config-trust.ts @noanflaherty
-assistant/src/daemon/handlers/guardian-actions.ts @noanflaherty
 assistant/src/daemon/message-types/guardian-actions.ts @noanflaherty
 assistant/src/daemon/message-types/trust.ts @noanflaherty
 assistant/src/tools/verification-control-plane-policy.ts @noanflaherty
