@@ -206,8 +206,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             return
         }
 
-        log.error("[appLaunch] → startAuthenticatedFlow(hasAssistants=\(hasAssistants))")
-        startAuthenticatedFlow(hasAssistants: hasAssistants)
+        log.error("[appLaunch] → startAuthenticatedFlow()")
+        startAuthenticatedFlow()
     }
 
     var hasSetupApp = false

@@ -521,20 +521,25 @@ function ensureApiKeyInDefaults(): void {
 
   const domain = defaultsDomain();
   try {
+    // Kill cfprefsd BEFORE writing so the daemon starts fresh.
+    // The CI setup step may have left cfprefsd with a stale cache.
+    // Killing it first ensures the `defaults write` goes through a
+    // clean cfprefsd that will persist the value and serve it to the
+    // app's UserDefaults.standard on first read.
+    execSync("killall cfprefsd 2>/dev/null || true", { timeout: 5_000 });
+    execSync("sleep 1", { timeout: 5_000 });
+
     execSync(
       `defaults write ${domain} vellum_provider_anthropic -string ${JSON.stringify(apiKey)}`,
       { timeout: 5_000 },
     );
 
-    // Restart cfprefsd so the app process sees the write immediately.
-    // cfprefsd auto-relaunches; the brief restart forces it to re-read
-    // the on-disk plist, eliminating stale-cache races.
-    execSync("killall cfprefsd 2>/dev/null || true", { timeout: 5_000 });
+    // Do NOT kill cfprefsd after writing — the cfprefsd process that
+    // received the write is the same one that will serve the app's
+    // UserDefaults reads. Killing it would force a restart that may
+    // not see the write until it lazily re-reads the plist.
 
-    // Give cfprefsd time to restart and re-read plist files from disk.
-    execSync("sleep 1", { timeout: 5_000 });
-
-    // Verify the write is readable after the cfprefsd restart.
+    // Verify the write is readable.
     const readBack = execSync(
       `defaults read ${domain} vellum_provider_anthropic`,
       { encoding: "utf-8", timeout: 5_000 },
