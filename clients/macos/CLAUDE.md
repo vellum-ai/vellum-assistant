@@ -105,7 +105,7 @@ Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@Main
 All inference (both computer-use sessions and ambient analysis) goes through the assistant's HTTP API:
 - `DaemonClient` — `@MainActor`, HTTP+SSE transport; auto-reconnect, `AsyncStream<ServerMessage>`
 - `IPCMessages.swift` — Codable structs for HTTP request/response types: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
-- `IPC/Generated/IPCContractGenerated.swift` — Codable Swift types used for JSON serialization. Use these `IPC*` types directly in Swift code instead of hand-writing structs.
+- `IPC/Generated/GeneratedAPITypes.swift` — Codable Swift types used for JSON serialization. Use these `IPC*` types directly in Swift code instead of hand-writing structs.
 
 ### Ambient Agent (`Ambient/`)
 
