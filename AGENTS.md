@@ -92,7 +92,7 @@ Follow the [Agent Skills specification](https://agentskills.io/specification) fo
 
 ## Multi-Instance Path Invariant
 
-When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/.vellum/instances/alice/`), `getRootDir()` resolves to `join(BASE_DATA_DIR, ".vellum")`. All CLI and daemon code that references instance-scoped files must use `join(instanceDir, ".vellum", ...)` — never assume the root is `~/.vellum/` directly. This ensures socket paths, PID files, tokens, and config are correctly scoped per instance.
+When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/.vellum/instances/alice/`), `getRootDir()` resolves to `join(BASE_DATA_DIR, ".vellum")`. All CLI and daemon code that references instance-scoped files must use `join(instanceDir, ".vellum", ...)` — never assume the root is `~/.vellum/` directly. This ensures PID files, tokens, and config are correctly scoped per instance.
 
 ## Qdrant Port Override
 

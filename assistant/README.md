@@ -1,6 +1,6 @@
 # Vellum Assistant Runtime
 
-Bun + TypeScript assistant runtime that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
+Bun + TypeScript assistant runtime that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes an HTTP+SSE API for native clients (macOS, iOS) and the gateway.
 
 ## Architecture
 
@@ -8,10 +8,7 @@ Bun + TypeScript assistant runtime that owns conversation history, attachment st
 CLI / macOS app / iOS app
         │
         ▼
-   Unix socket (~/.vellum/vellum.sock)
-        │
-        ▼
-   DaemonServer (IPC)
+   RuntimeHttpServer (HTTP + SSE)
         │
         ├── Session Manager (in-memory pool, stale eviction)
         │       ├── Anthropic Claude (primary)
@@ -47,7 +44,7 @@ cp .env.example .env
 | `OLLAMA_API_KEY`       | No       | —                           | API key for authenticated Ollama deployments      |
 | `OLLAMA_BASE_URL`      | No       | `http://127.0.0.1:11434/v1` | Ollama base URL                                   |
 | `RUNTIME_HTTP_PORT`    | No       | —                           | Enable the HTTP server (required for gateway/web) |
-| `VELLUM_DAEMON_SOCKET` | No       | `~/.vellum/vellum.sock`     | Override the assistant socket path                |
+| `RUNTIME_HTTP_HOST`    | No       | `127.0.0.1`                 | HTTP server bind address                          |
 
 ## Update Bulletin
 
@@ -101,7 +98,7 @@ assistant/
 ├── src/
 │   ├── index.ts              # CLI entrypoint (commander)
 │   ├── cli.ts                # Interactive REPL client
-│   ├── daemon/               # Daemon server, IPC protocol, session management
+│   ├── daemon/               # Daemon server, session management
 │   ├── agent/                # Agent loop and LLM interaction
 │   ├── providers/            # LLM provider integrations (Anthropic, OpenAI, Gemini, Ollama)
 │   ├── memory/               # Conversation store, memory indexer, recall (FTS5 + Qdrant)
@@ -272,7 +269,7 @@ The vellum channel (macOS, iOS, CLI) uses JWTs to bind guardian identity to HTTP
 
 - **Bootstrap**: After hatch, the macOS client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint fresh credentials.
 - **iOS pairing**: The pairing response includes `accessToken` and `refreshToken` credentials automatically when a vellum guardian binding exists.
-- **IPC fallback**: Local IPC (Unix socket) connections resolve identity server-side via `resolveLocalIpcGuardianContext()` without requiring a JWT.
+- **Local identity**: Local connections resolve identity server-side via `resolveLocalGuardianContext()` without requiring a JWT.
 - **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.
 - **Startup migration**: On assistant start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
 
@@ -284,7 +281,7 @@ This section documents the end-to-end flow from guardian verification through in
 
 Guardian verification establishes a cryptographic trust binding between a human identity and an `(assistantId, channel)` pair. The flow is:
 
-1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a channel_verification_session IPC message (`create_session` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
+1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a channel_verification_session request (`create_session` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
 2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram).
 3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided code, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
 4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `actorExternalId` and `chatId` (DB columns: `externalUserId`, `chatId`). The verifier receives a confirmation message.
@@ -395,7 +392,7 @@ Secure cross-user messaging allows external users (non-guardians) to interact wi
 
 External users join through **invite tokens**. There are two invite flows:
 
-1. **IPC-based (legacy)** — The owner creates an invite via IPC, obtains the raw token, and shares it manually. The external user redeems the token by sending it as a channel message.
+1. **Manual** — The owner creates an invite via the HTTP API, obtains the raw token, and shares it manually. The external user redeems the token by sending it as a channel message.
 2. **Guardian-initiated invite links (Telegram)** — The guardian asks the assistant to create an invite link via desktop chat. The assistant creates an invite, builds a channel-specific deep link, and presents it for sharing. The invitee clicks the link and is automatically granted access.
 
 #### Guardian-Initiated Invite Link Flow (Telegram)
@@ -432,9 +429,9 @@ On **approve**: the original message payload is recovered from the channel deliv
 
 If no guardian binding exists, escalation fails closed — the message is denied rather than left in a silent wait state.
 
-### IPC Contracts
+### HTTP API
 
-| Message Type     | Actions                      | Description                                                              |
+| Endpoint         | Actions                      | Description                                                              |
 | ---------------- | ---------------------------- | ------------------------------------------------------------------------ |
 | `ingress_invite` | create, list, revoke, redeem | Manage invite tokens (SHA-256 hashed, raw token returned once on create) |
 
@@ -444,15 +441,14 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `src/memory/invite-store.ts`                        | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
 | `src/contacts/contact-store.ts`                     | Contact + channel CRUD with policy enforcement                                                                   |
-| `src/daemon/handlers/config-inbox.ts`               | IPC handlers for invite contract                                                                                 |
-| `src/daemon/ipc-contract/inbox.ts`                  | TypeScript type definitions for ingress IPC messages                                                             |
+| `src/daemon/handlers/config-inbox.ts`               | HTTP handlers for invite operations                                                                              |
 | `src/runtime/routes/channel-routes.ts`              | ACL enforcement point — member lookup, policy check, escalation creation                                         |
 | `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, member creation, discriminated-union outcomes                         |
 | `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                        |
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel                          |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes guardian invite management requests into the `contacts` skill                          |
-| `src/runtime/invite-service.ts`                     | Shared business logic for invite and contact operations (HTTP + IPC)                                             |
+| `src/runtime/invite-service.ts`                     | Shared business logic for invite and contact operations                                                          |
 
 ## Database
 

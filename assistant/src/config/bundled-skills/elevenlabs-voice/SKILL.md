@@ -7,7 +7,7 @@ metadata: {"emoji":"🗣️","vellum":{"display-name":"ElevenLabs Voice","user-i
 
 ## Overview
 
-ElevenLabs provides text-to-speech voices for both **in-app TTS** and **phone calls**. The shared config key `elevenlabs.voiceId` controls the voice across all channels. Use the `voice_config_update` tool to change the voice — it writes to the config file and pushes to the macOS app via IPC in one call.
+ElevenLabs provides text-to-speech voices for both **in-app TTS** and **phone calls**. The shared config key `elevenlabs.voiceId` controls the voice across all channels. Use the `voice_config_update` tool to change the voice — it writes to the config file and pushes to the macOS app via SSE in one call.
 
 ## Choose a Voice
 
@@ -40,7 +40,7 @@ Pick a voice that matches the your identity and the user's preferences. Offer to
 
 ### Setting the voice
 
-To set the chosen voice, use `voice_config_update`. This writes to the config file (`elevenlabs.voiceId`) for phone calls **and** pushes to the macOS app via IPC (`ttsVoiceId`) for in-app TTS in one call:
+To set the chosen voice, use `voice_config_update`. This writes to the config file (`elevenlabs.voiceId`) for phone calls **and** pushes to the macOS app via SSE (`ttsVoiceId`) for in-app TTS in one call:
 
 ```
 voice_config_update setting="tts_voice_id" value="<selected-voice-id>"

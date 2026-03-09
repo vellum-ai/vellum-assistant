@@ -264,7 +264,7 @@ This builds the app (if needed), generates the background image, creates a style
 
 ## Local Assistant (Daemon)
 
-The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to it via a Unix domain socket at `~/.vellum/vellum.sock` by default (the path is resolved dynamically via `resolveSocketPath()`, which honors `BASE_DATA_DIR` and the lockfile for multi-instance setups).
+The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to it via HTTP+SSE (the runtime HTTP server port is resolved dynamically from the lockfile, honoring `BASE_DATA_DIR` for multi-instance setups).
 
 **Local mode: You must start the assistant before using the app.** Without it, the app will connect but get no responses. (In managed mode, the assistant runs on the Vellum platform — no local process needed.)
 
@@ -456,7 +456,7 @@ Inference/            AI action selection
   ToolDefinitions     Tool schemas for function calling
 Services/             Singleton service containers
 Ambient/              Background screen-watching agent
-  AmbientAgent        Periodic capture → OCR → analyze via daemon IPC
+  AmbientAgent        Periodic capture → OCR → analyze via HTTP
   AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)
   KnowledgeStore      Persists observations as JSON
   ScreenOCR           Vision framework OCR

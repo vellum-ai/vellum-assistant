@@ -2290,9 +2290,9 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         #if os(macOS)
         // Remote mode: httpTransport targets a non-local gateway (e.g. cloud).
-        // Delegate to it directly. When localHttpEnabled is on, httpTransport
-        // points at localhost (the runtime), which does NOT serve feature-flag
-        // routes — so we must fall through to the local gateway path below.
+        // Delegate to it directly. When httpTransport points at localhost
+        // (the runtime), it does NOT serve feature-flag routes — so we must
+        // fall through to the local gateway path below.
         if let httpTransport = self.httpTransport, !Self.isLocalBaseURL(httpTransport.baseURL) {
             let sid = OSSignpostID(log: ipcLog)
             os_signpost(.begin, log: ipcLog, name: "daemonHTTPRequest", signpostID: sid)

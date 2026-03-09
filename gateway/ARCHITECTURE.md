@@ -364,7 +364,7 @@ The inbound message handler (`inbound-message-handler.ts`) accepts verification 
 
 #### Explicit Rebind Policy
 
-Creating a new guardian challenge when a binding already exists for the `(assistantId, channel)` pair requires explicit `rebind: true` in the IPC request. Without it, the daemon returns `already_bound` to the caller. This prevents accidental guardian replacement -- the desktop UI must explicitly acknowledge that it is replacing an existing guardian before a new challenge is issued. On the verification side, `validateAndConsumeVerification` always revokes any existing active binding before creating the new one, so the actual binding swap is atomic.
+Creating a new guardian challenge when a binding already exists for the `(assistantId, channel)` pair requires explicit `rebind: true` in the HTTP request. Without it, the daemon returns `already_bound` to the caller. This prevents accidental guardian replacement -- the desktop UI must explicitly acknowledge that it is replacing an existing guardian before a new challenge is issued. On the verification side, `validateAndConsumeVerification` always revokes any existing active binding before creating the new one, so the actual binding swap is atomic.
 
 #### Guardian Takeover Prevention
 
@@ -377,12 +377,12 @@ A challenge-response handshake binds a Telegram user as the guardian:
 ```mermaid
 sequenceDiagram
     participant User as Guardian Candidate
-    participant Desktop as Desktop / IPC
+    participant Desktop as Desktop Client
     participant TG as Telegram
     participant GW as Gateway
     participant Daemon as Daemon (Runtime)
 
-    Desktop->>Daemon: guardian_verify IPC (action: create_session)
+    Desktop->>Daemon: POST /v1/channel-verification-sessions (action: create_session)
     Daemon->>Daemon: Generate random secret, hash (SHA-256), store challenge (10min TTL)
     Daemon-->>Desktop: Return secret + instruction
     Desktop-->>User: Display verification code
@@ -506,7 +506,7 @@ The channel inbound handler (`inbound-message-handler.ts`) enforces an access co
 3. If a member exists but is not `active` (e.g., `revoked`, `blocked`), the message is denied.
 4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing. If `escalate`, the message is held for guardian approval.
 
-**Invite-based onboarding:** Invite tokens are created via the `ingress_invite` IPC contract. Each token is SHA-256 hashed before storage -- the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
+**Invite-based onboarding:** Invite tokens are created via the invite HTTP API. Each token is SHA-256 hashed before storage -- the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
 
 **Relationship to guardian verification:** Guardian verification and ingress contact management are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress contacts control who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel -- without one, escalated messages are denied (fail-closed).
 
@@ -564,7 +564,7 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 | `assistant/src/memory/invite-store.ts`           | CRUD for invite tokens with SHA-256 hashing and expiry                    |
 | `assistant/src/contacts/contact-store.ts`        | Contact and channel lookups (findContactChannel, guardian bindings)       |
 | `assistant/src/contacts/contacts-write.ts`       | Contact and channel writes (upsert, policy changes, invite redemption)    |
-| `assistant/src/daemon/handlers/config-inbox.ts`  | IPC handlers for invite and member contracts                              |
+| `assistant/src/daemon/handlers/config-inbox.ts`  | Handlers for invite and member contracts                                  |
 | `assistant/src/runtime/routes/channel-routes.ts` | ACL enforcement point -- member lookup, policy check, escalation creation |
 
 ### Telegram Credential Flow
@@ -576,11 +576,11 @@ Entry points:
 
   1. Skill-based setup (chat):
      credential_store action: "prompt" → token stored in secure storage
-       → telegram_config IPC (action: set) — daemon reads token from secure storage
+       → telegram_config HTTP (action: set) — daemon reads token from secure storage
 
   2. Desktop Settings UI (macOS):
      SettingsStore.saveTelegramToken(token)
-       → telegram_config IPC (action: set, botToken: token) — token passed directly
+       → telegram_config HTTP (action: set, botToken: token) — token passed directly
 
 Both paths converge at:
   → Daemon handler validates token via Telegram getMe API
@@ -597,13 +597,13 @@ Both paths converge at:
         → Webhook reconciliation registers webhook with Telegram
 ```
 
-The `telegram_config` IPC message supports three actions:
+The `telegram_config` HTTP endpoint supports three actions:
 
 - **`get`** — returns connection status (`hasBotToken`, `botUsername`, `connected`, `hasWebhookSecret`) without exposing secret values
 - **`set`** — validates the bot token against the Telegram API, stores it in secure storage, auto-generates a webhook secret if none exists (with rollback on failure), and self-heals webhook_secret metadata if it already exists. The gateway's credential watcher detects the storage change and triggers webhook reconciliation automatically
 - **`clear`** — deregisters the webhook by calling Telegram's `deleteWebhook` API directly (while the token is still available), then deletes the bot token and webhook secret from both secure storage and credential metadata. The gateway's credential watcher detects the storage change and updates its readiness state automatically
 
-The gateway reads Telegram credentials via its `credential-reader` module (`gateway/src/credential-reader.ts`), which uses a broker-first fallback strategy: it tries the keychain broker first (a Unix domain socket served by the assistant daemon that proxies macOS Keychain reads), then falls back to the encrypted file store (`~/.vellum/protected/keys.enc`). When the broker is unavailable (e.g., daemon not running, non-macOS platform, or socket env var unset), the encrypted store is used directly.
+The gateway reads Telegram credentials via its `credential-reader` module (`gateway/src/credential-reader.ts`), which uses a broker-first fallback strategy: it tries the keychain broker first, then falls back to the encrypted file store (`~/.vellum/protected/keys.enc`). When the broker is unavailable (e.g., daemon not running or non-macOS platform), the encrypted store is used directly.
 
 ### Webhook Reconciliation
 
@@ -742,7 +742,7 @@ sequenceDiagram
     alt ASK_GUARDIAN pattern detected
         Ctrl->>CallStore: createPendingQuestion()
         Ctrl->>GuardianDispatch: dispatchGuardianQuestion()
-        GuardianDispatch->>Mac: notification_thread_created IPC
+        GuardianDispatch->>Mac: notification_thread_created SSE
         GuardianDispatch->>TG: POST /deliver/{channel}
         Note over Mac,TG: First channel to respond wins
         Mac/TG->>Routes: guardian answer

@@ -276,10 +276,9 @@ export class RuntimeHttpServer {
       featureFlagToken: this.readFeatureFlagToken(),
       pairingBroadcast: ipcBroadcast
         ? (msg) => {
-            // Broadcast to IPC socket clients (local Unix socket)
+            // Broadcast to all clients via the event hub so HTTP/SSE clients
+            // (e.g. macOS app) receive pairing approval requests.
             ipcBroadcast(msg);
-            // Also publish to the event hub so HTTP/SSE clients (e.g. macOS
-            // app with localHttpEnabled) receive pairing approval requests.
             void assistantEventHub.publish(
               buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
             );
