@@ -6,7 +6,7 @@
  * - handleConfirmationResponse emits both confirmation_state_changed and
  *   assistant_activity_state events centrally
  * - emitActivityState produces monotonically increasing activityVersion
- * - setStateSignalListener routes signals to an external callback (HTTP/SSE)
+ * - sendToClient receives state signals (confirmation_state_changed, assistant_activity_state)
  * - "deny" decisions produce 'denied' state, "allow" produces 'approved'
  */
 import { mkdtempSync, rmSync } from "node:fs";
@@ -521,40 +521,21 @@ describe("activity version ordering", () => {
   });
 });
 
-describe("state signal listener", () => {
-  test("setStateSignalListener routes emitActivityState to external callback", () => {
+describe("sendToClient receives state signals", () => {
+  test("emitActivityState delivers to sendToClient", () => {
     const clientMsgs: ServerMessage[] = [];
-    const signalMsgs: ServerMessage[] = [];
-
     const session = makeSession((msg) => clientMsgs.push(msg));
-    session.setStateSignalListener((msg) => signalMsgs.push(msg));
 
     session.emitActivityState("thinking", "message_dequeued", "assistant_turn");
 
-    // Both sendToClient and signal listener should receive the message
     expect(
       clientMsgs.filter((m) => m.type === "assistant_activity_state"),
     ).toHaveLength(1);
-    expect(
-      signalMsgs.filter((m) => m.type === "assistant_activity_state"),
-    ).toHaveLength(1);
-
-    // Messages should be identical
-    const clientMsg = clientMsgs.find(
-      (m) => m.type === "assistant_activity_state",
-    );
-    const signalMsg = signalMsgs.find(
-      (m) => m.type === "assistant_activity_state",
-    );
-    expect(clientMsg).toEqual(signalMsg);
   });
 
-  test("setStateSignalListener routes emitConfirmationStateChanged to external callback", () => {
+  test("emitConfirmationStateChanged delivers to sendToClient", () => {
     const clientMsgs: ServerMessage[] = [];
-    const signalMsgs: ServerMessage[] = [];
-
     const session = makeSession((msg) => clientMsgs.push(msg));
-    session.setStateSignalListener((msg) => signalMsgs.push(msg));
 
     session.emitConfirmationStateChanged({
       sessionId: "conv-signals-test",
@@ -566,41 +547,22 @@ describe("state signal listener", () => {
     expect(
       clientMsgs.filter((m) => m.type === "confirmation_state_changed"),
     ).toHaveLength(1);
-    expect(
-      signalMsgs.filter((m) => m.type === "confirmation_state_changed"),
-    ).toHaveLength(1);
   });
 
-  test("without state signal listener, only sendToClient receives messages", () => {
+  test("handleConfirmationResponse delivers state signals to sendToClient", () => {
     const clientMsgs: ServerMessage[] = [];
-
     const session = makeSession((msg) => clientMsgs.push(msg));
-    // No setStateSignalListener call
-
-    session.emitActivityState("idle", "message_complete", "global");
-
-    expect(
-      clientMsgs.filter((m) => m.type === "assistant_activity_state"),
-    ).toHaveLength(1);
-  });
-
-  test("state signal listener receives handleConfirmationResponse emissions", () => {
-    const signalMsgs: ServerMessage[] = [];
-
-    // Use no-op sendToClient (simulates HTTP session with no socket)
-    const session = makeSession(() => {});
-    session.setStateSignalListener((msg) => signalMsgs.push(msg));
 
     seedPendingConfirmation(session, "req-signal-confirm");
     session.handleConfirmationResponse("req-signal-confirm", "allow");
 
-    const confirmSignal = signalMsgs.find(
+    const confirmSignal = clientMsgs.find(
       (m) =>
         m.type === "confirmation_state_changed" &&
         "requestId" in m &&
         (m as { requestId: string }).requestId === "req-signal-confirm",
     );
-    const activitySignal = signalMsgs.find(
+    const activitySignal = clientMsgs.find(
       (m) =>
         m.type === "assistant_activity_state" &&
         "reason" in m &&

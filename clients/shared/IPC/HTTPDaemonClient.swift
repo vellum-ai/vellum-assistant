@@ -2301,9 +2301,9 @@ public final class HTTPTransport {
             "surfaceId": action.surfaceId,
             "actionId": action.actionId,
         ]
-        if let sessionId = action.sessionId {
-            body["sessionId"] = sessionId
-        }
+        // Omit sessionId — the server resolves the session via
+        // findSessionBySurfaceId(surfaceId), which is reliable regardless
+        // of conversationKey vs conversationId differences.
         if let data = action.data {
             body["data"] = jsonCompatibleDictionary(data)
         }
