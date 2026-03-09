@@ -696,9 +696,11 @@ private struct StepDetailRow: View {
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(toolCall.actionDescription)
-                        .font(VFont.captionMedium)
-                        .foregroundColor(VColor.textSecondary)
+                    if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                        Text(toolCall.actionDescription)
+                            .font(VFont.captionMedium)
+                            .foregroundColor(VColor.textSecondary)
+                    }
                     Text(toolCall.friendlyName)
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.textSecondary)
