@@ -64,6 +64,13 @@ extension HTTPTransport {
 
     // MARK: - Apps HTTP Endpoints
 
+    /// REST shape returned by `/v1/apps`. The HTTP endpoint doesn't include
+    /// the `type` discriminator that IPC messages use, so we decode into this
+    /// intermediate struct and map to the IPC envelope.
+    private struct RESTAppsListResponse: Decodable {
+        let apps: [IPCAppsListResponseApp]
+    }
+
     private func fetchAppsList(isRetry: Bool = false) async {
         guard let url = buildURL(for: .appsList) else { return }
 
@@ -85,8 +92,10 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCAppsListResponse.self, from: data)
-            onMessage?(.appsListResponse(decoded))
+            // REST returns { apps: [...] } — wrap into IPC envelope with type
+            let rest = try decoder.decode(RESTAppsListResponse.self, from: data)
+            let ipcResponse = IPCAppsListResponse(type: "apps_list_response", apps: rest.apps)
+            onMessage?(.appsListResponse(ipcResponse))
         } catch {
             log.error("Fetch apps list error: \(error.localizedDescription)")
         }
@@ -474,6 +483,12 @@ extension HTTPTransport {
         }
     }
 
+    /// REST shape returned by `/v1/apps/shared`. The HTTP endpoint doesn't include
+    /// the `type` discriminator that IPC messages use.
+    private struct RESTSharedAppsListResponse: Decodable {
+        let apps: [IPCSharedAppsListResponseApp]
+    }
+
     private func fetchSharedAppsList(isRetry: Bool = false) async {
         guard let url = buildURL(for: .appsShared) else { return }
 
@@ -495,8 +510,10 @@ extension HTTPTransport {
                 }
             }
 
-            let decoded = try decoder.decode(IPCSharedAppsListResponse.self, from: data)
-            onMessage?(.sharedAppsListResponse(decoded))
+            // REST returns { apps: [...] } — wrap into IPC envelope with type
+            let rest = try decoder.decode(RESTSharedAppsListResponse.self, from: data)
+            let ipcResponse = IPCSharedAppsListResponse(type: "shared_apps_list_response", apps: rest.apps)
+            onMessage?(.sharedAppsListResponse(ipcResponse))
         } catch {
             log.error("Fetch shared apps list error: \(error.localizedDescription)")
         }
