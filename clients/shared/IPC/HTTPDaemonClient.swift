@@ -1297,6 +1297,26 @@ public final class HTTPTransport {
         startSSEStream()
     }
 
+    /// Replace the bearer token used for HTTP requests and SSE authentication.
+    /// If SSE is currently disconnected (e.g. due to prior 403 errors), restarts
+    /// the stream so it can authenticate with the new token.
+    func updateBearerToken(_ newToken: String) {
+        bearerToken = newToken
+        // If SSE is not connected, restart it with the new token
+        if !isSSEConnected && sseTask != nil {
+            log.info("Bearer token updated — restarting SSE stream")
+            sseReconnectTask?.cancel()
+            sseReconnectTask = nil
+            sseTask?.cancel()
+            sseTask = nil
+            sseReconnectDelay = 1.0
+            startSSEStream()
+        } else if !isSSEConnected && sseTask == nil && shouldReconnect {
+            log.info("Bearer token updated — starting SSE stream")
+            startSSE()
+        }
+    }
+
     /// Stop the SSE event stream. Call when a chat window closes.
     func stopSSE() {
         sseReconnectTask?.cancel()
