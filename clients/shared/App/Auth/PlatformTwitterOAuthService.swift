@@ -93,7 +93,7 @@ public final class PlatformTwitterOAuthService: @unchecked Sendable {
     ]
 
     /// The redirect path the platform navigates to after OAuth completes.
-    public static let redirectAfterConnect = "/"
+    public static let redirectAfterConnect = "/account/oauth/desktop-complete"
 
     /// Creates a new service instance.
     ///
