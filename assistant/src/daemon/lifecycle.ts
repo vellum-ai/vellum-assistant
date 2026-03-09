@@ -437,6 +437,16 @@ export async function runDaemon(): Promise<void> {
         regenerateResponse: (sessionId) => {
           let hubChain: Promise<void> = Promise.resolve();
           const sendEvent = (event: ServerMessage) => {
+            // Skip state-signal events — these are already published to the
+            // hub by session.onStateSignal (set in conversation-routes.ts).
+            // Publishing them here too would duplicate SSE state transitions.
+            if (
+              "type" in event &&
+              (event.type === "assistant_activity_state" ||
+                event.type === "confirmation_state_changed")
+            ) {
+              return;
+            }
             const ae = buildAssistantEvent(
               "self",
               event,
