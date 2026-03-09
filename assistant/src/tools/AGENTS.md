@@ -8,7 +8,7 @@ The tool registration system (`class ... implements Tool` + `registerTool()`) is
 
 ## Why This Policy Exists
 
-1. **Skills are preferred** — The project direction is to teach the assistant CLI tools via skills rather than hardcoding tool implementations. Skills are portable, self-contained, and don't require daemon changes.
+1. **Skills are preferred** — The project direction is to teach the assistant CLI tools via skills rather than hardcoding tool implementations. Skills are progressively disclosed into context, are more portable, and are often self-contained.
 
 2. **Context overhead** — Each registered tool adds to the system prompt and increases token usage for every conversation.
 
