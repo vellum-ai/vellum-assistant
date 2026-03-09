@@ -118,12 +118,6 @@ extension HTTPTransport {
                 return true
             }
 
-            // --- Home Base ---
-            if let msg = message as? HomeBaseGetRequestMessage {
-                Task { await self.sendEncodablePost(.homeBase, body: msg, method: "GET", label: "home_base_get") }
-                return true
-            }
-
             // --- Heartbeat ---
             if let msg = message as? IPCHeartbeatConfig {
                 if msg.action == "get" {

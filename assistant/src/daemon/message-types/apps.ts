@@ -18,12 +18,6 @@ export interface AppsListRequest {
   type: "apps_list";
 }
 
-export interface HomeBaseGetRequest {
-  type: "home_base_get";
-  /** If true, daemon ensures a durable Home Base link exists before responding. */
-  ensureLinked?: boolean;
-}
-
 export interface AppOpenRequest {
   type: "app_open_request";
   appId: string;
@@ -174,23 +168,6 @@ export interface AppsListResponse {
     version?: string;
     contentId?: string;
   }>;
-}
-
-export interface HomeBaseGetResponse {
-  type: "home_base_get_response";
-  homeBase: {
-    appId: string;
-    source: string;
-    starterTasks: string[];
-    onboardingTasks: string[];
-    preview: {
-      title: string;
-      subtitle: string;
-      description: string;
-      icon: string;
-      metrics: Array<{ label: string; value: string }>;
-    };
-  } | null;
 }
 
 export interface SharedAppsListResponse {
@@ -361,7 +338,6 @@ export interface AppFilesChanged {
 export type _AppsClientMessages =
   | AppDataRequest
   | AppsListRequest
-  | HomeBaseGetRequest
   | AppOpenRequest
   | SharedAppsListRequest
   | AppDeleteRequest
@@ -386,7 +362,6 @@ export type _AppsClientMessages =
 export type _AppsServerMessages =
   | AppDataResponse
   | AppsListResponse
-  | HomeBaseGetResponse
   | SharedAppsListResponse
   | AppDeleteResponse
   | SharedAppDeleteResponse

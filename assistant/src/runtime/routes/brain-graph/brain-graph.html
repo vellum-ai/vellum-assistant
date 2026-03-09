@@ -1,0 +1,1845 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>🧠 Knowledge Brain</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=DM+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+        }
+      }
+    </script>
+    <style>
+      :root {
+        --v-slate-950: #070d19;
+        --v-slate-900: #0f172a;
+        --v-slate-800: #1e293b;
+        --v-slate-700: #334155;
+        --v-slate-600: #475569;
+        --v-slate-500: #64748b;
+        --v-slate-400: #94a3b8;
+        --v-slate-300: #cbd5e1;
+        --v-slate-200: #e2e8f0;
+        --v-slate-100: #f1f5f9;
+        --v-slate-50: #f8fafc;
+
+        --v-violet-950: #321669;
+        --v-violet-900: #4a2390;
+        --v-violet-800: #5c2fb2;
+        --v-violet-700: #7240cc;
+        --v-violet-600: #8a5be0;
+        --v-violet-500: #9878ea;
+        --v-violet-400: #b8a6f1;
+        --v-violet-300: #d4c8f7;
+        --v-violet-200: #e8e1fb;
+        --v-violet-100: #f4f0fd;
+
+        --bg: var(--v-slate-950);
+        --surface: var(--v-slate-900);
+        --surface-raised: var(--v-slate-800);
+        --border: var(--v-slate-700);
+        --border-subtle: rgba(51, 65, 85, 0.5);
+        --text: var(--v-slate-50);
+        --text-secondary: var(--v-slate-400);
+        --text-muted: var(--v-slate-500);
+        --accent: var(--v-violet-600);
+        --accent-dim: rgba(138, 91, 224, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family:
+          "DM Sans",
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        top: -20%;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 120%;
+        height: 50%;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(138, 91, 224, 0.06) 0%,
+          rgba(91, 78, 255, 0.02) 50%,
+          transparent 70%
+        );
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      /* ── Header ─────────────────────────────────────────────── */
+      .page-header {
+        position: relative;
+        z-index: 1;
+        padding: 24px 32px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        border-bottom: 1px solid var(--border-subtle);
+      }
+
+      .header-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .header-title-block {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .header-title {
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        background: linear-gradient(180deg, #fff 30%, var(--v-slate-300) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .header-subtitle {
+        font-size: 12px;
+        color: var(--text-muted);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        font-weight: 500;
+      }
+
+      .stats-bar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        font-size: 13px;
+        color: var(--text-secondary);
+      }
+
+      .stat-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .stat-value {
+        font-weight: 700;
+        color: var(--v-violet-400);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stat-sep {
+        color: var(--border);
+        user-select: none;
+      }
+
+      .knowledge-count-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        background: var(--accent-dim);
+        border: 1px solid rgba(138, 91, 224, 0.25);
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--v-violet-400);
+      }
+
+      .brain-pulse {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        animation: pulse-dot 2s ease-in-out infinite;
+      }
+
+      @keyframes pulse-dot {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.5;
+          transform: scale(0.7);
+        }
+      }
+
+      /* ── Mode Toggle ─────────────────────────────────────────── */
+      .mode-toggle {
+        display: flex;
+        background: var(--surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        padding: 3px;
+        gap: 2px;
+      }
+
+      .mode-btn {
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 6px 16px;
+        border: none;
+        border-radius: 7px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        background: transparent;
+        color: var(--text-muted);
+      }
+
+      .mode-btn.active {
+        background: var(--accent);
+        color: #fff;
+        box-shadow: 0 1px 4px rgba(138, 91, 224, 0.35);
+      }
+
+      .mode-btn:not(.active):hover {
+        background: var(--surface-raised);
+        color: var(--text-secondary);
+      }
+
+      /* ── Main Content ─────────────────────────────────────────── */
+      .main-content {
+        position: relative;
+        z-index: 1;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 16px 24px;
+        gap: 16px;
+        min-height: 0;
+      }
+
+      /* ── Visualization Panels ─────────────────────────────────── */
+      .viz-panel {
+        flex: 1;
+        display: none;
+        position: relative;
+        background: var(--surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: 16px;
+        overflow: hidden;
+        min-height: 460px;
+      }
+
+      .viz-panel.active {
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ── 2D Panel ─────────────────────────────────────────────── */
+      #panel-2d {
+        align-items: stretch;
+      }
+
+      #graph-svg {
+        width: 100%;
+        height: 100%;
+        min-height: 460px;
+      }
+
+      /* Brain silhouette animation — gentle breathing glow */
+      @keyframes brain-breathe {
+        0%,
+        100% {
+          opacity: 0.35;
+          filter: drop-shadow(0 0 4px rgba(138, 91, 224, 0.2));
+        }
+        50% {
+          opacity: 0.75;
+          filter: drop-shadow(0 0 12px rgba(138, 91, 224, 0.55));
+        }
+      }
+
+      .brain-outline {
+        animation: brain-breathe 3.5s ease-in-out infinite;
+      }
+
+      /* ── Refresh button ─────────────────────────────────────────── */
+      .refresh-btn {
+        font-family: inherit;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 18px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        line-height: 1;
+        padding: 0;
+      }
+
+      .refresh-btn:hover {
+        border-color: var(--accent);
+        background: var(--accent-dim);
+        color: var(--v-violet-400);
+      }
+
+      .refresh-btn:active {
+        transform: scale(0.93);
+      }
+
+      .refresh-btn.spinning #refresh-icon {
+        display: inline-block;
+        animation: spin 0.7s linear infinite;
+      }
+
+      @keyframes spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* ── 3D Panel ─────────────────────────────────────────────── */
+      #panel-3d {
+        align-items: stretch;
+        justify-content: stretch;
+        position: relative;
+      }
+
+      #brain-canvas-3d {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 460px;
+        border-radius: 16px;
+      }
+
+      /* ── Empty / Error states ─────────────────────────────────── */
+      .state-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        text-align: center;
+        padding: 48px;
+        pointer-events: none;
+      }
+
+      .state-overlay .icon {
+        font-size: 48px;
+        line-height: 1;
+      }
+
+      @keyframes empty-brain-pulse {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 0.8;
+        }
+        50% {
+          transform: scale(1.12);
+          opacity: 1;
+        }
+      }
+
+      .empty-brain-icon {
+        animation: empty-brain-pulse 2.5s ease-in-out infinite;
+        display: inline-block;
+      }
+
+      .state-overlay h3 {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--text);
+      }
+
+      .state-overlay p {
+        font-size: 14px;
+        color: var(--text-muted);
+        line-height: 1.5;
+        max-width: 280px;
+      }
+
+      /* ── Tooltip ──────────────────────────────────────────────── */
+      #tooltip {
+        position: fixed;
+        display: none;
+        flex-direction: column;
+        gap: 4px;
+        padding: 10px 14px;
+        background: rgba(15, 23, 42, 0.92);
+        border: 1px solid rgba(138, 91, 224, 0.35);
+        border-radius: 10px;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        pointer-events: none;
+        z-index: 9999;
+        max-width: 220px;
+        font-size: 13px;
+      }
+
+      #tooltip.visible {
+        display: flex;
+      }
+
+      .tooltip-name {
+        font-weight: 700;
+        color: var(--text);
+        font-size: 14px;
+      }
+
+      .tooltip-type {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+        color: var(--v-violet-400);
+      }
+
+      .tooltip-row {
+        font-size: 12px;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .tooltip-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      /* ── Legend ───────────────────────────────────────────────── */
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 16px;
+        padding: 4px 0;
+      }
+
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+
+      .legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .legend-label {
+        font-size: 12px;
+      }
+
+      .legend-item input[type="checkbox"] {
+        width: 13px;
+        height: 13px;
+        accent-color: var(--accent);
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+
+      .legend-item {
+        cursor: pointer;
+        user-select: none;
+      }
+
+      /* Dim legend item when hidden */
+      .legend-item.hidden-category {
+        opacity: 0.4;
+      }
+
+      /* ── Footer ───────────────────────────────────────────────── */
+      .page-footer {
+        position: relative;
+        z-index: 1;
+        padding: 16px 32px;
+        border-top: 1px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+      }
+
+      .back-link {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: color 0.15s ease;
+      }
+
+      .back-link:hover {
+        color: var(--v-violet-400);
+      }
+
+      /* ── D3 node styles ───────────────────────────────────────── */
+      .node-circle {
+        cursor: pointer;
+        transition: filter 0.15s ease;
+      }
+
+      .node-circle:hover {
+        filter: brightness(1.3);
+      }
+
+      .link-line {
+        pointer-events: none;
+      }
+
+      .lobe-label {
+        pointer-events: none;
+        user-select: none;
+      }
+
+      /* ── Responsive ───────────────────────────────────────────── */
+      @media (max-width: 600px) {
+        .page-header {
+          padding: 16px;
+        }
+        .main-content {
+          padding: 12px;
+        }
+        .header-title {
+          font-size: 20px;
+        }
+        .stats-bar {
+          font-size: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ── Header ─────────────────────────────────────────────── -->
+    <header class="page-header">
+      <div class="header-top">
+        <div class="header-title-block">
+          <div class="header-title">🧠 Knowledge Brain</div>
+          <div class="header-subtitle">Identity Knowledge Graph</div>
+        </div>
+        <div
+          style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap"
+        >
+          <div class="knowledge-count-badge">
+            <div class="brain-pulse"></div>
+            <span id="badge-knowledge-count">0 knowledge items</span>
+          </div>
+          <button
+            class="refresh-btn"
+            id="btn-refresh"
+            onclick="refreshBrainData()"
+            title="Refresh"
+          >
+            <span id="refresh-icon">&#x21BB;</span>
+          </button>
+          <div class="mode-toggle">
+            <button
+              class="mode-btn active"
+              id="btn-2d"
+              onclick="switchMode('2d')"
+            >
+              2D
+            </button>
+            <button class="mode-btn" id="btn-3d" onclick="switchMode('3d')">
+              3D
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="stats-bar" id="stats-bar">
+        <span class="stat-item">
+          <span id="stat-entities" class="stat-value">0</span> entities
+        </span>
+        <span class="stat-sep">·</span>
+        <span class="stat-item">
+          <span id="stat-relations" class="stat-value">0</span> relations
+        </span>
+        <span class="stat-sep">·</span>
+        <span class="stat-item">
+          <span id="stat-memory" class="stat-value">0</span> memory items
+        </span>
+        <span class="stat-sep">·</span>
+        <span class="stat-item"
+          >Last updated:
+          <span id="stat-updated" class="stat-value">—</span></span
+        >
+      </div>
+    </header>
+
+    <!-- ── Main Content ───────────────────────────────────────── -->
+    <main class="main-content">
+      <!-- 2D Panel -->
+      <div class="viz-panel active" id="panel-2d">
+        <svg id="graph-svg"></svg>
+      </div>
+
+      <!-- 3D Panel -->
+      <div class="viz-panel" id="panel-3d">
+        <canvas id="brain-canvas-3d"></canvas>
+      </div>
+
+      <!-- Legend with category filter checkboxes -->
+      <div class="legend" id="legend">
+        <label class="legend-item" data-category="person">
+          <input
+            type="checkbox"
+            checked
+            data-category="person"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #22c55e"></div>
+          <span class="legend-label">👤 Person</span>
+        </label>
+        <label class="legend-item" data-category="project">
+          <input
+            type="checkbox"
+            checked
+            data-category="project"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #f97316"></div>
+          <span class="legend-label">📁 Project</span>
+        </label>
+        <label class="legend-item" data-category="tool">
+          <input
+            type="checkbox"
+            checked
+            data-category="tool"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #06b6d4"></div>
+          <span class="legend-label">🔧 Tool</span>
+        </label>
+        <label class="legend-item" data-category="organization">
+          <input
+            type="checkbox"
+            checked
+            data-category="organization"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #a855f7"></div>
+          <span class="legend-label">🏢 Organization</span>
+        </label>
+        <label class="legend-item" data-category="concept">
+          <input
+            type="checkbox"
+            checked
+            data-category="concept"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #eab308"></div>
+          <span class="legend-label">💡 Concept</span>
+        </label>
+        <label class="legend-item" data-category="location">
+          <input
+            type="checkbox"
+            checked
+            data-category="location"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #14b8a6"></div>
+          <span class="legend-label">📍 Location</span>
+        </label>
+        <label class="legend-item" data-category="profile">
+          <input
+            type="checkbox"
+            checked
+            data-category="profile"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #8b5cf6"></div>
+          <span class="legend-label">🟣 Profile</span>
+        </label>
+        <label class="legend-item" data-category="preference">
+          <input
+            type="checkbox"
+            checked
+            data-category="preference"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #3b82f6"></div>
+          <span class="legend-label">🔵 Preference</span>
+        </label>
+        <label class="legend-item" data-category="constraint">
+          <input
+            type="checkbox"
+            checked
+            data-category="constraint"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #ef4444"></div>
+          <span class="legend-label">🔴 Constraint</span>
+        </label>
+        <label class="legend-item" data-category="instruction">
+          <input
+            type="checkbox"
+            checked
+            data-category="instruction"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #f59e0b"></div>
+          <span class="legend-label">🟡 Instruction</span>
+        </label>
+        <label class="legend-item" data-category="style">
+          <input
+            type="checkbox"
+            checked
+            data-category="style"
+            onchange="toggleCategory(this)"
+          />
+          <div class="legend-dot" style="background: #ec4899"></div>
+          <span class="legend-label">🩷 Style</span>
+        </label>
+      </div>
+    </main>
+
+    <!-- ── Footer ─────────────────────────────────────────────── -->
+    <footer class="page-footer">
+      <span class="back-link">Knowledge Brain</span>
+    </footer>
+
+    <!-- ── Tooltip ─────────────────────────────────────────────── -->
+    <div id="tooltip">
+      <div class="tooltip-name" id="tt-name"></div>
+      <div class="tooltip-type" id="tt-type"></div>
+      <div class="tooltip-row">
+        <div class="tooltip-dot" id="tt-dot"></div>
+        <span id="tt-lobe"></span>
+      </div>
+      <div class="tooltip-row">🔗 <span id="tt-connections"></span></div>
+      <div class="tooltip-row">📌 <span id="tt-mentions"></span></div>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        /* ── Category filter state ───────────────────────────────── */
+        // Tracks which entity/memory types are currently hidden
+        var hiddenCategories = {};
+
+        function toggleCategory(checkbox) {
+          var cat = checkbox.getAttribute("data-category");
+          var label = checkbox.closest(".legend-item");
+          if (!checkbox.checked) {
+            hiddenCategories[cat] = true;
+            if (label) label.classList.add("hidden-category");
+          } else {
+            delete hiddenCategories[cat];
+            if (label) label.classList.remove("hidden-category");
+          }
+          // Apply visibility to 2D D3 nodes
+          // Memory nodes carry type='Memory' with the real category in kind, so prefer kind for them.
+          d3.selectAll(".node-group").each(function (d) {
+            var type = (
+              d.type === "Memory" ? d.kind : d.type || d.kind || ""
+            ).toLowerCase();
+            var visible = !hiddenCategories[type];
+            d3.select(this).style("display", visible ? null : "none");
+          });
+          // Apply visibility to 3D nodes if they expose a filter hook
+          if (typeof window.filterThreeDCategories === "function") {
+            window.filterThreeDCategories(hiddenCategories);
+          }
+        }
+        window.toggleCategory = toggleCategory;
+
+        /* ── Refresh ─────────────────────────────────────────────── */
+        function refreshBrainData() {
+          var btn = document.getElementById("btn-refresh");
+          if (btn) btn.classList.add("spinning");
+          // Clear existing panels
+          var panel2d = document.getElementById("panel-2d");
+          var panel3d = document.getElementById("panel-3d");
+          // Remove overlays (empty/error states)
+          panel2d.querySelectorAll(".state-overlay").forEach(function (el) {
+            el.remove();
+          });
+          panel3d.querySelectorAll(".state-overlay").forEach(function (el) {
+            el.remove();
+          });
+          // Reset 3D so it can reinitialise with new data
+          if (typeof window.destroyThreeD === "function")
+            window.destroyThreeD();
+          loadBrainData(function () {
+            if (btn) btn.classList.remove("spinning");
+          });
+        }
+        window.refreshBrainData = refreshBrainData;
+
+        /* ── Mode toggle ─────────────────────────────────────────── */
+        function switchMode(mode) {
+          document
+            .getElementById("panel-2d")
+            .classList.toggle("active", mode === "2d");
+          document
+            .getElementById("panel-3d")
+            .classList.toggle("active", mode === "3d");
+          document
+            .getElementById("btn-2d")
+            .classList.toggle("active", mode === "2d");
+          document
+            .getElementById("btn-3d")
+            .classList.toggle("active", mode === "3d");
+          if (mode === "3d") {
+            if (window.brainData && typeof window.initThreeD === "function") {
+              window.initThreeD(window.brainData);
+            }
+            // Re-start the animation loop if it was previously stopped (e.g. after returning from 2D)
+            if (typeof window.resumeThreeD === "function") {
+              window.resumeThreeD();
+            }
+          } else {
+            // Stop the Three.js render loop when leaving 3D to avoid wasting CPU/GPU
+            if (typeof window.stopThreeD === "function") {
+              window.stopThreeD();
+            }
+            // Hide any lingering 3D tooltip - mouseleave is never fired when the
+            // parent panel is hidden via display:none, so we clear it explicitly.
+            document.getElementById("tooltip").classList.remove("visible");
+          }
+        }
+        window.switchMode = switchMode;
+
+        /* ── Stats helpers ────────────────────────────────────────── */
+        function updateStats(data) {
+          var entities = data.entities || [];
+          var relations = data.relations || [];
+          var memory = data.memorySummary || [];
+          var totalMemory = memory.reduce(function (s, m) {
+            return s + (m.count || 0);
+          }, 0);
+          var total = data.totalKnowledgeCount || entities.length + totalMemory;
+
+          document.getElementById("stat-entities").textContent =
+            entities.length;
+          document.getElementById("stat-relations").textContent =
+            relations.length;
+          document.getElementById("stat-memory").textContent = totalMemory;
+          document.getElementById("badge-knowledge-count").textContent =
+            total + " knowledge items";
+
+          if (data.generatedAt) {
+            var d = new Date(data.generatedAt);
+            document.getElementById("stat-updated").textContent =
+              d.toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+          }
+        }
+
+        /* ── Brain SVG silhouette ─────────────────────────────────── */
+        function drawBrainSilhouette(svg, W, H) {
+          var cx = W / 2;
+          var cy = H / 2;
+
+          // Scale factors — brain occupies ~80% W, ~70% H
+          var bw = W * 0.78;
+          var bh = H * 0.68;
+          var lx = cx - bw * 0.26; // left lobe center x
+          var rx = cx + bw * 0.26; // right lobe center x
+          var lw = bw * 0.46;
+          var rw = bw * 0.46;
+          var lh = bh * 0.88;
+          var rh = bh * 0.88;
+
+          var brainG = svg.append("g").attr("class", "brain-silhouette");
+
+          // Left lobe outline (organic blob via cubic bezier)
+          var leftPath = [
+            "M",
+            cx - 4,
+            cy + lh * 0.42,
+            "C",
+            cx - 4,
+            cy + lh * 0.55,
+            lx - lw * 0.55,
+            cy + lh * 0.55,
+            lx - lw * 0.55,
+            cy + lh * 0.2,
+            "C",
+            lx - lw * 0.6,
+            cy - lh * 0.05,
+            lx - lw * 0.55,
+            cy - lh * 0.35,
+            lx - lw * 0.2,
+            cy - lh * 0.5,
+            "C",
+            lx + lw * 0.1,
+            cy - lh * 0.62,
+            lx + lw * 0.4,
+            cy - lh * 0.58,
+            lx + lw * 0.45,
+            cy - lh * 0.42,
+            "C",
+            lx + lw * 0.52,
+            cy - lh * 0.22,
+            cx - 4,
+            cy - lh * 0.2,
+            cx - 4,
+            cy + lh * 0.42,
+            "Z",
+          ].join(" ");
+
+          // Right lobe outline
+          var rightPath = [
+            "M",
+            cx + 4,
+            cy + rh * 0.42,
+            "C",
+            cx + 4,
+            cy + rh * 0.55,
+            rx + rw * 0.55,
+            cy + rh * 0.55,
+            rx + rw * 0.55,
+            cy + rh * 0.2,
+            "C",
+            rx + rw * 0.6,
+            cy - rh * 0.05,
+            rx + rw * 0.55,
+            cy - rh * 0.35,
+            rx + rw * 0.2,
+            cy - rh * 0.5,
+            "C",
+            rx - rw * 0.1,
+            cy - rh * 0.62,
+            rx - rw * 0.4,
+            cy - rh * 0.58,
+            rx - rw * 0.45,
+            cy - rh * 0.42,
+            "C",
+            rx - rw * 0.52,
+            cy - rh * 0.22,
+            cx + 4,
+            cy - rh * 0.2,
+            cx + 4,
+            cy + rh * 0.42,
+            "Z",
+          ].join(" ");
+
+          // Draw fills
+          brainG
+            .append("path")
+            .attr("d", leftPath)
+            .attr("fill", "rgba(138, 91, 224, 0.04)")
+            .attr("stroke", "rgba(138, 91, 224, 0.4)")
+            .attr("stroke-width", 1.5)
+            .attr("class", "brain-outline");
+
+          brainG
+            .append("path")
+            .attr("d", rightPath)
+            .attr("fill", "rgba(138, 91, 224, 0.04)")
+            .attr("stroke", "rgba(138, 91, 224, 0.4)")
+            .attr("stroke-width", 1.5)
+            .attr("class", "brain-outline");
+
+          // Corpus callosum divider (dashed vertical line in center)
+          var ccTop = cy - lh * 0.28;
+          var ccBottom = cy + lh * 0.35;
+          brainG
+            .append("line")
+            .attr("x1", cx)
+            .attr("y1", ccTop)
+            .attr("x2", cx)
+            .attr("y2", ccBottom)
+            .attr("stroke", "rgba(138, 91, 224, 0.25)")
+            .attr("stroke-width", 1)
+            .attr("stroke-dasharray", "4,4");
+
+          // Lobe labels
+          var labelStyle = {
+            "font-family": "'DM Sans', sans-serif",
+            "font-size": "10px",
+            "font-weight": "600",
+            fill: "rgba(148, 163, 184, 0.45)",
+            "letter-spacing": "0.06em",
+            "text-transform": "uppercase",
+            "pointer-events": "none",
+            "user-select": "none",
+          };
+
+          function addLabel(x, y, text) {
+            var t = brainG
+              .append("text")
+              .attr("x", x)
+              .attr("y", y)
+              .attr("text-anchor", "middle")
+              .attr("class", "lobe-label")
+              .text(text);
+            Object.keys(labelStyle).forEach(function (k) {
+              t.attr(k, labelStyle[k]);
+            });
+          }
+
+          addLabel(lx - lw * 0.15, cy + 5, "Analytical");
+          addLabel(rx + rw * 0.15, cy + 5, "Creative");
+          addLabel(lx - lw * 0.1, cy - lh * 0.32, "Planning");
+          addLabel(rx + rw * 0.1, cy - rh * 0.32, "Social");
+          addLabel(cx, cy + lh * 0.5, "Memory");
+
+          // Return brain bounds for use in bounding force
+          return {
+            leftLobe: { cx: lx, cy: cy, rx: lw * 0.52, ry: lh * 0.52 },
+            rightLobe: { cx: rx, cy: cy, rx: rw * 0.52, ry: rh * 0.52 },
+            centerX: cx,
+            centerY: cy,
+            width: bw,
+            height: bh,
+          };
+        }
+
+        /* ── Lobe target positions ────────────────────────────────── */
+        function lobeTarget(lobeRegion, bounds) {
+          var cx = bounds.centerX;
+          var cy = bounds.centerY;
+          var lx = bounds.leftLobe.cx;
+          var rx = bounds.rightLobe.cx;
+          var hw = bounds.width * 0.18;
+          var hh = bounds.height * 0.18;
+          switch (lobeRegion) {
+            case "right-social":
+              return { x: rx + hw * 0.3, y: cy - hh * 1.2 };
+            case "left-planning":
+              return { x: lx - hw * 0.3, y: cy - hh * 1.2 };
+            case "left-technical":
+              return { x: lx - hw * 0.2, y: cy };
+            case "right-creative":
+              return { x: rx + hw * 0.2, y: cy };
+            case "right-spatial":
+              return { x: rx + hw * 0.2, y: cy + hh * 1.2 };
+            case "center":
+            default:
+              return { x: cx, y: cy + hh };
+          }
+        }
+
+        /* ── Tooltip logic ────────────────────────────────────────── */
+        var tooltip = document.getElementById("tooltip");
+
+        function showTooltip(event, d, connectionCount) {
+          document.getElementById("tt-name").textContent = d.name;
+          document.getElementById("tt-type").textContent =
+            d.type || d.kind || "memory";
+          document.getElementById("tt-dot").style.background =
+            d.color || "#8A5BE0";
+          document.getElementById("tt-lobe").textContent =
+            d.lobeRegion || "center";
+          document.getElementById("tt-connections").textContent =
+            (connectionCount || 0) + " connections";
+          document.getElementById("tt-mentions").textContent =
+            (d.mentionCount || d.count || 0) + " mentions";
+          tooltip.classList.add("visible");
+          moveTooltip(event);
+        }
+
+        function moveTooltip(event) {
+          var x = event.clientX + 14;
+          var y = event.clientY - 10;
+          var tw = tooltip.offsetWidth || 200;
+          var th = tooltip.offsetHeight || 100;
+          if (x + tw > window.innerWidth - 8) x = event.clientX - tw - 14;
+          if (y + th > window.innerHeight - 8) y = event.clientY - th - 14;
+          tooltip.style.left = x + "px";
+          tooltip.style.top = y + "px";
+        }
+
+        function hideTooltip() {
+          tooltip.classList.remove("visible");
+        }
+
+        /* ── Render graph ─────────────────────────────────────────── */
+        function renderBrain(data) {
+          var svgEl = document.getElementById("graph-svg");
+          var W = svgEl.clientWidth || svgEl.parentElement.clientWidth || 800;
+          var H = svgEl.clientHeight || svgEl.parentElement.clientHeight || 500;
+
+          var svg = d3
+            .select("#graph-svg")
+            .attr("viewBox", "0 0 " + W + " " + H)
+            .attr("preserveAspectRatio", "xMidYMid meet");
+
+          svg.selectAll("*").remove();
+
+          var entities = data.entities || [];
+          var relations = data.relations || [];
+          var memorySummary = data.memorySummary || [];
+
+          // Empty state — improved with pulsing brain emoji
+          if (entities.length === 0 && memorySummary.length === 0) {
+            var panel = document.getElementById("panel-2d");
+            var overlay = document.createElement("div");
+            overlay.className = "state-overlay";
+            overlay.innerHTML =
+              '<div class="icon empty-brain-icon">&#x1F9E0;</div>' +
+              "<h3>Your brain is empty</h3>" +
+              "<p>Start a conversation to grow it!</p>";
+            panel.appendChild(overlay);
+            return;
+          }
+
+          // Draw brain silhouette
+          var bounds = drawBrainSilhouette(svg, W, H);
+
+          // Build node list
+          var nodeMap = {};
+          var nodes = entities.map(function (e) {
+            var n = Object.assign({}, e, {
+              _isEntity: true,
+              r: Math.max(6, Math.min(20, 6 + (e.mentionCount || 1) * 1.5)),
+            });
+            nodeMap[e.id] = n;
+            return n;
+          });
+
+          // Add memory cluster nodes
+          memorySummary.forEach(function (m, i) {
+            var n = {
+              id: "memory-" + i,
+              name: m.kind,
+              type: "Memory",
+              kind: m.kind,
+              lobeRegion: "center",
+              color: m.color || "#8b5cf6",
+              mentionCount: m.count || 0,
+              count: m.count || 0,
+              _isMemory: true,
+              r: Math.max(4, Math.min(8, 4 + Math.sqrt(m.count || 1))),
+            };
+            nodes.push(n);
+          });
+
+          // Build links
+          var links = relations
+            .map(function (rel) {
+              return {
+                source: rel.sourceId,
+                target: rel.targetId,
+                relation: rel.relation,
+              };
+            })
+            .filter(function (l) {
+              return nodeMap[l.source] && nodeMap[l.target];
+            });
+
+          // Connection count map
+          var connCount = {};
+          links.forEach(function (l) {
+            connCount[l.source] = (connCount[l.source] || 0) + 1;
+            connCount[l.target] = (connCount[l.target] || 0) + 1;
+          });
+
+          // Initial positions near lobe targets
+          nodes.forEach(function (n) {
+            var t = lobeTarget(n.lobeRegion, bounds);
+            n.x = t.x + (Math.random() - 0.5) * 60;
+            n.y = t.y + (Math.random() - 0.5) * 60;
+          });
+
+          // ── D3 force simulation ──────────────────────────────────
+          var sim = d3
+            .forceSimulation(nodes)
+            .force(
+              "link",
+              d3
+                .forceLink(links)
+                .id(function (d) {
+                  return d.id;
+                })
+                .distance(60)
+                .strength(0.3),
+            )
+            .force("charge", d3.forceManyBody().strength(-80))
+            .force(
+              "collide",
+              d3
+                .forceCollide()
+                .radius(function (d) {
+                  return d.r + 4;
+                })
+                .strength(0.8),
+            )
+            // Lobe attraction force
+            .force("lobe", function (alpha) {
+              nodes.forEach(function (n) {
+                var t = lobeTarget(n.lobeRegion, bounds);
+                n.vx += (t.x - n.x) * alpha * 0.12;
+                n.vy += (t.y - n.y) * alpha * 0.12;
+              });
+            })
+            // Bounding force — keep nodes inside brain bounding ellipse
+            .force("bound", function (alpha) {
+              nodes.forEach(function (n) {
+                var lobe = bounds.leftLobe;
+                var rlobe = bounds.rightLobe;
+                // Check if inside either lobe (ellipse test)
+                var inLeft =
+                  Math.pow((n.x - lobe.cx) / (lobe.rx + n.r), 2) +
+                  Math.pow((n.y - lobe.cy) / (lobe.ry + n.r), 2);
+                var inRight =
+                  Math.pow((n.x - rlobe.cx) / (rlobe.rx + n.r), 2) +
+                  Math.pow((n.y - rlobe.cy) / (rlobe.ry + n.r), 2);
+                if (inLeft > 1 && inRight > 1) {
+                  // Push toward closer lobe center
+                  var dl = Math.hypot(n.x - lobe.cx, n.y - lobe.cy);
+                  var dr = Math.hypot(n.x - rlobe.cx, n.y - rlobe.cy);
+                  var target = dl < dr ? lobe : rlobe;
+                  n.vx += (target.cx - n.x) * alpha * 0.5;
+                  n.vy += (target.cy - n.y) * alpha * 0.5;
+                }
+              });
+            })
+            .alphaDecay(0.025)
+            .velocityDecay(0.4);
+
+          // Draw links
+          var linkLayer = svg.append("g").attr("class", "links");
+          var linkSel = linkLayer
+            .selectAll("line")
+            .data(links)
+            .enter()
+            .append("line")
+            .attr("class", "link-line")
+            .attr("stroke", function (d) {
+              var src =
+                typeof d.source === "object" ? d.source : nodeMap[d.source];
+              return src ? src.color : "rgba(138,91,224,0.15)";
+            })
+            .attr("stroke-width", 1)
+            .attr("stroke-opacity", 0.15);
+
+          // Draw nodes
+          var nodeLayer = svg.append("g").attr("class", "nodes");
+          var nodeSel = nodeLayer
+            .selectAll("g")
+            .data(nodes)
+            .enter()
+            .append("g")
+            .attr("class", "node-group")
+            .call(
+              d3
+                .drag()
+                .on("start", function (event, d) {
+                  if (!event.active) sim.alphaTarget(0.3).restart();
+                  d.fx = d.x;
+                  d.fy = d.y;
+                })
+                .on("drag", function (event, d) {
+                  d.fx = event.x;
+                  d.fy = event.y;
+                })
+                .on("end", function (event, d) {
+                  if (!event.active) sim.alphaTarget(0);
+                  d.fx = null;
+                  d.fy = null;
+                }),
+            );
+
+          nodeSel
+            .append("circle")
+            .attr("class", "node-circle")
+            .attr("r", function (d) {
+              return d.r;
+            })
+            .attr("fill", function (d) {
+              return d.color || "#8A5BE0";
+            })
+            .attr("stroke", function (d) {
+              return d.color || "#8A5BE0";
+            })
+            .attr("stroke-width", 1.5)
+            .attr("stroke-opacity", 0.6)
+            .attr("fill-opacity", 0.85);
+
+          // Node hover events
+          nodeSel
+            .on("mouseenter", function (event, d) {
+              d3.select(this)
+                .select("circle")
+                .transition()
+                .duration(120)
+                .attr("r", function (d) {
+                  return d.r * 1.35;
+                })
+                .attr("fill-opacity", 1);
+              showTooltip(event, d, connCount[d.id] || 0);
+            })
+            .on("mousemove", function (event) {
+              moveTooltip(event);
+            })
+            .on("mouseleave", function (event, d) {
+              d3.select(this)
+                .select("circle")
+                .transition()
+                .duration(120)
+                .attr("r", function (d) {
+                  return d.r;
+                })
+                .attr("fill-opacity", 0.85);
+              hideTooltip();
+            });
+
+          // Tick
+          sim.on("tick", function () {
+            linkSel
+              .attr("x1", function (d) {
+                return d.source.x;
+              })
+              .attr("y1", function (d) {
+                return d.source.y;
+              })
+              .attr("x2", function (d) {
+                return d.target.x;
+              })
+              .attr("y2", function (d) {
+                return d.target.y;
+              });
+
+            nodeSel.attr("transform", function (d) {
+              return "translate(" + d.x + "," + d.y + ")";
+            });
+          });
+        }
+
+        /* ── Data fetch ───────────────────────────────────────────── */
+        async function loadBrainData(done) {
+          try {
+            var apiToken = document.querySelector(
+              'meta[name="api-token"]',
+            )?.content;
+            var headers = {};
+            if (apiToken) headers["Authorization"] = "Bearer " + apiToken;
+            var res = await fetch("/v1/brain-graph", { headers });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            var data = await res.json();
+            window.brainData = data;
+            updateStats(data);
+            renderBrain(data);
+            // Re-apply active category filters after re-render.
+            // Memory nodes carry type='Memory' with the real category in kind, so prefer kind for them.
+            d3.selectAll(".node-group").each(function (d) {
+              var type = (
+                d.type === "Memory" ? d.kind : d.type || d.kind || ""
+              ).toLowerCase();
+              if (hiddenCategories[type])
+                d3.select(this).style("display", "none");
+            });
+            // If the user switched to 3D before this fetch resolved, the panel is
+            // already active but initThreeD was never called. Kick it off now.
+            if (
+              document
+                .getElementById("panel-3d")
+                .classList.contains("active") &&
+              typeof window.initThreeD === "function"
+            ) {
+              window.initThreeD(data);
+            }
+            if (typeof done === "function") done();
+          } catch (err) {
+            console.error("Brain graph load error:", err);
+            var panel = document.getElementById("panel-2d");
+            var overlay = document.createElement("div");
+            overlay.className = "state-overlay";
+            overlay.innerHTML =
+              '<div class="icon">⚠️</div>' +
+              "<h3>Could not load brain data</h3>" +
+              "<p></p>";
+            overlay.querySelector("p").textContent =
+              err.message || "An unexpected error occurred.";
+            panel.appendChild(overlay);
+            if (typeof done === "function") done();
+          }
+        }
+
+        // Kick off on load
+        loadBrainData();
+      })();
+    </script>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+      // Lobe region → scatter bounds in 3D space
+      const LOBE_BOUNDS = {
+        "right-social": {
+          xMin: 0.5,
+          xMax: 1.5,
+          yMin: 0.5,
+          yMax: 1.5,
+          zMin: -1,
+          zMax: 1,
+        },
+        "left-planning": {
+          xMin: -1.5,
+          xMax: -0.5,
+          yMin: 0.5,
+          yMax: 1.5,
+          zMin: -1,
+          zMax: 1,
+        },
+        "left-technical": {
+          xMin: -1.5,
+          xMax: -0.5,
+          yMin: -0.5,
+          yMax: 0.5,
+          zMin: -1,
+          zMax: 1,
+        },
+        "right-creative": {
+          xMin: 0.5,
+          xMax: 1.5,
+          yMin: -0.5,
+          yMax: 0.5,
+          zMin: -1,
+          zMax: 1,
+        },
+        "right-spatial": {
+          xMin: 0.5,
+          xMax: 1.5,
+          yMin: -1.5,
+          yMax: -0.5,
+          zMin: -1,
+          zMax: 1,
+        },
+        center: {
+          xMin: -0.5,
+          xMax: 0.5,
+          yMin: -0.5,
+          yMax: 0.5,
+          zMin: -0.5,
+          zMax: 0.5,
+        },
+      };
+
+      function rand(min, max) {
+        return min + Math.random() * (max - min);
+      }
+
+      function nodePosition(lobeRegion) {
+        const b = LOBE_BOUNDS[lobeRegion] || LOBE_BOUNDS["center"];
+        return new THREE.Vector3(
+          rand(b.xMin, b.xMax) + rand(-0.2, 0.2),
+          rand(b.yMin, b.yMax) + rand(-0.2, 0.2),
+          rand(b.zMin, b.zMax) + rand(-0.2, 0.2),
+        );
+      }
+
+      function hexStringToInt(hex) {
+        // Accepts strings like '#22c55e' or '22c55e'
+        return parseInt(hex.replace("#", ""), 16);
+      }
+
+      let initialized = false;
+      let animFrameId = null;
+      let renderer = null;
+      // animate reference stored here so resumeThreeD can call it without a closure capture issue
+      let animateFn = null;
+      // Stored so destroyThreeD can remove it and prevent stale calls into a null renderer after refresh
+      let resizeHandler = null;
+
+      function stopAnimation() {
+        if (animFrameId !== null) {
+          cancelAnimationFrame(animFrameId);
+          animFrameId = null;
+        }
+      }
+
+      // Exposed so the tab-switch handler in the non-module script can call them
+      window.stopThreeD = stopAnimation;
+      window.resumeThreeD = function resumeThreeD() {
+        // Only restart if the 3D scene is already initialised and loop is not running
+        if (
+          initialized &&
+          animFrameId === null &&
+          typeof animateFn === "function"
+        ) {
+          animateFn();
+        }
+      };
+
+      // Reset 3D state so initThreeD can be called again after a refresh
+      window.destroyThreeD = function destroyThreeD() {
+        stopAnimation();
+        if (resizeHandler) {
+          window.removeEventListener("resize", resizeHandler);
+          resizeHandler = null;
+        }
+        if (renderer) {
+          if (renderer.domElement && renderer.domElement.parentNode) {
+            renderer.domElement.parentNode.removeChild(renderer.domElement);
+          }
+          renderer.dispose();
+          renderer = null;
+        }
+        initialized = false;
+        animateFn = null;
+      };
+
+      window.addEventListener("beforeunload", stopAnimation);
+
+      window.initThreeD = function initThreeD(data) {
+        // Avoid double-initialisation if already running
+        if (initialized) return;
+
+        let canvas = document.getElementById("brain-canvas-3d");
+        const panel = document.getElementById("panel-3d");
+
+        const entities = (data && data.entities) || [];
+        const relations = (data && data.relations) || [];
+        const memorySummary = (data && data.memorySummary) || [];
+        const totalKnowledgeCount =
+          (data && data.totalKnowledgeCount) ||
+          entities.length +
+            memorySummary.reduce((s, m) => s + (m.count || 0), 0);
+
+        // ── Empty state ──────────────────────────────────────────────
+        if (entities.length === 0 && memorySummary.length === 0) {
+          if (!panel.querySelector(".state-overlay")) {
+            const overlay = document.createElement("div");
+            overlay.className = "state-overlay";
+            overlay.innerHTML =
+              '<div class="icon">🌱</div><h3>No knowledge yet</h3><p>Start a conversation to grow it!</p>';
+            panel.appendChild(overlay);
+          }
+          return;
+        }
+
+        // Mark as initialized only after all early returns, so empty-data calls
+        // don't permanently block a subsequent call with real data.
+        initialized = true;
+
+        // ── Renderer ─────────────────────────────────────────────────
+        // canvas may be null if destroyThreeD removed it from the DOM; in that
+        // case omit the canvas option so Three.js creates a fresh canvas element.
+        const rendererOpts = canvas
+          ? { canvas, antialias: true, alpha: true }
+          : { antialias: true, alpha: true };
+        renderer = new THREE.WebGLRenderer(rendererOpts);
+        if (!canvas) {
+          renderer.domElement.id = "brain-canvas-3d";
+          panel.appendChild(renderer.domElement);
+        }
+        canvas = canvas || renderer.domElement;
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setClearColor(0x000000, 0);
+
+        function getSize() {
+          return { w: panel.clientWidth || 800, h: panel.clientHeight || 500 };
+        }
+        const { w, h } = getSize();
+        renderer.setSize(w, h);
+
+        // ── Scene ────────────────────────────────────────────────────
+        const scene = new THREE.Scene();
+
+        // ── Camera ───────────────────────────────────────────────────
+        const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 100);
+        camera.position.z = 8;
+
+        // ── Lights ───────────────────────────────────────────────────
+        scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 10, 10);
+        scene.add(dirLight);
+        const pointLight = new THREE.PointLight(0x8a5be0, 1.5, 15);
+        pointLight.position.set(0, 3, 3);
+        scene.add(pointLight);
+
+        // ── Brain mesh ───────────────────────────────────────────────
+        const brainGeo = new THREE.SphereGeometry(2.5, 64, 64);
+
+        // Deform to brain-like shape
+        const positions = brainGeo.attributes.position;
+        for (let i = 0; i < positions.count; i++) {
+          const x = positions.getX(i),
+            y = positions.getY(i),
+            z = positions.getZ(i);
+          const noise =
+            0.3 * Math.sin(3 * x) * Math.cos(3 * y) + 0.1 * Math.sin(7 * z);
+          const scale = 1 + noise;
+          positions.setXYZ(i, x * scale, y * scale, z * scale);
+        }
+        brainGeo.computeVertexNormals();
+
+        // Scale based on knowledge count
+        const rawScale =
+          0.5 + Math.log10(Math.max(totalKnowledgeCount, 1)) * 0.5;
+        const brainScale = Math.min(rawScale, 2.0);
+
+        // Wireframe shell (outer visual)
+        const wireMat = new THREE.MeshBasicMaterial({
+          color: 0x8a5be0,
+          wireframe: true,
+          transparent: true,
+          opacity: 0.25,
+        });
+        const brainMesh = new THREE.Mesh(brainGeo, wireMat);
+        brainMesh.scale.setScalar(brainScale);
+        scene.add(brainMesh);
+
+        // Solid inner fill (BackSide for depth effect)
+        const solidMat = new THREE.MeshPhongMaterial({
+          color: 0x321669,
+          transparent: true,
+          opacity: 0.15,
+          side: THREE.BackSide,
+        });
+        const solidMesh = new THREE.Mesh(brainGeo, solidMat);
+        solidMesh.scale.setScalar(brainScale);
+        scene.add(solidMesh);
+
+        // ── Build nodes ───────────────────────────────────────────────
+        const nodeMeshes = []; // for raycasting
+        const nodeEntityMap = new WeakMap(); // mesh → entity data
+
+        // Entity nodes
+        entities.forEach(function (entity) {
+          const radius = 0.04 + 0.02 * Math.min(entity.mentionCount || 1, 10);
+          const geo = new THREE.SphereGeometry(radius, 16, 16);
+          const color = hexStringToInt(entity.color || "#8a5be0");
+          const mat = new THREE.MeshPhongMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: 0.3,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          const pos = nodePosition(entity.lobeRegion || "center");
+          mesh.position.copy(pos);
+          scene.add(mesh);
+          nodeMeshes.push(mesh);
+          nodeEntityMap.set(mesh, entity);
+        });
+
+        // Memory summary nodes (center, smaller)
+        memorySummary.forEach(function (m, i) {
+          const geo = new THREE.SphereGeometry(0.06, 16, 16);
+          const color = hexStringToInt(m.color || "#8b5cf6");
+          const mat = new THREE.MeshPhongMaterial({
+            color,
+            emissive: color,
+            emissiveIntensity: 0.3,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          const pos = nodePosition("center");
+          mesh.position.copy(pos);
+          scene.add(mesh);
+          nodeMeshes.push(mesh);
+          nodeEntityMap.set(mesh, {
+            name: m.kind,
+            type: "Memory",
+            kind: m.kind,
+            lobeRegion: "center",
+            color: m.color || "#8b5cf6",
+            mentionCount: m.count || 0,
+            count: m.count || 0,
+          });
+        });
+
+        // Build a position lookup by entity id for relation lines
+        const entityPositions = {};
+        let meshIdx = 0;
+        entities.forEach(function (entity) {
+          entityPositions[entity.id] = nodeMeshes[meshIdx].position;
+          meshIdx++;
+        });
+
+        // ── Relation lines ────────────────────────────────────────────
+        relations.forEach(function (rel) {
+          const srcPos = entityPositions[rel.sourceId];
+          const tgtPos = entityPositions[rel.targetId];
+          if (!srcPos || !tgtPos) return;
+
+          const srcEntity = entities.find(function (e) {
+            return e.id === rel.sourceId;
+          });
+          const color = hexStringToInt(
+            (srcEntity && srcEntity.color) || "#8a5be0",
+          );
+
+          const points = [srcPos.clone(), tgtPos.clone()];
+          const geo = new THREE.BufferGeometry().setFromPoints(points);
+          const mat = new THREE.LineBasicMaterial({
+            color,
+            transparent: true,
+            opacity: 0.15,
+          });
+          scene.add(new THREE.Line(geo, mat));
+        });
+
+        // ── Controls ──────────────────────────────────────────────────
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.5;
+
+        // Pause auto-rotate while hovering
+        canvas.addEventListener("mouseenter", function () {
+          controls.autoRotate = false;
+        });
+        canvas.addEventListener("mouseleave", function () {
+          controls.autoRotate = true;
+        });
+
+        // ── Tooltip via raycasting ────────────────────────────────────
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const tooltip = document.getElementById("tooltip");
+
+        canvas.addEventListener("mousemove", function (event) {
+          // Guard against stale listener firing after destroyThreeD nulls the renderer
+          if (!renderer) return;
+          const rect = canvas.getBoundingClientRect();
+          mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+          mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+          raycaster.setFromCamera(mouse, camera);
+          const intersects = raycaster.intersectObjects(nodeMeshes);
+          if (intersects.length > 0) {
+            const entity = nodeEntityMap.get(intersects[0].object);
+            if (entity) {
+              document.getElementById("tt-name").textContent =
+                entity.name || "";
+              document.getElementById("tt-type").textContent =
+                entity.type || entity.kind || "memory";
+              document.getElementById("tt-dot").style.background =
+                entity.color || "#8A5BE0";
+              document.getElementById("tt-lobe").textContent =
+                entity.lobeRegion || "center";
+              document.getElementById("tt-connections").textContent =
+                "— connections";
+              document.getElementById("tt-mentions").textContent =
+                (entity.mentionCount || entity.count || 0) + " mentions";
+              tooltip.classList.add("visible");
+              // Position near cursor
+              let x = event.clientX + 14;
+              let y = event.clientY - 10;
+              const tw = tooltip.offsetWidth || 200;
+              const th = tooltip.offsetHeight || 100;
+              if (x + tw > window.innerWidth - 8) x = event.clientX - tw - 14;
+              if (y + th > window.innerHeight - 8) y = event.clientY - th - 14;
+              tooltip.style.left = x + "px";
+              tooltip.style.top = y + "px";
+            }
+          } else {
+            tooltip.classList.remove("visible");
+          }
+        });
+
+        canvas.addEventListener("mouseleave", function () {
+          tooltip.classList.remove("visible");
+        });
+
+        // ── Category filter for 3D nodes ──────────────────────────────
+        window.filterThreeDCategories = function (hiddenCategories) {
+          nodeMeshes.forEach(function (mesh) {
+            const entity = nodeEntityMap.get(mesh);
+            if (!entity) return;
+            // Memory nodes carry type='Memory' with the real category in kind, so prefer kind for them.
+            const type = (
+              entity.type === "Memory"
+                ? entity.kind
+                : entity.type || entity.kind || ""
+            ).toLowerCase();
+            mesh.visible = !hiddenCategories[type];
+          });
+        };
+
+        // Replay any checkbox state that was set before 3D was initialised.
+        // If the user unchecked categories while in 2D view, those hidden states
+        // are recorded in the checkboxes but filterThreeDCategories didn't exist yet.
+        (function replayHiddenCategories() {
+          var hidden = {};
+          document
+            .querySelectorAll('.legend-item input[type="checkbox"]')
+            .forEach(function (cb) {
+              if (!cb.checked) hidden[cb.dataset.category || cb.value] = true;
+            });
+          if (Object.keys(hidden).length > 0) {
+            window.filterThreeDCategories(hidden);
+          }
+        })();
+
+        // ── Resize handler ────────────────────────────────────────────
+        function onResize() {
+          // Guard against stale listener firing after destroyThreeD nulls the renderer
+          if (!renderer) return;
+          const { w, h } = getSize();
+          if (w === 0 || h === 0) return;
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+          renderer.setSize(w, h);
+        }
+        resizeHandler = onResize;
+        window.addEventListener("resize", resizeHandler);
+
+        // ── Animation loop ────────────────────────────────────────────
+        function animate() {
+          animFrameId = requestAnimationFrame(animate);
+          controls.update();
+
+          // Slow y-rotation of the brain mesh
+          brainMesh.rotation.y += 0.001;
+          solidMesh.rotation.y += 0.001;
+
+          // Gentle breathing pulse
+          const pulse = brainScale * (1 + 0.02 * Math.sin(Date.now() / 1000));
+          brainMesh.scale.setScalar(pulse);
+          solidMesh.scale.setScalar(pulse);
+
+          renderer.render(scene, camera);
+        }
+        // Store reference so resumeThreeD can restart the loop after stopThreeD cancels it
+        animateFn = animate;
+        animate();
+      };
+    </script>
+  </body>
+</html>

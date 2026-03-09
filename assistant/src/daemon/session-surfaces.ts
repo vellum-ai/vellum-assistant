@@ -1,9 +1,5 @@
 import { v4 as uuid } from "uuid";
 
-import {
-  findSeededHomeBaseApp,
-  getPrebuiltHomeBasePreview,
-} from "../home-base/prebuilt/seed.js";
 import { getApp, getAppPreview, updateApp } from "../memory/app-store.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -1164,14 +1160,10 @@ export async function surfaceProxyResolver(
     const openMode = input.open_mode as string | undefined;
     const app = getApp(appId);
     if (!app) return { content: `App not found: ${appId}`, isError: true };
-    const seededHomeBase = findSeededHomeBaseApp();
-    const defaultPreview =
-      seededHomeBase && seededHomeBase.id === app.id
-        ? getPrebuiltHomeBasePreview()
-        : // Generate a minimal fallback preview from app metadata so that the
-          // surface is always rendered as a clickable preview card (not an
-          // un-clickable fallback chip) after session restart.
-          { title: app.name, subtitle: app.description };
+    // Generate a minimal fallback preview from app metadata so that the
+    // surface is always rendered as a clickable preview card (not an
+    // un-clickable fallback chip) after session restart.
+    const defaultPreview = { title: app.name, subtitle: app.description };
 
     const storedPreview = getAppPreview(app.id);
     const surfaceData: DynamicPageSurfaceData = {

@@ -35,7 +35,6 @@ import {
 import {
   clearSession,
   importFromCredentialStore,
-  importFromRecording,
   loadSession,
 } from "./session.js";
 
@@ -149,7 +148,6 @@ The strategy system controls which path is used for operations that support mult
   auto     — try OAuth first, fall back to browser session (default)
 
 Session management:
-  - "login" imports cookies from a Ride Shotgun recording file
   - "refresh" launches Chrome with CDP, navigates to x.com/login, and runs a
     Ride Shotgun learn session to capture fresh cookies automatically
   - "status" shows whether browser session and OAuth are active
@@ -163,36 +161,6 @@ Examples:
   $ assistant x search "from:vaborsh AI agents" --product Latest
   $ assistant x strategy set oauth`,
   );
-
-  // =========================================================================
-  // login — import session from a recording
-  // =========================================================================
-  tw.command("login")
-    .description("Import a Twitter session from a Ride Shotgun recording")
-    .requiredOption("--recording <path>", "Path to the recording JSON file")
-    .addHelpText(
-      "after",
-      `
-Imports cookies from a Ride Shotgun recording file to establish a browser
-session. The recording file is a JSON file produced by a Ride Shotgun learn
-session that contains captured cookies for x.com.
-
-After import, all browser-path commands (timeline, search, bookmarks, etc.)
-will use these cookies for authentication.
-
-Examples:
-  $ assistant x login --recording /tmp/ride-shotgun/recording-abc123.json
-  $ assistant x login --recording ~/recordings/twitter-session.json`,
-    )
-    .action(async (opts: { recording: string }, cmd: Command) => {
-      await run(cmd, async () => {
-        const session = await importFromRecording(opts.recording);
-        return {
-          message: "Session imported successfully",
-          cookieCount: session.cookies.length,
-        };
-      });
-    });
 
   // =========================================================================
   // logout — clear saved session

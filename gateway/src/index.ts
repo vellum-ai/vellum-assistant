@@ -386,13 +386,6 @@ async function main() {
       auth: "edge",
       handler: (req) => brainGraphProxy.handleBrainGraphUI(req),
     },
-    {
-      path: "/v1/home-base-ui",
-      method: "GET",
-      auth: "edge",
-      handler: (req) => brainGraphProxy.handleHomeBaseUI(req),
-    },
-
     // ── Telegram control plane ──
     {
       path: "/v1/integrations/telegram/config",

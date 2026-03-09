@@ -15,7 +15,7 @@ struct ScreenPermissionStepView: View {
                     .foregroundColor(VColor.textPrimary)
                     .textSelection(.enabled)
 
-                Text("Skip screen-recording permission during the first conversation. Start it later from Home Base when you explicitly choose computer-control setup.")
+                Text("Skip screen-recording permission during the first conversation. Start it later from Settings when you explicitly choose computer-control setup.")
                     .font(VFont.onboardingSubtitle)
                     .foregroundColor(VColor.textSecondary)
                     .multilineTextAlignment(.center)
@@ -31,7 +31,7 @@ struct ScreenPermissionStepView: View {
                     .foregroundColor(VColor.textPrimary)
                     .textSelection(.enabled)
 
-                Text("Screen Recording requests should follow the optional Home Base task flow, never proactive onboarding prompts.")
+                Text("Screen Recording requests follow an explicit opt-in flow, not proactive onboarding prompts.")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .textSelection(.enabled)

@@ -1,13 +1,12 @@
 /**
  * HTTP route handlers for settings, identity/avatar, voice config,
- * OAuth connect, Twitter auth, home base, and workspace files.
+ * OAuth connect, Twitter auth, and workspace files.
  *
  * Migrated from IPC handlers:
  *   - handlers/config-voice.ts (voice_config_update)
  *   - handlers/avatar.ts (generate_avatar)
  *   - handlers/oauth-connect.ts (oauth_connect_start)
  *   - handlers/twitter-auth.ts (twitter_auth_start, twitter_auth_status)
- *   - handlers/home-base.ts (home_base_get)
  *   - handlers/workspace-files.ts (workspace_files_list, workspace_file_read)
  *   - handlers/config-tools.ts (tool_names_list, tool_permission_simulate, env_vars_request)
  */
@@ -29,17 +28,7 @@ import {
 } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { normalizeActivationKey } from "../../daemon/handlers/config-voice.js";
-import { getHomeBaseAppLink } from "../../home-base/app-link-store.js";
-import {
-  bootstrapHomeBaseAppLink,
-  resolveHomeBaseAppId,
-} from "../../home-base/bootstrap.js";
-import {
-  getPrebuiltHomeBasePreview,
-  getPrebuiltHomeBaseTaskPayload,
-} from "../../home-base/prebuilt/seed.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
-import { getApp } from "../../memory/app-store.js";
 import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import {
   getProviderProfile,
@@ -498,66 +487,6 @@ function handleTwitterAuthStatus(): Response {
 }
 
 // ---------------------------------------------------------------------------
-// Home base
-// ---------------------------------------------------------------------------
-
-function handleHomeBaseGet(ensureLinked: boolean): Response {
-  try {
-    if (ensureLinked !== false) {
-      bootstrapHomeBaseAppLink();
-    }
-
-    const appId = resolveHomeBaseAppId();
-    if (!appId) {
-      return Response.json({ homeBase: null });
-    }
-
-    const link = getHomeBaseAppLink();
-    const source = link?.source ?? "prebuilt_seed";
-
-    let preview: {
-      title: string;
-      subtitle: string;
-      description: string;
-      icon: string;
-      metrics: Array<{ label: string; value: string }>;
-    };
-
-    if (source === "personalized") {
-      const app = getApp(appId);
-      if (app) {
-        preview = {
-          title: app.name,
-          subtitle: "Dashboard",
-          description: app.description ?? "",
-          icon: app.icon ?? "🏠",
-          metrics: [],
-        };
-      } else {
-        preview = getPrebuiltHomeBasePreview();
-      }
-    } else {
-      preview = getPrebuiltHomeBasePreview();
-    }
-
-    const tasks = getPrebuiltHomeBaseTaskPayload();
-
-    return Response.json({
-      homeBase: {
-        appId,
-        source,
-        starterTasks: tasks.starterTasks,
-        onboardingTasks: tasks.onboardingTasks,
-        preview,
-      },
-    });
-  } catch (err) {
-    log.error({ err }, "Failed to resolve home base metadata");
-    return Response.json({ homeBase: null });
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Workspace files (IPC-style list/read)
 // ---------------------------------------------------------------------------
 
@@ -904,17 +833,6 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       method: "GET",
       policyKey: "integrations/twitter/auth/status",
       handler: () => handleTwitterAuthStatus(),
-    },
-
-    // Home base
-    {
-      endpoint: "home-base",
-      method: "GET",
-      policyKey: "home-base",
-      handler: ({ url }) => {
-        const ensureLinked = url.searchParams.get("ensureLinked") !== "false";
-        return handleHomeBaseGet(ensureLinked);
-      },
     },
 
     // Workspace files (IPC-style list/read -- distinct from workspace-routes.ts tree/file)

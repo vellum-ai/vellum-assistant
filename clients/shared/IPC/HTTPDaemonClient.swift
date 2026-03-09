@@ -417,7 +417,6 @@ public final class HTTPTransport {
         case workspaceFilesRead
 
         // Misc
-        case homeBase
         case channelVerificationSessions
         case registerDeviceToken
     }
@@ -816,8 +815,6 @@ public final class HTTPTransport {
         case .workspaceFilesRead:
             return ("/v1/workspace-files/read", nil)
         // Misc
-        case .homeBase:
-            return ("/v1/home-base", nil)
         case .channelVerificationSessions:
             return ("/v1/channel-verification-sessions", nil)
         case .registerDeviceToken:
@@ -1199,8 +1196,6 @@ public final class HTTPTransport {
         case .workspaceFilesRead:
             return ("\(prefix)/workspace-files/read/", nil)
         // Misc
-        case .homeBase:
-            return ("\(prefix)/home-base/", nil)
         case .channelVerificationSessions:
             return ("\(prefix)/channel-verification-sessions/", nil)
         case .registerDeviceToken:

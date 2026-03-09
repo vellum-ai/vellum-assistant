@@ -5,7 +5,6 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -19,11 +18,6 @@ class ConfigError extends Error {
 
 export interface TwitterSession {
   cookies: ExtractedCredential[];
-}
-
-interface SessionRecording {
-  cookies?: ExtractedCredential[];
-  targetDomain?: string;
 }
 
 interface ExtractedCredential {
@@ -74,46 +68,6 @@ export async function clearSession(): Promise<void> {
     ]);
   } catch {
     // Clearing a non-existent session is fine — no-op
-  }
-}
-
-/**
- * Import cookies from a Ride Shotgun recording file.
- */
-export async function importFromRecording(
-  recordingPath: string,
-): Promise<TwitterSession> {
-  try {
-    if (!existsSync(recordingPath)) {
-      throw new ConfigError(`Recording not found: ${recordingPath}`);
-    }
-    const recording = JSON.parse(
-      readFileSync(recordingPath, "utf-8"),
-    ) as SessionRecording;
-    if (!recording.cookies?.length) {
-      if (recording.targetDomain) {
-        return importFromCredentialStore(recording.targetDomain);
-      }
-      throw new ConfigError("Recording contains no cookies");
-    }
-
-    const cookieNames = new Set(recording.cookies.map((c) => c.name));
-
-    if (!cookieNames.has("ct0") || !cookieNames.has(`auth_${"token"}`)) {
-      throw new ConfigError(
-        "Recording is missing required Twitter session cookies. " +
-          "Make sure you are logged in to x.com before recording.",
-      );
-    }
-
-    const session: TwitterSession = { cookies: recording.cookies };
-    await saveSession(session);
-    return session;
-  } catch (error) {
-    if (error instanceof ConfigError) throw error;
-    throw new ConfigError(
-      error instanceof Error ? error.message : String(error),
-    );
   }
 }
 

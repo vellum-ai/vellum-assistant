@@ -320,13 +320,12 @@ describe("buildSystemPrompt", () => {
       expect(result).not.toContain("use `app_update` to change the HTML");
     });
 
-    test("onboarding playbook uses app_file_edit for accent color, not app_update", () => {
+    test("onboarding playbook does not reference Home Base for accent color", () => {
       // Starter task playbooks only included during onboarding (BOOTSTRAP.md exists)
       writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# First run");
       const result = buildSystemPrompt();
-      expect(result).toContain(
-        "using `app_file_edit` to update the theme styles",
-      );
+      // The make_it_yours playbook should not reference Home Base anymore
+      expect(result).not.toContain("Home Base dashboard");
       expect(result).not.toContain(
         "using `app_update` to regenerate the Home Base HTML",
       );

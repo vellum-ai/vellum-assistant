@@ -540,7 +540,6 @@ async function finalizeLearnRecording(
 
     // Save cookies to the encrypted credential store (keyed by target domain)
     // so they don't need to be persisted in the plaintext recording file.
-    let cookiesStoredToCredStore = false;
     if (session.targetDomain && cookies.length > 0) {
       const { setSecureKeyAsync } = await import("../security/secure-keys.js");
       const { upsertCredentialMetadata } =
@@ -554,7 +553,6 @@ async function finalizeLearnRecording(
         JSON.stringify(cookies),
       );
       if (stored) {
-        cookiesStoredToCredStore = true;
         try {
           upsertCredentialMetadata(service, field, {});
         } catch {
@@ -567,7 +565,7 @@ async function finalizeLearnRecording(
       } else {
         log.warn(
           { targetDomain: service },
-          "Failed to save cookies to credential store — preserving in recording",
+          "Failed to save cookies to credential store",
         );
       }
     }
@@ -578,7 +576,7 @@ async function finalizeLearnRecording(
       endedAt: Date.now(),
       targetDomain: session.targetDomain,
       networkEntries,
-      cookies: cookiesStoredToCredStore ? [] : cookies, // Only strip cookies if credential store write succeeded
+      cookies: [], // Cookies saved to credential store — never persisted in recording
       observations: session.observations.map((obs) => ({
         ocrText: obs.ocrText,
         appName: obs.appName,
