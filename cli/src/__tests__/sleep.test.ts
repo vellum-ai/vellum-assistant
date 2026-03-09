@@ -160,7 +160,6 @@ describe("sleep command", () => {
       1,
       join(assistantRootDir, "vellum.pid"),
       "assistant",
-      [join(assistantRootDir, "vellum.sock")],
     );
     expect(stopProcessByPidFileMock).toHaveBeenNthCalledWith(
       2,
