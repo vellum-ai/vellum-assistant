@@ -19,6 +19,16 @@ final class WorkspaceBrowserState {
     var originalContent: String = ""
     var isDirty: Bool = false
     var isSaving: Bool = false
+    var showingNewFileAlert = false
+    var showingNewFolderAlert = false
+    var newItemName: String = ""
+    var newItemParentPath: String = ""
+
+    func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
+        if let response = await daemonClient.fetchWorkspaceTree(path: dirPath) {
+            directoryCache[dirPath] = response.entries
+        }
+    }
 }
 
 // MARK: - Workspace Panel
@@ -59,11 +69,38 @@ private struct WorkspaceTreeSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Files")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
+            HStack {
+                Text("Files")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                Menu {
+                    Button {
+                        state.newItemParentPath = ""
+                        state.newItemName = ""
+                        state.showingNewFileAlert = true
+                    } label: {
+                        Label { Text("New File") } icon: { VIconView(.filePlus, size: 12) }
+                    }
+                    Button {
+                        state.newItemParentPath = ""
+                        state.newItemName = ""
+                        state.showingNewFolderAlert = true
+                    } label: {
+                        Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
+                    }
+                } label: {
+                    VIconView(.plus, size: 12)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
 
             Divider().background(VColor.surfaceBorder)
 
@@ -93,6 +130,44 @@ private struct WorkspaceTreeSidebar: View {
             }
         }
         .background(VColor.backgroundSubtle)
+        .alert("New File", isPresented: $state.showingNewFileAlert) {
+            TextField("Filename", text: $state.newItemName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let parentPath = state.newItemParentPath
+                let name = state.newItemName
+                guard !name.isEmpty else { return }
+                let filePath = parentPath.isEmpty ? name : parentPath + "/" + name
+                Task {
+                    let success = await daemonClient.writeWorkspaceFile(path: filePath, content: Data())
+                    if success {
+                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        if !parentPath.isEmpty {
+                            state.expandedDirs.insert(parentPath)
+                        }
+                    }
+                }
+            }
+        }
+        .alert("New Folder", isPresented: $state.showingNewFolderAlert) {
+            TextField("Folder name", text: $state.newItemName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let parentPath = state.newItemParentPath
+                let name = state.newItemName
+                guard !name.isEmpty else { return }
+                let folderPath = parentPath.isEmpty ? name : parentPath + "/" + name
+                Task {
+                    let success = await daemonClient.createWorkspaceDirectory(path: folderPath)
+                    if success {
+                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        if !parentPath.isEmpty {
+                            state.expandedDirs.insert(parentPath)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -156,6 +231,24 @@ private struct WorkspaceTreeRow: View {
                             daemonClient: daemonClient
                         )
                     }
+                }
+            }
+        }
+        .contextMenu {
+            if entry.isDirectory {
+                Button {
+                    state.newItemParentPath = entry.path
+                    state.newItemName = ""
+                    state.showingNewFileAlert = true
+                } label: {
+                    Label { Text("New File") } icon: { VIconView(.filePlus, size: 12) }
+                }
+                Button {
+                    state.newItemParentPath = entry.path
+                    state.newItemName = ""
+                    state.showingNewFolderAlert = true
+                } label: {
+                    Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
                 }
             }
         }
