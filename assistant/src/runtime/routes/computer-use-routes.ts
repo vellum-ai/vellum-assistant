@@ -65,12 +65,6 @@ export interface ComputerUseDeps {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level state (mirrors IPC handler)
-// ---------------------------------------------------------------------------
-
-const cuObservationSequenceBySession = new Map<string, number>();
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -91,7 +85,6 @@ function removeCuSessionReferences(
     return;
   }
   deps.cuSessions.delete(sessionId);
-  cuObservationSequenceBySession.delete(sessionId);
   deps.cuObservationParseSequence.delete(sessionId);
 }
 
@@ -229,10 +222,11 @@ async function handleObservation(
   }
 
   // HTTP observations arrive with inline data (no blob refs to hydrate).
+  // Use the shared deps-injected sequence map as the single source of truth.
   const previousSequence =
-    cuObservationSequenceBySession.get(msg.sessionId) ?? 0;
+    deps.cuObservationParseSequence.get(msg.sessionId) ?? 0;
   const sequence = previousSequence + 1;
-  cuObservationSequenceBySession.set(msg.sessionId, sequence);
+  deps.cuObservationParseSequence.set(msg.sessionId, sequence);
 
   const axTreeBytes = msg.axTree ? Buffer.byteLength(msg.axTree, "utf8") : 0;
   const axDiffBytes = msg.axDiff ? Buffer.byteLength(msg.axDiff, "utf8") : 0;
