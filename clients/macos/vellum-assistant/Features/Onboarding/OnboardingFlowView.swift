@@ -286,12 +286,8 @@ struct OnboardingFlowView: View {
         isBootstrappingLocal = true
         localBootstrapError = nil
 
-        // Resolve the daemon's HTTP base URL and bearer token.
-        // Prefer the lockfile's allocated daemon port (multi-instance), then env override, then default.
-        let port = assistant.daemonPort
-            ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
-            ?? 7821
-        let daemonBaseURL = "http://localhost:\(port)"
+        // Resolve the daemon's HTTP base URL and bearer token
+        let daemonBaseURL = assistant.localRuntimeBaseURL
 
         guard let daemonToken = ActorTokenManager.getToken(), !daemonToken.isEmpty else {
             localBootstrapError = "No assistant credentials available. Please restart the assistant and try again."

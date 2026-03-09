@@ -258,6 +258,48 @@ final class LockfileAssistantManagedTests: XCTestCase {
         XCTAssertFalse(assistant.isRemote)
     }
 
+    func testResolvedDaemonPortPrefersLockfileValueOverEnvironment() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: nil,
+            bearerToken: nil,
+            cloud: "local",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: nil,
+            baseDataDir: nil,
+            daemonPort: 9911,
+            gatewayPort: nil,
+            instanceDir: nil
+        )
+
+        XCTAssertEqual(assistant.resolvedDaemonPort(environment: ["RUNTIME_HTTP_PORT": "7821"]), 9911)
+        XCTAssertEqual(assistant.localRuntimeBaseURL, "http://localhost:9911")
+    }
+
+    func testResolvedDaemonPortFallsBackToEnvironmentThenDefault() {
+        let assistant = LockfileAssistant(
+            assistantId: "test-id",
+            runtimeUrl: nil,
+            bearerToken: nil,
+            cloud: "local",
+            project: nil,
+            region: nil,
+            zone: nil,
+            instanceId: nil,
+            hatchedAt: nil,
+            baseDataDir: nil,
+            daemonPort: nil,
+            gatewayPort: nil,
+            instanceDir: nil
+        )
+
+        XCTAssertEqual(assistant.resolvedDaemonPort(environment: ["RUNTIME_HTTP_PORT": "8811"]), 8811)
+        XCTAssertEqual(assistant.resolvedDaemonPort(environment: [:]), 7821)
+    }
+
     func testIsRemoteReturnsTrueForVellum() {
         let assistant = LockfileAssistant(
             assistantId: "test-id",
