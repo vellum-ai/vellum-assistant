@@ -140,7 +140,10 @@ export async function generateAndPersistConversationTitle(
     [],
     undefined,
     {
-      config: { max_tokens: config.daemon.titleGenerationMaxTokens },
+      config: {
+        max_tokens: config.daemon.titleGenerationMaxTokens,
+        modelIntent: "latency-optimized",
+      },
       signal: combinedSignal,
     },
   );
@@ -255,7 +258,10 @@ export async function regenerateConversationTitle(
     [],
     undefined,
     {
-      config: { max_tokens: config.daemon.titleGenerationMaxTokens },
+      config: {
+        max_tokens: config.daemon.titleGenerationMaxTokens,
+        modelIntent: "latency-optimized",
+      },
       signal: combinedSignal,
     },
   );
