@@ -13,8 +13,9 @@
  *      page), NOT from `document`. The browser's live page rarely has the data we need.
  *
  *   2. Session cookies live in the Chrome-CDP browser profile
- *      (~Library/Application Support/Google/Chrome-CDP). The session.json on disk is only
- *      used to validate that a session exists. Actual auth goes through the browser's cookies.
+ *      (~Library/Application Support/Google/Chrome-CDP). Session metadata is stored in the
+ *      encrypted credential store and used to validate that a session exists. Actual auth
+ *      goes through the browser's cookies.
  *
  * AMAZON FRESH vs REGULAR CART
  * ============================
