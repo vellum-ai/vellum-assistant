@@ -487,6 +487,7 @@ describe("buildSanitizedEnv", () => {
       "GPG_TTY",
       "GNUPGHOME",
       "INTERNAL_GATEWAY_BASE_URL",
+      "VELLUM_DATA_DIR",
     ];
     for (const key of keys) {
       expect(safeKeys).toContain(key);
