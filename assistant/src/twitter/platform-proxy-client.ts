@@ -142,6 +142,15 @@ export function mapProxyError(
   const detail = obj?.detail ?? obj?.message ?? obj?.error;
   const detailStr = detail ? String(detail) : `HTTP ${status}`;
 
+  if (status === 424) {
+    return new TwitterProxyError(
+      "Connect Twitter in Settings — no active credential",
+      "credential_required",
+      false,
+      status,
+    );
+  }
+
   if (status === 403) {
     const msg = String(detailStr).toLowerCase();
     if (msg.includes("owner") && msg.includes("credential")) {
@@ -250,7 +259,7 @@ export async function proxyTwitterCall<T = unknown>(
     response = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify(request),
+      body: JSON.stringify({ request }),
       signal: AbortSignal.timeout(30_000),
     });
   } catch (err) {
@@ -265,6 +274,7 @@ export async function proxyTwitterCall<T = unknown>(
     );
   }
 
+  // Platform-level errors (proxy endpoint itself returned non-200)
   if (!response.ok) {
     let errorBody: unknown;
     try {
@@ -275,9 +285,14 @@ export async function proxyTwitterCall<T = unknown>(
     throw mapProxyError(response.status, errorBody);
   }
 
-  let data: T;
+  // Parse the proxy envelope
+  let envelope: {
+    status: number;
+    headers: Record<string, string>;
+    body: unknown;
+  };
   try {
-    data = (await response.json()) as T;
+    envelope = (await response.json()) as typeof envelope;
   } catch (err) {
     throw new TwitterProxyError(
       `Failed to parse proxy response: ${err instanceof Error ? err.message : String(err)}`,
@@ -287,7 +302,12 @@ export async function proxyTwitterCall<T = unknown>(
     );
   }
 
-  return { data, status: response.status };
+  // Check upstream status from the envelope
+  if (envelope.status >= 400) {
+    throw mapProxyError(envelope.status, envelope.body);
+  }
+
+  return { data: envelope.body as T, status: envelope.status };
 }
 
 // ---------------------------------------------------------------------------

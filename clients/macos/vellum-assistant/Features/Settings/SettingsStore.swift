@@ -1031,13 +1031,13 @@ public final class SettingsStore: ObservableObject {
 
             let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
             do {
-                let response = try await service.listConnections(
+                let connections = try await service.listConnections(
                     platformAssistantId: ctx.platformAssistantId,
                     organizationId: ctx.organizationId
                 )
-                if let connection = response.connections.first {
+                if let connection = connections.first, connection.connected {
                     managedTwitterConnected = true
-                    managedTwitterAccountInfo = connection.accountInfo
+                    managedTwitterAccountInfo = connection.accountLabel
                 } else {
                     managedTwitterConnected = false
                     managedTwitterAccountInfo = nil
@@ -1069,7 +1069,7 @@ public final class SettingsStore: ObservableObject {
                     platformAssistantId: ctx.platformAssistantId,
                     organizationId: ctx.organizationId
                 )
-                if let url = URL(string: response.authorizationUrl) {
+                if let url = URL(string: response.connectUrl) {
                     NSWorkspace.shared.open(url)
                 } else {
                     managedTwitterError = "Invalid authorization URL received."
