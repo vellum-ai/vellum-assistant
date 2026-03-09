@@ -596,10 +596,36 @@ export function handleSurfaceAction(
       sessionId: ctx.conversationId,
     });
 
+    if (result.queued) {
+      log.info(
+        { surfaceId, actionId, requestId },
+        "Relay prompt queued (session busy, history-restored)",
+      );
+      return;
+    }
+
+    // Session is idle — process the message immediately.
     log.info(
       { surfaceId, actionId, requestId },
-      "Relay prompt handled without pending surface (history-restored)",
+      "Processing relay prompt immediately (history-restored)",
     );
+    ctx
+      .processMessage(prompt, [], onEvent, requestId, surfaceId)
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          { err, surfaceId, actionId },
+          "Failed to process history-restored relay prompt",
+        );
+        onEvent(
+          buildSessionErrorMessage(ctx.conversationId, {
+            code: "SESSION_PROCESSING_FAILED",
+            userMessage: `Something went wrong: ${message}`,
+            retryable: false,
+            debugDetails: `History-restored relay prompt processing failed: ${message}`,
+          }),
+        );
+      });
     return;
   }
   const retainPending = pending.surfaceType === "dynamic_page";

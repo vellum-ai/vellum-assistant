@@ -2265,10 +2265,9 @@ public final class HTTPTransport {
             "surfaceId": action.surfaceId,
             "actionId": action.actionId,
         ]
-        // Use conversationKey (the daemon's session key) instead of the
-        // client-local sessionId so findSession() on the server can locate
-        // the session.  This mirrors how sendMessage() identifies the session.
-        body["sessionId"] = conversationKey
+        // Omit sessionId — the server resolves the session via
+        // findSessionBySurfaceId(surfaceId), which is reliable regardless
+        // of conversationKey vs conversationId differences.
         if let data = action.data {
             body["data"] = jsonCompatibleDictionary(data)
         }
