@@ -255,6 +255,7 @@ struct SettingsAppearanceTab: View {
                                     .foregroundColor(VColor.error)
                             }
                             .buttonStyle(.plain)
+                            .pointerCursor()
                         }
                         .padding(.vertical, VSpacing.xs)
                     }

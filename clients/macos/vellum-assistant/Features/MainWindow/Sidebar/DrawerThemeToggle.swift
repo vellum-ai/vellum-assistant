@@ -46,6 +46,7 @@ struct DrawerThemeToggle: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                     .help(option.tooltip)
                     .accessibilityLabel("\(option.tooltip) theme")
                     .accessibilityValue(isSelected ? "Selected" : "")

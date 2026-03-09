@@ -278,6 +278,7 @@ struct ChatBubble: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
                 .accessibilityLabel(showCopyConfirmation ? "Copied" : "Copy message")
                 .animation(VAnimation.fast, value: showCopyConfirmation)
             }
@@ -291,6 +292,7 @@ struct ChatBubble: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
                 .accessibilityLabel("Report message")
             }
         }

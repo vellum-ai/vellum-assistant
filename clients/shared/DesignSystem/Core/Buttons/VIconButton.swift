@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 public enum VIconButtonVariant {
     case ghost
@@ -58,15 +55,10 @@ public struct VIconButton: View {
         }
         .focused($isFocused)
         .buttonStyle(VIconButtonStyle(isActive: isActive, isHovered: isHovered, isFocused: isFocused, size: size, variant: variant))
-        #if os(macOS)
         .onHover { hovering in
             isHovered = hovering
-            if hovering { NSCursor.pointingHand.set() }
-            else { NSCursor.arrow.set() }
         }
-        #else
-        .onHover { isHovered = $0 }
-        #endif
+        .pointerCursor()
         .accessibilityLabel(label)
         .modifier(OptionalHelpModifier(tooltip: tooltip))
     }

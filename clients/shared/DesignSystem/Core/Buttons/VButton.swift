@@ -1,7 +1,4 @@
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 public struct VButton: View {
     public enum Style: Hashable { case primary, secondary, tertiary, danger, ghost, outlined, success }
@@ -49,17 +46,10 @@ public struct VButton: View {
             }
         }
         .buttonStyle(VButtonStyle(style: style, size: size, isHovered: isHovered, isFullWidth: isFullWidth))
-        #if os(macOS)
         .onHover { hovering in
             isHovered = isDisabled ? false : hovering
-            if !isDisabled {
-                if hovering { NSCursor.pointingHand.set() }
-                else { NSCursor.arrow.set() }
-            }
         }
-        #else
-        .onHover { isHovered = isDisabled ? false : $0 }
-        #endif
+        .pointerCursor()
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1.0)
         .accessibilityHint(isDisabled ? "Button is currently disabled" : "")

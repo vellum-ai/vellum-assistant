@@ -46,6 +46,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .pointerCursor()
                 .accessibilityLabel(item.label)
                 .accessibilityAddTraits(selection == item.tag ? .isSelected : [])
             }
@@ -115,6 +116,7 @@ private struct PillSegment: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .pointerCursor()
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

@@ -104,6 +104,7 @@ public struct ToolCallChip: View {
                 .padding(.vertical, VSpacing.sm)
             }
             .buttonStyle(.plain)
+            .pointerCursor()
 
             // Expanded details
             if isExpanded, hasExpandableContent {
