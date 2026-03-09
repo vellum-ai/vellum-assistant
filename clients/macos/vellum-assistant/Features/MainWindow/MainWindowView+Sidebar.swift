@@ -447,7 +447,7 @@ extension MainWindowView {
                 isActive: sidebar.showPreferencesDrawer,
                 isExpanded: true,
                 onToggle: {
-                    withAnimation(.easeOut(duration: 0.12)) {
+                    withAnimation(VAnimation.snappy) {
                         sidebar.showPreferencesDrawer.toggle()
                     }
                 }
@@ -543,7 +543,7 @@ extension MainWindowView {
                 isActive: sidebar.showPreferencesDrawer,
                 isExpanded: false,
                 onToggle: {
-                    withAnimation(.easeOut(duration: 0.12)) {
+                    withAnimation(VAnimation.snappy) {
                         sidebar.showPreferencesDrawer.toggle()
                     }
                 }

@@ -475,7 +475,7 @@ struct MainWindowView: View {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                withAnimation(.easeOut(duration: 0.12)) {
+                                withAnimation(VAnimation.snappy) {
                                     sidebar.showPreferencesDrawer = false
                                 }
                             }
