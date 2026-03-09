@@ -176,7 +176,6 @@ Examples:
         return {
           message: "Session imported successfully",
           cookieCount: session.cookies.length,
-          recordingId: session.recordingId,
         };
       });
     });
@@ -250,7 +249,6 @@ Examples:
               ok: true,
               message: "Session refreshed successfully",
               cookieCount: session.cookies.length,
-              recordingId: result.recordingId,
             },
             json,
           );
@@ -259,7 +257,6 @@ Examples:
             {
               ok: false,
               error: "Recording completed but no recording path returned",
-              recordingId: result.recordingId,
             },
             json,
           );
@@ -280,8 +277,7 @@ Examples:
       `
 Shows the current state of both authentication paths:
 
-  Browser session — whether cookies are loaded, cookie count, import timestamp,
-    and the recording ID they came from.
+  Browser session — whether cookies are loaded and the cookie count.
   OAuth — whether an OAuth credential is connected, the linked account, the
     current strategy setting, and whether a strategy has been explicitly configured.
 
@@ -297,8 +293,6 @@ Examples:
         ? {
             browserSessionActive: true,
             cookieCount: session.cookies.length,
-            importedAt: session.importedAt,
-            recordingId: session.recordingId,
           }
         : { browserSessionActive: false };
 
@@ -393,7 +387,9 @@ Examples:
     .action(async (value: string, _opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
       try {
-        const r = await sendTwitterConfigRequest("set_strategy", { strategy: value });
+        const r = await sendTwitterConfigRequest("set_strategy", {
+          strategy: value,
+        });
         if (r.success) {
           output({ ok: true, strategy: r.strategy }, json);
         } else {
@@ -944,7 +940,6 @@ async function minimizeChrome(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 interface LearnResult {
-  recordingId?: string;
   recordingPath?: string;
 }
 
@@ -1029,9 +1024,7 @@ async function startLearnSession(
           const stat = statSync(filePath);
           if (stat.mtimeMs >= startTime - 1000) {
             clearInterval(poll);
-            const filename = filePath.split("/").pop() ?? "";
-            const recordingId = filename.replace(/\.json$/, "");
-            resolve({ recordingId, recordingPath: filePath });
+            resolve({ recordingPath: filePath });
             return;
           }
         } catch {
