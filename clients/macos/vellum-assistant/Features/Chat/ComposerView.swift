@@ -121,7 +121,7 @@ struct ComposerView: View {
         .animation(VAnimation.fast, value: showSlashMenu)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
-        .frame(maxWidth: 700)
+        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
         .frame(maxWidth: .infinity)
         .animation(VAnimation.fast, value: isComposerFocused)
         .onAppear {
