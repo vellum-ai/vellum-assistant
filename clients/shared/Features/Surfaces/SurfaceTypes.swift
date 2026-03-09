@@ -446,7 +446,7 @@ public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
     }
 
     public static func == (lhs: SurfaceActionButton, rhs: SurfaceActionButton) -> Bool {
-        lhs.id == rhs.id && lhs.label == rhs.label && lhs.style == rhs.style && lhs.index == rhs.index
+        lhs.id == rhs.id && lhs.label == rhs.label && lhs.style == rhs.style && lhs.index == rhs.index && lhs.data == rhs.data
     }
 }
 
