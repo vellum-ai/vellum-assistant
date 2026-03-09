@@ -478,7 +478,15 @@ public extension Surface {
             return nil
         }
 
-        let dict = message.data.value as? [String: Any?] ?? [:]
+        var dict = message.data.value as? [String: Any?] ?? [:]
+
+        // For cards, the LLM sometimes puts `title` at the top-level tool input
+        // rather than inside `data`. If `data` has no title, fall back to the
+        // message-level title so the card isn't silently dropped.
+        if surfaceType == .card, dict["title"] == nil || (dict["title"] as? String)?.isEmpty == true,
+           let fallbackTitle = message.title, !fallbackTitle.isEmpty {
+            dict["title"] = fallbackTitle
+        }
 
         guard let surfaceData = parseSurfaceData(type: surfaceType, dict: dict) else {
             return nil
@@ -511,7 +519,13 @@ public extension Surface {
             return nil
         }
 
-        let dict = historySurface.data.mapValues { $0.value } as [String: Any?]
+        var dict = historySurface.data.mapValues { $0.value } as [String: Any?]
+
+        // Same card-title fallback as the live path (see from(UiSurfaceShowMessage)).
+        if surfaceType == .card, dict["title"] == nil || (dict["title"] as? String)?.isEmpty == true,
+           let fallbackTitle = historySurface.title, !fallbackTitle.isEmpty {
+            dict["title"] = fallbackTitle
+        }
 
         guard let surfaceData = parseSurfaceData(type: surfaceType, dict: dict) else {
             return nil
@@ -785,7 +799,11 @@ public extension Surface {
     // MARK: - Full Parse Helpers
 
     private static func parseCardData(_ dict: [String: Any?]) -> CardSurfaceData? {
-        guard let title = dict["title"] as? String else {
+        // Title is required for cards, but fall back to empty string rather
+        // than silently dropping the entire surface when the LLM omits it.
+        let title = (dict["title"] as? String) ?? ""
+        guard !title.isEmpty || (dict["body"] as? String) != nil || dict["template"] != nil else {
+            // Neither title, body, nor template — genuinely invalid card data.
             return nil
         }
 

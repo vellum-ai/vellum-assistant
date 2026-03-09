@@ -331,6 +331,9 @@ export function handleListMessages(
       attachments: msgAttachments,
       ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
       ...(interfaces ? { interfaces } : {}),
+      ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
+      ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
+      ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
     };
   });
 
@@ -559,6 +562,20 @@ export async function handleSendMessage(
   // only travel through session.sendToClient, which is a no-op for
   // socketless HTTP sessions.
   session.setStateSignalListener(onEvent);
+
+  // Route ui_surface_show/complete/update events through the SSE hub.
+  // sendToClient is a no-op for HTTP sessions, but tool execution (e.g.
+  // the surface proxy resolver) sends surface events through it directly.
+  // This wrapper ensures those events also reach SSE consumers.
+  session.updateClient((msg) => {
+    if (
+      msg.type === "ui_surface_show" ||
+      msg.type === "ui_surface_complete" ||
+      msg.type === "ui_surface_update"
+    ) {
+      onEvent(msg);
+    }
+  }, true);
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)

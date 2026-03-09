@@ -74,14 +74,27 @@ function normalizeCardShowData(
     normalized.templateData = input.templateData;
   }
 
-  // task_progress cards need a title for Swift parsing; fall back when missing.
+  // The LLM sometimes sends `title` or `body` at the top-level tool input
+  // instead of nesting them inside `data`. The Swift client requires `title`
+  // inside the card data dict — without it `parseCardData` returns nil and
+  // the surface is silently dropped. Copy them from input when missing.
+  if (
+    typeof normalized.title !== "string" &&
+    typeof input.title === "string" &&
+    input.title.trim().length > 0
+  ) {
+    normalized.title = input.title;
+  }
+  if (typeof normalized.body !== "string" && typeof input.body === "string") {
+    normalized.body = input.body;
+  }
+
+  // task_progress cards: additional fallbacks for title from templateData.
   if (
     normalized.template === "task_progress" &&
     typeof normalized.title !== "string"
   ) {
-    if (typeof input.title === "string" && input.title.trim().length > 0) {
-      normalized.title = input.title;
-    } else if (
+    if (
       isPlainObject(normalized.templateData) &&
       typeof normalized.templateData.title === "string"
     ) {
@@ -528,8 +541,43 @@ export function handleSurfaceAction(
   data?: Record<string, unknown>,
 ): void {
   const pending = ctx.pendingSurfaceActions.get(surfaceId);
+
+  // When surfaces are restored from history (e.g. onboarding cards), there is
+  // no in-memory pendingSurfaceActions entry.  For relay_prompt / agent_prompt
+  // actions the client already sends the full payload (including { prompt }),
+  // so we can handle them without stored state.
   if (!pending) {
-    log.warn({ surfaceId, actionId }, "No pending surface action found");
+    const isRelay = actionId === "relay_prompt" || actionId === "agent_prompt";
+    const prompt =
+      isRelay && typeof data?.prompt === "string" ? data.prompt.trim() : "";
+
+    if (!prompt) {
+      log.warn({ surfaceId, actionId }, "No pending surface action found");
+      return;
+    }
+
+    const requestId = uuid();
+    ctx.surfaceActionRequestIds.add(requestId);
+    const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
+
+    // Echo the prompt to the client so it appears in the chat UI
+    ctx.sendToClient({
+      type: "user_message_echo",
+      text: prompt,
+      sessionId: ctx.conversationId,
+    });
+
+    ctx.traceEmitter.emit("request_received", "Surface action received", {
+      requestId,
+      status: "info",
+      attributes: { source: "surface_action", surfaceId, actionId },
+    });
+
+    ctx.enqueueMessage(prompt, [], onEvent, requestId, surfaceId);
+    log.info(
+      { surfaceId, actionId, requestId },
+      "Relay prompt handled without pending surface (history-restored)",
+    );
     return;
   }
   const retainPending = pending.surfaceType === "dynamic_page";
@@ -1002,6 +1050,19 @@ export async function surfaceProxyResolver(
       title,
       actions: mappedActions,
     });
+
+    log.info(
+      {
+        surfaceId,
+        surfaceType,
+        title,
+        dataKeys: Object.keys(data),
+        actionCount: mappedActions.length,
+        display,
+        conversationId: ctx.conversationId,
+      },
+      "Sending ui_surface_show to client",
+    );
 
     ctx.sendToClient({
       type: "ui_surface_show",

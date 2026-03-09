@@ -27,6 +27,43 @@ import {
   renderHistoryContent,
 } from "./shared.js";
 
+/**
+ * In light mode, strip heavy payloads (e.g. full HTML) from surface data
+ * but preserve the fields the client needs to parse and render the surface.
+ */
+function lightModeSurfaceData(s: HistorySurface): Record<string, unknown> {
+  switch (s.surfaceType) {
+    case "dynamic_page":
+      return {
+        ...(s.data.preview ? { preview: s.data.preview } : {}),
+        ...(s.data.appId ? { appId: s.data.appId } : {}),
+      };
+    case "card":
+      return {
+        ...(typeof s.data.title === "string" ? { title: s.data.title } : {}),
+        ...(typeof s.data.body === "string" ? { body: s.data.body } : {}),
+        ...(typeof s.data.template === "string"
+          ? { template: s.data.template }
+          : {}),
+        ...(s.data.templateData ? { templateData: s.data.templateData } : {}),
+      };
+    case "document_preview":
+      return {
+        ...(typeof s.data.surfaceId === "string"
+          ? { surfaceId: s.data.surfaceId }
+          : {}),
+        ...(typeof s.data.title === "string" ? { title: s.data.title } : {}),
+        ...(typeof s.data.content === "string"
+          ? { content: s.data.content }
+          : {}),
+      };
+    default:
+      // For other types (list, table, form, confirmation, etc.),
+      // preserve the full data — these are generally small.
+      return s.data;
+  }
+}
+
 export function handleHistoryRequest(
   msg: HistoryRequest,
   ctx: HandlerContext,
@@ -190,7 +227,9 @@ export function handleHistoryRequest(
             })
         : m.toolCalls;
 
-    // In light mode, strip full data from surfaces (keep metadata)
+    // In light mode, strip heavy payloads but keep essential fields so
+    // the client can still parse and render surfaces (e.g. card title/body,
+    // dynamic_page preview, document_preview metadata).
     const filteredSurfaces =
       m.surfaces.length > 0
         ? includeSurfaceData
@@ -199,14 +238,7 @@ export function handleHistoryRequest(
               surfaceId: s.surfaceId,
               surfaceType: s.surfaceType,
               title: s.title,
-              data: {
-                ...(s.surfaceType === "dynamic_page"
-                  ? {
-                      ...(s.data.preview ? { preview: s.data.preview } : {}),
-                      ...(s.data.appId ? { appId: s.data.appId } : {}),
-                    }
-                  : {}),
-              } as Record<string, unknown>,
+              data: lightModeSurfaceData(s),
               ...(s.actions ? { actions: s.actions } : {}),
               ...(s.display ? { display: s.display } : {}),
             }))
