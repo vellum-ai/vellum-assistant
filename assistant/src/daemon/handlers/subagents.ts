@@ -20,11 +20,11 @@ export function handleSubagentAbort(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const callerSessionId: string | undefined = undefined;
+  const callerSessionId = msg.sessionId;
   if (!callerSessionId) {
     log.warn(
       { subagentId: msg.subagentId },
-      "Abort rejected: socket has no bound session",
+      "Abort rejected: no sessionId provided",
     );
     return;
   }
@@ -53,9 +53,9 @@ export function handleSubagentStatus(
 ): void {
   const manager = getSubagentManager();
 
-  const callerSessionId: string | undefined = undefined;
+  const callerSessionId = msg.sessionId;
   if (!callerSessionId) {
-    log.warn("Status rejected: socket has no bound session");
+    log.warn("Status rejected: no sessionId provided");
     return;
   }
 
@@ -97,11 +97,11 @@ export async function handleSubagentMessage(
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const callerSessionId: string | undefined = undefined;
+  const callerSessionId = msg.sessionId;
   if (!callerSessionId) {
     log.warn(
       { subagentId: msg.subagentId },
-      "Message rejected: socket has no bound session",
+      "Message rejected: no sessionId provided",
     );
     ctx.send(socket, {
       type: "error",
@@ -168,12 +168,12 @@ export function handleSubagentDetailRequest(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  // Ownership check: reject if the socket has no bound session.
-  const callerSessionId: string | undefined = undefined;
+  // Ownership check: reject if no sessionId was provided.
+  const callerSessionId = msg.sessionId;
   if (!callerSessionId) {
     log.warn(
       { subagentId: msg.subagentId },
-      "Detail request rejected: socket has no bound session",
+      "Detail request rejected: no sessionId provided",
     );
     return;
   }

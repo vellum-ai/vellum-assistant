@@ -37,24 +37,28 @@ export interface SubagentDetailResponse {
 export interface SubagentAbortRequest {
   type: "subagent_abort";
   subagentId: string;
+  sessionId?: string;
 }
 
 export interface SubagentStatusRequest {
   type: "subagent_status";
   /** If omitted, returns all subagents for the session. */
   subagentId?: string;
+  sessionId?: string;
 }
 
 export interface SubagentMessageRequest {
   type: "subagent_message";
   subagentId: string;
   content: string;
+  sessionId?: string;
 }
 
 export interface SubagentDetailRequest {
   type: "subagent_detail_request";
   subagentId: string;
   conversationId: string;
+  sessionId?: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
