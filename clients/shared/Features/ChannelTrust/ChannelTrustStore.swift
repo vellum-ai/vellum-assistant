@@ -27,7 +27,6 @@ public final class ChannelTrustStore: ObservableObject {
 
     private let daemonClient: DaemonClient
     private let contactsStore: ContactsStore
-    private var cancellables = Set<AnyCancellable>()
     private var fetchTask: Task<Void, Never>?
     private var decideTask: Task<Void, Never>?
 
@@ -87,8 +86,10 @@ public final class ChannelTrustStore: ObservableObject {
                 return
             }
             for await message in stream {
+                guard !Task.isCancelled else { return }
                 guard let self else { return }
                 if case .guardianActionsPendingResponse(let response) = message {
+                    guard response.conversationId == conversationId else { continue }
                     self.pendingActions = response.prompts
                     self.isLoadingActions = false
                     return
@@ -109,8 +110,10 @@ public final class ChannelTrustStore: ObservableObject {
                 try daemonClient.sendGuardianActionDecision(requestId: requestId, action: action, conversationId: conversationId)
             } catch { return }
             for await message in stream {
+                guard !Task.isCancelled else { return }
                 guard let self else { return }
                 if case .guardianActionDecisionResponse(let response) = message {
+                    guard response.requestId == requestId else { continue }
                     if response.applied {
                         self.pendingActions.removeAll { $0.requestId == requestId }
                     }
