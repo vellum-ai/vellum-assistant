@@ -2377,11 +2377,13 @@ public struct IPCHistoryResponseSurfaceAction: Codable, Sendable {
     public let id: String
     public let label: String
     public let style: String?
+    public let data: [String: AnyCodable]?
 
-    public init(id: String, label: String, style: String? = nil) {
+    public init(id: String, label: String, style: String? = nil, data: [String: AnyCodable]? = nil) {
         self.id = id
         self.label = label
         self.style = style
+        self.data = data
     }
 }
 
@@ -4598,11 +4600,14 @@ public struct IPCSurfaceAction: Codable, Sendable {
     public let id: String
     public let label: String
     public let style: String?
+    /// Optional data payload returned to the daemon when this action is clicked.
+    public let data: [String: AnyCodable]?
 
-    public init(id: String, label: String, style: String? = nil) {
+    public init(id: String, label: String, style: String? = nil, data: [String: AnyCodable]? = nil) {
         self.id = id
         self.label = label
         self.style = style
+        self.data = data
     }
 }
 

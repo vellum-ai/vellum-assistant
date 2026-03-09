@@ -429,17 +429,24 @@ public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
     public let id: String
     public let label: String
     public let style: SurfaceActionStyle
+    /// Optional data payload sent back to the daemon when this action is clicked.
+    public let data: [String: AnyCodable]?
     private let index: Int
 
     /// Unique identity for SwiftUI ForEach. Multiple actions can share the same
     /// `id` (e.g. "relay_prompt"), so we combine id + index to disambiguate.
     public var uniqueId: String { "\(id)-\(index)" }
 
-    public init(id: String, label: String, style: SurfaceActionStyle, index: Int = 0) {
+    public init(id: String, label: String, style: SurfaceActionStyle, data: [String: AnyCodable]? = nil, index: Int = 0) {
         self.id = id
         self.label = label
         self.style = style
+        self.data = data
         self.index = index
+    }
+
+    public static func == (lhs: SurfaceActionButton, rhs: SurfaceActionButton) -> Bool {
+        lhs.id == rhs.id && lhs.label == rhs.label && lhs.style == rhs.style && lhs.index == rhs.index && lhs.data == rhs.data
     }
 }
 
@@ -482,6 +489,7 @@ public extension Surface {
                 id: action.id,
                 label: action.label,
                 style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary,
+                data: action.data,
                 index: index
             )
         }
@@ -514,6 +522,7 @@ public extension Surface {
                 id: action.id,
                 label: action.label,
                 style: SurfaceActionStyle(rawValue: action.style ?? "secondary") ?? .secondary,
+                data: action.data,
                 index: index
             )
         }

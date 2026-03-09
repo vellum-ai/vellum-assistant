@@ -166,7 +166,17 @@ export interface SurfaceSessionContext {
   >;
   surfaceState: Map<
     string,
-    { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+    {
+      surfaceType: SurfaceType;
+      data: SurfaceData;
+      title?: string;
+      actions?: Array<{
+        id: string;
+        label: string;
+        style?: string;
+        data?: Record<string, unknown>;
+      }>;
+    }
   >;
   surfaceUndoStacks: Map<string, string[]>;
   /** Request IDs that originated from surface action button clicks (not regular user messages). */
@@ -176,7 +186,12 @@ export interface SurfaceSessionContext {
     surfaceType: SurfaceType;
     title?: string;
     data: SurfaceData;
-    actions?: Array<{ id: string; label: string; style?: string }>;
+    actions?: Array<{
+      id: string;
+      label: string;
+      style?: string;
+      data?: Record<string, unknown>;
+    }>;
     display?: string;
   }>;
   onEscalateToComputerUse?: (task: string, sourceSessionId: string) => boolean;
@@ -538,32 +553,39 @@ export function handleSurfaceAction(
     handleDocumentContentChanged(ctx, surfaceId, data);
     return;
   }
-  ctx.lastSurfaceAction.set(surfaceId, { actionId, data });
+  // Merge stored action-level data (from ui_show definition) with client-sent
+  // data. This is critical for relay_prompt buttons: the client only sends the
+  // actionId, but the prompt payload lives in the action definition's data.
+  const stored = ctx.surfaceState.get(surfaceId);
+  const actionDef = stored?.actions?.find((a) => a.id === actionId);
+  const mergedData: Record<string, unknown> | undefined =
+    actionDef?.data || data ? { ...actionDef?.data, ...data } : undefined;
+
+  ctx.lastSurfaceAction.set(surfaceId, { actionId, data: mergedData });
   const shouldRelayPrompt =
     actionId === "relay_prompt" || actionId === "agent_prompt";
   const prompt =
-    shouldRelayPrompt && typeof data?.prompt === "string"
-      ? data.prompt.trim()
+    shouldRelayPrompt && typeof mergedData?.prompt === "string"
+      ? mergedData.prompt.trim()
       : "";
 
   // Build a human-readable summary so the LLM clearly understands the
   // user's decision instead of parsing raw JSON.
-  const stored = ctx.surfaceState.get(surfaceId);
   const surfaceData = stored?.data as Record<string, unknown> | undefined;
   const summary = buildCompletionSummary(
     pending.surfaceType,
     actionId,
-    data,
+    mergedData,
     surfaceData,
   );
   let fallbackContent = `[User action on ${pending.surfaceType} surface: ${summary}]`;
   // Append structured data so the LLM has access to IDs/values it needs
   // to act on (e.g. selectedIds for archiving).
-  if (data && Object.keys(data).length > 0) {
-    fallbackContent += `\n\nAction data: ${JSON.stringify(data)}`;
+  if (mergedData && Object.keys(mergedData).length > 0) {
+    fallbackContent += `\n\nAction data: ${JSON.stringify(mergedData)}`;
   }
   // Append deselection context for table/list surfaces so the LLM knows what the user chose to keep.
-  const selectedIds = data?.selectedIds as string[] | undefined;
+  const selectedIds = mergedData?.selectedIds as string[] | undefined;
   if (
     selectedIds &&
     (pending.surfaceType === "table" || pending.surfaceType === "list")
@@ -574,11 +596,35 @@ export function handleSurfaceAction(
       selectedIds,
     );
   }
-  const content = prompt || fallbackContent;
+  // When a relay_prompt button also carries selection data (e.g. list/table
+  // surface with a canned prompt + user-selected rows), append the selection
+  // context so the LLM sees both the prompt and the user's selections.
+  let content = prompt || fallbackContent;
+  if (prompt && mergedData && Object.keys(mergedData).length > 1) {
+    const { prompt: _p, ...rest } = mergedData;
+    if (Object.keys(rest).length > 0) {
+      content += `\n\nAction data: ${JSON.stringify(rest)}`;
+    }
+    if (
+      selectedIds &&
+      (pending.surfaceType === "table" || pending.surfaceType === "list")
+    ) {
+      content += buildDeselectionDescription(
+        pending.surfaceType,
+        stored,
+        selectedIds,
+      );
+    }
+  }
   // Show the user plain-text instead of raw JSON action data.
   const displayContent = prompt
     ? undefined
-    : buildUserFacingLabel(pending.surfaceType, actionId, data, surfaceData);
+    : buildUserFacingLabel(
+        pending.surfaceType,
+        actionId,
+        mergedData,
+        surfaceData,
+      );
 
   const requestId = uuid();
   ctx.surfaceActionRequestIds.add(requestId);
@@ -912,7 +958,12 @@ export async function surfaceProxyResolver(
           : rawData
     ) as SurfaceData;
     const actions = input.actions as
-      | Array<{ id: string; label: string; style?: string }>
+      | Array<{
+          id: string;
+          label: string;
+          style?: string;
+          data?: Record<string, unknown>;
+        }>
       | undefined;
     // Interactive surfaces default to awaiting user action.
     const hasActions = Array.isArray(actions) && actions.length > 0;
@@ -942,9 +993,6 @@ export async function surfaceProxyResolver(
       }
     }
 
-    // Track surface state for ui_update merging
-    ctx.surfaceState.set(surfaceId, { surfaceType, data, title });
-
     const display = (input.display as string) === "panel" ? "panel" : "inline";
 
     const mappedActions = actions?.map((a) => ({
@@ -954,7 +1002,17 @@ export async function surfaceProxyResolver(
         | "primary"
         | "secondary"
         | "destructive",
+      ...(a.data ? { data: a.data } : {}),
     }));
+
+    // Track surface state for ui_update merging (includes actions so we can
+    // look up per-action data payloads when the client sends an action back).
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType,
+      data,
+      title,
+      actions: mappedActions,
+    });
 
     ctx.sendToClient({
       type: "ui_surface_show",

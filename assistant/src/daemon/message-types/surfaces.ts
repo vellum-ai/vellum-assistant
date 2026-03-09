@@ -23,6 +23,8 @@ export interface SurfaceAction {
   id: string;
   label: string;
   style?: "primary" | "secondary" | "destructive";
+  /** Optional data payload returned to the daemon when this action is clicked. */
+  data?: Record<string, unknown>;
 }
 
 export interface CardSurfaceData {
