@@ -8,8 +8,8 @@ public struct VShortcutTag: View {
 
     @State private var isHovered = false
 
-    private let tagColor = Color(hex: 0xA1A096)
-    private let borderColor = Color(hex: 0xE8E6DA)
+    private let tagColor = VColor.tagText
+    private let borderColor = VColor.tagBorder
 
     public init(_ text: String, icon: String? = nil, action: (() -> Void)? = nil) {
         self.text = text

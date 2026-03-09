@@ -74,9 +74,9 @@ public struct VIconButton: View {
 
     private var iconForegroundColor: Color {
         if isActive {
-            return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._300)
+            return VColor.iconAccent
         }
-        return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
+        return VColor.buttonSecondaryText
     }
 }
 

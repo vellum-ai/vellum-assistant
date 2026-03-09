@@ -147,9 +147,9 @@ private struct VButtonStyle: ButtonStyle {
             if isHovered { return VColor.buttonSecondaryBgHover }
             return VColor.buttonSecondaryBg
         case .danger:
-            if isPressed { return Color(hex: 0xE0745A) }
-            if isHovered { return Color(hex: 0xD4582F) }
-            return Color(hex: 0xC1421B)
+            if isPressed { return VColor.buttonDangerPressed }
+            if isHovered { return VColor.buttonDangerHover }
+            return VColor.buttonDanger
         case .tertiary:
             if isPressed { return VColor.ghostPressed }
             if isHovered { return VColor.ghostHover }
@@ -171,11 +171,11 @@ private struct VButtonStyle: ButtonStyle {
         switch style {
         case .primary: return .white
         case .tertiary: return VColor.buttonSecondaryText
-        case .secondary: return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400)
+        case .secondary: return VColor.buttonSecondaryText
         case .danger: return .white
-        case .ghost: return Color(hex: 0x537D53)
+        case .ghost: return VColor.buttonPrimary
         case .outlined: return VColor.buttonSecondaryText
-        case .success: return adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._300)
+        case .success: return VColor.iconAccent
         }
     }
 
