@@ -34,8 +34,8 @@ final class E2EStatusOverlayWindow {
             defer: false
         )
         overlayPanel.contentViewController = hostingController
-        overlayPanel.isFloatingPanel = true
-        overlayPanel.level = .statusBar
+        overlayPanel.isFloatingPanel = false
+        overlayPanel.level = .normal
         overlayPanel.isMovableByWindowBackground = true
         overlayPanel.backgroundColor = .clear
         overlayPanel.isOpaque = false
@@ -50,7 +50,9 @@ final class E2EStatusOverlayWindow {
             overlayPanel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
-        overlayPanel.orderFront(nil)
+        // Place behind other app windows so the e2e agent inspects the real
+        // app window first (it enumerates windows in front-to-back order).
+        overlayPanel.orderBack(nil)
         self.panel = overlayPanel
 
         vm.startWatching()

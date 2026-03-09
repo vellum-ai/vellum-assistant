@@ -60,11 +60,13 @@ struct WakeUpStepView: View {
                 OnboardingButton(title: "Sign in", style: .primary) {
                     onContinueWithVellum()
                 }
+                .accessibilityLabel("Sign in")
             }
 
             OnboardingButton(title: "Self-host", style: .tertiary) {
                 onStartWithAPIKey()
             }
+            .accessibilityLabel("Self-host")
 
             // Auth error message
             if let error = authManager?.errorMessage {
