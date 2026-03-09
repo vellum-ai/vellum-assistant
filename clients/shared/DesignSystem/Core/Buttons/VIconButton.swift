@@ -74,7 +74,7 @@ public struct VIconButton: View {
 
     private var iconForegroundColor: Color {
         if isActive {
-            return VColor.iconAccent
+            return VColor.activeIconForeground
         }
         return VColor.buttonSecondaryText
     }
