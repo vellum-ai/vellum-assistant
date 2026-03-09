@@ -174,7 +174,7 @@ sequenceDiagram
             end
 
             Session->>DC: send(CuObservationMessage)
-            Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error<br/>Optional: axTreeBlob, screenshotBlob<br/>(blob refs when transport available)
+            Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
 
             DC->>Daemon: HTTP POST
             Daemon->>Claude: API call with observation

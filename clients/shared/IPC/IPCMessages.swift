@@ -1412,20 +1412,6 @@ public typealias BundleAppResponseMessage = IPCBundleAppResponse
 /// Backed by generated `IPCSignBundlePayloadRequest`.
 public typealias SignBundlePayloadMessage = IPCSignBundlePayloadRequest
 
-/// Blob probe request sent after connecting to verify filesystem reachability.
-/// Backed by generated `IPCIpcBlobProbe`.
-public typealias IpcBlobProbeMessage = IPCIpcBlobProbe
-
-extension IPCIpcBlobProbe {
-    public init(probeId: String, nonceSha256: String) {
-        self.init(type: "ipc_blob_probe", probeId: probeId, nonceSha256: nonceSha256)
-    }
-}
-
-/// Result from a blob probe verification.
-/// Backed by generated `IPCIpcBlobProbeResult`.
-public typealias IpcBlobProbeResultMessage = IPCIpcBlobProbeResult
-
 /// Real-time execution trace event from the daemon.
 /// Wire type: `"trace_event"`
 public struct TraceEventMessage: Decodable, Sendable {
@@ -2219,7 +2205,6 @@ public enum ServerMessage: Decodable, Sendable {
     case documentSaveResponse(DocumentSaveResponseMessage)
     case documentLoadResponse(DocumentLoadResponseMessage)
     case documentListResponse(DocumentListResponseMessage)
-    case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case openUrl(OpenUrlMessage)
     case navigateSettings(IPCNavigateSettings)
@@ -2557,9 +2542,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "ui_surface_undo_result":
             let message = try UiSurfaceUndoResultMessage(from: decoder)
             self = .uiSurfaceUndoResult(message)
-        case "ipc_blob_probe_result":
-            let message = try IpcBlobProbeResultMessage(from: decoder)
-            self = .ipcBlobProbeResult(message)
         case "open_url":
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)

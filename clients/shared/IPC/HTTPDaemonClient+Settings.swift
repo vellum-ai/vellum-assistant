@@ -217,13 +217,6 @@ extension HTTPTransport {
                 Task { await self.sendEncodablePost(.workspaceFilesRead, body: msg, label: "workspace_file_read") }
                 return true
             }
-
-            // --- IPC Blob Probe ---
-            if let msg = message as? IpcBlobProbeMessage {
-                Task { await self.sendEncodablePost(.diagnosticsExport, body: msg, label: "ipc_blob_probe") }
-                return true
-            }
-
             // --- Register Device Token ---
             if let msg = message as? RegisterDeviceTokenMessage {
                 Task { await self.sendEncodablePost(.registerDeviceToken, body: msg, label: "register_device_token") }
