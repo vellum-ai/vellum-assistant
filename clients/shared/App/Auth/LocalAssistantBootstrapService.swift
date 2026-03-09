@@ -182,7 +182,9 @@ public final class LocalAssistantBootstrapService {
 
         // Step 5: Inject into daemon
         try await injectKeyIntoDaemon(key: rawKey, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
-        try await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)
+        if (try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId, daemonBaseURL: daemonBaseURL, daemonToken: daemonToken)) == nil {
+            log.warning("Failed to inject platform assistant ID into daemon on provision path; the TS env-var fallback will be used")
+        }
 
         return .registeredAndProvisioned(assistantId: platformAssistantId)
     }
