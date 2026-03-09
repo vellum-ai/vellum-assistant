@@ -11,8 +11,8 @@ import {
   searchRecentTweets as managedSearchRecentTweets,
   TwitterProxyError,
 } from "../../../twitter/platform-proxy-client.js";
-import type { PostTweetResult, TweetEntry, UserInfo } from "./client.js";
 import { oauthIsAvailable, oauthPostTweet } from "./oauth-client.js";
+import type { PostTweetResult, TweetEntry, UserInfo } from "./types.js";
 
 export type TwitterMode = "oauth" | "managed";
 
