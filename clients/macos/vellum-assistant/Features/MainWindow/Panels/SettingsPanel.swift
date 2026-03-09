@@ -97,8 +97,9 @@ struct SettingsPanel: View {
     @State private var permissionCheckTask: Task<Void, Never>?
     @State private var selectedTab: SettingsTab = .account
     @State private var isContactsEnabled: Bool = false
-    @AppStorage("MacOSFeatureFlag.sentrytestingenabled") private var isSentryTestingEnabled: Bool = false
+    @State private var isSentryTestingEnabled: Bool = false
     private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
+    private static let sentryTestingFeatureFlagKey = "sentry_testing_enabled"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -147,9 +148,10 @@ struct SettingsPanel: View {
         .background(VColor.backgroundSubtle)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .task {
-            // Refresh permission status and contacts feature flag when the view appears
+            // Refresh permission status and feature flags when the view appears
             await refreshPermissionStatus()
             await loadContactsFeatureFlag()
+            isSentryTestingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.sentryTestingFeatureFlagKey)
         }
         .onAppear {
             store.refreshAPIKeyState()
@@ -184,17 +186,18 @@ struct SettingsPanel: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
             if let key = notification.userInfo?["key"] as? String,
-               let enabled = notification.userInfo?["enabled"] as? Bool,
-               key == Self.contactsFeatureFlagKey {
-                isContactsEnabled = enabled
-                if !enabled && selectedTab == .contacts {
-                    selectedTab = .account
+               let enabled = notification.userInfo?["enabled"] as? Bool {
+                if key == Self.contactsFeatureFlagKey {
+                    isContactsEnabled = enabled
+                    if !enabled && selectedTab == .contacts {
+                        selectedTab = .account
+                    }
+                } else if key == Self.sentryTestingFeatureFlagKey {
+                    isSentryTestingEnabled = enabled
+                    if !enabled && selectedTab == .sentryTesting {
+                        selectedTab = .account
+                    }
                 }
-            }
-        }
-        .onChange(of: isSentryTestingEnabled) { _, enabled in
-            if !enabled && selectedTab == .sentryTesting {
-                selectedTab = .account
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
