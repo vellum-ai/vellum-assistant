@@ -310,9 +310,6 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
     /// Called when the daemon sends a `document_save_response` message.
     public var onDocumentSaveResponse: ((DocumentSaveResponseMessage) -> Void)?
 
-    /// Called when the daemon sends a `document_list_response` message.
-    public var onDocumentListResponse: ((DocumentListResponseMessage) -> Void)?
-
     /// Called when the daemon sends a `document_load_response` message.
     public var onDocumentLoadResponse: ((DocumentLoadResponseMessage) -> Void)?
 
