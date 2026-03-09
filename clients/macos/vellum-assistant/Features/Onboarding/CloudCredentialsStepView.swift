@@ -58,7 +58,7 @@ struct CloudCredentialsStepView: View {
 
             backButton
 
-            OnboardingFooter(currentStep: state.currentStep, totalSteps: 3)
+            OnboardingFooter(currentStep: state.currentStep, totalSteps: 4)
         }
         .padding(.horizontal, VSpacing.xxl)
         .padding(.bottom, VSpacing.lg)
@@ -429,7 +429,7 @@ struct CloudCredentialsStepView: View {
 
     private var continueButton: some View {
         OnboardingButton(
-            title: isCustomHardware ? "Pair!" : "Hatch!",
+            title: "Continue",
             style: .primary,
             disabled: continueDisabled
         ) {
