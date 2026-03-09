@@ -291,4 +291,8 @@ public enum VColor {
     // Slider
     public static let sliderTrack = adaptiveColor(light: Moss._100, dark: Moss._700)
     public static let sliderFill = adaptiveColor(light: Forest._300, dark: Forest._500)
+
+    // Subagent / skill chip
+    public static let statusRunning = adaptiveColor(light: Forest._600, dark: Forest._400)
+    public static let skillChipBorder = adaptiveColor(light: Amber._400, dark: Amber._600)
 }

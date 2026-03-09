@@ -31,11 +31,11 @@ public struct SkillInvocationChip: View {
         }
         .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.md)
-        .background(adaptiveColor(light: Moss._100, dark: Moss._700))
+        .background(VColor.inputBackground)
         .clipShape(PixelBorderShape())
         .overlay(
             PixelBorderShape()
-                .stroke(adaptiveColor(light: Amber._400, dark: Amber._600).opacity(0.6), lineWidth: 2)
+                .stroke(VColor.skillChipBorder.opacity(0.6), lineWidth: 2)
         )
     }
 }

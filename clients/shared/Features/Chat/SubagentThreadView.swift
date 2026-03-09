@@ -22,7 +22,7 @@ public struct SubagentThreadView: View {
         switch subagent.status {
         case .completed: return VColor.success
         case .failed, .aborted: return VColor.error
-        default: return adaptiveColor(light: Forest._600, dark: Forest._400)
+        default: return VColor.statusRunning
         }
     }
 
@@ -113,7 +113,7 @@ public struct SubagentThreadView: View {
             if replyCount > 0 {
                 Text("\(replyCount) repl\(replyCount == 1 ? "y" : "ies")")
                     .font(VFont.captionMedium)
-                    .foregroundColor(isHovered ? VColor.iconAccent : adaptiveColor(light: Forest._600, dark: Forest._400))
+                    .foregroundColor(isHovered ? VColor.iconAccent : VColor.statusRunning)
             } else if isRunning {
                 Text("Working...")
                     .font(VFont.caption)
