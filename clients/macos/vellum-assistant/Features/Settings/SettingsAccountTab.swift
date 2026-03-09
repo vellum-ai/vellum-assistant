@@ -449,8 +449,30 @@ struct SettingsAccountTab: View {
     /// Fetch the hatch-new-assistant flag from the gateway API.
     /// Falls back to the local workspace config if the gateway is unreachable.
     private func loadHatchFlag() async {
-        // The flag defaults to enabled in the registry. Skip the gateway
-        // round-trip — the default @State value (true) is correct.
+        guard let daemonClient else { return }
+        isLoadingHatchFlag = true
+        do {
+            let flags = try await daemonClient.getFeatureFlags()
+            if let hatchFlag = flags.first(where: { $0.key == Self.hatchNewAssistantFlagKey }) {
+                isHatchFlagEnabled = hatchFlag.enabled
+                isLoadingHatchFlag = false
+                return
+            }
+        } catch {
+            // Gateway unreachable — fall through to local config fallback
+        }
+
+        let config = WorkspaceConfigIO.read()
+
+        // Check canonical assistantFeatureFlagValues first (new format)
+        if let canonicalFlags = config["assistantFeatureFlagValues"] as? [String: Bool] {
+            if let enabled = canonicalFlags[Self.hatchNewAssistantFlagKey] {
+                isHatchFlagEnabled = enabled
+                isLoadingHatchFlag = false
+                return
+            }
+        }
+        // On failure, default to showing the hatch section
         isHatchFlagEnabled = true
         isLoadingHatchFlag = false
     }
