@@ -56,8 +56,6 @@ extension DaemonClient {
             onDocumentSaveResponse?(msg)
         case .documentLoadResponse(let msg):
             onDocumentLoadResponse?(msg)
-        case .documentListResponse(let msg):
-            onDocumentListResponse?(msg)
         case .uiLayoutConfig(let msg):
             onLayoutConfig?(msg)
         case .appFilesChanged(let msg):
