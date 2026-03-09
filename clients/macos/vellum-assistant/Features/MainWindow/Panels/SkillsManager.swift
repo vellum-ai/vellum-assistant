@@ -30,8 +30,6 @@ final class SkillsManager: ObservableObject {
     typealias UninstallResult = SkillsStore.UninstallResult
     typealias SkillDraftResult = SkillsStore.SkillDraftResult
 
-    private var cancellables = Set<AnyCancellable>()
-
     init(daemonClient: DaemonClient) {
         self.skillsStore = SkillsStore(daemonClient: daemonClient)
         bindStore()
