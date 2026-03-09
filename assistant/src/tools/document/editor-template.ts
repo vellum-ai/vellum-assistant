@@ -39,17 +39,19 @@ export function generateEditorHTML(
       --v-text: #1D1D1F;
       --v-text-secondary: #86868B;
       --v-text-muted: #AEAEB2;
-      --v-accent: #8A5BE0;
+      --v-accent: #657D5B;
+      --v-accent-hover: #516748;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --v-bg: #070D19;
-        --v-surface: #1E293B;
-        --v-surface-border: #334155;
-        --v-text: #F8FAFC;
-        --v-text-secondary: #94A3B8;
-        --v-text-muted: #64748B;
-        --v-accent: #8A5BE0;
+        --v-bg: #20201E;
+        --v-surface: #3A3A37;
+        --v-surface-border: #4A4A46;
+        --v-text: #F5F3EB;
+        --v-text-secondary: #A1A096;
+        --v-text-muted: #6B6B65;
+        --v-accent: #657D5B;
+        --v-accent-hover: #516748;
       }
     }
 
