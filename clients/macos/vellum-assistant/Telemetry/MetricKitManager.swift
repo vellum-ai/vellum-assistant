@@ -98,11 +98,12 @@ import os
     nonisolated static func startSentry() {
         sentrySerialQueue.async {
             guard !SentrySDK.isEnabled else { return }
+            let perfOptIn = UserDefaults.standard.bool(forKey: "sendPerformanceReports")
             SentrySDK.start { options in
                 options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
                 options.debug = false
                 options.tracesSampleRate = 0.1
-                options.profilesSampleRate = 1.0
+                options.profilesSampleRate = perfOptIn ? 1.0 : 0
                 options.sendDefaultPii = false
             }
         }

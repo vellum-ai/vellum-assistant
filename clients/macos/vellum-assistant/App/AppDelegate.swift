@@ -147,14 +147,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // are captured. Privacy opt-out is checked after the daemon is ready and
         // applied via SentrySDK.close() — matching the daemon-side pattern in
         // lifecycle.ts (init at top, close after config load if flag disabled).
+        let perfOptIn = UserDefaults.standard.bool(forKey: "sendPerformanceReports")
         SentrySDK.start { options in
             options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
             options.debug = false
             options.tracesSampleRate = 0.1
-            // Profile 10% of sampled transactions for performance insights.
-            // Transaction-based profiling is lighter than continuous profiling
-            // and automatically follows the SDK enable/disable lifecycle.
-            options.profilesSampleRate = 1.0
+            // Only profile sampled transactions when user opted into performance metrics.
+            options.profilesSampleRate = perfOptIn ? 1.0 : 0
             options.sendDefaultPii = false
         }
 
