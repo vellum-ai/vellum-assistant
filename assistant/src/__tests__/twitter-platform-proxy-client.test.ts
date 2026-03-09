@@ -7,11 +7,14 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let mockApiKey: string | undefined = "test-api-key-123";
 let mockPlatformEnvUrl = "https://platform.vellum.ai";
 let mockPlatformAssistantId = "ast_abc123";
+let mockPlatformAssistantIdFromStore: string | undefined = undefined;
 let mockConfigBaseUrl = "";
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKey: (account: string) => {
     if (account === "credential:vellum:assistant_api_key") return mockApiKey;
+    if (account === "credential:vellum:platform_assistant_id")
+      return mockPlatformAssistantIdFromStore;
     return undefined;
   },
 }));
@@ -73,6 +76,7 @@ beforeEach(() => {
   mockApiKey = "test-api-key-123";
   mockPlatformEnvUrl = "https://platform.vellum.ai";
   mockPlatformAssistantId = "ast_abc123";
+  mockPlatformAssistantIdFromStore = undefined;
   mockConfigBaseUrl = "";
   lastFetchArgs = null;
   fetchResponse = {
@@ -118,7 +122,20 @@ describe("prerequisite resolution", () => {
   });
 
   test("resolvePlatformAssistantId returns the env value", () => {
+    mockPlatformAssistantIdFromStore = undefined;
     expect(resolvePlatformAssistantId()).toBe("ast_abc123");
+  });
+
+  test("resolvePlatformAssistantId prefers secure key store over env", () => {
+    mockPlatformAssistantIdFromStore = "ast_from_store";
+    mockPlatformAssistantId = "ast_from_env";
+    expect(resolvePlatformAssistantId()).toBe("ast_from_store");
+  });
+
+  test("resolvePlatformAssistantId falls back to env when store is empty", () => {
+    mockPlatformAssistantIdFromStore = undefined;
+    mockPlatformAssistantId = "ast_from_env";
+    expect(resolvePlatformAssistantId()).toBe("ast_from_env");
   });
 
   test("resolvePrerequisites returns all values when present", () => {

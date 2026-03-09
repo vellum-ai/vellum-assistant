@@ -106,7 +106,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKey: (account: string) => secureKeyStore[account] ?? undefined,
+  getSecureKey: (account: string) => {
+    if (account === "credential:vellum:platform_assistant_id")
+      return "ast_test123";
+    return secureKeyStore[account] ?? undefined;
+  },
   setSecureKey: (account: string, value: string) => {
     secureKeyStore[account] = value;
     return true;
