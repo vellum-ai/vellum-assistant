@@ -94,7 +94,7 @@ function createExpiredRequest(
   const pq = createPendingQuestion(session.id, "What is the gate code?");
   const request = createGuardianActionRequest({
     kind: "ask_guardian",
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     sourceConversationId: convId,
     callSessionId: session.id,
     pendingQuestionId: pq.id,
@@ -162,7 +162,7 @@ describe("guardian-action-late-reply", () => {
   test("getExpiredDeliveriesByDestination returns empty for non-matching channel", () => {
     createExpiredRequest("conv-late-2", { chatId: "chat-abc" });
 
-    const deliveries = getExpiredDeliveriesByDestination("voice", "chat-abc");
+    const deliveries = getExpiredDeliveriesByDestination("phone", "chat-abc");
     expect(deliveries).toHaveLength(0);
   });
 
@@ -250,7 +250,7 @@ describe("guardian-action-late-reply", () => {
     const pq = createPendingQuestion(session.id, "Still pending question");
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: convId,
       callSessionId: session.id,
       pendingQuestionId: pq.id,
@@ -276,7 +276,7 @@ describe("guardian-action-late-reply", () => {
     const pq = createPendingQuestion(session.id, "Already answered question");
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: convId,
       callSessionId: session.id,
       pendingQuestionId: pq.id,
@@ -364,7 +364,7 @@ describe("guardian-action-late-reply", () => {
       );
       const request = createGuardianActionRequest({
         kind: "ask_guardian",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         sourceConversationId: sourceConvId,
         callSessionId: session.id,
         pendingQuestionId: pq.id,
@@ -522,7 +522,7 @@ describe("guardian-action-late-reply", () => {
       );
       const oldRequest = createGuardianActionRequest({
         kind: "ask_guardian",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         sourceConversationId: convId,
         callSessionId: session.id,
         pendingQuestionId: pqOld.id,
@@ -556,7 +556,7 @@ describe("guardian-action-late-reply", () => {
       );
       const newRequest = createGuardianActionRequest({
         kind: "ask_guardian",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         sourceConversationId: convId,
         callSessionId: session.id,
         pendingQuestionId: pqNew.id,
@@ -643,7 +643,7 @@ describe("guardian-action-late-reply", () => {
       const pq = createPendingQuestion(session.id, "What is the code?");
       const request = createGuardianActionRequest({
         kind: "ask_guardian",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         sourceConversationId: convId,
         callSessionId: session.id,
         pendingQuestionId: pq.id,
@@ -696,7 +696,7 @@ describe("guardian-action-late-reply", () => {
       const pq = createPendingQuestion(session.id, "What is the code?");
       const request = createGuardianActionRequest({
         kind: "ask_guardian",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         sourceConversationId: convId,
         callSessionId: session.id,
         pendingQuestionId: pq.id,
@@ -806,7 +806,7 @@ describe("guardian-action-late-reply", () => {
       );
       const request = createGuardianActionRequest({
         kind: "ask_guardian",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         sourceConversationId: sourceConvId,
         callSessionId: session.id,
         pendingQuestionId: pq.id,
@@ -905,7 +905,7 @@ describe("guardian-action-late-reply", () => {
       const pqOld = createPendingQuestion(session.id, "Old question?");
       const oldRequest = createGuardianActionRequest({
         kind: "ask_guardian",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         sourceConversationId: convId,
         callSessionId: session.id,
         pendingQuestionId: pqOld.id,
@@ -930,7 +930,7 @@ describe("guardian-action-late-reply", () => {
       const pqNew = createPendingQuestion(session.id, "New question?");
       const newRequest = createGuardianActionRequest({
         kind: "ask_guardian",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         sourceConversationId: convId,
         callSessionId: session.id,
         pendingQuestionId: pqNew.id,

@@ -13,11 +13,6 @@ final class MockDaemonClientTests: XCTestCase {
         XCTAssertFalse(client.isConnected, "New client should start disconnected")
     }
 
-    func testInitialBlobTransportUnavailable() {
-        let client = MockDaemonClient()
-        XCTAssertFalse(client.isBlobTransportAvailable, "Blob transport should be unavailable on init")
-    }
-
     func testInitialSentMessagesIsEmpty() {
         let client = MockDaemonClient()
         XCTAssertTrue(client.sentMessages.isEmpty, "No messages should be recorded before any sends")

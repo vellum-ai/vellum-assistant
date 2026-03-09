@@ -154,7 +154,7 @@ For `bash` and `host_bash` tool invocations, the permission system uses parser-d
 
 ### Prompt UX
 
-When a permission prompt is sent to the client (via `confirmation_request` IPC message), it includes:
+When a permission prompt is sent to the client (via `confirmation_request` SSE event), it includes:
 
 | Field              | Content                                             |
 | ------------------ | --------------------------------------------------- |
@@ -189,7 +189,7 @@ File tool candidates include canonical (symlink-resolved) absolute paths via `no
 
 ### Permission Simulation (Tool Permission Tester)
 
-The `tool_permission_simulate` IPC message lets clients dry-run a tool invocation through the full permission evaluation pipeline without actually executing the tool or mutating daemon state. The macOS Settings panel exposes this as a "Tool Permission Tester" UI.
+The `tool_permission_simulate` HTTP endpoint lets clients dry-run a tool invocation through the full permission evaluation pipeline without actually executing the tool or mutating daemon state. The macOS Settings panel exposes this as a "Tool Permission Tester" UI.
 
 **Simulation semantics:**
 
@@ -312,7 +312,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ## Channel-Agnostic Scoped Approval Grants
 
-Scoped approval grants are a channel-agnostic primitive that allows a guardian's approval decision on one channel (e.g., Telegram) to authorize a tool execution on a different channel (e.g., voice). Each grant authorizes exactly one tool execution and is consumed atomically.
+Scoped approval grants are a channel-agnostic primitive that allows a guardian's approval decision on one channel (e.g., Telegram) to authorize a tool execution on a different channel (e.g., phone). Each grant authorizes exactly one tool execution and is consumed atomically.
 
 ### Scope Modes
 

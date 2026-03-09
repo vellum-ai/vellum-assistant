@@ -1,8 +1,8 @@
 ---
-name: "X"
-description: "Read and post on X (formerly Twitter) via OAuth or browser session"
-user-invocable: true
-metadata: { "vellum": { "emoji": "𝕏" } }
+name: twitter
+description: Read and post on X (formerly Twitter) via OAuth or browser session
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"𝕏","vellum":{"display-name":"X","user-invocable":true}}
 ---
 
 You are an X (formerly Twitter) assistant. Use the `bash` tool to run `assistant x`, `assistant config`, and `assistant oauth` CLI commands.
@@ -22,11 +22,12 @@ OAuth uses the official X API v2. It is the most reliable connection method and 
 
 ### Browser session (no developer credentials needed)
 
-The browser path is quick to start and useful when the user does not have X developer app credentials. It captures auth cookies from Chrome and uses them to interact with X.
+The browser path is quick to start and useful when the user does not have X developer app credentials. It captures auth cookies from Chrome and uses them to interact with X. Chrome management uses `assistant browser chrome launch` and `assistant browser chrome minimize` CLI commands internally.
 
 - Supports: **all operations** (post, reply, timeline, search, home, bookmarks, notifications, likes, followers, following, media)
 - Setup: Run `assistant x refresh` to open Chrome and capture session cookies automatically.
 - Set the strategy: `assistant config set twitter.operationStrategy browser`
+- **Session storage**: Session cookies are stored in the encrypted credential store under the key `twitter:session:cookies`. You can inspect the stored session with `assistant credentials inspect twitter:session:cookies`.
 
 ### Auto mode (default)
 

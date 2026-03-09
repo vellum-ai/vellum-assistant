@@ -13,7 +13,7 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import type { ChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Session } from "../daemon/session.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
 import { resolveChannelCapabilities } from "../daemon/session-runtime-assembly.js";
@@ -219,7 +219,7 @@ function buildVoiceCallControlPrompt(opts: {
  * Execute a single voice turn through the daemon session pipeline.
  *
  * Manages the session directly with voice-specific defaults:
- *   - sourceChannel: 'voice'
+ *   - sourceChannel: 'phone'
  *   - event sink wired to the provided callbacks
  *   - abort propagated from the returned handle
  *

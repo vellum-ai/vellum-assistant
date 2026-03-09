@@ -249,10 +249,6 @@ async function dispatchGuardianQuestionInner(
         continue;
       }
 
-      if (result.channel !== "telegram") {
-        continue;
-      }
-
       const delivery = createCanonicalGuardianDelivery({
         requestId: request.id,
         destinationChannel: result.channel,

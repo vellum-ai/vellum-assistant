@@ -65,6 +65,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     lazy var recordingManager: RecordingManager = RecordingManager(daemonClient: daemonClient)
     var recordingPickerWindow: RecordingSourcePickerWindow?
     var recordingHUDWindow: RecordingHUDWindow?
+    var e2eStatusOverlayWindow: E2EStatusOverlayWindow?
 
     var onboardingWindow: OnboardingWindow?
     var authWindow: NSWindow?
@@ -84,6 +85,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var bootstrapFailureKind: BootstrapFailureKind = .unknown
     /// Background task that retries actor-token bootstrap until success.
     var actorTokenBootstrapTask: Task<Void, Never>?
+    /// Opaque token returned by `NotificationCenter.addObserver(forName:)` for
+    /// the daemon-instance-changed observer. Stored so we can properly remove
+    /// the closure-based observer before registering a new one.
+    var instanceChangeObserver: NSObjectProtocol?
     /// Tracks file paths of .vellum bundles awaiting daemon responses (FIFO).
     /// Each call to sendOpenBundle appends a path; handleOpenBundleResponse
     /// pops the first entry so concurrent opens are correctly paired.
@@ -182,6 +187,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         let skipOnboarding = false
         #endif
 
+        if let statusFile = ProcessInfo.processInfo.environment["E2E_STATUS_FILE"] {
+            let overlay = E2EStatusOverlayWindow(statusFilePath: statusFile)
+            overlay.show()
+            self.e2eStatusOverlayWindow = overlay
+        }
+
         // Set up menu bar and hotkeys early so they work regardless of auth state.
         setupMenuBar()
         setupHotKey()
@@ -273,6 +284,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             ensureActorCredentials()
         }
 
+        // Provision an AssistantAPIKey for local assistants so they can
+        // call platform APIs (e.g. managed avatar generation).
+        ensureLocalAssistantApiKey()
+
         if isFirstLaunch {
             // Enter the bootstrap state machine. The sequence is:
             // pendingDaemon → pendingWakeupSend → pendingFirstReply → complete
@@ -330,6 +345,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         secretPromptManager.dismissAll()
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
+        e2eStatusOverlayWindow?.dismiss()
         debugStateWriter.stop()
         #if !DEBUG
         keychainBroker?.stop()

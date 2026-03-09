@@ -3,13 +3,14 @@ import { existsSync } from "fs";
 import { createRequire } from "module";
 import { dirname, join } from "path";
 
-import { saveAssistantEntry } from "./assistant-config";
+import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { DEFAULT_GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
 import { discoverPublicUrl } from "./local";
 import { generateRandomSuffix } from "./random-name";
-import { exec } from "./step-runner";
+import { exec, execOutput } from "./step-runner";
+import { closeLogFile, openLogFile, writeToLogFile } from "./xdg-log";
 
 const _require = createRequire(import.meta.url);
 
@@ -66,6 +67,85 @@ function findDockerRoot(): DockerRoot {
   );
 }
 
+/**
+ * Creates a line-buffered output prefixer that prepends `[docker]` to each
+ * line from the container's stdout/stderr. Calls `onLine` for each complete
+ * line so the caller can detect sentinel output (e.g. hatch completion).
+ */
+function createLinePrefixer(
+  stream: NodeJS.WritableStream,
+  onLine?: (line: string) => void,
+): { write(data: Buffer): void; flush(): void } {
+  let remainder = "";
+  return {
+    write(data: Buffer) {
+      const text = remainder + data.toString();
+      const lines = text.split("\n");
+      remainder = lines.pop() ?? "";
+      for (const line of lines) {
+        stream.write(`   [docker] ${line}\n`);
+        onLine?.(line);
+      }
+    },
+    flush() {
+      if (remainder) {
+        stream.write(`   [docker] ${remainder}\n`);
+        onLine?.(remainder);
+        remainder = "";
+      }
+    },
+  };
+}
+
+async function fetchRemoteBearerToken(
+  containerName: string,
+): Promise<string | null> {
+  try {
+    const remoteCmd =
+      'cat ~/.vellum.lock.json 2>/dev/null || cat ~/.vellum.lockfile.json 2>/dev/null || echo "{}"';
+    const output = await execOutput("docker", [
+      "exec",
+      containerName,
+      "sh",
+      "-c",
+      remoteCmd,
+    ]);
+    const data = JSON.parse(output.trim());
+    const assistants = data.assistants;
+    if (Array.isArray(assistants) && assistants.length > 0) {
+      const token = assistants[0].bearerToken;
+      if (typeof token === "string" && token) {
+        return token;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function retireDocker(name: string): Promise<void> {
+  console.log(`\u{1F5D1}\ufe0f  Stopping Docker container '${name}'...\n`);
+
+  try {
+    await exec("docker", ["stop", name]);
+  } catch (error) {
+    console.warn(
+      `\u26a0\ufe0f  Failed to stop container: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+
+  try {
+    await exec("docker", ["rm", name]);
+  } catch (error) {
+    console.warn(
+      `\u26a0\ufe0f  Failed to remove container: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+
+  console.log(`\u2705 Docker instance retired.`);
+}
+
 export async function hatchDocker(
   species: Species,
   detached: boolean,
@@ -92,15 +172,25 @@ export async function hatchDocker(
   console.log("");
 
   const imageTag = `vellum-assistant:${instanceName}`;
+  const logFd = openLogFile("hatch.log");
   console.log("🔨 Building Docker image...");
-  await exec("docker", ["build", "-f", dockerfile, "-t", imageTag, "."], {
-    cwd: repoRoot,
-  });
+  try {
+    await exec("docker", ["build", "-f", dockerfile, "-t", imageTag, "."], {
+      cwd: repoRoot,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    writeToLogFile(logFd, `[docker-build] ${new Date().toISOString()} ERROR\n${message}\n`);
+    closeLogFile(logFd);
+    throw err;
+  }
+  closeLogFile(logFd);
   console.log("✅ Docker image built\n");
 
   const gatewayPort = DEFAULT_GATEWAY_PORT;
   const runArgs: string[] = [
     "run",
+    "--init",
     "--name",
     instanceName,
     "-p",
@@ -118,6 +208,10 @@ export async function hatchDocker(
       runArgs.push("-e", `${envVar}=${process.env[envVar]}`);
     }
   }
+
+  // Pass the instance name so the inner hatch uses the same assistant ID
+  // instead of generating a new random one.
+  runArgs.push("-e", `VELLUM_ASSISTANT_NAME=${instanceName}`);
 
   // Mount source volumes in watch mode for hot reloading
   if (watch) {
@@ -141,12 +235,22 @@ export async function hatchDocker(
     hatchedAt: new Date().toISOString(),
   };
   saveAssistantEntry(dockerEntry);
+  setActiveAssistant(instanceName);
+
+  // The Dockerfiles already define a CMD that runs `vellum hatch --keep-alive`.
+  // Only override CMD when a non-default species is specified, since that
+  // requires an extra argument the Dockerfile doesn't include.
+  const containerCmd: string[] =
+    species !== "vellum"
+      ? ["vellum", "hatch", species, ...(watch ? ["--watch"] : []), "--keep-alive"]
+      : [];
+
+  // Always start the container detached so it keeps running after the CLI exits.
+  runArgs.push("-d");
+  console.log("🚀 Starting Docker container...");
+  await exec("docker", [...runArgs, imageTag, ...containerCmd], { cwd: repoRoot });
 
   if (detached) {
-    runArgs.push("-d");
-    console.log("🚀 Starting Docker container...");
-    await exec("docker", [...runArgs, imageTag], { cwd: repoRoot });
-
     console.log("\n✅ Docker assistant hatched!\n");
     console.log("Instance details:");
     console.log(`  Name: ${instanceName}`);
@@ -155,25 +259,61 @@ export async function hatchDocker(
     console.log("");
     console.log(`Stop with: docker stop ${instanceName}`);
   } else {
-    console.log("🚀 Starting Docker container (attached)...");
     console.log(`  Container: ${instanceName}`);
     console.log(`  Runtime: ${runtimeUrl}`);
-    console.log("  Press Ctrl+C to stop\n");
+    console.log("");
 
-    // Run attached with inherited stdio so the user sees container output
+    // Tail container logs until the inner hatch completes, then exit and
+    // leave the container running in the background.
     await new Promise<void>((resolve, reject) => {
-      const child = nodeSpawn("docker", [...runArgs, imageTag], {
-        cwd: repoRoot,
-        stdio: "inherit",
+      const child = nodeSpawn("docker", ["logs", "-f", instanceName], {
+        stdio: ["ignore", "pipe", "pipe"],
       });
+
+      const handleLine = (line: string): void => {
+        if (line.includes("Local assistant hatched!")) {
+          process.nextTick(async () => {
+            const remoteBearerToken =
+              await fetchRemoteBearerToken(instanceName);
+            if (remoteBearerToken) {
+              dockerEntry.bearerToken = remoteBearerToken;
+              saveAssistantEntry(dockerEntry);
+            }
+
+            console.log("");
+            console.log(`\u2705 Docker container is up and running!`);
+            console.log(`   Name: ${instanceName}`);
+            console.log(`   Runtime: ${runtimeUrl}`);
+            console.log("");
+            child.kill();
+            resolve();
+          });
+        }
+      };
+
+      const stdoutPrefixer = createLinePrefixer(process.stdout, handleLine);
+      const stderrPrefixer = createLinePrefixer(process.stderr, handleLine);
+
+      child.stdout?.on("data", (data: Buffer) => stdoutPrefixer.write(data));
+      child.stderr?.on("data", (data: Buffer) => stderrPrefixer.write(data));
+      child.stdout?.on("end", () => stdoutPrefixer.flush());
+      child.stderr?.on("end", () => stderrPrefixer.flush());
+
       child.on("close", (code) => {
-        if (code === 0 || code === null) {
+        // The log tail may exit if the container stops before the sentinel
+        // is seen, or we killed it after detecting the sentinel.
+        if (code === 0 || code === null || code === 130 || code === 137 || code === 143) {
           resolve();
         } else {
           reject(new Error(`Docker container exited with code ${code}`));
         }
       });
       child.on("error", reject);
+
+      process.on("SIGINT", () => {
+        child.kill();
+        resolve();
+      });
     });
   }
 }

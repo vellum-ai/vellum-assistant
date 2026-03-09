@@ -650,6 +650,65 @@ describe("ContextWindowManager", () => {
     );
   });
 
+  test("shouldCompact returns needed=false with estimatedTokens when below threshold", () => {
+    const provider = createProvider(() => {
+      throw new Error("should not be called");
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig(),
+    });
+    const history = [message("user", "hello"), message("assistant", "hi")];
+    const result = manager.shouldCompact(history);
+    expect(result.needed).toBe(false);
+    expect(result.estimatedTokens).toBeGreaterThan(0);
+  });
+
+  test("shouldCompact returns needed=true with estimatedTokens when above threshold", () => {
+    const provider = createProvider(() => {
+      throw new Error("should not be called");
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig(),
+    });
+    const long = "x".repeat(240);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+    const result = manager.shouldCompact(history);
+    expect(result.needed).toBe(true);
+    expect(result.estimatedTokens).toBeGreaterThan(0);
+  });
+
+  test("shouldCompact returns needed=false with zero estimatedTokens when disabled", () => {
+    const provider = createProvider(() => {
+      throw new Error("should not be called");
+    });
+    const long = "x".repeat(240);
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ enabled: false }),
+    });
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+    ];
+    const result = manager.shouldCompact(history);
+    expect(result.needed).toBe(false);
+    expect(result.estimatedTokens).toBe(0);
+  });
+
   test("targetInputTokensOverride reduces retained turns beyond normal compaction", async () => {
     const provider = createProvider(() => ({
       content: [{ type: "text", text: "## Goals\n- tight fit summary" }],

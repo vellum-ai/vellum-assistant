@@ -17,7 +17,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint",
     "typecheck": "bunx tsc --noEmit",
-    "postinstall": "cd .. && git config core.hooksPath .githooks 2>/dev/null || true"
+    "postinstall": "cd .. && git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "dependencies": {
     "file-type": "^21.3.0",

@@ -48,13 +48,10 @@ mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
 
-// Telegram credential metadata mock
+// Telegram bot username mock — production code now reads from config via getTelegramBotUsername()
 let mockBotUsername: string | undefined = "test_bot";
-mock.module("../tools/credentials/metadata-store.js", () => ({
-  getCredentialMetadata: (_service: string, _key: string) =>
-    mockBotUsername ? { accountInfo: mockBotUsername } : null,
-  upsertCredentialMetadata: () => {},
-  deleteCredentialMetadata: () => {},
+mock.module("../telegram/bot-username.js", () => ({
+  getTelegramBotUsername: () => mockBotUsername,
 }));
 
 // Voice call mock
@@ -115,7 +112,7 @@ import {
   handleCancelVerificationSession,
   handleCreateVerificationSession,
   handleResendVerificationSession,
-} from "../runtime/routes/integration-routes.js";
+} from "../runtime/routes/channel-verification-routes.js";
 import {
   cancelOutbound,
   resendOutbound,

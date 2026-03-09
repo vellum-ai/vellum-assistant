@@ -142,7 +142,7 @@ function createDispatchingRequest(
   const pq = createPendingQuestion(session.id, "What is the gate code?");
   const request = createGuardianActionRequest({
     kind: "ask_guardian",
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     sourceConversationId: convId,
     callSessionId: session.id,
     pendingQuestionId: pq.id,
@@ -334,7 +334,7 @@ describe("guardian-action-followup-executor", () => {
       const pq = createPendingQuestion(session.id, "Question?");
       const request = createGuardianActionRequest({
         kind: "ask_guardian",
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         sourceConversationId: "exec-wrong-state",
         callSessionId: session.id,
         pendingQuestionId: pq.id,

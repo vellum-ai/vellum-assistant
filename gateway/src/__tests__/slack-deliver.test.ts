@@ -1,5 +1,7 @@
-import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import type { GatewayConfig } from "../config.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
+import type { CredentialCache } from "../credential-cache.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -16,6 +18,9 @@ mock.module("../fetch.js", () => ({
 mock.module("../auth/token-exchange.js", () => ({
   mintIngressToken: () => "mock-ingress-token",
   mintServiceToken: () => "mock-service-token",
+  mintExchangeToken: () => "mock-exchange-token",
+  mintBrowserRelayToken: () => "mock-browser-relay-token",
+  validateEdgeToken: () => ({ ok: true }),
 }));
 
 const { createSlackDeliverHandler } =
@@ -38,33 +43,44 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramBotToken: undefined,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
-    telegramWebhookSecret: undefined,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    ingressPublicBaseUrl: undefined,
     unmappedPolicy: "reject",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: "xoxb-test-bot-token",
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: true,
     trustProxy: false,
     ...overrides,
-  } as GatewayConfig;
+  };
   return merged;
+}
+
+function makeConfigFile(
+  overrides: Record<string, Record<string, string | number | boolean>> = {},
+): ConfigFileCache {
+  const data: Record<string, Record<string, string | number | boolean>> = {
+    slack: { deliverAuthBypass: true },
+    ...overrides,
+  };
+  return {
+    getString: (section: string, key: string) =>
+      data[section]?.[key] as string | undefined,
+    getNumber: (section: string, key: string) =>
+      data[section]?.[key] as number | undefined,
+    getBoolean: (section: string, key: string) =>
+      data[section]?.[key] as boolean | undefined,
+    getRecord: () => undefined,
+    refreshNow: () => {},
+    invalidate: () => {},
+  } as unknown as ConfigFileCache;
+}
+
+/** Create a mock CredentialCache that returns the given bot token. */
+function makeCaches(...args: [] | [string | undefined]) {
+  const botToken = args.length === 0 ? "xoxb-test-bot-token" : args[0];
+  const credentials = {
+    get: async (key: string) => {
+      if (key === "credential:slack_channel:bot_token") return botToken;
+      return undefined;
+    },
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  return { credentials, configFile: makeConfigFile() };
 }
 
 function makeRequest(
@@ -79,6 +95,10 @@ function makeRequest(
   });
 }
 
+const savedAppVersion = process.env.APP_VERSION;
+// Default to dev mode so the bypass configFile takes effect
+process.env.APP_VERSION = "0.0.0-dev";
+
 let fetchCalls: {
   url: string;
   body?: unknown;
@@ -88,6 +108,7 @@ let fetchCalls: {
 
 beforeEach(() => {
   fetchCalls = [];
+  process.env.APP_VERSION = "0.0.0-dev";
   fetchMock = mock(
     async (input: string | URL | Request, init?: RequestInit) => {
       const url =
@@ -212,10 +233,22 @@ beforeEach(() => {
   );
 });
 
+afterEach(() => {
+  if (savedAppVersion === undefined) {
+    delete process.env.APP_VERSION;
+  } else {
+    process.env.APP_VERSION = savedAppVersion;
+  }
+});
+
 describe("slack-deliver endpoint", () => {
   test("returns 401 when auth is required and missing", async () => {
+    // Ensure bypass is not active — clear APP_VERSION so the production guard blocks it
+    delete process.env.APP_VERSION;
     const handler = createSlackDeliverHandler(
-      makeConfig({ slackDeliverAuthBypass: false }),
+      makeConfig(),
+      undefined,
+      makeCaches(),
     );
     const req = makeRequest({ chatId: "C123", text: "hello" });
     const res = await handler(req);
@@ -225,7 +258,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("returns 200 with valid payload containing chatId and text", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({ chatId: "C123", text: "hello" });
     const res = await handler(req);
     expect(res.status).toBe(200);
@@ -242,7 +279,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("threadTs query param gets passed as thread_ts to Slack API", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest(
       { chatId: "C123", text: "reply in thread" },
       undefined,
@@ -259,7 +300,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("returns 400 when chatId/to is missing", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({ text: "hello" });
     const res = await handler(req);
     expect(res.status).toBe(400);
@@ -269,7 +314,9 @@ describe("slack-deliver endpoint", () => {
 
   test("returns 503 when bot token is not configured", async () => {
     const handler = createSlackDeliverHandler(
-      makeConfig({ slackChannelBotToken: undefined }),
+      makeConfig(),
+      undefined,
+      makeCaches(undefined),
     );
     const req = makeRequest({ chatId: "C123", text: "hello" });
     const res = await handler(req);
@@ -278,8 +325,46 @@ describe("slack-deliver endpoint", () => {
     expect(body.error).toContain("not configured");
   });
 
+  test("force-refreshes credential cache when bot token is initially missing", async () => {
+    let callCount = 0;
+    const credentials = {
+      get: async (key: string, opts?: { force?: boolean }) => {
+        if (key === "credential:slack_channel:bot_token") {
+          callCount++;
+          // First call returns undefined; second call with force returns the token
+          if (callCount === 1 && !opts?.force) return undefined;
+          if (callCount === 2 && opts?.force) return "xoxb-refreshed-token";
+        }
+        return undefined;
+      },
+      invalidate: () => {},
+    } as unknown as CredentialCache;
+
+    const handler = createSlackDeliverHandler(makeConfig(), undefined, {
+      credentials,
+      configFile: makeConfigFile(),
+    });
+    const req = makeRequest({ chatId: "C123", text: "hello" });
+    const res = await handler(req);
+    expect(res.status).toBe(200);
+    expect(callCount).toBe(2);
+
+    // Verify the Slack API was called with the refreshed token
+    const slackCall = fetchCalls.find((c) =>
+      c.url.includes("chat.postMessage"),
+    );
+    expect(slackCall).toBeDefined();
+    expect(slackCall!.headers!["authorization"]).toBe(
+      "Bearer xoxb-refreshed-token",
+    );
+  });
+
   test("accepts 'to' as alias for chatId", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({ to: "C_TO_CHAN", text: "hello" });
     const res = await handler(req);
     expect(res.status).toBe(200);
@@ -292,7 +377,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("returns 400 when both text and attachments are missing", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({ chatId: "C123" });
     const res = await handler(req);
     expect(res.status).toBe(400);
@@ -301,7 +390,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("returns 400 for invalid JSON", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = new Request("http://localhost:7830/deliver/slack", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -314,7 +407,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("returns 405 for GET requests", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = new Request("http://localhost:7830/deliver/slack", {
       method: "GET",
     });
@@ -324,7 +421,9 @@ describe("slack-deliver endpoint", () => {
 
   test("sends Authorization header with bot token to Slack API", async () => {
     const handler = createSlackDeliverHandler(
-      makeConfig({ slackChannelBotToken: "xoxb-my-secret-token" }),
+      makeConfig(),
+      undefined,
+      makeCaches("xoxb-my-secret-token"),
     );
     const req = makeRequest({ chatId: "C123", text: "hello" });
     await handler(req);
@@ -349,7 +448,11 @@ describe("slack-deliver endpoint", () => {
       );
     });
 
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({ chatId: "C123", text: "hello" });
     const res = await handler(req);
     expect(res.status).toBe(502);
@@ -366,14 +469,22 @@ describe("slack-deliver endpoint", () => {
       );
     });
 
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({ chatId: "C123", text: "hello" });
     const res = await handler(req);
     expect(res.status).toBe(404);
   });
 
   test("does not include thread_ts when threadTs query param is absent", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({ chatId: "C123", text: "hello" });
     await handler(req);
 
@@ -385,7 +496,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("auto-formats text into Block Kit blocks when useBlocks is true", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "# Hello\n\nWorld",
@@ -411,7 +526,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("uses provided blocks when passed in request body", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const customBlocks = [
       { type: "section", text: { type: "mrkdwn", text: "Custom block" } },
     ];
@@ -433,7 +552,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("always includes text as fallback alongside blocks", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "Simple message",
@@ -454,7 +577,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("returns 400 when text is a non-string truthy value", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({ chatId: "C123", text: { x: 1 } });
     const res = await handler(req);
     expect(res.status).toBe(400);
@@ -463,7 +590,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("returns 400 when attachment is missing an id", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "hello",
@@ -476,7 +607,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("returns 400 when attachments is not an array", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "hello",
@@ -489,7 +624,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("uses chat.postEphemeral when ephemeral flag is set", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "secret info",
@@ -515,7 +654,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("returns 400 when ephemeral is set but user is missing", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "secret info",
@@ -528,7 +671,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("ephemeral message includes thread_ts when threadTs query param is set", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest(
       {
         chatId: "C123",
@@ -552,7 +699,11 @@ describe("slack-deliver endpoint", () => {
 
   test("does not call onThreadReply for ephemeral messages in a thread", async () => {
     const onThreadReply = mock(() => {});
-    const handler = createSlackDeliverHandler(makeConfig(), onThreadReply);
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      onThreadReply,
+      makeCaches(),
+    );
     const req = makeRequest(
       {
         chatId: "C123",
@@ -570,7 +721,11 @@ describe("slack-deliver endpoint", () => {
 
   test("calls onThreadReply for non-ephemeral messages in a thread", async () => {
     const onThreadReply = mock(() => {});
-    const handler = createSlackDeliverHandler(makeConfig(), onThreadReply);
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      onThreadReply,
+      makeCaches(),
+    );
     const req = makeRequest(
       { chatId: "C123", text: "normal thread msg" },
       undefined,
@@ -582,7 +737,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("uses chat.update when messageTs is provided", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "updated text",
@@ -603,7 +762,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("chat.update does not include thread_ts", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest(
       {
         chatId: "C123",
@@ -664,7 +827,11 @@ describe("slack-deliver endpoint", () => {
       },
     );
 
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "update attempt",
@@ -683,7 +850,11 @@ describe("slack-deliver endpoint", () => {
   });
 
   test("does not use chat.update when messageTs is empty string", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "normal post",
@@ -701,7 +872,11 @@ describe("slack-deliver endpoint", () => {
 
 describe("slack attachment delivery", () => {
   test("uploads image attachment via files.getUploadURLExternal flow", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "Here is a photo",
@@ -736,7 +911,11 @@ describe("slack attachment delivery", () => {
   });
 
   test("uploads document attachment (pdf)", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "Here is a report",
@@ -766,6 +945,8 @@ describe("slack attachment delivery", () => {
   test("skips oversized attachment and sends failure notice", async () => {
     const handler = createSlackDeliverHandler(
       makeConfig({ maxAttachmentBytes: 50 }),
+      undefined,
+      makeCaches(),
     );
     const req = makeRequest({
       chatId: "C123",
@@ -796,7 +977,11 @@ describe("slack attachment delivery", () => {
   });
 
   test("delivers attachments-only request without text", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       attachments: [
@@ -828,7 +1013,11 @@ describe("slack attachment delivery", () => {
   });
 
   test("continues sending remaining attachments on individual failure", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest({
       chatId: "C123",
       text: "hello",
@@ -867,7 +1056,11 @@ describe("slack attachment delivery", () => {
   });
 
   test("passes threadTs to file upload completeUploadExternal", async () => {
-    const handler = createSlackDeliverHandler(makeConfig());
+    const handler = createSlackDeliverHandler(
+      makeConfig(),
+      undefined,
+      makeCaches(),
+    );
     const req = makeRequest(
       {
         chatId: "C123",

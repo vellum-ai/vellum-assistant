@@ -10,11 +10,14 @@
  */
 
 import type { ChannelId } from "../../channels/types.js";
-import { getSecureKey } from "../../security/secure-keys.js";
 import {
-  getCredentialMetadata,
-  upsertCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../config/loader.js";
+import { getSecureKey } from "../../security/secure-keys.js";
+import { getTelegramBotUsername } from "../../telegram/bot-username.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   ChannelInviteAdapter,
@@ -26,37 +29,15 @@ import type {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the Telegram bot username from credential metadata, falling back
- * to the TELEGRAM_BOT_USERNAME environment variable. Mirrors the resolution
- * strategy used in `verification-outbound-actions.ts`.
- */
-function getTelegramBotUsername(): string | undefined {
-  const meta = getCredentialMetadata("telegram", "bot_token");
-  if (
-    meta?.accountInfo &&
-    typeof meta.accountInfo === "string" &&
-    meta.accountInfo.trim().length > 0
-  ) {
-    return meta.accountInfo.trim();
-  }
-  return process.env.TELEGRAM_BOT_USERNAME || undefined;
-}
-
-/**
- * Ensure the Telegram bot username is resolved and cached in credential
- * metadata. When the bot token was configured via CLI `credential set`,
+ * Ensure the Telegram bot username is resolved and cached in config.
+ * When the bot token was configured via CLI `credential set`,
  * `credential_store` tool, or ingress secret redirect, the `getMe` API
- * call that populates `accountInfo` is skipped — this function fills that
+ * call that populates the config is skipped — this function fills that
  * gap so that invite share links can be generated.
  */
 export async function ensureTelegramBotUsernameResolved(): Promise<void> {
-  const meta = getCredentialMetadata("telegram", "bot_token");
-  if (
-    meta?.accountInfo &&
-    typeof meta.accountInfo === "string" &&
-    meta.accountInfo.trim().length > 0
-  ) {
-    return; // Username already cached
+  if (getTelegramBotUsername()) {
+    return; // Username already cached in config
   }
 
   const token = getSecureKey("credential:telegram:bot_token");
@@ -91,9 +72,11 @@ export async function ensureTelegramBotUsernameResolved(): Promise<void> {
       );
       return;
     }
-    upsertCredentialMetadata("telegram", "bot_token", {
-      accountInfo: username,
-    });
+    // Write to config
+    const raw = loadRawConfig();
+    setNestedValue(raw, "telegram.botUsername", username);
+    saveRawConfig(raw);
+    invalidateConfigCache();
   } catch (err) {
     getLogger("telegram-invite").warn(
       { err },

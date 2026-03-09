@@ -24,7 +24,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
   getHistoryPath: () => join(TEST_DIR, "history"),
   getHooksDir: () => join(TEST_DIR, "hooks"),
-  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+
   getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => TEST_DIR,
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
@@ -34,7 +34,6 @@ mock.module("../util/platform.js", () => ({
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
 }));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
@@ -73,7 +72,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // ── Import after mocks ───────────────────────────────────────────────
-const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
 // Load task_list_add description from the bundled skill TOOLS.json
 const tasksToolsJson = JSON.parse(
@@ -309,9 +308,9 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("verify my Telegram account");
   });
 
-  test('routing section includes trigger phrase "verify voice channel"', () => {
+  test('routing section includes trigger phrase "verify phone channel"', () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("verify voice channel");
+    expect(prompt).toContain("verify phone channel");
   });
 
   test('routing section includes trigger phrase "verify my phone number"', () => {
@@ -329,11 +328,11 @@ describe("Guardian verification routing section in system prompt", () => {
     expect(prompt).toContain("guardian-verify-setup");
   });
 
-  test("routing section mentions voice and telegram channels but not legacy channels", () => {
+  test("routing section mentions phone and telegram channels but not legacy channels", () => {
     const prompt = buildSystemPrompt();
     const routingStart = prompt.indexOf("## Routing: Guardian Verification");
     const routingSection = prompt.substring(routingStart, routingStart + 1000);
-    expect(routingSection).toContain("voice");
+    expect(routingSection).toContain("phone");
     expect(routingSection).toContain("telegram");
   });
 

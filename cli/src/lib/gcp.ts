@@ -3,7 +3,7 @@ import { unlinkSync, writeFileSync } from "fs";
 import { tmpdir, userInfo } from "os";
 import { join } from "path";
 
-import { saveAssistantEntry } from "./assistant-config";
+import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { FIREWALL_TAG, GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
@@ -441,6 +441,45 @@ async function recoverFromCurlFailure(
   } catch {}
 }
 
+async function fetchRemoteBearerToken(
+  instanceName: string,
+  project: string,
+  zone: string,
+  sshUser: string,
+  account?: string,
+): Promise<string | null> {
+  try {
+    const remoteCmd =
+      'cat ~/.vellum.lock.json 2>/dev/null || cat ~/.vellum.lockfile.json 2>/dev/null || echo "{}"';
+    const args = [
+      "compute",
+      "ssh",
+      `${sshUser}@${instanceName}`,
+      `--project=${project}`,
+      `--zone=${zone}`,
+      "--quiet",
+      "--ssh-flag=-o StrictHostKeyChecking=no",
+      "--ssh-flag=-o UserKnownHostsFile=/dev/null",
+      "--ssh-flag=-o ConnectTimeout=10",
+      "--ssh-flag=-o LogLevel=ERROR",
+      `--command=${remoteCmd}`,
+    ];
+    if (account) args.push(`--account=${account}`);
+    const output = await execOutput("gcloud", args);
+    const data = JSON.parse(output.trim());
+    const assistants = data.assistants;
+    if (Array.isArray(assistants) && assistants.length > 0) {
+      const token = assistants[0].bearerToken;
+      if (typeof token === "string" && token) {
+        return token;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function hatchGcp(
   species: Species,
   detached: boolean,
@@ -599,6 +638,7 @@ export async function hatchGcp(
       hatchedAt: new Date().toISOString(),
     };
     saveAssistantEntry(gcpEntry);
+    setActiveAssistant(instanceName);
 
     if (detached) {
       console.log("\ud83d\ude80 Startup script is running on the instance...");
@@ -652,6 +692,18 @@ export async function hatchGcp(
         } else {
           process.exit(1);
         }
+      }
+
+      const remoteBearerToken = await fetchRemoteBearerToken(
+        instanceName,
+        project,
+        zone,
+        sshUser,
+        account,
+      );
+      if (remoteBearerToken) {
+        gcpEntry.bearerToken = remoteBearerToken;
+        saveAssistantEntry(gcpEntry);
       }
 
       console.log("Instance details:");

@@ -1,8 +1,8 @@
 ---
-name: "Messaging"
-description: "Read, search, send, and manage messages across Slack, Gmail, Telegram, and other platforms"
-user-invocable: true
-metadata: { "vellum": { "emoji": "💬" } }
+name: messaging
+description: Read, search, send, and manage messages across Slack, Gmail, Telegram, and other platforms
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"💬","vellum":{"display-name":"Messaging","user-invocable":true}}
 ---
 
 You are a unified messaging assistant with access to multiple platforms (Slack, Gmail, Telegram, and more). Use the messaging tools to help users read, search, organize, draft, and send messages across all connected platforms.

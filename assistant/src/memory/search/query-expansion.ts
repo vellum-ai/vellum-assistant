@@ -84,7 +84,8 @@ export function expandQueryForFTS(query: string): string[] {
     return [];
   }
 
-  const tokens = trimmed.split(/[^\w]+/).filter((token) => token.length > 0);
+  const normalized = trimmed.replace(/(\w)'(\w)/g, "$1$2");
+  const tokens = normalized.split(/[^\w]+/).filter((token) => token.length > 0);
 
   if (tokens.length === 0) {
     return [];

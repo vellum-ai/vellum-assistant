@@ -54,8 +54,8 @@ export class CredentialWatcher {
     this.metadataPath = getMetadataPath();
   }
 
-  start(): void {
-    void this.pollOnce();
+  async start(): Promise<void> {
+    await this.pollOnce();
 
     this.watchingDirectory = !existsSync(this.metadataPath);
     const watchTarget = this.watchingDirectory

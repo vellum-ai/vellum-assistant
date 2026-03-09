@@ -1,9 +1,9 @@
 import Foundation
 
-// MARK: - Manual IPC Type Allowlist
+// MARK: - Manual Type Allowlist
 //
-// Most IPC message types are auto-generated from the TS contract into
-// IPCContractGenerated.swift and referenced here via typealiases.
+// Most message types are auto-generated from the TS contract into
+// GeneratedAPITypes.swift and referenced here via typealiases.
 // The following structs are **intentionally** hand-maintained because
 // the code generator cannot express their requirements:
 //
@@ -380,12 +380,20 @@ extension IPCPingMessage {
 }
 
 /// Sent when user interacts with a surface.
-/// Backed by generated `IPCUiSurfaceAction`.
-public typealias UiSurfaceActionMessage = IPCUiSurfaceAction
+/// Hand-written to allow optional `sessionId` (the generated `IPCUiSurfaceAction` requires non-nil).
+public struct UiSurfaceActionMessage: Codable, Sendable {
+    public let type: String
+    public let sessionId: String?
+    public let surfaceId: String
+    public let actionId: String
+    public let data: [String: AnyCodable]?
 
-extension IPCUiSurfaceAction {
-    public init(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
-        self.init(type: "ui_surface_action", sessionId: sessionId, surfaceId: surfaceId, actionId: actionId, data: data)
+    public init(sessionId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
+        self.type = "ui_surface_action"
+        self.sessionId = sessionId
+        self.surfaceId = surfaceId
+        self.actionId = actionId
+        self.data = data
     }
 }
 
@@ -740,8 +748,8 @@ extension IPCGetSigningIdentityResponse {
 
 // MARK: - Server → Client Messages (Decodable)
 //
-// These typealiases point to the auto-generated IPC types in
-// IPCContractGenerated.swift. Convenience inits preserve backward
+// These typealiases point to the auto-generated types in
+// GeneratedAPITypes.swift. Convenience inits preserve backward
 // compatibility with existing call sites (the generated structs
 // include a `type` field that the old hand-maintained types omitted).
 
@@ -913,7 +921,7 @@ public typealias DaemonStatusMessage = IPCDaemonStatusMessage
 /// Surface show command from daemon.
 /// Wire type: `"ui_surface_show"`
 public struct UiSurfaceShowMessage: Decodable, Sendable {
-    public let sessionId: String
+    public let sessionId: String?
     public let surfaceId: String
     public let surfaceType: String
     public let title: String?
@@ -924,7 +932,7 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(sessionId: String, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
+    public init(sessionId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
         self.sessionId = sessionId
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
@@ -943,7 +951,7 @@ public typealias SurfaceActionData = IPCSurfaceAction
 /// Surface update command from daemon.
 /// Wire type: `"ui_surface_update"`
 public struct UiSurfaceUpdateMessage: Decodable, Sendable {
-    public let sessionId: String
+    public let sessionId: String?
     public let surfaceId: String
     public let data: AnyCodable
 }
@@ -954,7 +962,7 @@ public typealias UiSurfaceDismissMessage = IPCUiSurfaceDismiss
 
 /// Surface completion message from daemon, sent when user interaction completes a surface.
 public struct UiSurfaceCompleteMessage: Decodable, Sendable {
-    public let sessionId: String
+    public let sessionId: String?
     public let surfaceId: String
     public let summary: String
     public let submittedData: [String: AnyCodable]?
@@ -1411,20 +1419,6 @@ public typealias BundleAppResponseMessage = IPCBundleAppResponse
 /// Request from daemon to sign a bundle payload.
 /// Backed by generated `IPCSignBundlePayloadRequest`.
 public typealias SignBundlePayloadMessage = IPCSignBundlePayloadRequest
-
-/// Blob probe request sent after connecting to verify filesystem reachability.
-/// Backed by generated `IPCIpcBlobProbe`.
-public typealias IpcBlobProbeMessage = IPCIpcBlobProbe
-
-extension IPCIpcBlobProbe {
-    public init(probeId: String, nonceSha256: String) {
-        self.init(type: "ipc_blob_probe", probeId: probeId, nonceSha256: nonceSha256)
-    }
-}
-
-/// Result from a blob probe verification.
-/// Backed by generated `IPCIpcBlobProbeResult`.
-public typealias IpcBlobProbeResultMessage = IPCIpcBlobProbeResult
 
 /// Real-time execution trace event from the daemon.
 /// Wire type: `"trace_event"`
@@ -2219,7 +2213,6 @@ public enum ServerMessage: Decodable, Sendable {
     case documentSaveResponse(DocumentSaveResponseMessage)
     case documentLoadResponse(DocumentLoadResponseMessage)
     case documentListResponse(DocumentListResponseMessage)
-    case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case openUrl(OpenUrlMessage)
     case navigateSettings(IPCNavigateSettings)
@@ -2557,9 +2550,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "ui_surface_undo_result":
             let message = try UiSurfaceUndoResultMessage(from: decoder)
             self = .uiSurfaceUndoResult(message)
-        case "ipc_blob_probe_result":
-            let message = try IpcBlobProbeResultMessage(from: decoder)
-            self = .ipcBlobProbeResult(message)
         case "open_url":
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)

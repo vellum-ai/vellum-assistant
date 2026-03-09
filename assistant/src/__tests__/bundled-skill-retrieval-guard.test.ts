@@ -76,9 +76,9 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
   {
     skillPath: "public-ingress/SKILL.md",
     bannedSnippets: [
+      'curl -s "$INTERNAL_GATEWAY_BASE_URL/v1/',
       "security find-generic-password",
       "secret-tool lookup service vellum-assistant account credential:ngrok:authtoken",
-      "INTERNAL_GATEWAY_BASE_URL",
     ],
   },
   {
@@ -112,7 +112,6 @@ const HOST_BASH_RETRIEVAL_ALLOWLIST = new Set<string>([
 ]);
 
 const RETRIEVAL_MARKERS = [
-  "assistant integrations ",
   "assistant config get",
   "assistant email status",
   "assistant email inbox list",

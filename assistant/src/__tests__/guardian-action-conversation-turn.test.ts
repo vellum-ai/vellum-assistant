@@ -95,7 +95,7 @@ function createAwaitingChoiceRequest(
   const pq = createPendingQuestion(session.id, "What is the gate code?");
   const request = createGuardianActionRequest({
     kind: "ask_guardian",
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     sourceConversationId: convId,
     callSessionId: session.id,
     pendingQuestionId: pq.id,
@@ -369,7 +369,7 @@ describe("guardian-action-conversation-turn", () => {
   test("getFollowupDeliveriesByDestination returns empty for non-matching channel", () => {
     createAwaitingChoiceRequest("conv-turn-2", { chatId: "chat-abc" });
 
-    const deliveries = getFollowupDeliveriesByDestination("voice", "chat-abc");
+    const deliveries = getFollowupDeliveriesByDestination("phone", "chat-abc");
     expect(deliveries).toHaveLength(0);
   });
 
@@ -385,7 +385,7 @@ describe("guardian-action-conversation-turn", () => {
     const pq = createPendingQuestion(session.id, "Question?");
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: "conv-turn-3",
       callSessionId: session.id,
       pendingQuestionId: pq.id,

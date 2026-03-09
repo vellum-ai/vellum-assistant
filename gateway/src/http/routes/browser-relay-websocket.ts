@@ -73,10 +73,20 @@ export function isLoopbackAddress(addr: string): boolean {
 export function isLoopbackPeer(
   server: import("bun").Server<unknown>,
   req: Request,
+  opts?: { trustProxy?: boolean },
 ): boolean {
-  const ip = server.requestIP(req);
-  if (!ip) return false;
-  return isLoopbackAddress(ip.address);
+  if (opts?.trustProxy) {
+    const forwarded = req.headers.get("x-forwarded-for");
+    if (forwarded) {
+      const first = forwarded.split(",")[0]?.trim();
+      if (!first) return false;
+      return isLoopbackAddress(first);
+    }
+  }
+
+  const peer = server.requestIP(req);
+  if (!peer) return false;
+  return isLoopbackAddress(peer.address);
 }
 
 export type BrowserRelaySocketData = {

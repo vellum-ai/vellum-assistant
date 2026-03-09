@@ -187,12 +187,6 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
       path: "runtime/routes/guardian-action-routes.ts",
       symbols: ["processGuardianDecision"],
     },
-    // IPC handler (desktop socket clients) — uses processGuardianDecision
-    // which is a shared wrapper around applyCanonicalGuardianDecision
-    {
-      path: "daemon/handlers/guardian-actions.ts",
-      symbols: ["processGuardianDecision"],
-    },
     // Shared service where processGuardianDecision is defined — must route
     // through the canonical primitive to complete the chain:
     // entrypoint → processGuardianDecision → applyCanonicalGuardianDecision
@@ -523,7 +517,7 @@ describe("routing invariant: code-only messages return clarification", () => {
     const req = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
@@ -557,7 +551,7 @@ describe("routing invariant: code-only messages return clarification", () => {
     const req = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
@@ -841,7 +835,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const answerRequest = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,
@@ -855,7 +849,7 @@ describe("routing invariant: disambiguation stays fail-closed", () => {
     const approvalRequest = createCanonicalGuardianRequest({
       kind: "pending_question",
       sourceType: "voice",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationId: "conv-1",
       guardianExternalUserId: "guardian-1",
       guardianPrincipalId: TEST_PRINCIPAL_ID,

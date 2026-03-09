@@ -68,8 +68,8 @@ mock.module("../daemon/identity-helpers.js", () => ({
 
 let mockUserReference = "my human";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const realUserReference = require("../config/user-reference.js");
-mock.module("../config/user-reference.js", () => ({
+const realUserReference = require("../prompts/user-reference.js");
+mock.module("../prompts/user-reference.js", () => ({
   ...realUserReference,
   resolveUserReference: () => mockUserReference,
   resolveUserPronouns: () => null,
@@ -292,7 +292,7 @@ function resetTables() {
 
 function addTrustedVoiceContact(phoneNumber: string): void {
   upsertContactChannel({
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     externalUserId: phoneNumber,
     externalChatId: phoneNumber,
     status: "active",
@@ -305,7 +305,7 @@ function createVoiceVerificationSession(
   sessionId?: string,
 ): string {
   const { secret } = createOutboundSession({
-    channel: "voice",
+    channel: "phone",
     expectedExternalUserId: expectedPhoneE164,
     expectedChatId: expectedPhoneE164,
     expectedPhoneE164,
@@ -319,7 +319,7 @@ function createPendingVoiceGuardianChallenge(
 ): string {
   createInboundSession({
     id: randomUUID(),
-    channel: "voice",
+    channel: "phone",
     challengeHash: createHash("sha256").update(secret).digest("hex"),
     expiresAt: Date.now() + 10 * 60 * 1000,
   });
@@ -383,10 +383,10 @@ describe("relay-server", () => {
               "user",
               JSON.stringify([{ type: "text", text: content }]),
               {
-                userMessageChannel: "voice",
-                assistantMessageChannel: "voice",
-                userMessageInterface: "voice",
-                assistantMessageInterface: "voice",
+                userMessageChannel: "phone",
+                assistantMessageChannel: "phone",
+                userMessageInterface: "phone",
+                assistantMessageInterface: "phone",
               },
             );
             return message.id;
@@ -434,10 +434,10 @@ describe("relay-server", () => {
                 "assistant",
                 JSON.stringify([{ type: "text", text: fullText }]),
                 {
-                  userMessageChannel: "voice",
-                  assistantMessageChannel: "voice",
-                  userMessageInterface: "voice",
-                  assistantMessageInterface: "voice",
+                  userMessageChannel: "phone",
+                  assistantMessageChannel: "phone",
+                  userMessageInterface: "phone",
+                  assistantMessageInterface: "phone",
                 },
               );
             }
@@ -1378,7 +1378,7 @@ describe("relay-server", () => {
     expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding should have been created
-    const binding = getGuardianBinding("self", "voice");
+    const binding = getGuardianBinding("self", "phone");
     expect(binding).not.toBeNull();
 
     // Orchestrator greeting should have fired
@@ -1449,7 +1449,7 @@ describe("relay-server", () => {
     expect(relay.getConnectionState()).toBe("connected");
 
     // Binding created
-    const binding = getGuardianBinding("self", "voice");
+    const binding = getGuardianBinding("self", "phone");
     expect(binding).not.toBeNull();
 
     // Greeting should have started
@@ -1473,7 +1473,7 @@ describe("relay-server", () => {
     });
 
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
       guardianPrincipalId: "+15550001111",
@@ -1504,7 +1504,7 @@ describe("relay-server", () => {
         };
       }
     )?.trustContext;
-    expect(runtimeContext?.sourceChannel).toBe("voice");
+    expect(runtimeContext?.sourceChannel).toBe("phone");
     expect(runtimeContext?.trustClass).toBe("guardian");
     expect(runtimeContext?.guardianExternalUserId).toBe("+15550001111");
 
@@ -1521,7 +1521,7 @@ describe("relay-server", () => {
     });
 
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15550009999",
       guardianDeliveryChatId: "+15550009999",
       guardianPrincipalId: "+15550009999",
@@ -1554,7 +1554,7 @@ describe("relay-server", () => {
         };
       }
     )?.trustContext;
-    expect(runtimeContext?.sourceChannel).toBe("voice");
+    expect(runtimeContext?.sourceChannel).toBe("phone");
     expect(runtimeContext?.trustClass).toBe("trusted_contact");
     expect(runtimeContext?.guardianExternalUserId).toBe("+15550009999");
     expect(runtimeContext?.requesterExternalUserId).toBe("+15550002222");
@@ -1574,7 +1574,7 @@ describe("relay-server", () => {
     });
 
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15550001111",
       guardianDeliveryChatId: "+15550001111",
       guardianPrincipalId: "+15550001111",
@@ -1605,7 +1605,7 @@ describe("relay-server", () => {
         };
       }
     )?.trustContext;
-    expect(runtimeContext?.sourceChannel).toBe("voice");
+    expect(runtimeContext?.sourceChannel).toBe("phone");
     expect(runtimeContext?.trustClass).toBe("guardian");
     expect(runtimeContext?.guardianExternalUserId).toBe("+15550001111");
 
@@ -1657,7 +1657,7 @@ describe("relay-server", () => {
         };
       }
     )?.trustContext;
-    expect(runtimeContext?.sourceChannel).toBe("voice");
+    expect(runtimeContext?.sourceChannel).toBe("phone");
     expect(runtimeContext?.trustClass).toBe("unknown");
 
     relay.destroy();
@@ -1713,7 +1713,7 @@ describe("relay-server", () => {
         };
       }
     )?.trustContext;
-    expect(postVerify?.sourceChannel).toBe("voice");
+    expect(postVerify?.sourceChannel).toBe("phone");
     expect(postVerify?.trustClass).toBe("guardian");
     expect(postVerify?.guardianExternalUserId).toBe(session.fromNumber);
 
@@ -2053,7 +2053,7 @@ describe("relay-server", () => {
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       maxUses: 1,
       expectedExternalUserId: "+15558887777",
       voiceCodeHash: codeHash,
@@ -2126,7 +2126,7 @@ describe("relay-server", () => {
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       maxUses: 1,
       expectedExternalUserId: "+15558886666",
       voiceCodeHash: codeHash,
@@ -2451,7 +2451,7 @@ describe("relay-server", () => {
 
     // Create a blocked member
     upsertContactChannel({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       externalUserId: "+15558881111",
       externalChatId: "+15558881111",
       status: "blocked",
@@ -2527,7 +2527,7 @@ describe("relay-server", () => {
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "+15557770001",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
@@ -2575,7 +2575,7 @@ describe("relay-server", () => {
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "+15557770002",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
@@ -2662,7 +2662,7 @@ describe("relay-server", () => {
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "+15557770003",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
@@ -2926,7 +2926,7 @@ describe("relay-server", () => {
     const pending = listCanonicalGuardianRequests({
       status: "pending",
       requesterExternalUserId: "+15557770011",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
@@ -3880,7 +3880,7 @@ describe("relay-server", () => {
     const tcSecret = "654321";
     createVerificationSession({
       id: randomUUID(),
-      channel: "voice",
+      channel: "phone",
       challengeHash: createHash("sha256").update(tcSecret).digest("hex"),
       expiresAt: Date.now() + 10 * 60 * 1000,
       status: "pending",
@@ -3987,7 +3987,7 @@ describe("relay-server", () => {
     expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding should have been created
-    const binding = getGuardianBinding("self", "voice");
+    const binding = getGuardianBinding("self", "phone");
     expect(binding).not.toBeNull();
 
     // Normal greeting should fire (from mockSendMessage), not the handoff copy
@@ -4013,7 +4013,7 @@ describe("relay-server", () => {
     const code = generateVoiceCode(6);
     const codeHash = hashVoiceCode(code);
     createInvite({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       maxUses: 1,
       expectedExternalUserId: "+15557776666",
       voiceCodeHash: codeHash,
@@ -4087,7 +4087,7 @@ describe("relay-server", () => {
 
     // Create a guardian binding with a different displayName
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15559990001",
       guardianDeliveryChatId: "+15559990001",
       guardianPrincipalId: "+15559990001",
@@ -4132,7 +4132,7 @@ describe("relay-server", () => {
 
     // Create a guardian binding with a displayName
     createGuardianBinding({
-      channel: "voice",
+      channel: "phone",
       guardianExternalUserId: "+15559990002",
       guardianDeliveryChatId: "+15559990002",
       guardianPrincipalId: "+15559990002",

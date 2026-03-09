@@ -81,7 +81,7 @@ VSplitView            (row 3 — ChatView + optional side panel)
 The core orchestration cycle runs per-task in `ComputerUseSession` (`@MainActor`):
 
 1. **PERCEIVE** — enumerate the AX tree of the focused window (`AccessibilityTree.swift`); also captures a screenshot alongside; falls back to screenshot-only if no AX tree. Computes `AXTreeDiff` between steps. Enumerates secondary windows for cross-app awareness.
-2. **INFER** — send AX tree + screenshot + previous AX tree + diff + task + action history to the daemon via IPC (`DaemonClient`); daemon calls Claude and returns exactly one tool call per turn.
+2. **INFER** — send AX tree + screenshot + previous AX tree + diff + task + action history to the daemon via HTTP (`DaemonClient`); daemon calls Claude and returns exactly one tool call per turn.
 3. **VERIFY** — safety checks: sensitive data, destructive keys, loop detection (3 identical consecutive actions), step limits, system menu bar exclusion (`ActionVerifier`).
 4. **EXECUTE** — inject mouse/keyboard events via CGEvent (`ActionExecutor`). Text input uses clipboard-paste (Cmd+V) with save/restore.
 5. **WAIT** — adaptive delay: polls AX tree for changes instead of fixed sleep, returns early when UI settles.
@@ -100,24 +100,17 @@ Tests use `Mock*` versions defined in `SessionTests.swift`. Test pattern: `@Main
 
 </details>
 
-### IPC Layer (`IPC/`)
+### Network Layer (`IPC/`)
 
-All inference (both computer-use sessions and ambient analysis) goes through daemon IPC:
-- `DaemonClient` — `@MainActor`, Unix domain socket (default `~/.vellum/vellum.sock`, resolved dynamically via `resolveSocketPath()`) or HTTP+SSE in managed mode; auto-reconnect, ping/pong keepalive, `AsyncStream<ServerMessage>`
-- `IPCMessages.swift` — Codable structs mirroring `ipc-protocol.ts`: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
-- `IPC/Generated/IPCContractGenerated.swift` — **auto-generated** Swift types from the TypeScript IPC contract. Use these `IPC*` types directly in Swift code instead of hand-writing structs.
-
-**When modifying `assistant/src/daemon/ipc-contract.ts`** (adding/changing message types), you MUST run these commands from the `assistant/` directory:
-```bash
-bun run generate:ipc              # regenerate IPCContractGenerated.swift
-bun run ipc:inventory:update      # regenerate ipc-contract-inventory.json
-```
-Both generated files must be committed alongside your contract changes. CI checks (`check:ipc-generated` and `ipc:inventory`) will fail if they are out of sync.
+All inference (both computer-use sessions and ambient analysis) goes through the assistant's HTTP API:
+- `DaemonClient` — `@MainActor`, HTTP+SSE transport; auto-reconnect, `AsyncStream<ServerMessage>`
+- `IPCMessages.swift` — Codable structs for HTTP request/response types: `cu_session_create`, `cu_observation`, `cu_action`, `cu_complete`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
+- `IPC/Generated/GeneratedAPITypes.swift` — Codable Swift types used for JSON serialization. Use these `IPC*` types directly in Swift code instead of hand-writing structs.
 
 ### Ambient Agent (`Ambient/`)
 
 A background screen-watching system that runs alongside the manual session loop:
-- `AmbientAgent` — orchestrates periodic capture → OCR → analyze cycles via daemon IPC (configurable interval, default 30s)
+- `AmbientAgent` — orchestrates periodic capture → OCR → analyze cycles via HTTP (configurable interval, default 30s)
 - `AmbientAnalyzer.swift` — type definitions only (`AmbientDecision`, `AmbientAnalysisResult`); analysis logic lives in the daemon
 - `KnowledgeStore` — persists observations as JSON in Application Support (max 500 entries)
 
@@ -193,7 +186,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 **VRadius** — `xs`(2), `sm`(4), `md`(8), `lg`(12), `xl`(16), `pill`(999).
 
-**VAnimation** — `fast` (0.15s easeOut), `standard` (0.25s easeInOut), `slow` (0.4s easeInOut), `spring`, `panel` (gentle spring for panels), `bouncy` (celebratory spring).
+**VAnimation** — `snappy` (0.12s easeOut), `fast` (0.15s easeOut), `standard` (0.25s easeInOut), `slow` (0.4s easeInOut), `spring`, `panel` (gentle spring for panels), `bouncy` (celebratory spring).
 
 **VShadow** — `sm`, `md`, `lg`, `glow` (Amber), `accentGlow` (Violet). Applied via `.vShadow()` modifier.
 

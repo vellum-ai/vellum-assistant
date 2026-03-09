@@ -95,7 +95,7 @@ struct ChatQueueSummaryView: View {
             )
             .padding(.horizontal, VSpacing.lg)
             .padding(.bottom, VSpacing.xs)
-            .frame(maxWidth: 700)
+            .frame(maxWidth: VSpacing.chatColumnMaxWidth)
             .frame(maxWidth: .infinity)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }

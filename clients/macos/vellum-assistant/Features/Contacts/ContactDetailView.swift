@@ -52,6 +52,16 @@ struct ContactDetailView: View {
     /// Incremented whenever SettingsStore publishes a change, forcing SwiftUI to
     /// re-evaluate channel verification state derived from the store.
     @State private var verificationStoreRevision: Int = 0
+    /// Monotonically increasing counter that correlates a verification attempt
+    /// with its one-shot response / timeout so stale callbacks are ignored.
+    @State private var verificationAttempt: UInt64 = 0
+    /// In-flight timeout task for the current verification attempt.
+    @State private var verificationTimeoutTask: Task<Void, Never>?
+    /// In-flight task that clears the success animation checkmark.
+    @State private var verificationSuccessAnimationTask: Task<Void, Never>?
+    /// The previous verification callback captured when installing the one-shot
+    /// handler, so it can be restored if the view disappears mid-verification.
+    @State private var previousVerificationCallback: ((ChannelVerificationSessionResponseMessage) -> Void)?
 
     var displayContact: ContactPayload {
         currentContact ?? contact
@@ -97,6 +107,17 @@ struct ContactDetailView: View {
         }
         .onDisappear {
             stopVerificationCountdownTimer()
+            verificationTimeoutTask?.cancel()
+            verificationTimeoutTask = nil
+            verificationSuccessAnimationTask?.cancel()
+            verificationSuccessAnimationTask = nil
+            // If a verification was in flight, restore the previous callback so
+            // SettingsStore's handler isn't permanently lost.
+            if verificationInProgress != nil {
+                daemonClient?.onChannelVerificationSessionResponse = previousVerificationCallback
+                previousVerificationCallback = nil
+                verificationInProgress = nil
+            }
         }
         .onReceive(store?.objectWillChange.map { _ in () }.eraseToAnyPublisher() ?? Empty().eraseToAnyPublisher()) { _ in
             verificationStoreRevision += 1
@@ -937,11 +958,43 @@ struct ContactDetailView: View {
         telegramBootstrapUrl = nil
         telegramBootstrapChannelId = nil
 
-        // Stash the previous callback so we can restore it after the one-shot response.
+        // Bump the attempt counter so stale responses from previous attempts are ignored.
+        verificationAttempt &+= 1
+        let currentAttempt = verificationAttempt
+
+        // Cancel any lingering timeout from a previous attempt.
+        verificationTimeoutTask?.cancel()
+
+        // Stash the previous callback so we can restore it after the one-shot response
+        // or if the view disappears mid-verification.
         let previousCallback = daemonClient.onChannelVerificationSessionResponse
+        previousVerificationCallback = previousCallback
+
+        // Timeout task that restores the previous handler if the daemon never responds.
+        verificationTimeoutTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            guard !Task.isCancelled else { return }
+            // Ignore if a newer attempt has started since this timeout was scheduled.
+            guard currentAttempt == verificationAttempt else { return }
+            // Only clean up if this verification is still in progress (response hasn't arrived).
+            guard verificationInProgress == channel.id else { return }
+            daemonClient.onChannelVerificationSessionResponse = previousCallback
+            previousVerificationCallback = nil
+            errorMessage = "Verification timed out — please try again"
+            verificationInProgress = nil
+        }
+
         daemonClient.onChannelVerificationSessionResponse = { [self] response in
+            // Ignore stale responses from a previous verification attempt.
+            guard currentAttempt == verificationAttempt else { return }
+
+            // Response arrived — cancel the timeout.
+            verificationTimeoutTask?.cancel()
+            verificationTimeoutTask = nil
+
             // Restore the previous handler after consuming this one-shot response.
             daemonClient.onChannelVerificationSessionResponse = previousCallback
+            previousVerificationCallback = nil
             // Also forward to the previous handler so SettingsStore still processes it.
             previousCallback?(response)
 
@@ -951,8 +1004,11 @@ struct ContactDetailView: View {
                     telegramBootstrapChannelId = channel.id
                 } else {
                     verificationSuccessChannelId = channel.id
-                    Task {
+                    // Cancel any prior success animation task before starting a new one.
+                    verificationSuccessAnimationTask?.cancel()
+                    verificationSuccessAnimationTask = Task {
                         try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        guard !Task.isCancelled else { return }
                         if verificationSuccessChannelId == channel.id {
                             verificationSuccessChannelId = nil
                         }
@@ -971,7 +1027,10 @@ struct ContactDetailView: View {
                 contactChannelId: channel.id
             )
         } catch {
+            verificationTimeoutTask?.cancel()
+            verificationTimeoutTask = nil
             daemonClient.onChannelVerificationSessionResponse = previousCallback
+            previousVerificationCallback = nil
             errorMessage = "Failed to send verification: \(error.localizedDescription)"
             verificationInProgress = nil
         }

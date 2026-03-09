@@ -44,6 +44,38 @@ describe("parseSub", () => {
   });
 
   // -------------------------------------------------------------------------
+  // svc:daemon pattern
+  // -------------------------------------------------------------------------
+
+  test("parses svc:daemon:<identifier>", () => {
+    const result = parseSub("svc:daemon:self");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.principalType).toBe("svc_daemon");
+      expect(result.assistantId).toBe("self");
+      expect(result.actorPrincipalId).toBeUndefined();
+      expect(result.sessionId).toBeUndefined();
+    }
+  });
+
+  test("parses svc:daemon with non-self identifier", () => {
+    const result = parseSub("svc:daemon:pairing");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.principalType).toBe("svc_daemon");
+      expect(result.assistantId).toBe("pairing");
+    }
+  });
+
+  test("fails on svc:daemon with empty identifier", () => {
+    const result = parseSub("svc:daemon:");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("empty");
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // ipc pattern
   // -------------------------------------------------------------------------
 

@@ -13,7 +13,6 @@ import {
 import { join } from "node:path";
 
 import { ConfigError } from "./shared/errors.js";
-import { getDataDir } from "./shared/platform.js";
 import type {
   ExtractedCredential,
   SessionRecording,
@@ -26,7 +25,7 @@ export interface DoorDashSession {
 }
 
 function getSessionDir(): string {
-  return join(getDataDir(), "doordash");
+  return join(process.env.VELLUM_DATA_DIR!, "doordash");
 }
 
 function getSessionPath(): string {

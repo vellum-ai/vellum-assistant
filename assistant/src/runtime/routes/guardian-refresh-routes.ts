@@ -15,7 +15,7 @@ const log = getLogger("guardian-refresh");
 /**
  * Handle POST /v1/guardian/refresh
  *
- * Body: { platform: 'ios' | 'macos', deviceId: string, refreshToken: string }
+ * Body: { platform: 'ios' | 'macos' | 'cli' | 'web', deviceId: string, refreshToken: string }
  * Returns: { guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter }
  */
 export async function handleGuardianRefresh(req: Request): Promise<Response> {
@@ -36,10 +36,15 @@ export async function handleGuardianRefresh(req: Request): Promise<Response> {
       );
     }
 
-    if (platform !== "ios" && platform !== "macos") {
+    if (
+      platform !== "ios" &&
+      platform !== "macos" &&
+      platform !== "cli" &&
+      platform !== "web"
+    ) {
       return httpError(
         "BAD_REQUEST",
-        'Invalid platform. Must be "ios" or "macos".',
+        'Invalid platform. Must be "ios", "macos", "cli", or "web".',
         400,
       );
     }

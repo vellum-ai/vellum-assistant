@@ -1,4 +1,5 @@
-import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 import { callTelegramApi } from "./api.js";
 import { getLogger } from "../logger.js";
 
@@ -13,6 +14,12 @@ interface WebhookInfo {
 
 const ALLOWED_UPDATES = ["message", "edited_message", "callback_query"];
 
+/** Options bag for optional cache injection into webhook reconciliation. */
+export type WebhookManagerCaches = {
+  credentials?: CredentialCache;
+  configFile?: ConfigFileCache;
+};
+
 /**
  * Reconciles the Telegram webhook registration against the expected state
  * derived from the gateway's ingress URL and current webhook secret.
@@ -23,16 +30,32 @@ const ALLOWED_UPDATES = ["message", "edited_message", "callback_query"];
  * setWebhook is idempotent, so calling it unconditionally is safe.
  */
 export async function reconcileTelegramWebhook(
-  config: GatewayConfig,
+  caches?: WebhookManagerCaches,
 ): Promise<void> {
-  if (!config.telegramBotToken || !config.telegramWebhookSecret) {
+  // Resolve credentials from cache
+  let botToken: string | undefined;
+  let webhookSecret: string | undefined;
+  if (caches?.credentials) {
+    botToken = await caches.credentials.get("credential:telegram:bot_token");
+    webhookSecret = await caches.credentials.get(
+      "credential:telegram:webhook_secret",
+    );
+  }
+
+  if (!botToken || !webhookSecret) {
     log.debug(
       "Skipping webhook reconciliation: Telegram credentials not configured",
     );
     return;
   }
 
-  if (!config.ingressPublicBaseUrl) {
+  // Resolve ingress URL from cache
+  let ingressUrl: string | undefined;
+  if (caches?.configFile) {
+    ingressUrl = caches.configFile.getString("ingress", "publicBaseUrl");
+  }
+
+  if (!ingressUrl) {
     log.debug(
       "Skipping webhook reconciliation: INGRESS_PUBLIC_BASE_URL not set",
     );
@@ -41,10 +64,18 @@ export async function reconcileTelegramWebhook(
 
   // Strip trailing slashes to avoid double-slash in the path
   // (e.g. "https://example.com/" + "/webhooks/telegram" => "https://example.com//webhooks/telegram")
-  const baseUrl = config.ingressPublicBaseUrl.replace(/\/+$/, "");
+  const baseUrl = ingressUrl.replace(/\/+$/, "");
   const expectedUrl = `${baseUrl}/webhooks/telegram`;
 
-  const info = await callTelegramApi<WebhookInfo>(config, "getWebhookInfo", {});
+  const apiOpts = caches?.credentials
+    ? { credentials: caches.credentials, configFile: caches?.configFile }
+    : undefined;
+
+  const info = await callTelegramApi<WebhookInfo>(
+    "getWebhookInfo",
+    {},
+    apiOpts,
+  );
 
   log.info(
     {
@@ -55,11 +86,15 @@ export async function reconcileTelegramWebhook(
     "Reconciling Telegram webhook",
   );
 
-  await callTelegramApi(config, "setWebhook", {
-    url: expectedUrl,
-    secret_token: config.telegramWebhookSecret,
-    allowed_updates: ALLOWED_UPDATES,
-  });
+  await callTelegramApi(
+    "setWebhook",
+    {
+      url: expectedUrl,
+      secret_token: webhookSecret,
+      allowed_updates: ALLOWED_UPDATES,
+    },
+    apiOpts,
+  );
 
   log.info({ url: expectedUrl }, "Telegram webhook registered successfully");
 }

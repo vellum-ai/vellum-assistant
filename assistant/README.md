@@ -1,6 +1,6 @@
 # Vellum Assistant Runtime
 
-Bun + TypeScript assistant runtime that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
+Bun + TypeScript assistant runtime that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes an HTTP+SSE API for native clients (macOS, iOS) and the gateway.
 
 ## Architecture
 
@@ -8,10 +8,7 @@ Bun + TypeScript assistant runtime that owns conversation history, attachment st
 CLI / macOS app / iOS app
         │
         ▼
-   Unix socket (~/.vellum/vellum.sock)
-        │
-        ▼
-   DaemonServer (IPC)
+   RuntimeHttpServer (HTTP + SSE)
         │
         ├── Session Manager (in-memory pool, stale eviction)
         │       ├── Anthropic Claude (primary)
@@ -47,13 +44,13 @@ cp .env.example .env
 | `OLLAMA_API_KEY`       | No       | —                           | API key for authenticated Ollama deployments      |
 | `OLLAMA_BASE_URL`      | No       | `http://127.0.0.1:11434/v1` | Ollama base URL                                   |
 | `RUNTIME_HTTP_PORT`    | No       | —                           | Enable the HTTP server (required for gateway/web) |
-| `VELLUM_DAEMON_SOCKET` | No       | `~/.vellum/vellum.sock`     | Override the assistant socket path                |
+| `RUNTIME_HTTP_HOST`    | No       | `127.0.0.1`                 | HTTP server bind address                          |
 
 ## Update Bulletin
 
-When a release includes relevant updates, the assistant materializes release notes from the bundled `src/config/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
+When a release includes relevant updates, the assistant materializes release notes from the bundled `src/prompts/templates/UPDATES.md` into `~/.vellum/workspace/UPDATES.md` on startup. The assistant uses judgment to surface updates to the user when relevant, and deletes the file when done.
 
-**For release maintainers:** Update `assistant/src/config/templates/UPDATES.md` with release notes before each relevant release. Leave the template empty (or comment-only) for releases with no user/assistant-facing changes.
+**For release maintainers:** Update `assistant/src/prompts/templates/UPDATES.md` with release notes before each relevant release. Leave the template empty (or comment-only) for releases with no user/assistant-facing changes.
 
 ## Usage
 
@@ -101,7 +98,7 @@ assistant/
 ├── src/
 │   ├── index.ts              # CLI entrypoint (commander)
 │   ├── cli.ts                # Interactive REPL client
-│   ├── daemon/               # Daemon server, IPC protocol, session management
+│   ├── daemon/               # Daemon server, session management
 │   ├── agent/                # Agent loop and LLM interaction
 │   ├── providers/            # LLM provider integrations (Anthropic, OpenAI, Gemini, Ollama)
 │   ├── memory/               # Conversation store, memory indexer, recall (FTS5 + Qdrant)
@@ -160,7 +157,7 @@ All approval prompt delivery paths use a **fail-closed** policy -- if the prompt
 
 ### Plain-Text Fallback for Non-Rich Channels
 
-Channels that do not support rich inline approval UI (e.g., inline keyboards) receive plain-text instructions embedded in the message body. The `channelSupportsRichApprovalUI()` check determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). The fallback text includes instructions like "Reply yes/no/always" so the user can respond via text.
+Channels that do not support rich inline approval UI (e.g., inline keyboards) receive plain-text instructions embedded in the message body. The `channelSupportsRichApprovalUI()` check determines whether to send the structured `promptText` (for rich channels like Telegram) or the `plainTextFallback` string (for all other channels). The fallback text includes instructions so the user can respond via text; the conversational approval engine then classifies the free-text response.
 
 ### Key modules
 
@@ -209,15 +206,15 @@ Twilio is the telephony provider for voice calls. Configuration is managed throu
 
 The runtime exposes a RESTful HTTP API for Twilio configuration, credential management, and phone number operations:
 
-| Method | Path                                        | Description                                                                                                                                                     |
-| ------ | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/v1/integrations/twilio/config`            | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned)                                                                               |
-| POST   | `/v1/integrations/twilio/credentials`       | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file)                                                                   |
-| DELETE | `/v1/integrations/twilio/credentials`       | Removes stored credentials. Preserves the phone number in both config and secure key so re-entering credentials resumes working without reassigning the number. |
-| GET    | `/v1/integrations/twilio/numbers`           | Lists all incoming phone numbers on the Twilio account with their capabilities                                                                                  |
-| POST   | `/v1/integrations/twilio/numbers/provision` | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available.                        |
-| POST   | `/v1/integrations/twilio/numbers/assign`    | Assigns an existing Twilio phone number (E.164) and auto-configures webhooks when ingress is available                                                          |
-| POST   | `/v1/integrations/twilio/numbers/release`   | Releases a phone number from the Twilio account and clears local references                                                                                     |
+| Method | Path                                        | Description                                                                                                                                 |
+| ------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/integrations/twilio/config`            | Returns current state: `hasCredentials` (boolean) and `phoneNumber` (if assigned)                                                           |
+| POST   | `/v1/integrations/twilio/credentials`       | Validates and stores Account SID and Auth Token in secure storage (Keychain / encrypted file)                                               |
+| DELETE | `/v1/integrations/twilio/credentials`       | Removes stored credentials. Preserves the phone number in config so re-entering credentials resumes working without reassigning the number. |
+| GET    | `/v1/integrations/twilio/numbers`           | Lists all incoming phone numbers on the Twilio account with their capabilities                                                              |
+| POST   | `/v1/integrations/twilio/numbers/provision` | Purchases a new phone number. Accepts optional `areaCode` and `country`. Auto-assigns and configures webhooks when ingress is available.    |
+| POST   | `/v1/integrations/twilio/numbers/assign`    | Assigns an existing Twilio phone number (E.164) and auto-configures webhooks when ingress is available                                      |
+| POST   | `/v1/integrations/twilio/numbers/release`   | Releases a phone number from the Twilio account and clears local references                                                                 |
 
 All endpoints are JWT-authenticated (require a valid JWT with appropriate scopes). Skills and clients should call the gateway URL (default `http://localhost:7830`) rather than the runtime port directly, as the gateway proxies all `/v1/integrations/twilio/*` routes.
 
@@ -249,9 +246,8 @@ At runtime, `getTwilioConfig()` resolves the phone number using this priority ch
 
 1. **`TWILIO_PHONE_NUMBER` env var** — highest priority, explicit override for dev/CI.
 2. **`twilio.phoneNumber` in config** — the primary source of truth, written by `provision_number` and `assign_number`.
-3. **`credential:twilio:phone_number` secure key** — backward-compatible fallback for setups that predate the config-first model.
 
-If no number is found after all three sources, an error is thrown.
+If no number is found after both sources, an error is thrown.
 
 ### Assistant-Scoped Guardian State
 
@@ -259,7 +255,7 @@ Guardian bindings, verification challenges, and approval requests are all scoped
 
 ### Channel-Aware Guardian Challenges
 
-The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"voice"` -> `"Voice"`), so challenge prompts reference the correct channel name.
+The channel guardian service generates verification challenge instructions with channel-appropriate wording. The `channelLabel()` function maps `sourceChannel` values to human-readable labels (e.g., `"telegram"` -> `"Telegram"`, `"phone"` -> `"Phone"`), so challenge prompts reference the correct channel name.
 
 ### Operator Notes
 
@@ -273,7 +269,7 @@ The vellum channel (macOS, iOS, CLI) uses JWTs to bind guardian identity to HTTP
 
 - **Bootstrap**: After hatch, the macOS client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint fresh credentials.
 - **iOS pairing**: The pairing response includes `accessToken` and `refreshToken` credentials automatically when a vellum guardian binding exists.
-- **IPC fallback**: Local IPC (Unix socket) connections resolve identity server-side via `resolveLocalIpcGuardianContext()` without requiring a JWT.
+- **Local identity**: Local connections resolve identity server-side via `resolveLocalGuardianContext()` without requiring a JWT.
 - **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.
 - **Startup migration**: On assistant start, `ensureVellumGuardianBinding()` backfills a vellum guardian binding for existing installations so the identity system works without requiring a manual bootstrap step.
 
@@ -285,7 +281,7 @@ This section documents the end-to-end flow from guardian verification through in
 
 Guardian verification establishes a cryptographic trust binding between a human identity and an `(assistantId, channel)` pair. The flow is:
 
-1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a channel_verification_session IPC message (`create_session` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
+1. **Challenge creation** — The owner initiates verification from the desktop UI, which sends a channel_verification_session request (`create_session` action) to the assistant. The assistant generates a random secret (32-byte hex for unbound inbound/bootstrap sessions, 6-digit numeric for identity-bound sessions), hashes it with SHA-256, stores the hash with a 10-minute TTL, and returns the raw secret to the desktop.
 2. **Code sharing** — The desktop displays the code and instructs the owner to reply with that code in the target channel conversation (e.g., Telegram).
 3. **Verification** — When the message arrives at `/channels/inbound`, the handler intercepts valid verification-code replies before normal message processing. It hashes the provided code, looks up a matching pending challenge, validates expiry, and consumes the challenge (preventing replay).
 4. **Binding** — On success, any existing active binding for the `(assistantId, channel)` pair is revoked, and a new guardian binding is created with the verifier's `actorExternalId` and `chatId` (DB columns: `externalUserId`, `chatId`). The verifier receives a confirmation message.
@@ -324,17 +320,17 @@ Guardian verification and ingress contact management are complementary but indep
 
 ### Key Modules
 
-| File                                            | Purpose                                                                                                                          |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `src/runtime/channel-verification-service.ts`   | Verification lifecycle: `createInboundVerificationSession`, `validateAndConsumeVerification`, `getGuardianBinding`, `isGuardian` |
-| `src/runtime/trust-context-resolver.ts`         | Actor role classification: guardian / non-guardian / unverified_channel                                                          |
-| `src/runtime/routes/inbound-message-handler.ts` | Ingress ACL enforcement, verification-code intercept, escalation creation                                                        |
-| `src/contacts/contact-store.ts`                 | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                           |
-| `src/memory/invite-store.ts`                    | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                              |
-| `src/memory/channel-verification-sessions.ts`   | Guardian binding types and verification challenge persistence                                                                    |
-| `src/memory/guardian-approvals.ts`              | Approval request persistence                                                                                                     |
-| `src/runtime/verification-outbound-actions.ts`  | Shared business logic for outbound verification (start/resend/cancel)                                                            |
-| `src/runtime/routes/integration-routes.ts`      | HTTP route handlers for outbound guardian verification endpoints                                                                 |
+| File                                                | Purpose                                                                                                                          |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `src/runtime/channel-verification-service.ts`       | Verification lifecycle: `createInboundVerificationSession`, `validateAndConsumeVerification`, `getGuardianBinding`, `isGuardian` |
+| `src/runtime/trust-context-resolver.ts`             | Actor role classification: guardian / non-guardian / unverified_channel                                                          |
+| `src/runtime/routes/inbound-message-handler.ts`     | Ingress ACL enforcement, verification-code intercept, escalation creation                                                        |
+| `src/contacts/contact-store.ts`                     | Contact + channel CRUD: `findContactChannel`, `upsertContact`, `updateChannelStatus`, `searchContacts`                           |
+| `src/memory/invite-store.ts`                        | Invite lifecycle: `createInvite`, `redeemInvite` (atomically creates member record)                                              |
+| `src/memory/channel-verification-sessions.ts`       | Guardian binding types and verification challenge persistence                                                                    |
+| `src/memory/guardian-approvals.ts`                  | Approval request persistence                                                                                                     |
+| `src/runtime/verification-outbound-actions.ts`      | Shared business logic for outbound verification (start/resend/cancel)                                                            |
+| `src/runtime/routes/channel-verification-routes.ts` | HTTP route handlers for outbound guardian verification endpoints                                                                 |
 
 ### Chat-Initiated Guardian Verification
 
@@ -396,7 +392,7 @@ Secure cross-user messaging allows external users (non-guardians) to interact wi
 
 External users join through **invite tokens**. There are two invite flows:
 
-1. **IPC-based (legacy)** — The owner creates an invite via IPC, obtains the raw token, and shares it manually. The external user redeems the token by sending it as a channel message.
+1. **Manual** — The owner creates an invite via the HTTP API, obtains the raw token, and shares it manually. The external user redeems the token by sending it as a channel message.
 2. **Guardian-initiated invite links (Telegram)** — The guardian asks the assistant to create an invite link via desktop chat. The assistant creates an invite, builds a channel-specific deep link, and presents it for sharing. The invitee clicks the link and is automatically granted access.
 
 #### Guardian-Initiated Invite Link Flow (Telegram)
@@ -433,9 +429,9 @@ On **approve**: the original message payload is recovered from the channel deliv
 
 If no guardian binding exists, escalation fails closed — the message is denied rather than left in a silent wait state.
 
-### IPC Contracts
+### HTTP API
 
-| Message Type     | Actions                      | Description                                                              |
+| Endpoint         | Actions                      | Description                                                              |
 | ---------------- | ---------------------------- | ------------------------------------------------------------------------ |
 | `ingress_invite` | create, list, revoke, redeem | Manage invite tokens (SHA-256 hashed, raw token returned once on create) |
 
@@ -445,15 +441,14 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `src/memory/invite-store.ts`                        | CRUD for invite tokens with SHA-256 hashing and expiry                                                           |
 | `src/contacts/contact-store.ts`                     | Contact + channel CRUD with policy enforcement                                                                   |
-| `src/daemon/handlers/config-inbox.ts`               | IPC handlers for invite contract                                                                                 |
-| `src/daemon/ipc-contract/inbox.ts`                  | TypeScript type definitions for ingress IPC messages                                                             |
+| `src/daemon/handlers/config-inbox.ts`               | HTTP handlers for invite operations                                                                              |
 | `src/runtime/routes/channel-routes.ts`              | ACL enforcement point — member lookup, policy check, escalation creation                                         |
 | `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, member creation, discriminated-union outcomes                         |
 | `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                        |
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel                          |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes guardian invite management requests into the `contacts` skill                          |
-| `src/runtime/invite-service.ts`                     | Shared business logic for invite and contact operations (HTTP + IPC)                                             |
+| `src/runtime/invite-service.ts`                     | Shared business logic for invite and contact operations                                                          |
 
 ## Database
 

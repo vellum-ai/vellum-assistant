@@ -67,9 +67,7 @@ export async function sendGuardianExpiryNotices(
       );
 
       if (
-        (delivery.destinationChannel === "vellum" ||
-          delivery.destinationChannel === "macos" ||
-          delivery.destinationChannel === "mac") &&
+        delivery.destinationChannel === "vellum" &&
         delivery.destinationConversationId
       ) {
         // Add expiry message to vellum guardian thread.
@@ -78,9 +76,9 @@ export async function sendGuardianExpiryNotices(
           "assistant",
           JSON.stringify([{ type: "text", text: expiryText }]),
           {
-            userMessageChannel: "voice",
+            userMessageChannel: "phone",
             assistantMessageChannel: "vellum",
-            userMessageInterface: "voice",
+            userMessageInterface: "phone",
             assistantMessageInterface: "vellum",
           },
         );

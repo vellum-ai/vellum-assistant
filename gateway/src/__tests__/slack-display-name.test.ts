@@ -38,29 +38,7 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeProxyRequireAuth: false,
     runtimeTimeoutMs: 30000,
     shutdownDrainMs: 5000,
-    telegramApiBaseUrl: "https://api.telegram.org",
-    telegramBotToken: undefined,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
-    telegramWebhookSecret: undefined,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    ingressPublicBaseUrl: undefined,
     unmappedPolicy: "default",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: "xoxb-test-token",
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   } as GatewayConfig;
@@ -183,11 +161,16 @@ describe("normalizeSlackAppMention with display name", () => {
       );
     });
 
-    const config = makeConfig({ slackChannelBotToken: "xoxb-test" });
+    const config = makeConfig();
     const event = makeEvent({ user: "U_WITH_NAME" });
 
     // First call: cache miss, fires background fetch, no display name yet
-    const result1 = normalizeSlackAppMention(event, "evt-dn-1a", config);
+    const result1 = normalizeSlackAppMention(
+      event,
+      "evt-dn-1a",
+      config,
+      "xoxb-test",
+    );
     expect(result1).not.toBeNull();
     expect(result1!.event.actor.displayName).toBeUndefined();
 
@@ -195,7 +178,12 @@ describe("normalizeSlackAppMention with display name", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // Second call: cache hit, display name populated
-    const result2 = normalizeSlackAppMention(event, "evt-dn-1b", config);
+    const result2 = normalizeSlackAppMention(
+      event,
+      "evt-dn-1b",
+      config,
+      "xoxb-test",
+    );
     expect(result2).not.toBeNull();
     expect(result2!.event.actor.displayName).toBe("Test U");
     expect(result2!.event.actor.username).toBe("testuser");
@@ -216,20 +204,25 @@ describe("normalizeSlackAppMention with display name", () => {
       );
     });
 
-    const config = makeConfig({ slackChannelBotToken: "xoxb-test" });
+    const config = makeConfig();
     const event = makeEvent({ user: "U_PREWARM" });
 
     // Pre-warm the cache with an explicit async call
     await resolveSlackUser("U_PREWARM", "xoxb-test");
 
-    const result = normalizeSlackAppMention(event, "evt-dn-pw", config);
+    const result = normalizeSlackAppMention(
+      event,
+      "evt-dn-pw",
+      config,
+      "xoxb-test",
+    );
     expect(result).not.toBeNull();
     expect(result!.event.actor.displayName).toBe("Test U");
     expect(result!.event.actor.username).toBe("testuser");
   });
 
   test("omits displayName when bot token is not configured", () => {
-    const config = makeConfig({ slackChannelBotToken: undefined });
+    const config = makeConfig();
     const event = makeEvent();
     const result = normalizeSlackAppMention(event, "evt-dn-2", config);
 
@@ -243,9 +236,14 @@ describe("normalizeSlackAppMention with display name", () => {
       return new Response("", { status: 500 });
     });
 
-    const config = makeConfig({ slackChannelBotToken: "xoxb-test" });
+    const config = makeConfig();
     const event = makeEvent();
-    const result = normalizeSlackAppMention(event, "evt-dn-3", config);
+    const result = normalizeSlackAppMention(
+      event,
+      "evt-dn-3",
+      config,
+      "xoxb-test",
+    );
 
     expect(result).not.toBeNull();
     expect(result!.event.actor.displayName).toBeUndefined();

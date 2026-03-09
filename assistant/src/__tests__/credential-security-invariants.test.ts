@@ -199,17 +199,12 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Hard boundary: only these production files may import from secure-keys.
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
-      "security/secure-keys.ts", // self (re-export infrastructure)
-      "index.ts", // daemon startup / API key config
       "config/loader.ts", // config management (API keys)
       "tools/credentials/vault.ts", // credential store tool
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
-      "daemon/handlers.ts", // Vercel API token + integration OAuth
-      "daemon/handlers/config-integrations.ts", // Vercel API token + Twitter integration OAuth
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
-      "daemon/handlers/config-ingress.ts", // Ingress config (reads Twilio credentials for webhook sync)
-      "runtime/routes/twilio-routes.ts", // Twilio credential management (HTTP control-plane)
+      "runtime/routes/integrations/twilio.ts", // Twilio credential management (HTTP control-plane)
       "security/token-manager.ts", // OAuth token refresh flow
       "email/providers/index.ts", // email provider API key lookup
       "tools/network/script-proxy/session-manager.ts", // proxy credential injection at runtime
@@ -219,25 +214,23 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "calls/twilio-provider.ts", // call infrastructure credential lookup
       "calls/twilio-rest.ts", // Twilio REST API credential lookup
       "runtime/channel-invite-transports/telegram.ts", // Telegram invite transport bot token lookup
-      "cli/keys.ts", // CLI credential management commands
-      "cli/credentials.ts", // CLI credential management commands
-      "runtime/http-server.ts", // HTTP server credential lookup
-      "daemon/handlers/twitter-auth.ts", // Twitter OAuth token storage
-      "twitter/oauth-client.ts", // Twitter OAuth API client (reads access token for API calls)
+      "cli/commands/keys.ts", // CLI credential management commands
+      "cli/commands/credentials.ts", // CLI credential management commands
       "messaging/providers/telegram-bot/adapter.ts", // Telegram bot token lookup for connectivity check
       "runtime/channel-readiness-service.ts", // channel readiness probes for Telegram connectivity
       "messaging/providers/whatsapp/adapter.ts", // WhatsApp credential lookup for connectivity check
       "schedule/integration-status.ts", // integration status checks for scheduled reports
-      "daemon/handlers/oauth-connect.ts", // OAuth connect handler for integration setup
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "media/managed-avatar-client.ts", // managed avatar API key lookup for platform authentication
       "providers/managed-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
-      "runtime/routes/slack-share-routes.ts", // Slack share routes credential lookup
+      "runtime/routes/integrations/slack/share.ts", // Slack share routes credential lookup
       "mcp/client.ts", // MCP client cached-token lookup
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
       "daemon/session-messaging.ts", // credential storage during session messaging
+      "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_id/client_secret/access tokens)
+      "util/cookie-session.ts", // shared cookie-session persistence (session CRUD via credential store)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));
@@ -329,7 +322,7 @@ describe("Invariant 3: secrets never logged in plaintext", () => {
       test(`${tc.label}`, () => {
         const thisDir = dirname(fileURLToPath(import.meta.url));
         const ipcSrc = readFileSync(
-          resolve(thisDir, "../daemon/ipc-protocol.ts"),
+          resolve(thisDir, "../daemon/message-protocol.ts"),
           "utf-8",
         );
         // Verify log calls never include raw content fields — only safe

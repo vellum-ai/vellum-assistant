@@ -206,7 +206,7 @@ describe("invite-redemption-service", () => {
 
     const outcome = redeemInvite({
       rawToken,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       externalUserId: "user-1",
     });
 
@@ -324,7 +324,7 @@ describe("invite-redemption-service", () => {
   });
 
   test("channel enforcement blocks cross-channel redemption (voice invite via slack)", () => {
-    const { rawToken } = createInvite({ sourceChannel: "voice", maxUses: 1 });
+    const { rawToken } = createInvite({ sourceChannel: "phone", maxUses: 1 });
 
     const outcome = redeemInvite({
       rawToken,
@@ -381,7 +381,7 @@ describe("invite-redemption-service", () => {
   test("returns channel_mismatch for an active member with a valid token for a different channel", () => {
     // Create an invite for voice
     const { rawToken } = createInvite({
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       maxUses: 5,
     });
 

@@ -12,23 +12,28 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mutable mock state — tests toggle these before each call
 // ---------------------------------------------------------------------------
 
-let mockMetadata: { accountInfo?: string } | undefined;
+let mockBotUsername: string | undefined;
 let mockSecureKey: string | undefined;
-let mockUpsertCalls: Array<{
-  service: string;
-  key: string;
-  patch: Record<string, unknown>;
+let mockConfigWriteCalls: Array<{
+  path: string;
+  value: unknown;
 }> = [];
 
-mock.module("../tools/credentials/metadata-store.js", () => ({
-  getCredentialMetadata: (_service: string, _key: string) => mockMetadata,
-  upsertCredentialMetadata: (
-    service: string,
-    key: string,
-    patch: Record<string, unknown>,
+mock.module("../telegram/bot-username.js", () => ({
+  getTelegramBotUsername: () => mockBotUsername,
+}));
+
+mock.module("../config/loader.js", () => ({
+  loadRawConfig: () => ({}),
+  setNestedValue: (
+    _obj: Record<string, unknown>,
+    path: string,
+    value: unknown,
   ) => {
-    mockUpsertCalls.push({ service, key, patch });
+    mockConfigWriteCalls.push({ path, value });
   },
+  saveRawConfig: () => {},
+  invalidateConfigCache: () => {},
 }));
 
 mock.module("../security/secure-keys.js", () => ({
@@ -56,9 +61,9 @@ let mockFetchThrows: Error | undefined;
 let fetchCallCount = 0;
 
 beforeEach(() => {
-  mockMetadata = undefined;
+  mockBotUsername = undefined;
   mockSecureKey = undefined;
-  mockUpsertCalls = [];
+  mockConfigWriteCalls = [];
   mockFetchThrows = undefined;
   mockFetchResponse = {
     ok: true,
@@ -86,18 +91,18 @@ const { ensureTelegramBotUsernameResolved } =
 // ---------------------------------------------------------------------------
 
 describe("ensureTelegramBotUsernameResolved", () => {
-  test("(a) early-returns when accountInfo is already cached", async () => {
-    mockMetadata = { accountInfo: "CachedBot" };
+  test("(a) early-returns when bot username is already cached in config", async () => {
+    mockBotUsername = "CachedBot";
     mockSecureKey = "some-token";
 
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(0);
-    expect(mockUpsertCalls).toHaveLength(0);
+    expect(mockConfigWriteCalls).toHaveLength(0);
   });
 
-  test("(b) fetches getMe and caches username on success", async () => {
-    mockMetadata = undefined;
+  test("(b) fetches getMe and writes username to config on success", async () => {
+    mockBotUsername = undefined;
     mockSecureKey = "bot-token-123";
     mockFetchResponse = {
       ok: true,
@@ -108,17 +113,16 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockUpsertCalls).toEqual([
+    expect(mockConfigWriteCalls).toEqual([
       {
-        service: "telegram",
-        key: "bot_token",
-        patch: { accountInfo: "MyNewBot" },
+        path: "telegram.botUsername",
+        value: "MyNewBot",
       },
     ]);
   });
 
-  test("(c) handles non-200 response gracefully without caching", async () => {
-    mockMetadata = undefined;
+  test("(c) handles non-200 response gracefully without writing to config", async () => {
+    mockBotUsername = undefined;
     mockSecureKey = "bot-token-123";
     mockFetchResponse = {
       ok: false,
@@ -129,11 +133,11 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockUpsertCalls).toHaveLength(0);
+    expect(mockConfigWriteCalls).toHaveLength(0);
   });
 
   test("(d) handles missing username in response gracefully", async () => {
-    mockMetadata = undefined;
+    mockBotUsername = undefined;
     mockSecureKey = "bot-token-123";
     mockFetchResponse = {
       ok: true,
@@ -144,32 +148,32 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockUpsertCalls).toHaveLength(0);
+    expect(mockConfigWriteCalls).toHaveLength(0);
   });
 
   test("(e) handles network errors (fetch throws) gracefully", async () => {
-    mockMetadata = undefined;
+    mockBotUsername = undefined;
     mockSecureKey = "bot-token-123";
     mockFetchThrows = new Error("ECONNREFUSED");
 
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockUpsertCalls).toHaveLength(0);
+    expect(mockConfigWriteCalls).toHaveLength(0);
   });
 
   test("(f) no-ops when no bot token is configured", async () => {
-    mockMetadata = undefined;
+    mockBotUsername = undefined;
     mockSecureKey = undefined;
 
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(0);
-    expect(mockUpsertCalls).toHaveLength(0);
+    expect(mockConfigWriteCalls).toHaveLength(0);
   });
 
-  test("treats whitespace-only accountInfo as uncached", async () => {
-    mockMetadata = { accountInfo: "   " };
+  test("writes to config when bot username not in config", async () => {
+    mockBotUsername = undefined;
     mockSecureKey = "bot-token-123";
     mockFetchResponse = {
       ok: true,
@@ -180,17 +184,16 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockUpsertCalls).toEqual([
+    expect(mockConfigWriteCalls).toEqual([
       {
-        service: "telegram",
-        key: "bot_token",
-        patch: { accountInfo: "FreshBot" },
+        path: "telegram.botUsername",
+        value: "FreshBot",
       },
     ]);
   });
 
-  test("treats empty-string accountInfo as uncached", async () => {
-    mockMetadata = { accountInfo: "" };
+  test("writes to config when bot username resolved from API", async () => {
+    mockBotUsername = undefined;
     mockSecureKey = "bot-token-456";
     mockFetchResponse = {
       ok: true,
@@ -201,11 +204,10 @@ describe("ensureTelegramBotUsernameResolved", () => {
     await ensureTelegramBotUsernameResolved();
 
     expect(fetchCallCount).toBe(1);
-    expect(mockUpsertCalls).toEqual([
+    expect(mockConfigWriteCalls).toEqual([
       {
-        service: "telegram",
-        key: "bot_token",
-        patch: { accountInfo: "AnotherBot" },
+        path: "telegram.botUsername",
+        value: "AnotherBot",
       },
     ]);
   });

@@ -48,4 +48,4 @@ USER root
 #              -v ./cli/src:/app/cli/src \
 #              $(docker build -q -f meta/Dockerfile.development .)
 
-CMD ["vellum", "hatch", "--watch"]
+CMD ["vellum", "hatch", "--watch", "--keep-alive"]

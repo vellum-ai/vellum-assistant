@@ -74,22 +74,22 @@ describe("getPointerFallbackMessage", () => {
     expect(msg).toContain("failed: no answer");
   });
 
-  test("verification_succeeded defaults to voice channel", () => {
+  test("verification_succeeded defaults to phone channel", () => {
     const msg = getPointerFallbackMessage({
       scenario: "verification_succeeded",
       phoneNumber: "+15559876543",
     });
-    expect(msg).toContain("Guardian verification (voice)");
+    expect(msg).toContain("Guardian verification (phone)");
     expect(msg).toContain("succeeded");
   });
 
-  test("verification_succeeded with custom channel", () => {
+  test("verification_succeeded with explicit phone channel", () => {
     const msg = getPointerFallbackMessage({
       scenario: "verification_succeeded",
       phoneNumber: "+15559876543",
-      channel: "voice",
+      channel: "phone",
     });
-    expect(msg).toContain("Guardian verification (voice)");
+    expect(msg).toContain("Guardian verification (phone)");
   });
 
   test("verification_failed without reason", () => {
@@ -161,10 +161,10 @@ describe("buildPointerInstruction", () => {
     const ctx: CallPointerMessageContext = {
       scenario: "verification_succeeded",
       phoneNumber: "+15559876543",
-      channel: "voice",
+      channel: "phone",
     };
     const instruction = buildPointerInstruction(ctx);
-    expect(instruction).toContain("Channel: voice");
+    expect(instruction).toContain("Channel: phone");
   });
 
   test("omits optional fields when not provided", () => {

@@ -29,11 +29,12 @@ import { getTwilioConfig } from "../calls/twilio-config.js";
 
 describe("twilio-config", () => {
   beforeEach(() => {
-    mockSecureKeys = {};
+    mockSecureKeys = {
+      "credential:twilio:auth_token": "test_auth_token",
+    };
     mockLoadConfigResult = {
       twilio: {
         accountSid: "AC_test_sid",
-        authToken: "test_auth_token",
         phoneNumber: "+15551234567",
       },
     };
@@ -58,10 +59,10 @@ describe("twilio-config", () => {
   });
 
   test("throws ConfigError when auth token is missing", () => {
+    mockSecureKeys = {};
     mockLoadConfigResult = {
       twilio: {
         accountSid: "AC_test_sid",
-        authToken: "",
         phoneNumber: "+15551234567",
       },
     };
@@ -74,7 +75,6 @@ describe("twilio-config", () => {
     mockLoadConfigResult = {
       twilio: {
         accountSid: "AC_test_sid",
-        authToken: "test_auth_token",
         phoneNumber: "",
       },
     };

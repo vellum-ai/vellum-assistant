@@ -1,9 +1,8 @@
 ---
-name: "Browser"
-description: "Navigate and interact with web pages using a headless browser"
-user-invocable: true
-disable-model-invocation: false
-metadata: {"vellum": {"emoji": "🌐"}}
+name: browser
+description: Navigate and interact with web pages using a headless browser
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🌐","vellum":{"display-name":"Browser","user-invocable":true}}
 ---
 
 Use this skill to browse the web. After loading this skill, the following browser tools become available:

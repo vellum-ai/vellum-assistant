@@ -1,5 +1,4 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
-import * as net from "node:net";
 import * as path from "node:path";
 
 import { v4 as uuid } from "uuid";
@@ -9,10 +8,9 @@ import {
   uploadFileBackedAttachment,
 } from "../../memory/attachments-store.js";
 import { addMessage } from "../../memory/conversation-crud.js";
-import type { RecordingOptions, RecordingStatus } from "../ipc-protocol.js";
+import type { RecordingOptions, RecordingStatus } from "../message-protocol.js";
 import {
   defineHandlers,
-  findSocketForSession,
   type HandlerContext,
   log,
 } from "./shared.js";
@@ -76,8 +74,8 @@ const deferredRestartByConversation = new Map<string, DeferredRestartParams>();
 
 /**
  * Initiate a standalone recording for a conversation.
- * Generates a unique recording ID, stores deterministic mappings, and sends
- * a `recording_start` message to the client.
+ * Generates a unique recording ID, stores deterministic mappings, and
+ * broadcasts a `recording_start` event to connected clients.
  *
  * When `operationToken` is provided (restart flow), it is threaded through
  * to the client so that status callbacks can be validated against the token.
@@ -85,7 +83,6 @@ const deferredRestartByConversation = new Map<string, DeferredRestartParams>();
 export function handleRecordingStart(
   conversationId: string,
   options: RecordingOptions | undefined,
-  socket: net.Socket,
   ctx: HandlerContext,
   operationToken?: string,
 ): string | null {
@@ -119,7 +116,7 @@ export function handleRecordingStart(
   standaloneRecordingConversationId.set(recordingId, conversationId);
   recordingOwnerByConversation.set(conversationId, recordingId);
 
-  ctx.send(socket, {
+  ctx.broadcast({
     type: "recording_start",
     recordingId,
     attachToConversationId: conversationId,
@@ -172,23 +169,7 @@ export function handleRecordingStop(
     return undefined;
   }
 
-  // Look up the socket currently bound to the owning conversation so we can
-  // send the stop command to the correct client connection.
-  const socket =
-    findSocketForSession(ownerConversationId, ctx) ??
-    findSocketForSession(conversationId, ctx);
-  if (!socket) {
-    // Keep maps intact so the recording can be stopped later when a socket
-    // reconnects. Cleaning up here would orphan the client-side recording
-    // (still running) while the daemon thinks no recording is active.
-    log.warn(
-      { conversationId, ownerConversationId, recordingId },
-      "Cannot send recording_stop: no socket bound to conversation — keeping state for retry",
-    );
-    return undefined;
-  }
-
-  ctx.send(socket, {
+  ctx.broadcast({
     type: "recording_stop",
     recordingId,
   });
@@ -261,7 +242,6 @@ export interface RecordingRestartResult {
  */
 export function handleRecordingRestart(
   conversationId: string,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): RecordingRestartResult {
   // Generate a restart operation token for race hardening
@@ -342,7 +322,7 @@ export function handleRecordingRestart(
 
 /**
  * Pause the active recording for a conversation.
- * Sends a `recording_pause` IPC message to the client.
+ * Broadcasts a `recording_pause` event to connected clients.
  *
  * Returns the recording ID if pause was sent, or `undefined` if no active
  * recording exists.
@@ -352,15 +332,13 @@ export function handleRecordingPause(
   ctx: HandlerContext,
 ): string | undefined {
   let recordingId = recordingOwnerByConversation.get(conversationId);
-  let ownerConversationId = conversationId;
 
   // Global fallback
   if (!recordingId && recordingOwnerByConversation.size > 0) {
-    const [activeConv, activeRec] = [
+    const [_activeConv, activeRec] = [
       ...recordingOwnerByConversation.entries(),
     ][0];
     recordingId = activeRec;
-    ownerConversationId = activeConv;
   }
 
   if (!recordingId) {
@@ -368,18 +346,7 @@ export function handleRecordingPause(
     return undefined;
   }
 
-  const socket =
-    findSocketForSession(ownerConversationId, ctx) ??
-    findSocketForSession(conversationId, ctx);
-  if (!socket) {
-    log.warn(
-      { conversationId, recordingId },
-      "Cannot send recording_pause: no socket bound",
-    );
-    return undefined;
-  }
-
-  ctx.send(socket, {
+  ctx.broadcast({
     type: "recording_pause",
     recordingId,
   });
@@ -392,7 +359,7 @@ export function handleRecordingPause(
 
 /**
  * Resume a paused recording for a conversation.
- * Sends a `recording_resume` IPC message to the client.
+ * Broadcasts a `recording_resume` event to connected clients.
  *
  * Returns the recording ID if resume was sent, or `undefined` if no active
  * recording exists.
@@ -402,15 +369,13 @@ export function handleRecordingResume(
   ctx: HandlerContext,
 ): string | undefined {
   let recordingId = recordingOwnerByConversation.get(conversationId);
-  let ownerConversationId = conversationId;
 
   // Global fallback
   if (!recordingId && recordingOwnerByConversation.size > 0) {
-    const [activeConv, activeRec] = [
+    const [_activeConv, activeRec] = [
       ...recordingOwnerByConversation.entries(),
     ][0];
     recordingId = activeRec;
-    ownerConversationId = activeConv;
   }
 
   if (!recordingId) {
@@ -418,18 +383,7 @@ export function handleRecordingResume(
     return undefined;
   }
 
-  const socket =
-    findSocketForSession(ownerConversationId, ctx) ??
-    findSocketForSession(conversationId, ctx);
-  if (!socket) {
-    log.warn(
-      { conversationId, recordingId },
-      "Cannot send recording_resume: no socket bound",
-    );
-    return undefined;
-  }
-
-  ctx.send(socket, {
+  ctx.broadcast({
     type: "recording_resume",
     recordingId,
   });
@@ -498,10 +452,9 @@ export async function finalizeAndPublishRecording(params: {
   conversationId: string;
   filePath?: string;
   durationMs?: number;
-  notifySocket: net.Socket;
   ctx: HandlerContext;
 }): Promise<{ success: boolean; messageId?: string }> {
-  const { recordingId, conversationId, filePath, notifySocket, ctx } = params;
+  const { recordingId, conversationId, filePath, ctx } = params;
 
   // Idempotency guard: prevent double-finalization.
   // Mark as finalized eagerly (before any async work) so concurrent calls
@@ -535,12 +488,12 @@ export async function finalizeAndPublishRecording(params: {
         "Failed to persist recording error message",
       );
     }
-    ctx.send(notifySocket, {
+    ctx.broadcast({
       type: "assistant_text_delta",
       text: errorText,
       sessionId: conversationId,
     });
-    ctx.send(notifySocket, {
+    ctx.broadcast({
       type: "message_complete",
       sessionId: conversationId,
     });
@@ -588,12 +541,12 @@ export async function finalizeAndPublishRecording(params: {
         "Failed to persist recording error message",
       );
     }
-    ctx.send(notifySocket, {
+    ctx.broadcast({
       type: "assistant_text_delta",
       text: errorText,
       sessionId: conversationId,
     });
-    ctx.send(notifySocket, {
+    ctx.broadcast({
       type: "message_complete",
       sessionId: conversationId,
     });
@@ -616,12 +569,12 @@ export async function finalizeAndPublishRecording(params: {
           "Failed to persist recording error message",
         );
       }
-      ctx.send(notifySocket, {
+      ctx.broadcast({
         type: "assistant_text_delta",
         text: errorText,
         sessionId: conversationId,
       });
-      ctx.send(notifySocket, {
+      ctx.broadcast({
         type: "message_complete",
         sessionId: conversationId,
       });
@@ -649,12 +602,12 @@ export async function finalizeAndPublishRecording(params: {
           "Failed to persist recording error message",
         );
       }
-      ctx.send(notifySocket, {
+      ctx.broadcast({
         type: "assistant_text_delta",
         text: errorText,
         sessionId: conversationId,
       });
-      ctx.send(notifySocket, {
+      ctx.broadcast({
         type: "message_complete",
         sessionId: conversationId,
       });
@@ -710,13 +663,13 @@ export async function finalizeAndPublishRecording(params: {
     // AVAssetImageGenerator, which is faster and doesn't depend on ffmpeg.
     const thumbnailData: string | undefined = undefined;
 
-    // Notify the client via the reporting socket
-    ctx.send(notifySocket, {
+    // Notify the client via broadcast
+    ctx.broadcast({
       type: "assistant_text_delta",
       text: msgText,
       sessionId: conversationId,
     });
-    ctx.send(notifySocket, {
+    ctx.broadcast({
       type: "message_complete",
       sessionId: conversationId,
       attachments: [
@@ -751,12 +704,12 @@ export async function finalizeAndPublishRecording(params: {
         "Failed to persist recording error message",
       );
     }
-    ctx.send(notifySocket, {
+    ctx.broadcast({
       type: "assistant_text_delta",
       text: errorText,
       sessionId: conversationId,
     });
-    ctx.send(notifySocket, {
+    ctx.broadcast({
       type: "message_complete",
       sessionId: conversationId,
     });
@@ -766,9 +719,16 @@ export async function finalizeAndPublishRecording(params: {
 
 // ─── Status (client → server lifecycle updates) ─────────────────────────────
 
-async function handleRecordingStatus(
+/**
+ * Core recording-status business logic. Handles conversation ID resolution,
+ * operation token validation for restart race hardening, file attachment
+ * after recording stops, broadcasting recording lifecycle events, and
+ * triggering deferred recording restarts.
+ *
+ * Shared by both the IPC handler and the HTTP POST route.
+ */
+export async function handleRecordingStatusCore(
   msg: RecordingStatus,
-  reportingSocket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const recordingId = msg.sessionId;
@@ -832,11 +792,6 @@ async function handleRecordingStatus(
     cancelStopTimeout(recordingId);
   }
 
-  // Use the reporting socket (which delivered this message) as the primary
-  // recipient. Fall back to session-based lookup if the user switched sessions.
-  const notifySocket =
-    reportingSocket ?? findSocketForSession(conversationId, ctx);
-
   switch (msg.status) {
     case "started": {
       log.info(
@@ -874,17 +829,15 @@ async function handleRecordingStatus(
         activeRestartToken = null;
       }
 
-      if (notifySocket) {
-        ctx.send(notifySocket, {
-          type: "assistant_text_delta",
-          text: "Recording restart cancelled.",
-          sessionId: conversationId,
-        });
-        ctx.send(notifySocket, {
-          type: "message_complete",
-          sessionId: conversationId,
-        });
-      }
+      ctx.broadcast({
+        type: "assistant_text_delta",
+        text: "Recording restart cancelled.",
+        sessionId: conversationId,
+      });
+      ctx.broadcast({
+        type: "message_complete",
+        sessionId: conversationId,
+      });
       break;
     }
 
@@ -918,22 +871,6 @@ async function handleRecordingStatus(
       if (deferred) {
         deferredRestartByConversation.delete(conversationId);
 
-        // Resolve a fresh socket at stop-ack time instead of using the one
-        // captured at restart-request time, which may be stale (disconnected
-        // or replaced) by the time the async stop completes.
-        const freshSocket =
-          findSocketForSession(deferred.conversationId, ctx) ?? reportingSocket;
-
-        if (!freshSocket) {
-          log.warn(
-            { conversationId, requesterId: deferred.conversationId },
-            "Deferred restart aborted — no socket available at stop-ack time",
-          );
-          activeRestartToken = null;
-          pendingRestartByConversation.delete(conversationId);
-          break;
-        }
-
         log.info(
           {
             recordingId,
@@ -946,7 +883,6 @@ async function handleRecordingStatus(
         const newRecordingId = handleRecordingStart(
           deferred.conversationId,
           { promptForSource: true },
-          freshSocket,
           ctx,
           deferred.operationToken,
         );
@@ -1013,35 +949,27 @@ async function handleRecordingStatus(
         // and notify the client. The deferred start fires first so the user
         // sees immediate activity (new recording starting) before the old
         // recording's completion message appears.
-        if (notifySocket) {
-          const finResult = await finalizeAndPublishRecording({
-            recordingId,
-            conversationId,
-            filePath: msg.filePath,
-            durationMs: msg.durationMs,
-            notifySocket,
-            ctx,
-          });
+        const finResult = await finalizeAndPublishRecording({
+          recordingId,
+          conversationId,
+          filePath: msg.filePath,
+          durationMs: msg.durationMs,
+          ctx,
+        });
 
-          // Handle old-success + new-start-failure: the old recording saved
-          // but the new one couldn't start. Send explicit follow-up text so
-          // the user knows the state.
-          if (!newRecordingId && finResult.success) {
-            ctx.send(freshSocket, {
-              type: "assistant_text_delta",
-              text: "Previous recording saved. New recording failed to start.",
-              sessionId: deferred.conversationId,
-            });
-            ctx.send(freshSocket, {
-              type: "message_complete",
-              sessionId: deferred.conversationId,
-            });
-          }
-          // Other failure combos:
-          // - new-start-failure + old-finalize-failure: finalizeAndPublishRecording
-          //   already sent error messages, restart state already cleaned up above.
-          // - new-start-success + old-finalize-failure: finalization already sent
-          //   error messages, new recording is running — no extra message needed.
+        // Handle old-success + new-start-failure: the old recording saved
+        // but the new one couldn't start. Send explicit follow-up text so
+        // the user knows the state.
+        if (!newRecordingId && finResult.success) {
+          ctx.broadcast({
+            type: "assistant_text_delta",
+            text: "Previous recording saved. New recording failed to start.",
+            sessionId: deferred.conversationId,
+          });
+          ctx.broadcast({
+            type: "message_complete",
+            sessionId: deferred.conversationId,
+          });
         }
 
         // Prevent fall-through to the normal finalization path below since
@@ -1050,16 +978,13 @@ async function handleRecordingStatus(
       }
 
       // Finalize: attach the recording file to the conversation
-      if (notifySocket) {
-        await finalizeAndPublishRecording({
-          recordingId,
-          conversationId,
-          filePath: msg.filePath,
-          durationMs: msg.durationMs,
-          notifySocket,
-          ctx,
-        });
-      }
+      await finalizeAndPublishRecording({
+        recordingId,
+        conversationId,
+        filePath: msg.filePath,
+        durationMs: msg.durationMs,
+        ctx,
+      });
 
       break;
     }
@@ -1070,17 +995,15 @@ async function handleRecordingStatus(
         "Standalone recording failed",
       );
 
-      if (notifySocket) {
-        ctx.send(notifySocket, {
-          type: "assistant_text_delta",
-          text: `Recording failed: ${msg.error ?? "unknown error"}`,
-          sessionId: conversationId,
-        });
-        ctx.send(notifySocket, {
-          type: "message_complete",
-          sessionId: conversationId,
-        });
-      }
+      ctx.broadcast({
+        type: "assistant_text_delta",
+        text: `Recording failed: ${msg.error ?? "unknown error"}`,
+        sessionId: conversationId,
+      });
+      ctx.broadcast({
+        type: "message_complete",
+        sessionId: conversationId,
+      });
 
       cleanupMaps(recordingId, conversationId);
 
@@ -1096,41 +1019,6 @@ async function handleRecordingStatus(
 
       break;
     }
-  }
-}
-
-// ─── Socket disconnect cleanup ───────────────────────────────────────────────
-
-/**
- * Clean up recording state for recordings whose owning conversation is bound
- * to the disconnecting socket. Accepts a lookup function that resolves a
- * conversation ID to its current socket, so we only clean up recordings
- * affected by this specific socket disconnect — not unrelated sessions.
- */
-export function cleanupRecordingsOnDisconnect(
-  disconnectedSocket: net.Socket,
-  findSocketForConversation: (conversationId: string) => net.Socket | undefined,
-): void {
-  if (recordingOwnerByConversation.size === 0) return;
-  for (const [convId, recId] of [...recordingOwnerByConversation.entries()]) {
-    const ownerSocket = findSocketForConversation(convId);
-    // Clean up if the owner conversation's socket is the one disconnecting,
-    // or if the owner conversation has no socket bound at all.
-    if (!ownerSocket || ownerSocket === disconnectedSocket) {
-      log.warn(
-        { conversationId: convId, recordingId: recId },
-        "Cleaning up recording state for disconnected socket",
-      );
-      cancelStopTimeout(recId);
-      standaloneRecordingConversationId.delete(recId);
-      recordingOwnerByConversation.delete(convId);
-      pendingRestartByConversation.delete(convId);
-      deferredRestartByConversation.delete(convId);
-    }
-  }
-  // Clear restart token if all pending restarts were cleaned up
-  if (pendingRestartByConversation.size === 0) {
-    activeRestartToken = null;
   }
 }
 
@@ -1162,8 +1050,18 @@ export function __resetRecordingState(): void {
   activeRestartToken = null;
 }
 
+// ─── IPC handler wrapper ─────────────────────────────────────────────────────
+
+/** IPC-compatible wrapper: ignores the socket (unused) and delegates to core. */
+async function handleRecordingStatusIpc(
+  msg: RecordingStatus,
+  ctx: HandlerContext,
+): Promise<void> {
+  return handleRecordingStatusCore(msg, ctx);
+}
+
 // ─── Export handler group ────────────────────────────────────────────────────
 
 export const recordingHandlers = defineHandlers({
-  recording_status: handleRecordingStatus,
+  recording_status: handleRecordingStatusIpc,
 });

@@ -64,7 +64,7 @@ mock.module("../util/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 const { handleListSlackChannels, handleShareToSlackChannel } =
-  await import("../runtime/routes/slack-share-routes.js");
+  await import("../runtime/routes/integrations/slack/share.js");
 
 // ---------------------------------------------------------------------------
 // Helpers

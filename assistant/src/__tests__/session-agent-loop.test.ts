@@ -5,7 +5,7 @@ import type {
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 // ── Module mocks (must precede imports of the module under test) ─────
@@ -370,6 +370,7 @@ function makeCtx(
     systemPrompt: "system prompt",
 
     contextWindowManager: {
+      shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
     } as unknown as AgentLoopSessionContext["contextWindowManager"],
     contextCompactedMessageCount: 0,
@@ -766,6 +767,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as AgentLoopSessionContext["contextWindowManager"],
       });
@@ -799,6 +801,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           // Compaction succeeds but context is still too large
           maybeCompact: async () => ({
             compacted: true,
@@ -891,6 +894,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as AgentLoopSessionContext["contextWindowManager"],
       });
@@ -946,6 +950,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as AgentLoopSessionContext["contextWindowManager"],
       });
@@ -1035,6 +1040,7 @@ describe("session-agent-loop", () => {
         agentLoopRun,
         hasNoClient: true,
         contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({
             compacted: true,
             messages: [
@@ -1102,6 +1108,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as AgentLoopSessionContext["contextWindowManager"],
       });
@@ -1162,6 +1169,7 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun,
         contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
           maybeCompact: async () => ({ compacted: false }),
         } as unknown as AgentLoopSessionContext["contextWindowManager"],
       });

@@ -74,14 +74,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "local-http-enabled",
-      "scope": "macos",
-      "key": "local_http_enabled",
-      "label": "Local HTTP Enabled",
-      "description": "Enable local HTTP transport mode in macOS app",
-      "defaultEnabled": false
-    },
-    {
       "id": "command-palette",
       "scope": "assistant",
       "key": "feature_flags.command-palette.enabled",

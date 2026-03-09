@@ -143,7 +143,6 @@ describe("EventBus", () => {
     await expect(
       bus.emit("daemon.lifecycle.started", {
         pid: 1,
-        socketPath: "/tmp/sock",
         startedAtMs: Date.now(),
       }),
     ).rejects.toBeInstanceOf(EventBusDisposedError);

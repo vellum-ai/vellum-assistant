@@ -1,8 +1,8 @@
 ---
-name: "Computer Use"
-description: "Computer-use action tools for controlling the macOS desktop via accessibility and screen capture."
-user-invocable: false
-disable-model-invocation: true
+name: computer-use
+description: Computer-use action tools for controlling the macOS desktop via accessibility and screen capture.
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🖥️","vellum":{"display-name":"Computer Use","user-invocable":false,"disable-model-invocation":true}}
 ---
 
 This skill provides the 12 computer*use*\* action tools for controlling

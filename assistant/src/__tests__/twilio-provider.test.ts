@@ -35,7 +35,7 @@ let mockAccountSid: string | undefined = "AC_test_account";
 
 mock.module("../config/loader.js", () => ({
   loadConfig: () => ({
-    twilio: { accountSid: mockAccountSid, authToken: mockAuthToken },
+    twilio: { accountSid: mockAccountSid },
   }),
 }));
 

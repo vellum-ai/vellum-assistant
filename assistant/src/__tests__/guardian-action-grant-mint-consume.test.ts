@@ -189,7 +189,7 @@ describe("guardian-action grant mint -> voice consume integration", () => {
     // (simulates the voice ASK_GUARDIAN path)
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       pendingQuestionId: nextPendingQuestionId(),
@@ -237,7 +237,7 @@ describe("guardian-action grant mint -> voice consume integration", () => {
       toolName: TOOL_NAME,
       inputDigest,
       consumingRequestId: "voice-req-1",
-      executionChannel: "voice",
+      executionChannel: "phone",
       callSessionId: CALL_SESSION_ID,
       conversationId: CONVERSATION_ID,
     });
@@ -251,7 +251,7 @@ describe("guardian-action grant mint -> voice consume integration", () => {
       toolName: TOOL_NAME,
       inputDigest,
       consumingRequestId: "voice-req-2",
-      executionChannel: "voice",
+      executionChannel: "phone",
       callSessionId: CALL_SESSION_ID,
       conversationId: CONVERSATION_ID,
     });
@@ -263,7 +263,7 @@ describe("guardian-action grant mint -> voice consume integration", () => {
     // Create a request without toolName/inputDigest (informational consult)
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       pendingQuestionId: nextPendingQuestionId(),
@@ -297,7 +297,7 @@ describe("guardian-action grant mint -> voice consume integration", () => {
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       pendingQuestionId: nextPendingQuestionId(),
@@ -328,7 +328,7 @@ describe("guardian-action grant mint -> voice consume integration", () => {
       toolName: TOOL_NAME,
       inputDigest,
       consumingRequestId: "voice-req-desktop",
-      executionChannel: "voice",
+      executionChannel: "phone",
       callSessionId: CALL_SESSION_ID,
       conversationId: CONVERSATION_ID,
     });
@@ -340,7 +340,7 @@ describe("guardian-action grant mint -> voice consume integration", () => {
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       pendingQuestionId: nextPendingQuestionId(),
@@ -378,7 +378,7 @@ describe("guardian-action grant mint -> voice consume integration", () => {
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       pendingQuestionId: nextPendingQuestionId(),
@@ -423,7 +423,7 @@ describe("guardian-action grant minter: conversational engine classification", (
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       pendingQuestionId: nextPendingQuestionId(),
@@ -458,7 +458,7 @@ describe("guardian-action grant minter: conversational engine classification", (
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       pendingQuestionId: nextPendingQuestionId(),
@@ -493,7 +493,7 @@ describe("guardian-action grant minter: conversational engine classification", (
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       pendingQuestionId: nextPendingQuestionId(),
@@ -527,7 +527,7 @@ describe("guardian-action grant minter: conversational engine classification", (
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       pendingQuestionId: nextPendingQuestionId(),
@@ -565,7 +565,7 @@ describe("guardian-action grant minter: conversational engine classification", (
 
     const request = createGuardianActionRequest({
       kind: "ask_guardian",
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       sourceConversationId: CONVERSATION_ID,
       callSessionId: CALL_SESSION_ID,
       pendingQuestionId: nextPendingQuestionId(),

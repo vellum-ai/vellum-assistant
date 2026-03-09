@@ -22,6 +22,19 @@ export function migrateRenameVoiceToPhone(database: DrizzleDb): void {
       /*sql*/ `UPDATE conversations SET origin_channel = 'phone' WHERE origin_channel = 'voice'`,
     );
 
+    // conversations.origin_interface
+    raw.exec(
+      /*sql*/ `UPDATE conversations SET origin_interface = 'phone' WHERE origin_interface = 'voice'`,
+    );
+
+    // messages.metadata — JSON blobs may contain "voice" as a channel/interface value
+    // (e.g. userMessageChannel, provenanceSourceChannel). Replace the quoted JSON
+    // string so that messageMetadataSchema (which uses z.enum(CHANNEL_IDS)) can
+    // still parse historical rows.
+    raw.exec(
+      /*sql*/ `UPDATE messages SET metadata = REPLACE(metadata, '"voice"', '"phone"') WHERE metadata LIKE '%"voice"%'`,
+    );
+
     // assistant_ingress_invites.source_channel
     raw.exec(
       /*sql*/ `UPDATE assistant_ingress_invites SET source_channel = 'phone' WHERE source_channel = 'voice'`,
@@ -53,6 +66,14 @@ export function migrateRenameVoiceToPhone(database: DrizzleDb): void {
     );
 
     // channel_guardian_rate_limits.channel
+    // Dedup: remove voice rows that would collide with existing phone rows
+    // on the UNIQUE index (channel, actor_external_user_id, actor_chat_id).
+    raw.exec(/*sql*/ `DELETE FROM channel_guardian_rate_limits WHERE channel = 'voice' AND EXISTS (
+        SELECT 1 FROM channel_guardian_rate_limits AS t2
+        WHERE t2.channel = 'phone'
+          AND t2.actor_external_user_id = channel_guardian_rate_limits.actor_external_user_id
+          AND t2.actor_chat_id = channel_guardian_rate_limits.actor_chat_id
+      )`);
     raw.exec(
       /*sql*/ `UPDATE channel_guardian_rate_limits SET channel = 'phone' WHERE channel = 'voice'`,
     );

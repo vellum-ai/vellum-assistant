@@ -262,7 +262,7 @@ func parseTableCells(_ line: String) -> [String] {
 struct MarkdownTableView: View {
     let headers: [String]
     let rows: [[String]]
-    var maxWidth: CGFloat = 520
+    var maxWidth: CGFloat = VSpacing.chatBubbleMaxWidth
 
     @Environment(\.conversationZoomScale) private var zoomScale
 

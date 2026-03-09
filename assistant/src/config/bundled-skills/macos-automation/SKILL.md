@@ -1,9 +1,8 @@
 ---
-name: "macOS Automation"
-description: "Automate native macOS apps and system interactions via osascript (AppleScript)"
-user-invocable: false
-disable-model-invocation: false
-metadata: {"vellum": {"emoji": "🍎", "os": ["darwin"]}}
+name: macos-automation
+description: Automate native macOS apps and system interactions via osascript (AppleScript)
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🍎","vellum":{"display-name":"macOS Automation","user-invocable":false,"os":["darwin"]}}
 ---
 
 Use this skill to interact with native macOS apps and system-level features via `osascript` (AppleScript) through `host_bash`. Always prefer osascript over browser automation or computer-use for anything involving a native macOS app.

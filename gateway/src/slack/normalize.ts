@@ -273,6 +273,7 @@ export function normalizeSlackDirectMessage(
   eventId: string,
   config: GatewayConfig,
   botUserId?: string,
+  botToken?: string,
 ): NormalizedSlackEvent | null {
   // Ignore messages from the bot itself
   if (botUserId && event.user === botUserId) return null;
@@ -302,8 +303,8 @@ export function normalizeSlackDirectMessage(
   // Use cache-only lookup to avoid blocking normalization on network calls.
   // A background fetch warms the cache for subsequent messages from this user.
   const userInfo =
-    config.slackChannelBotToken && event.user
-      ? resolveSlackUserSync(event.user, config.slackChannelBotToken)
+    botToken && event.user
+      ? resolveSlackUserSync(event.user, botToken)
       : undefined;
 
   return {
@@ -347,6 +348,7 @@ export function normalizeSlackChannelMessage(
   eventId: string,
   config: GatewayConfig,
   botUserId?: string,
+  botToken?: string,
 ): NormalizedSlackEvent | null {
   if (botUserId && event.user === botUserId) return null;
   if (event.subtype) return null;
@@ -360,8 +362,8 @@ export function normalizeSlackChannelMessage(
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
   const userInfo =
-    config.slackChannelBotToken && event.user
-      ? resolveSlackUserSync(event.user, config.slackChannelBotToken)
+    botToken && event.user
+      ? resolveSlackUserSync(event.user, botToken)
       : undefined;
 
   return {
@@ -405,6 +407,7 @@ export function normalizeSlackAppMention(
   event: SlackAppMentionEvent,
   eventId: string,
   config: GatewayConfig,
+  botToken?: string,
 ): NormalizedSlackEvent | null {
   const routing = resolveAssistant(config, event.channel, event.user);
   if (isRejection(routing)) {
@@ -416,8 +419,8 @@ export function normalizeSlackAppMention(
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
   const userInfo =
-    config.slackChannelBotToken && event.user
-      ? resolveSlackUserSync(event.user, config.slackChannelBotToken)
+    botToken && event.user
+      ? resolveSlackUserSync(event.user, botToken)
       : undefined;
 
   return {

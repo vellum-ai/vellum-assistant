@@ -62,10 +62,6 @@ final class DebugStateWriter {
 
         let transport: String
         switch daemonClient.config.transport {
-        case .socket:
-            transport = "socket"
-        case .tcp:
-            transport = "tcp"
         case .http:
             transport = "http"
         }

@@ -52,7 +52,6 @@ function writeLockfile(): void {
               daemonPort: DEFAULT_DAEMON_PORT,
               gatewayPort: DEFAULT_GATEWAY_PORT,
               qdrantPort: DEFAULT_QDRANT_PORT,
-              socketPath: join(assistantRootDir, "vellum.sock"),
               pidFile: join(assistantRootDir, "vellum.pid"),
             },
           },

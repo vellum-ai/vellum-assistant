@@ -8,24 +8,27 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 extension DaemonClient {
 
     func handleServerMessage(_ message: ServerMessage) {
-        // Handle pong internally.
-        if case .pong = message {
-            awaitingPong = false
-            pongTimeoutTask?.cancel()
-            pongTimeoutTask = nil
-        }
-
         // Handle daemon status internally.
         if case .daemonStatus(let status) = message {
             httpPort = status.httpPort.flatMap { Int(exactly: $0) }
             if let version = status.version {
                 daemonVersion = version
             }
-        }
+            if let newFingerprint = status.keyFingerprint {
+                let oldFingerprint = keyFingerprint
+                keyFingerprint = newFingerprint
 
-        // Handle blob probe result internally.
-        if case .ipcBlobProbeResult(let result) = message {
-            handleBlobProbeResult(result)
+                if let oldFingerprint, oldFingerprint != newFingerprint {
+                    // Instance changed mid-connection
+                    log.info("Daemon key fingerprint changed (\(oldFingerprint, privacy: .public) → \(newFingerprint, privacy: .public)) — invalidating credentials")
+                    ActorTokenManager.deleteAllCredentials()
+                    NotificationCenter.default.post(name: .daemonInstanceChanged, object: nil)
+                } else if oldFingerprint == nil, ActorTokenManager.hasToken {
+                    // First daemon_status with a fingerprint, but we already have a stored token.
+                    // The reactive 401 retry (executeLocalRequest) handles re-bootstrap if the
+                    // token is stale. No proactive action needed here.
+                }
+            }
         }
 
         // Forward surface messages to registered callbacks.
@@ -206,10 +209,9 @@ extension DaemonClient {
         case .signBundlePayload, .getSigningIdentity:
             log.error("Signing operations are not supported on this platform")
         #endif
-        case .integrationListResponse(let msg):
-            onIntegrationListResponse?(msg)
-        case .integrationConnectResult(let msg):
-            onIntegrationConnectResult?(msg)
+        // Integration stub responses — server-side handlers are no-ops; ignore.
+        case .integrationListResponse, .integrationConnectResult:
+            break
         case .diagnosticsExportResponse(let msg):
             onDiagnosticsExportResponse?(msg)
         case .envVarsResponse(let msg):
@@ -290,20 +292,12 @@ extension DaemonClient {
         }
     }
 
+    /// Handle auth_result messages. With HTTP transport, authentication is
+    /// handled via bearer tokens at the HTTP level. This handler updates
+    /// the local authentication state for backward compatibility with
+    /// daemon broadcasts.
     func handleAuthResult(_ result: AuthResultMessage) {
-        #if os(macOS) || os(iOS)
         isAuthenticated = result.success
-        if let pending = authContinuation {
-            authContinuation = nil
-            authTimeoutTask?.cancel()
-            authTimeoutTask = nil
-            if result.success {
-                pending.resume(returning: ())
-            } else {
-                pending.resume(throwing: AuthError.rejected(result.message))
-            }
-        }
-        #endif
     }
 
     // MARK: - Signing Identity (macOS only)

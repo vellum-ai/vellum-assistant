@@ -5,7 +5,7 @@ import { join } from "path";
 
 import { buildStartupScript, watchHatching } from "../commands/hatch";
 import type { PollResult } from "../commands/hatch";
-import { saveAssistantEntry } from "./assistant-config";
+import { saveAssistantEntry, setActiveAssistant } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
 import { GATEWAY_PORT } from "./constants";
 import type { Species } from "./constants";
@@ -370,6 +370,28 @@ async function pollAwsInstance(
   }
 }
 
+async function fetchRemoteBearerToken(
+  ip: string,
+  keyPath: string,
+): Promise<string | null> {
+  try {
+    const remoteCmd =
+      'cat ~/.vellum.lock.json 2>/dev/null || cat ~/.vellum.lockfile.json 2>/dev/null || echo "{}"';
+    const output = await awsSshExec(ip, keyPath, remoteCmd);
+    const data = JSON.parse(output.trim());
+    const assistants = data.assistants;
+    if (Array.isArray(assistants) && assistants.length > 0) {
+      const token = assistants[0].bearerToken;
+      if (typeof token === "string" && token) {
+        return token;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function hatchAws(
   species: Species,
   detached: boolean,
@@ -500,6 +522,7 @@ export async function hatchAws(
       hatchedAt: new Date().toISOString(),
     };
     saveAssistantEntry(awsEntry);
+    setActiveAssistant(instanceName);
 
     if (detached) {
       console.log("\u{1F680} Startup script is running on the instance...");
@@ -534,6 +557,12 @@ export async function hatchAws(
             console.log("");
           }
           process.exit(1);
+        }
+
+        const remoteBearerToken = await fetchRemoteBearerToken(ip, keyPath);
+        if (remoteBearerToken) {
+          awsEntry.bearerToken = remoteBearerToken;
+          saveAssistantEntry(awsEntry);
         }
       } else {
         console.log(

@@ -228,6 +228,13 @@ extension AppDelegate {
         // once the daemon is connected.
         if isBootstrapping { return true }
 
+        // No assistant hatched yet — re-show onboarding so the user
+        // can complete setup instead of landing on a broken main window.
+        if !lockfileHasAssistants() && mainWindow == nil {
+            showOnboarding()
+            return true
+        }
+
         showMainWindow()
         return true
     }
@@ -245,6 +252,14 @@ extension AppDelegate {
             setupDaemonClient()
         }
 
+        // Track whether the main window was visible so we can restore it
+        // only when appropriate (e.g. not when invoked from the menu bar
+        // with no main window open).
+        let mainWindowWasVisible = mainWindow?.isVisible ?? false
+        if mainWindowWasVisible {
+            mainWindow?.hide()
+        }
+
         // Clear persisted step so replay always starts at step 0
         OnboardingState.clearPersistedState()
 
@@ -260,6 +275,71 @@ extension AppDelegate {
             UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
             self?.showMainWindow()
+        }
+        onboarding.onDismiss = { [weak self] in
+            self?.onboardingWindow = nil
+            if mainWindowWasVisible {
+                self?.showMainWindow()
+            }
+        }
+        onboarding.show()
+        onboardingWindow = onboarding
+    }
+
+    /// Hatches a new assistant via onboarding and auto-switches to it on success.
+    /// Unlike `replayOnboarding()`, this method detects the newly created assistant
+    /// and makes it the active one.
+    func hatchNewAssistant() {
+        guard onboardingWindow == nil else { return }
+
+        if !daemonClient.isConnected {
+            setupDaemonClient()
+        }
+
+        // Snapshot existing assistant IDs so we can detect the new one after hatch
+        let existingIds = Set(LockfileAssistant.loadAll().map(\.assistantId))
+
+        // Hide the main window during hatch to avoid showing stale old-assistant UI
+        let mainWindowWasVisible = mainWindow?.isVisible ?? false
+        if mainWindowWasVisible {
+            mainWindow?.hide()
+        }
+
+        OnboardingState.clearPersistedState()
+
+        let onboarding = OnboardingWindow(daemonClient: daemonClient, authManager: authManager)
+        onboarding.onComplete = { [weak self] state in
+            OnboardingState.clearPersistedState()
+            UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+
+            onboarding.close()
+            self?.onboardingWindow = nil
+            UserDefaults.standard.removeObject(forKey: "lastActivePanel")
+
+            // Detect the newly hatched assistant by diffing lockfile against snapshot.
+            // loadAll() returns newest-first, so the first new ID is the most recently hatched.
+            let allAssistants = LockfileAssistant.loadAll()
+            let newAssistant = allAssistants.first { !existingIds.contains($0.assistantId) }
+
+            if let assistant = newAssistant {
+                self?.performSwitchAssistant(to: assistant)
+            } else {
+                // No new assistant detected (e.g. managed bootstrap set connectedAssistantId
+                // but reused an existing entry). Check if connectedAssistantId changed.
+                if let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+                   !existingIds.isEmpty,
+                   let connected = allAssistants.first(where: { $0.assistantId == connectedId }) {
+                    self?.performSwitchAssistant(to: connected)
+                } else {
+                    self?.showMainWindow()
+                }
+            }
+        }
+        onboarding.onDismiss = { [weak self] in
+            self?.onboardingWindow = nil
+            if mainWindowWasVisible {
+                self?.showMainWindow()
+            }
         }
         onboarding.show()
         onboardingWindow = onboarding
@@ -346,6 +426,9 @@ extension AppDelegate {
             // or authenticated via Vellum Account (WorkOS). Proceed directly —
             // don't re-check auth, which would show the auth gate again.
             self?.proceedToApp(isFirstLaunch: true)
+        }
+        onboarding.onDismiss = { [weak self] in
+            self?.onboardingWindow = nil
         }
         onboarding.show()
         onboardingWindow = onboarding

@@ -230,8 +230,10 @@ public final class SettingsStore: ObservableObject {
     @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
     /// Read-only gateway target derived from daemon config.
-    /// Initial value reads env var > lockfile > default 7830; updated by IPC.
-    @Published var localGatewayTarget: String = "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
+    /// Initial value reads env var > lockfile runtimeUrl > default 7830; updated by IPC.
+    @Published var localGatewayTarget: String = LockfilePaths.resolveGatewayUrl(
+        connectedAssistantId: UserDefaults.standard.string(forKey: "connectedAssistantId")
+    )
 
     /// Set to `true` once the first ingress config IPC response arrives, so the
     /// view layer can defer diagnostics until the real config values are available.
@@ -478,7 +480,20 @@ public final class SettingsStore: ObservableObject {
         // Wire up ingress config IPC response
         daemonClient?.onIngressConfigResponse = { [weak self] response in
             guard let self else { return }
-            self.localGatewayTarget = response.localGatewayTarget
+            // For remote assistants, prefer the lockfile's runtimeUrl because the
+            // daemon reports its own loopback address which is not reachable from
+            // the client. For local assistants, use the daemon's authoritative value
+            // since it reflects the daemon's actual runtime environment.
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+                ?? LockfileAssistant.loadLatest()
+            if let assistant, assistant.isRemote {
+                self.localGatewayTarget = LockfilePaths.resolveGatewayUrl(
+                    connectedAssistantId: assistant.assistantId
+                )
+            } else {
+                self.localGatewayTarget = response.localGatewayTarget
+            }
             if response.success {
                 if let pending = self.pendingIngressEnabled, response.enabled != pending {
                     // A set operation is in-flight and this response disagrees

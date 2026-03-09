@@ -5,7 +5,7 @@ import type {
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
-import type { ServerMessage } from "../daemon/ipc-protocol.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../config/system-prompt.js", () => ({
+mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: () => "system prompt",
 }));
 
@@ -151,6 +151,9 @@ mock.module("../memory/admin.js", () => ({
 mock.module("../context/window-manager.js", () => ({
   ContextWindowManager: class {
     constructor() {}
+    shouldCompact() {
+      return { needed: false, estimatedTokens: 0 };
+    }
     async maybeCompact() {
       return { compacted: false };
     }
@@ -168,6 +171,7 @@ mock.module("../config/skills.js", () => ({
     {
       id: "start-the-day",
       name: "Start the Day",
+      displayName: "Start the Day",
       description: "Morning routine skill",
       directoryPath: "/skills/start-the-day",
       skillFilePath: "/skills/start-the-day/SKILL.md",
@@ -178,6 +182,7 @@ mock.module("../config/skills.js", () => ({
     {
       id: "browser",
       name: "Browser",
+      displayName: "Browser",
       description:
         "Navigate and interact with web pages using a headless browser",
       directoryPath: "/skills/browser",

@@ -1,8 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
-import * as net from "node:net";
 
+import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
-import { resolveGuardianName } from "../../config/user-reference.js";
 import {
   findContactChannel,
   findGuardianForChannel,
@@ -12,6 +11,7 @@ import {
 import { revokeMember } from "../../contacts/contacts-write.js";
 import type { ChannelStatus } from "../../contacts/types.js";
 import * as externalConversationStore from "../../memory/external-conversation-store.js";
+import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import {
   type ChannelReadinessService,
@@ -43,11 +43,12 @@ import {
   composeVerificationTelegram,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../../runtime/verification-templates.js";
-import { getCredentialMetadata } from "../../tools/credentials/metadata-store.js";
+import { getTelegramBotUsername } from "../../telegram/bot-username.js";
+import { normalizePhoneNumber } from "../../util/phone.js";
 import type {
   ChannelVerificationSessionRequest,
   ChannelVerificationSessionResponse,
-} from "../ipc-protocol.js";
+} from "../message-protocol.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 // -- Transport-agnostic result type (omits the IPC `type` discriminant) --
@@ -246,18 +247,6 @@ function toVerificationChannel(channelType: string): ChannelId | null {
   }
 }
 
-function getTelegramBotUsername(): string | undefined {
-  const meta = getCredentialMetadata("telegram", "bot_token");
-  if (
-    meta?.accountInfo &&
-    typeof meta.accountInfo === "string" &&
-    meta.accountInfo.trim().length > 0
-  ) {
-    return meta.accountInfo.trim();
-  }
-  return process.env.TELEGRAM_BOT_USERNAME || undefined;
-}
-
 /**
  * Transport-agnostic trusted-contact verification. Looks up the contact
  * channel, derives the verification channel and destination, checks rate
@@ -313,7 +302,9 @@ export async function verifyTrustedContact(
   const effectiveDestination =
     verificationChannel === "telegram"
       ? normalizeTelegramDestination(destination)
-      : destination;
+      : verificationChannel === "phone"
+        ? (normalizePhoneNumber(destination) ?? destination)
+        : destination;
 
   const recentSendCount = countRecentSendsToDestination(
     verificationChannel,
@@ -452,6 +443,70 @@ export async function verifyTrustedContact(
     };
   }
 
+  // --- Phone verification ---
+  if (verificationChannel === "phone") {
+    const normalizedPhone = normalizePhoneNumber(destination);
+    if (!normalizedPhone) {
+      return {
+        success: false,
+        error: "Could not parse phone number",
+      };
+    }
+
+    const sessionResult = createOutboundSession({
+      channel: verificationChannel,
+      expectedPhoneE164: normalizedPhone,
+      expectedExternalUserId: normalizedPhone,
+      destinationAddress: normalizedPhone,
+      codeDigits: 6,
+      verificationPurpose: "trusted_contact",
+    });
+
+    const now = Date.now();
+    const sendCount = 1;
+    updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+
+    // Fire-and-forget: initiate Twilio verification call
+    (async () => {
+      try {
+        const result = await startVerificationCall({
+          phoneNumber: normalizedPhone,
+          verificationSessionId: sessionResult.sessionId,
+          assistantId,
+        });
+        if (!result.ok) {
+          log.error(
+            {
+              error: result.error,
+              status: result.status,
+              phoneNumber: normalizedPhone,
+              verificationSessionId: sessionResult.sessionId,
+            },
+            "Failed to initiate verification call for trusted contact",
+          );
+        }
+      } catch (err) {
+        log.error(
+          {
+            err,
+            phoneNumber: normalizedPhone,
+            verificationSessionId: sessionResult.sessionId,
+          },
+          "Failed to initiate verification call for trusted contact",
+        );
+      }
+    })();
+
+    return {
+      success: true,
+      verificationSessionId: sessionResult.sessionId,
+      expiresAt: sessionResult.expiresAt,
+      sendCount,
+      secret: sessionResult.secret,
+      channel: verificationChannel,
+    };
+  }
+
   return {
     success: false,
     error: `Verification is not supported for channel type "${channel.type}"`,
@@ -464,19 +519,25 @@ export async function verifyTrustedContact(
 
 export async function handleChannelVerificationSession(
   msg: ChannelVerificationSessionRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const channel = msg.channel ?? "telegram";
 
   try {
     if (msg.action === "create_session") {
-      if (msg.purpose === "trusted_contact" && msg.contactChannelId) {
+      if (msg.purpose === "trusted_contact" && !msg.contactChannelId) {
+        ctx.send({
+          type: "channel_verification_session_response",
+          success: false,
+          error: "contactChannelId is required for trusted_contact purpose",
+          channel,
+        });
+      } else if (msg.purpose === "trusted_contact") {
         const result = await verifyTrustedContact(
-          msg.contactChannelId,
+          msg.contactChannelId!,
           DAEMON_INTERNAL_ASSISTANT_ID,
         );
-        ctx.send(socket, {
+        ctx.send({
           type: "channel_verification_session_response",
           ...result,
         });
@@ -487,7 +548,7 @@ export async function handleChannelVerificationSession(
           rebind: msg.rebind,
           originConversationId: msg.originConversationId,
         });
-        ctx.send(socket, {
+        ctx.send({
           type: "channel_verification_session_response",
           ...result,
         });
@@ -497,28 +558,28 @@ export async function handleChannelVerificationSession(
           msg.rebind,
           msg.sessionId,
         );
-        ctx.send(socket, {
+        ctx.send({
           type: "channel_verification_session_response",
           ...result,
         });
       }
     } else if (msg.action === "status") {
       const result = getVerificationStatus(channel);
-      ctx.send(socket, {
+      ctx.send({
         type: "channel_verification_session_response",
         ...result,
       });
     } else if (msg.action === "cancel_session") {
       cancelOutbound({ channel });
       revokePendingSessions(channel);
-      ctx.send(socket, {
+      ctx.send({
         type: "channel_verification_session_response",
         success: true,
         channel,
       });
     } else if (msg.action === "revoke") {
       const result = revokeVerificationForChannel(channel);
-      ctx.send(socket, {
+      ctx.send({
         type: "channel_verification_session_response",
         ...result,
       });
@@ -527,12 +588,12 @@ export async function handleChannelVerificationSession(
         channel,
         originConversationId: msg.originConversationId,
       });
-      ctx.send(socket, {
+      ctx.send({
         type: "channel_verification_session_response",
         ...result,
       });
     } else {
-      ctx.send(socket, {
+      ctx.send({
         type: "channel_verification_session_response",
         success: false,
         error: `Unknown action: ${String(msg.action)}`,
@@ -542,7 +603,7 @@ export async function handleChannelVerificationSession(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to handle channel verification session");
-    ctx.send(socket, {
+    ctx.send({
       type: "channel_verification_session_response",
       success: false,
       error: message,

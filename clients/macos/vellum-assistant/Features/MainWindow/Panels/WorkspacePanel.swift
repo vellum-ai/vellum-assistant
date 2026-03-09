@@ -1,0 +1,918 @@
+import SwiftUI
+import UniformTypeIdentifiers
+import VellumAssistantShared
+#if os(macOS)
+import AVKit
+#endif
+
+// MARK: - State Model
+
+@MainActor @Observable
+final class WorkspaceBrowserState {
+    var directoryCache: [String: [WorkspaceTreeEntry]] = [:]
+    var expandedDirs: Set<String> = []
+    var selectedFilePath: String?
+    var selectedFileDetail: WorkspaceFileResponse?
+    var isLoadingTree = false
+    var isLoadingFile = false
+    var fileLoadTask: Task<Void, Never>?
+    var isDropTargeted: Bool = false
+    var uploadingCount: Int = 0
+    var editableContent: String = ""
+    var originalContent: String = ""
+    var isDirty: Bool = false
+    var isSaving: Bool = false
+    var showingNewFileAlert = false
+    var showingNewFolderAlert = false
+    var newItemName: String = ""
+    var newItemParentPath: String = ""
+    var deleteConfirmPath: String?
+    var deleteConfirmName: String = ""
+    var renamingPath: String? = nil
+    var renamingText: String = ""
+    var pendingSwitchPath: String?
+    var showingDirtyAlert: Bool = false
+
+    func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
+        if let response = await daemonClient.fetchWorkspaceTree(path: dirPath) {
+            directoryCache[dirPath] = response.entries
+        }
+    }
+
+    func loadFile(path targetPath: String, using daemonClient: DaemonClient) async {
+        selectedFilePath = targetPath
+        isLoadingFile = true
+        selectedFileDetail = nil
+        isDirty = false
+        editableContent = ""
+        fileLoadTask?.cancel()
+        let task = Task {
+            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
+            guard !Task.isCancelled, selectedFilePath == targetPath else { return }
+            selectedFileDetail = detail
+            editableContent = detail?.content ?? ""
+            originalContent = detail?.content ?? ""
+            isDirty = false
+            isSaving = false
+            isLoadingFile = false
+        }
+        fileLoadTask = task
+    }
+}
+
+// MARK: - Workspace Panel
+
+struct WorkspacePanel: View {
+    let daemonClient: DaemonClient
+    @State private var state = WorkspaceBrowserState()
+
+    var body: some View {
+        HSplitView {
+            WorkspaceTreeSidebar(state: state, daemonClient: daemonClient)
+                .frame(minWidth: 200, idealWidth: 250, maxWidth: 300)
+            WorkspaceFileViewer(state: state, daemonClient: daemonClient)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .task { await loadRoot() }
+        .onDisappear {
+            state.fileLoadTask?.cancel()
+            state.fileLoadTask = nil
+            state.isLoadingFile = false
+        }
+        .alert(
+            "Unsaved Changes",
+            isPresented: $state.showingDirtyAlert
+        ) {
+            Button("Discard", role: .destructive) {
+                guard let targetPath = state.pendingSwitchPath else { return }
+                state.pendingSwitchPath = nil
+                Task { await state.loadFile(path: targetPath, using: daemonClient) }
+            }
+            Button("Cancel", role: .cancel) {
+                state.pendingSwitchPath = nil
+            }
+        } message: {
+            Text("You have unsaved changes. Discard them and switch files?")
+        }
+        .alert(
+            "Delete \"\(state.deleteConfirmName)\"?",
+            isPresented: Binding(
+                get: { state.deleteConfirmPath != nil },
+                set: { if !$0 { state.deleteConfirmPath = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let path = state.deleteConfirmPath else { return }
+                let parentPath = parentDirectory(of: path)
+                Task {
+                    let success = await daemonClient.deleteWorkspaceItem(path: path)
+                    if success {
+                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        if state.selectedFilePath == path || state.selectedFilePath?.hasPrefix(path + "/") == true {
+                            state.selectedFilePath = nil
+                            state.selectedFileDetail = nil
+                            state.editableContent = ""
+                            state.originalContent = ""
+                            state.isDirty = false
+                        }
+                        // Clean up stale expandedDirs and directoryCache for deleted path
+                        state.expandedDirs.remove(path)
+                        let deletedPrefix = path + "/"
+                        state.expandedDirs = state.expandedDirs.filter { !$0.hasPrefix(deletedPrefix) }
+                        state.directoryCache.removeValue(forKey: path)
+                        for key in state.directoryCache.keys where key.hasPrefix(deletedPrefix) {
+                            state.directoryCache.removeValue(forKey: key)
+                        }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This cannot be undone.")
+        }
+    }
+
+    private func loadRoot() async {
+        state.isLoadingTree = true
+        if let response = await daemonClient.fetchWorkspaceTree(path: "") {
+            state.directoryCache[""] = response.entries
+        }
+        state.isLoadingTree = false
+    }
+
+    private func parentDirectory(of path: String) -> String {
+        let components = path.split(separator: "/")
+        guard components.count > 1 else { return "" }
+        return components.dropLast().joined(separator: "/")
+    }
+}
+
+// MARK: - Tree Sidebar
+
+private struct WorkspaceTreeSidebar: View {
+    @Bindable var state: WorkspaceBrowserState
+    let daemonClient: DaemonClient
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Files")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                Menu {
+                    Button {
+                        state.newItemParentPath = ""
+                        state.newItemName = ""
+                        state.showingNewFileAlert = true
+                    } label: {
+                        Label { Text("New File") } icon: { VIconView(.filePlus, size: 12) }
+                    }
+                    Button {
+                        state.newItemParentPath = ""
+                        state.newItemName = ""
+                        state.showingNewFolderAlert = true
+                    } label: {
+                        Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
+                    }
+                } label: {
+                    VIconView(.plus, size: 12)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .accessibilityLabel("Add new file or folder")
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+
+            Divider().background(VColor.surfaceBorder)
+
+            if state.isLoadingTree && state.directoryCache.isEmpty {
+                VStack {
+                    Spacer()
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                    Spacer()
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if let rootEntries = state.directoryCache[""] {
+                            ForEach(rootEntries) { entry in
+                                WorkspaceTreeRow(
+                                    entry: entry,
+                                    depth: 0,
+                                    state: state,
+                                    daemonClient: daemonClient
+                                )
+                            }
+                        }
+                    }
+                    .padding(.vertical, VSpacing.xs)
+                }
+            }
+
+            if state.uploadingCount > 0 {
+                HStack(spacing: VSpacing.xs) {
+                    ProgressView().controlSize(.small)
+                    Text("Uploading \(state.uploadingCount) file\(state.uploadingCount == 1 ? "" : "s")...")
+                        .font(VFont.caption)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.xs)
+            }
+        }
+        .overlay {
+            if state.isDropTargeted {
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .strokeBorder(VColor.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 3]))
+                    .padding(4)
+            }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $state.isDropTargeted) { providers in
+            handleDrop(providers: providers, targetDir: "", state: state, daemonClient: daemonClient)
+            return true
+        }
+        .background(VColor.backgroundSubtle)
+        .alert("New File", isPresented: $state.showingNewFileAlert) {
+            TextField("Filename", text: $state.newItemName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let parentPath = state.newItemParentPath
+                let name = state.newItemName
+                guard !name.isEmpty else { return }
+                let filePath = parentPath.isEmpty ? name : parentPath + "/" + name
+                Task {
+                    let success = await daemonClient.writeWorkspaceFile(path: filePath, content: Data())
+                    if success {
+                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        if !parentPath.isEmpty {
+                            state.expandedDirs.insert(parentPath)
+                        }
+                    }
+                }
+            }
+        }
+        .alert("New Folder", isPresented: $state.showingNewFolderAlert) {
+            TextField("Folder name", text: $state.newItemName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let parentPath = state.newItemParentPath
+                let name = state.newItemName
+                guard !name.isEmpty else { return }
+                let folderPath = parentPath.isEmpty ? name : parentPath + "/" + name
+                Task {
+                    let success = await daemonClient.createWorkspaceDirectory(path: folderPath)
+                    if success {
+                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        if !parentPath.isEmpty {
+                            state.expandedDirs.insert(parentPath)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Drop Handler
+
+private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, daemonClient: DaemonClient) {
+    for provider in providers {
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            guard let url = fileURLFromDropItem(item) else { return }
+            let fileName = url.lastPathComponent
+            let targetPath = targetDir.isEmpty ? fileName : "\(targetDir)/\(fileName)"
+            Task {
+                await MainActor.run { state.uploadingCount += 1 }
+                if let fileData = try? Data(contentsOf: url) {
+                    let success = await daemonClient.writeWorkspaceFile(path: targetPath, content: fileData)
+                    if success {
+                        await state.refreshDirectory(targetDir, using: daemonClient)
+                    }
+                }
+                await MainActor.run { state.uploadingCount -= 1 }
+            }
+        }
+    }
+}
+
+private func fileURLFromDropItem(_ item: NSSecureCoding?) -> URL? {
+    if let data = item as? Data {
+        return URL(dataRepresentation: data, relativeTo: nil)
+    }
+    if let url = item as? URL {
+        return url
+    }
+    if let str = item as? String, let url = URL(string: str), url.isFileURL {
+        return url
+    }
+    return nil
+}
+
+// MARK: - Tree Row
+
+private struct WorkspaceTreeRow: View {
+    let entry: WorkspaceTreeEntry
+    let depth: Int
+    @Bindable var state: WorkspaceBrowserState
+    let daemonClient: DaemonClient
+
+    private var isExpanded: Bool {
+        state.expandedDirs.contains(entry.path)
+    }
+
+    private var isSelected: Bool {
+        state.selectedFilePath == entry.path
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                Task { await handleTap() }
+            } label: {
+                HStack(spacing: VSpacing.xs) {
+                    if entry.isDirectory {
+                        VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
+                            .foregroundColor(VColor.textMuted)
+                            .frame(width: 12)
+                    } else {
+                        Spacer().frame(width: 12)
+                    }
+
+                    VIconView(entry.isDirectory ? .folder : .fileText, size: 12)
+                        .foregroundColor(entry.isDirectory ? VColor.iconAccent : VColor.textSecondary)
+
+                    if state.renamingPath == entry.path {
+                        TextField("Name", text: $state.renamingText)
+                            .textFieldStyle(.plain)
+                            .font(VFont.body)
+                            .onSubmit {
+                                submitRename()
+                            }
+                            .onExitCommand {
+                                state.renamingPath = nil
+                            }
+                    } else {
+                        Text(entry.name)
+                            .font(VFont.body)
+                            .foregroundColor(VColor.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer()
+                }
+                .padding(.leading, CGFloat(depth) * 16 + VSpacing.sm)
+                .padding(.trailing, VSpacing.sm)
+                .padding(.vertical, VSpacing.xs)
+                .contentShape(Rectangle())
+                .background(isSelected ? VColor.navActive : Color.clear)
+            }
+            .buttonStyle(.plain)
+            .onDrop(of: entry.isDirectory ? [.fileURL] : [], isTargeted: .none) { providers in
+                guard entry.isDirectory else { return false }
+                handleDrop(providers: providers, targetDir: entry.path, state: state, daemonClient: daemonClient)
+                return true
+            }
+
+            // Expanded children
+            if entry.isDirectory && isExpanded {
+                if let children = state.directoryCache[entry.path] {
+                    ForEach(children) { child in
+                        WorkspaceTreeRow(
+                            entry: child,
+                            depth: depth + 1,
+                            state: state,
+                            daemonClient: daemonClient
+                        )
+                    }
+                }
+            }
+        }
+        .contextMenu {
+            if entry.isDirectory {
+                Button {
+                    state.newItemParentPath = entry.path
+                    state.newItemName = ""
+                    state.showingNewFileAlert = true
+                } label: {
+                    Label { Text("New File") } icon: { VIconView(.filePlus, size: 12) }
+                }
+                Button {
+                    state.newItemParentPath = entry.path
+                    state.newItemName = ""
+                    state.showingNewFolderAlert = true
+                } label: {
+                    Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
+                }
+                Divider()
+            }
+            Button(role: .destructive) {
+                state.deleteConfirmPath = entry.path
+                state.deleteConfirmName = entry.name
+            } label: {
+                Label { Text("Delete") } icon: { VIconView(.trash, size: 12) }
+            }
+            Button {
+                state.renamingPath = entry.path
+                state.renamingText = entry.name
+            } label: {
+                Label { Text("Rename") } icon: { VIconView(.pencil, size: 12) }
+            }
+        }
+    }
+
+    private func submitRename() {
+        let oldPath = entry.path
+        let parentPath = parentDirectory(of: oldPath)
+        let newPath = parentPath.isEmpty ? state.renamingText : "\(parentPath)/\(state.renamingText)"
+        Task {
+            let success = await daemonClient.renameWorkspaceItem(oldPath: oldPath, newPath: newPath)
+            if success {
+                await state.refreshDirectory(parentPath, using: daemonClient)
+
+                // Update selectedFilePath and selectedFileDetail for exact match or descendants
+                if state.selectedFilePath == oldPath {
+                    state.selectedFilePath = newPath
+                    if let detail = state.selectedFileDetail {
+                        let newName = String(newPath.split(separator: "/").last ?? Substring(newPath))
+                        state.selectedFileDetail = WorkspaceFileResponse(
+                            path: newPath, name: newName, size: detail.size,
+                            mimeType: detail.mimeType, modifiedAt: detail.modifiedAt,
+                            content: detail.content, isBinary: detail.isBinary
+                        )
+                    }
+                } else if let selected = state.selectedFilePath, selected.hasPrefix(oldPath + "/") {
+                    let updatedPath = newPath + selected.dropFirst(oldPath.count)
+                    state.selectedFilePath = updatedPath
+                    if let detail = state.selectedFileDetail {
+                        let newName = String(updatedPath.split(separator: "/").last ?? Substring(updatedPath))
+                        state.selectedFileDetail = WorkspaceFileResponse(
+                            path: updatedPath, name: newName, size: detail.size,
+                            mimeType: detail.mimeType, modifiedAt: detail.modifiedAt,
+                            content: detail.content, isBinary: detail.isBinary
+                        )
+                    }
+                }
+
+                // Migrate expandedDirs and directoryCache for renamed directories
+                if entry.isDirectory {
+                    let oldPrefix = oldPath + "/"
+                    // Transfer expanded state
+                    if state.expandedDirs.remove(oldPath) != nil {
+                        state.expandedDirs.insert(newPath)
+                    }
+                    let descendantDirs = state.expandedDirs.filter { $0.hasPrefix(oldPrefix) }
+                    for dir in descendantDirs {
+                        state.expandedDirs.remove(dir)
+                        state.expandedDirs.insert(newPath + dir.dropFirst(oldPath.count))
+                    }
+                    // Invalidate directory cache for renamed directory and descendants
+                    // (WorkspaceTreeEntry.path is immutable, so entries must be re-fetched)
+                    let cacheKeys = state.directoryCache.keys.filter { $0 == oldPath || $0.hasPrefix(oldPrefix) }
+                    for key in cacheKeys {
+                        state.directoryCache.removeValue(forKey: key)
+                    }
+                    // Re-fetch contents for directories that remain expanded under the new path
+                    let newExpandedDirs = state.expandedDirs.filter { $0 == newPath || $0.hasPrefix(newPath + "/") }
+                    for dir in newExpandedDirs {
+                        await state.refreshDirectory(dir, using: daemonClient)
+                    }
+                }
+            }
+            state.renamingPath = nil
+        }
+    }
+
+    private func parentDirectory(of path: String) -> String {
+        let components = path.split(separator: "/")
+        guard components.count > 1 else { return "" }
+        return components.dropLast().joined(separator: "/")
+    }
+
+    private func handleTap() async {
+        if entry.isDirectory {
+            if isExpanded {
+                state.expandedDirs.remove(entry.path)
+            } else {
+                state.expandedDirs.insert(entry.path)
+                // Load children if not cached
+                if state.directoryCache[entry.path] == nil {
+                    if let response = await daemonClient.fetchWorkspaceTree(path: entry.path) {
+                        state.directoryCache[entry.path] = response.entries
+                    }
+                }
+            }
+        } else {
+            let targetPath = entry.path
+            // Skip if already selected
+            guard targetPath != state.selectedFilePath else { return }
+            // If there are unsaved changes, confirm before switching
+            if state.isDirty {
+                state.pendingSwitchPath = targetPath
+                state.showingDirtyAlert = true
+            } else {
+                await state.loadFile(path: targetPath, using: daemonClient)
+            }
+        }
+    }
+}
+
+// MARK: - File Viewer
+
+private struct WorkspaceFileViewer: View {
+    @Bindable var state: WorkspaceBrowserState
+    let daemonClient: DaemonClient
+
+    var body: some View {
+        Group {
+            if state.isLoadingFile {
+                VStack {
+                    Spacer()
+                    ProgressView("Loading file...")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let detail = state.selectedFileDetail {
+                fileContent(detail)
+            } else {
+                emptyState
+            }
+        }
+        .background(VColor.background)
+    }
+
+    private var emptyState: some View {
+        VStack {
+            Spacer()
+            VIconView(.fileText, size: 32)
+                .foregroundColor(VColor.textMuted)
+                .padding(.bottom, VSpacing.sm)
+            Text("Select a file to view")
+                .font(VFont.body)
+                .foregroundColor(VColor.textMuted)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func fileContent(_ detail: WorkspaceFileResponse) -> some View {
+        let mime = detail.mimeType.lowercased()
+
+        if !detail.isBinary, detail.content != nil {
+            textViewer(detail)
+        } else if mime.hasPrefix("image/") {
+            imageViewer(detail)
+        } else if mime.hasPrefix("video/") {
+            videoViewer(detail)
+        } else if !detail.isBinary, detail.content == nil {
+            fileTooLarge(detail)
+        } else {
+            binaryFallback(detail)
+        }
+    }
+
+    private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
+        VStack(spacing: 0) {
+            if state.isDirty {
+                HStack {
+                    Spacer()
+                    Button {
+                        Task { await saveFile(path: detail.path) }
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            if state.isSaving {
+                                ProgressView().controlSize(.small)
+                            }
+                            Text("Save")
+                                .font(VFont.bodyMedium)
+                        }
+                    }
+                    .disabled(state.isSaving)
+                    .keyboardShortcut("s", modifiers: .command)
+                    .padding(.trailing, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                }
+            }
+
+            TextEditor(text: $state.editableContent)
+                .font(VFont.mono)
+                .foregroundColor(VColor.textPrimary)
+                .scrollContentBackground(.hidden)
+                .padding(VSpacing.md)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: state.editableContent) { _, newValue in
+                    state.isDirty = newValue != state.originalContent
+                }
+        }
+    }
+
+    private func saveFile(path: String) async {
+        state.isSaving = true
+        let snapshot = state.editableContent
+        let data = Data(snapshot.utf8)
+        let success = await daemonClient.writeWorkspaceFile(path: path, content: data)
+        // Only update editor state if the user is still viewing the file that was saved
+        guard state.selectedFilePath == path else {
+            state.isSaving = false
+            return
+        }
+        if success {
+            state.originalContent = snapshot
+            state.isDirty = state.editableContent != snapshot
+        }
+        state.isSaving = false
+    }
+
+    private func fileTooLarge(_ detail: WorkspaceFileResponse) -> some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            VIconView(.fileText, size: 40)
+                .foregroundColor(VColor.textMuted)
+
+            VStack(spacing: VSpacing.sm) {
+                Text(detail.name)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text("File too large to preview")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textSecondary)
+
+                Text(formatFileSize(detail.size))
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
+        Group {
+            if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
+                AuthenticatedImageView(url: url, daemonClient: daemonClient)
+            } else {
+                Text("Unable to load image URL")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
+        Group {
+            if let url = daemonClient.workspaceFileContentURL(path: detail.path) {
+                WorkspaceVideoPlayer(url: url, daemonClient: daemonClient)
+            } else {
+                Text("Unable to load video URL")
+                    .font(VFont.body)
+                    .foregroundColor(VColor.textMuted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private func binaryFallback(_ detail: WorkspaceFileResponse) -> some View {
+        VStack(spacing: VSpacing.lg) {
+            Spacer()
+
+            VIconView(.file, size: 40)
+                .foregroundColor(VColor.textMuted)
+
+            VStack(spacing: VSpacing.sm) {
+                Text(detail.name)
+                    .font(VFont.bodyMedium)
+                    .foregroundColor(VColor.textPrimary)
+
+                Text(formatFileSize(detail.size))
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                Text(detail.mimeType)
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textSecondary)
+
+                Text("Modified: \(detail.modifiedAt)")
+                    .font(VFont.caption)
+                    .foregroundColor(VColor.textMuted)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func formatFileSize(_ bytes: Int) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(bytes))
+    }
+}
+
+// MARK: - Authenticated Image View
+
+private struct AuthenticatedImageView: View {
+    let url: URL
+    let daemonClient: DaemonClient
+    @State private var image: NSImage?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(VSpacing.md)
+            } else if failed {
+                VStack {
+                    VIconView(.triangleAlert, size: 24)
+                        .foregroundColor(VColor.warning)
+                    Text("Failed to load image")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: url) {
+            image = nil
+            failed = false
+            do {
+                let loadedImage = try await fetchImage(url: url)
+                image = loadedImage
+                if image == nil { failed = true }
+            } catch {
+                if !Task.isCancelled {
+                    failed = true
+                }
+            }
+        }
+    }
+
+    private func fetchImage(url: URL) async throws -> NSImage? {
+        var request = URLRequest(url: url)
+        if let token = ActorTokenManager.getToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            return nil
+        }
+        // On 401, re-bootstrap actor token via daemon and retry once
+        if http.statusCode == 401 {
+            guard let platform = daemonClient.recoveryPlatform,
+                  let deviceId = daemonClient.recoveryDeviceId else {
+                return nil
+            }
+            let success = await daemonClient.bootstrapActorToken(platform: platform, deviceId: deviceId)
+            guard success else { return nil }
+            var retryRequest = URLRequest(url: url)
+            if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
+                retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
+            }
+            let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+            guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
+                return nil
+            }
+            return NSImage(data: retryData)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            return nil
+        }
+        return NSImage(data: data)
+    }
+}
+
+// MARK: - Video Player
+
+private struct WorkspaceVideoPlayer: View {
+    let url: URL
+    let daemonClient: DaemonClient
+    @State private var player: AVPlayer?
+    @State private var tempFileURL: URL?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(VSpacing.md)
+            } else if failed {
+                VStack {
+                    VIconView(.triangleAlert, size: 24)
+                        .foregroundColor(VColor.warning)
+                    Text("Failed to load video")
+                        .font(VFont.body)
+                        .foregroundColor(VColor.textMuted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .task(id: url) {
+            player?.pause()
+            player = nil
+            failed = false
+            if let tempFileURL {
+                try? FileManager.default.removeItem(at: tempFileURL)
+            }
+            tempFileURL = nil
+            await loadVideo()
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
+            if let tempFileURL {
+                try? FileManager.default.removeItem(at: tempFileURL)
+            }
+        }
+    }
+
+    private func loadVideo() async {
+        do {
+            let result = try await downloadVideo(url: url)
+            guard !Task.isCancelled else {
+                // Clean up downloaded file if task was cancelled during download
+                if let localURL = result {
+                    try? FileManager.default.removeItem(at: localURL)
+                }
+                return
+            }
+            guard let localURL = result else {
+                failed = true
+                return
+            }
+            tempFileURL = localURL
+            player = AVPlayer(url: localURL)
+        } catch {
+            if !Task.isCancelled {
+                failed = true
+            }
+        }
+    }
+
+    /// Downloads video to a temp file using streaming (avoids buffering entire file in memory).
+    /// Returns the local file URL on success, nil on non-success HTTP status.
+    /// On 401, re-bootstraps actor token via daemon and retries once.
+    private func downloadVideo(url: URL) async throws -> URL? {
+        var request = URLRequest(url: url)
+        if let token = ActorTokenManager.getToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let (downloadedURL, response) = try await URLSession.shared.download(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            return nil
+        }
+        // On 401, re-bootstrap actor token via daemon and retry once
+        if http.statusCode == 401 {
+            try? FileManager.default.removeItem(at: downloadedURL)
+            guard let platform = daemonClient.recoveryPlatform,
+                  let deviceId = daemonClient.recoveryDeviceId else {
+                return nil
+            }
+            let success = await daemonClient.bootstrapActorToken(platform: platform, deviceId: deviceId)
+            guard success else { return nil }
+            var retryRequest = URLRequest(url: url)
+            if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
+                retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
+            }
+            let (retryURL, retryResponse) = try await URLSession.shared.download(for: retryRequest)
+            guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
+                try? FileManager.default.removeItem(at: retryURL)
+                return nil
+            }
+            let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+            try FileManager.default.moveItem(at: retryURL, to: dest)
+            return dest
+        }
+        guard (200...299).contains(http.statusCode) else {
+            try? FileManager.default.removeItem(at: downloadedURL)
+            return nil
+        }
+        let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+        try FileManager.default.moveItem(at: downloadedURL, to: dest)
+        return dest
+    }
+}

@@ -41,6 +41,7 @@ function makeSkill(
   return {
     id,
     name: `${id} skill`,
+    displayName: `${id} skill`,
     description: `Description for ${id}`,
     directoryPath: `/fake/skills/${id}`,
     skillFilePath: `/fake/skills/${id}/SKILL.md`,

@@ -547,48 +547,16 @@ final class ComputerUseSession: ObservableObject {
         previousElements = elements
         previousFlatElements = flatElements
 
-        // Transport screenshot via blob or inline base64
+        // Encode screenshot as inline base64
         var screenshotBase64: String?
-        var screenshotBlobRef: IPCIpcBlobRef?
 
         if let screenshotBytes = screenshotData {
-            if daemonClient.isBlobTransportAvailable {
-                if let ref = IpcBlobStore.shared.writeBlob(data: screenshotBytes, kind: "screenshot_jpeg", encoding: "binary") {
-                    screenshotBlobRef = ref
-                    log.info("[\(stepNumber)] Screenshot written as blob (\(screenshotBytes.count) bytes, id=\(ref.id))")
-                } else {
-                    log.warning("[\(stepNumber)] Blob write failed for screenshot, falling back to inline base64")
-                    screenshotBase64 = screenshotBytes.base64EncodedString()
-                }
-            } else {
-                screenshotBase64 = screenshotBytes.base64EncodedString()
-            }
+            screenshotBase64 = screenshotBytes.base64EncodedString()
         }
 
         let screenSizePt = screenshotData != nil ? screenCapture.screenSize() : nil
 
-        // Transport AX tree via blob when large (>8KB) and blob transport available.
-        // Cap at 2MB to match the daemon's MAX_AX_BLOB_SIZE — trees above that limit
-        // would be rejected on hydration, losing the data entirely since inline was cleared.
-        var axTreeInline = axTreeText
-        var axTreeBlobRef: IPCIpcBlobRef?
-        let axTreeBlobThreshold = 8 * 1024 // 8KB
-        let axTreeBlobMaxSize = 2 * 1024 * 1024 // 2MB — must match daemon's MAX_AX_BLOB_SIZE
-
-        if let tree = axTreeText, daemonClient.isBlobTransportAvailable {
-            let treeData = Data(tree.utf8)
-            if treeData.count > axTreeBlobThreshold && treeData.count <= axTreeBlobMaxSize {
-                if let ref = IpcBlobStore.shared.writeBlob(data: treeData, kind: "ax_tree", encoding: "utf8") {
-                    axTreeBlobRef = ref
-                    axTreeInline = nil
-                    log.info("[\(stepNumber)] AX tree written as blob (\(treeData.count) bytes, id=\(ref.id))")
-                } else {
-                    log.warning("[\(stepNumber)] Blob write failed for AX tree, keeping inline")
-                }
-            } else if treeData.count > axTreeBlobMaxSize {
-                log.info("[\(stepNumber)] AX tree exceeds blob max size (\(treeData.count) bytes > \(axTreeBlobMaxSize)), keeping inline")
-            }
-        }
+        let axTreeInline = axTreeText
 
         // Drain any pending user guidance so it's included in this observation
         let guidance = pendingUserGuidance
@@ -608,22 +576,20 @@ final class ComputerUseSession: ObservableObject {
             captureDisplayId: screenshotMetadata.map { Double($0.captureDisplayId) },
             executionResult: executionResult,
             executionError: executionError,
-            axTreeBlob: axTreeBlobRef,
-            screenshotBlob: screenshotBlobRef,
+            axTreeBlob: nil,
+            screenshotBlob: nil,
             userGuidance: guidance
         )
 
         let screenshotRawBytes = screenshotData?.count ?? 0
         let screenshotBase64Bytes = screenshotBase64?.utf8.count ?? 0
-        let screenshotUsedBlob = screenshotBlobRef != nil
         let axTreeBytes = axTreeText?.utf8.count ?? 0
-        let axTreeUsedBlob = axTreeBlobRef != nil
         let axDiffBytes = axDiffText?.utf8.count ?? 0
         let secondaryWindowsBytes = secondaryWindowsText?.utf8.count ?? 0
-        let payloadJSONBytes = screenshotBase64Bytes + (axTreeUsedBlob ? 0 : axTreeBytes) + axDiffBytes + secondaryWindowsBytes + 256
+        let payloadJSONBytes = screenshotBase64Bytes + axTreeBytes + axDiffBytes + secondaryWindowsBytes + 256
         let buildTimestampMs = Int(Date().timeIntervalSince1970 * 1_000)
         log.info(
-            "[\(stepNumber)] IPC_METRIC cu_observation_build buildTsMs=\(buildTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotRawBytes=\(screenshotRawBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) screenshotUsedBlob=\(screenshotUsedBlob) axTreeBytes=\(axTreeBytes) axTreeUsedBlob=\(axTreeUsedBlob) axDiffBytes=\(axDiffBytes) secondaryWindowsBytes=\(secondaryWindowsBytes)"
+            "[\(stepNumber)] cu_observation_build buildTsMs=\(buildTimestampMs) payloadJsonBytes=\(payloadJSONBytes) screenshotRawBytes=\(screenshotRawBytes) screenshotBase64Bytes=\(screenshotBase64Bytes) axTreeBytes=\(axTreeBytes) axDiffBytes=\(axDiffBytes) secondaryWindowsBytes=\(secondaryWindowsBytes)"
         )
 
         return observation

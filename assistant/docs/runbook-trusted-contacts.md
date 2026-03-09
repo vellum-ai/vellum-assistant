@@ -13,10 +13,9 @@ Operational procedures for inspecting, managing, and debugging the trusted conta
 # Base URL — assistant runtime (adjust if using a non-default port)
 BASE=http://localhost:7821
 
-# Bearer token: if running via the assistant's shell tools, $GATEWAY_AUTH_TOKEN
-# is injected automatically. For manual operator use, mint a token via the CLI
-# or use one from the daemon (e.g. from a recent shell env export).
-TOKEN=$GATEWAY_AUTH_TOKEN
+# Bearer token: for operator use, retrieve from the daemon process environment
+# or use `assistant` CLI commands which handle auth automatically.
+TOKEN=<your-bearer-token>
 ```
 
 ## 1. Inspect Trusted Contacts
@@ -36,7 +35,7 @@ curl -s "$BASE/v1/contacts?channelType=telegram" \
   -H "Authorization: Bearer $TOKEN" | jq
 
 # Voice contacts only
-curl -s "$BASE/v1/contacts?channelType=voice" \
+curl -s "$BASE/v1/contacts?channelType=phone" \
   -H "Authorization: Bearer $TOKEN" | jq
 ```
 
@@ -284,7 +283,7 @@ curl -s -X POST "$BASE/v1/contacts" \
     "displayName": "Bob",
     "role": "contact",
     "channels": [{
-      "type": "voice",
+      "type": "phone",
       "address": "+15551234567",
       "externalUserId": "+15551234567",
       "externalChatId": "+15551234567",

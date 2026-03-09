@@ -348,7 +348,7 @@ describe("voice identity binding with E.164 phone numbers", () => {
   test("voice verification session binds to phone E.164", () => {
     const phone = "+15551234567";
     const session = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedExternalUserId: phone,
       expectedPhoneE164: phone,
       expectedChatId: phone,
@@ -359,7 +359,7 @@ describe("voice identity binding with E.164 phone numbers", () => {
 
     // Verify with matching phone identity
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       session.secret,
       phone,
       phone,
@@ -375,7 +375,7 @@ describe("voice identity binding with E.164 phone numbers", () => {
     const wrongPhone = "+15559999999";
 
     const session = createOutboundSession({
-      channel: "voice",
+      channel: "phone",
       expectedExternalUserId: expectedPhone,
       expectedPhoneE164: expectedPhone,
       expectedChatId: expectedPhone,
@@ -385,7 +385,7 @@ describe("voice identity binding with E.164 phone numbers", () => {
 
     // Try to verify with a different phone (anti-oracle: same error message)
     const result = validateAndConsumeVerification(
-      "voice",
+      "phone",
       session.secret,
       wrongPhone,
       wrongPhone,

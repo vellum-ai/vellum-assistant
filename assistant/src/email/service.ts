@@ -6,6 +6,13 @@
  */
 
 import {
+  getNestedValue,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../config/loader.js";
+import { ConfigError } from "../util/errors.js";
+import {
   addAddressRule,
   type AddressRule,
   checkSendGuardrails,
@@ -15,14 +22,7 @@ import {
   removeAddressRule,
   setDailySendCap,
   setOutboundPaused,
-} from "../cli/email-guardrails.js";
-import {
-  getNestedValue,
-  loadRawConfig,
-  saveRawConfig,
-  setNestedValue,
-} from "../config/loader.js";
-import { ConfigError } from "../util/errors.js";
+} from "./guardrails.js";
 import type { EmailProvider } from "./provider.js";
 import {
   createProvider,

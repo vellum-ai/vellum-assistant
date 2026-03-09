@@ -1,5 +1,4 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import * as net from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -60,11 +59,11 @@ export function parseIdentityFields(content: string): IdentityFields {
   };
 }
 
-function handleIdentityGet(socket: net.Socket, ctx: HandlerContext): void {
+function handleIdentityGet(ctx: HandlerContext): void {
   const identityPath = getWorkspacePromptPath("IDENTITY.md");
 
   if (!existsSync(identityPath)) {
-    ctx.send(socket, {
+    ctx.send({
       type: "identity_get_response",
       found: false,
       name: "",
@@ -127,7 +126,7 @@ function handleIdentityGet(socket: net.Socket, ctx: HandlerContext): void {
       // ignore — lockfile may not exist
     }
 
-    ctx.send(socket, {
+    ctx.send({
       type: "identity_get_response",
       found: true,
       name: fields.name,
@@ -142,7 +141,7 @@ function handleIdentityGet(socket: net.Socket, ctx: HandlerContext): void {
     });
   } catch (err) {
     log.error({ err }, "Failed to read identity");
-    ctx.send(socket, {
+    ctx.send({
       type: "identity_get_response",
       found: false,
       name: "",
@@ -155,5 +154,5 @@ function handleIdentityGet(socket: net.Socket, ctx: HandlerContext): void {
 }
 
 export const identityHandlers = defineHandlers({
-  identity_get: (_msg, socket, ctx) => handleIdentityGet(socket, ctx),
+  identity_get: (_msg, ctx) => handleIdentityGet(ctx),
 });

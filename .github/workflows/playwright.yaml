@@ -10,11 +10,15 @@ on:
         description: 'Release version to test (e.g. "1.2.3"). If set, downloads the DMG from vellum-ai/velly releases instead of building from source.'
         required: false
         type: string
-      run_experimental:
-        description: 'Run experimental tests (tests marked with status: experimental in front matter).'
+      test_filter:
+        description: 'Test filter level: critical (only critical), stable (critical + stable), experimental (all tests).'
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - experimental
+          - stable
+          - critical
+        default: stable
       test_case:
         description: 'Run a single test case by name (e.g. "hello-world"). If empty, runs all tests.'
         required: false
@@ -409,6 +413,11 @@ jobs:
           cat "$APPLESCRIPT"
 
       - name: Install ffmpeg
+        timeout-minutes: 5
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
         run: |
           if ! command -v ffmpeg &> /dev/null; then
             echo "ffmpeg not found, installing via brew..."
@@ -438,7 +447,7 @@ jobs:
         working-directory: playwright
         continue-on-error: true
         env:
-          RUN_EXPERIMENTAL: ${{ inputs.run_experimental && '1' || '' }}
+          TEST_FILTER: ${{ inputs.test_filter || 'stable' }}
         run: |
           SHARD_ARGS=""
           if [ "$TOTAL_SHARDS" -gt 1 ]; then
@@ -446,16 +455,17 @@ jobs:
           fi
 
           if [ "${{ inputs.use_xcode }}" = "true" ]; then
-            unset RUN_EXPERIMENTAL
+            unset TEST_FILTER
             XCODE_ARGS=""
             if [ -n "${{ inputs.test_case }}" ]; then
               XCODE_ARGS="${{ inputs.test_case }}"
             fi
-            if [ "${{ inputs.run_experimental }}" = "true" ]; then
+            if [ "${{ inputs.test_filter }}" = "experimental" ]; then
               XCODE_ARGS="$XCODE_ARGS --experimental"
             fi
             cd agent-xcode && ./.build/release/agent-xcode $XCODE_ARGS
           elif [ -n "${{ inputs.test_case }}" ]; then
+            unset TEST_FILTER
             bun run test -g "${{ inputs.test_case }}" $SHARD_ARGS
           else
             bun run test $SHARD_ARGS

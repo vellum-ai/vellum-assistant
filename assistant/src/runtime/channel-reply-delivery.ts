@@ -208,3 +208,43 @@ export async function deliverReplyViaCallback(
     break;
   }
 }
+
+/**
+ * Deliver only the attachments from the last assistant message, skipping text.
+ * Used when streaming already delivered the text content and only file
+ * attachments remain to be sent via the normal delivery path.
+ */
+export async function deliverAttachmentsOnly(
+  conversationId: string,
+  externalChatId: string,
+  callbackUrl: string,
+  bearerToken?: string,
+  assistantId?: string,
+): Promise<void> {
+  const msgs = getMessages(conversationId);
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role !== "assistant") continue;
+
+    const linked = attachmentsStore.getAttachmentMetadataForMessage(msgs[i].id);
+    if (linked.length === 0) return;
+
+    const replyAttachments: RuntimeAttachmentMetadata[] = linked.map((a) => ({
+      id: a.id,
+      filename: a.originalFilename,
+      mimeType: a.mimeType,
+      sizeBytes: a.sizeBytes,
+      kind: a.kind,
+    }));
+
+    await deliverChannelReply(
+      callbackUrl,
+      {
+        chatId: externalChatId,
+        attachments: replyAttachments,
+        assistantId,
+      },
+      bearerToken,
+    );
+    break;
+  }
+}

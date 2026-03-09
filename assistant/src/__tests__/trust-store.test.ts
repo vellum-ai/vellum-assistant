@@ -1272,7 +1272,7 @@ describe("Trust Store", () => {
       expect(withoutOptions).not.toHaveProperty("executionTarget");
     });
 
-    test("unknown version returns in-memory defaults without persisting", () => {
+    test("legacy v2 version migrates rules and persists as v3", () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(
         trustPath,
@@ -1293,12 +1293,50 @@ describe("Trust Store", () => {
       );
       clearCache();
       const rules = getAllRules();
-      // Should only have default rules (in-memory), user rules from unknown version are discarded
-      expect(rules).toHaveLength(NUM_DEFAULTS);
-      expect(rules.every((r) => r.id.startsWith("default:"))).toBe(true);
-      // File should NOT be overwritten — we don't understand the format
+      const migratedRule = rules.find((r) => r.id === "old-version-rule");
+      expect(migratedRule).toBeDefined();
+      expect(migratedRule!.decision).toBe("allow");
+      expect(rules).toHaveLength(1 + NUM_DEFAULTS);
+
+      // File should be persisted to the current schema version.
       const data = JSON.parse(readFileSync(trustPath, "utf-8"));
-      expect(data.version).toBe(2);
+      expect(data.version).toBe(3);
+      expect(
+        data.rules.some((r: { id: string }) => r.id === "old-version-rule"),
+      ).toBe(true);
+    });
+
+    test("legacy v1 version migrates rules and persists as v3", () => {
+      mkdirSync(dirname(trustPath), { recursive: true });
+      writeFileSync(
+        trustPath,
+        JSON.stringify({
+          version: 1,
+          rules: [
+            {
+              id: "v1-rule",
+              tool: "bash",
+              pattern: "rm *",
+              scope: "everywhere",
+              decision: "deny",
+              priority: 200,
+              createdAt: 4000,
+            },
+          ],
+        }),
+      );
+
+      clearCache();
+      const rules = getAllRules();
+      const migratedRule = rules.find((r) => r.id === "v1-rule");
+      expect(migratedRule).toBeDefined();
+      expect(migratedRule!.decision).toBe("deny");
+
+      const data = JSON.parse(readFileSync(trustPath, "utf-8"));
+      expect(data.version).toBe(3);
+      expect(data.rules.some((r: { id: string }) => r.id === "v1-rule")).toBe(
+        true,
+      );
     });
   });
 

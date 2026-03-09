@@ -8,7 +8,6 @@ import {
   writeFileSync,
 } from "fs";
 import { createRequire } from "module";
-import { createConnection } from "net";
 import { homedir, hostname, networkInterfaces, platform } from "os";
 import { dirname, join } from "path";
 
@@ -17,6 +16,7 @@ import {
   type LocalInstanceResources,
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
+import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
 import { stopProcessByPidFile } from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
@@ -135,23 +135,6 @@ function resolveAssistantIndexPath(): string | undefined {
   return undefined;
 }
 
-async function waitForSocketFile(
-  socketPath: string,
-  timeoutMs = 60000,
-): Promise<boolean> {
-  if (existsSync(socketPath)) return true;
-
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (existsSync(socketPath)) {
-      return true;
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-
-  return existsSync(socketPath);
-}
-
 function ensureBunInstalled(): void {
   const bunBinDir = join(homedir(), ".bun", "bin");
   const pathWithBun = [
@@ -224,7 +207,6 @@ async function startDaemonFromSource(
   mkdirSync(dirname(resources.pidFile), { recursive: true });
 
   const pidFile = resources.pidFile;
-  const socketFile = resources.socketPath;
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
   if (existsSync(pidFile)) {
@@ -244,22 +226,20 @@ async function startDaemonFromSource(
     } catch {}
   }
 
-  if (await isSocketResponsive(socketFile)) {
-    const ownerPid = findSocketOwnerPid(socketFile);
-    if (ownerPid) {
-      writeFileSync(pidFile, String(ownerPid), "utf-8");
+  // PID file was stale or missing — check if daemon is responding via HTTP
+  if (await isDaemonResponsive(resources.daemonPort)) {
+    // Recover PID tracking so lifecycle commands (sleep, retire,
+    // stopLocalProcesses) can manage this daemon process.
+    const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
+    if (recoveredPid) {
       console.log(
-        `   Assistant socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+        `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
       );
     } else {
-      console.log("   Assistant socket is responsive — skipping restart\n");
+      console.log("   Assistant is responsive — skipping restart\n");
     }
     return;
   }
-
-  try {
-    unlinkSync(socketFile);
-  } catch {}
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -274,7 +254,6 @@ async function startDaemonFromSource(
     env.BASE_DATA_DIR = resources.instanceDir;
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.GATEWAY_PORT = String(resources.gatewayPort);
-    env.VELLUM_DAEMON_SOCKET = resources.socketPath;
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
   }
@@ -312,7 +291,6 @@ async function startDaemonWatchFromSource(
   mkdirSync(dirname(resources.pidFile), { recursive: true });
 
   const pidFile = resources.pidFile;
-  const socketFile = resources.socketPath;
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
   // If a daemon is already running, skip spawning a new one.
@@ -334,25 +312,20 @@ async function startDaemonWatchFromSource(
     } catch {}
   }
 
-  // PID file was stale or missing, but a daemon with a different PID may
-  // still be listening on the socket. Check before starting a new one.
-  if (await isSocketResponsive(socketFile)) {
-    const ownerPid = findSocketOwnerPid(socketFile);
-    if (ownerPid) {
-      writeFileSync(pidFile, String(ownerPid), "utf-8");
+  // PID file was stale or missing — check if daemon is responding via HTTP
+  if (await isDaemonResponsive(resources.daemonPort)) {
+    // Recover PID tracking so lifecycle commands (sleep, retire,
+    // stopLocalProcesses) can manage this daemon process.
+    const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
+    if (recoveredPid) {
       console.log(
-        `   Assistant socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+        `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
       );
     } else {
-      console.log("   Assistant socket is responsive — skipping restart\n");
+      console.log("   Assistant is responsive — skipping restart\n");
     }
     return;
   }
-
-  // Socket is unresponsive or missing — safe to clean up and start fresh.
-  try {
-    unlinkSync(socketFile);
-  } catch {}
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -363,7 +336,6 @@ async function startDaemonWatchFromSource(
     env.BASE_DATA_DIR = resources.instanceDir;
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.GATEWAY_PORT = String(resources.gatewayPort);
-    env.VELLUM_DAEMON_SOCKET = resources.socketPath;
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
   }
@@ -452,56 +424,52 @@ function readWorkspaceIngressPublicBaseUrl(
   }
 }
 
-/** Use lsof to discover the PID of the process listening on a Unix socket.
- *  Returns the PID if found, undefined otherwise. */
-function findSocketOwnerPid(socketPath: string): number | undefined {
+/**
+ * Check if the daemon is responsive by hitting its HTTP `/healthz` endpoint.
+ * This replaces the socket-based `isSocketResponsive()` check.
+ */
+async function isDaemonResponsive(daemonPort: number): Promise<boolean> {
+  return httpHealthCheck(daemonPort);
+}
+
+/**
+ * Find the PID of the process listening on the given TCP port.
+ * Uses `lsof` on macOS/Linux. Returns undefined if no listener is found
+ * or the command fails.
+ */
+function findPidListeningOnPort(port: number): number | undefined {
   try {
     const output = execFileSync(
       "lsof",
-      ["-U", "-a", "-F", "p", "--", socketPath],
-      {
-        encoding: "utf-8",
-        timeout: 3000,
-        stdio: ["ignore", "pipe", "ignore"],
-      },
-    );
-    // lsof -F p outputs lines like "p1234" — extract the first PID
-    const match = output.match(/^p(\d+)/m);
-    if (match) {
-      const pid = parseInt(match[1], 10);
-      if (!isNaN(pid)) return pid;
-    }
+      ["-iTCP:" + port, "-sTCP:LISTEN", "-t"],
+      { encoding: "utf-8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    // lsof -t may return multiple PIDs (one per line); take the first.
+    const pid = parseInt(output.split("\n")[0], 10);
+    return isNaN(pid) ? undefined : pid;
   } catch {
-    // lsof not available or failed — cannot recover PID
+    return undefined;
   }
-  return undefined;
 }
 
-/** Try a TCP connect to the Unix socket. Returns true if the handshake
- *  completes within the timeout — false on connection refused, timeout,
- *  or missing socket file. */
-function isSocketResponsive(
-  socketPath: string,
-  timeoutMs = 1500,
-): Promise<boolean> {
-  if (!existsSync(socketPath)) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    const socket = createConnection(socketPath);
-    const timer = setTimeout(() => {
-      socket.destroy();
-      resolve(false);
-    }, timeoutMs);
-    socket.on("connect", () => {
-      clearTimeout(timer);
-      socket.destroy();
-      resolve(true);
-    });
-    socket.on("error", () => {
-      clearTimeout(timer);
-      socket.destroy();
-      resolve(false);
-    });
-  });
+/**
+ * Recover PID tracking for a daemon that is already responsive on its HTTP
+ * port but whose PID file is stale or missing. Looks up the listener PID
+ * via `lsof` and writes it to `pidFile` so lifecycle commands (sleep, retire,
+ * wake) can target the running process.
+ *
+ * Returns the recovered PID, or undefined if recovery failed.
+ */
+function recoverPidFile(
+  pidFile: string,
+  daemonPort: number,
+): number | undefined {
+  const pid = findPidListeningOnPort(daemonPort);
+  if (pid) {
+    mkdirSync(dirname(pidFile), { recursive: true });
+    writeFileSync(pidFile, String(pid), "utf-8");
+  }
+  return pid;
 }
 
 export async function discoverPublicUrl(port?: number): Promise<string | undefined> {
@@ -652,7 +620,6 @@ export async function startLocalDaemon(
     }
 
     const pidFile = resources.pidFile;
-    const socketFile = resources.socketPath;
 
     // If a daemon is already running, skip spawning a new one.
     // This prevents cascading kill→restart cycles when multiple callers
@@ -678,19 +645,18 @@ export async function startLocalDaemon(
 
     if (!daemonAlive) {
       // The PID file was stale or missing, but a daemon with a different PID
-      // may still be listening on the socket (e.g. if the PID file was
-      // overwritten by a crashed restart attempt). Check before deleting.
-      if (await isSocketResponsive(socketFile)) {
+      // may still be listening on the HTTP port (e.g. if the PID file was
+      // overwritten by a crashed restart attempt). Check before starting a new one.
+      if (await isDaemonResponsive(resources.daemonPort)) {
         // Restore PID tracking so lifecycle commands (sleep, retire,
         // stopLocalProcesses) can manage this daemon process.
-        const ownerPid = findSocketOwnerPid(socketFile);
-        if (ownerPid) {
-          writeFileSync(pidFile, String(ownerPid), "utf-8");
+        const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
+        if (recoveredPid) {
           console.log(
-            `   Assistant socket is responsive (pid ${ownerPid}) — skipping restart\n`,
+            `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
           );
         } else {
-          console.log("   Assistant socket is responsive — skipping restart\n");
+          console.log("   Assistant is responsive — skipping restart\n");
         }
         // Ensure bun is available for runtime features (browser, skills install)
         // even when reusing an existing daemon.
@@ -698,17 +664,12 @@ export async function startLocalDaemon(
         return;
       }
 
-      // Socket is unresponsive or missing — safe to clean up and start fresh.
-      try {
-        unlinkSync(socketFile);
-      } catch {}
-
       console.log("🔨 Starting assistant...");
 
       // Ensure bun is available for runtime features (browser, skills install)
       ensureBunInstalled();
 
-      // Ensure the directory containing PID/socket files exists
+      // Ensure the directory containing PID files exists
       mkdirSync(dirname(pidFile), { recursive: true });
 
       // Build a minimal environment for the daemon. When launched from the
@@ -732,7 +693,6 @@ export async function startLocalDaemon(
         "RUNTIME_HTTP_PORT",
         "VELLUM_DAEMON_TCP_PORT",
         "VELLUM_DAEMON_TCP_HOST",
-        "VELLUM_DAEMON_SOCKET",
         "VELLUM_KEYCHAIN_BROKER_SOCKET",
         "VELLUM_DEBUG",
         "SENTRY_DSN",
@@ -750,7 +710,6 @@ export async function startLocalDaemon(
         daemonEnv.BASE_DATA_DIR = resources.instanceDir;
         daemonEnv.RUNTIME_HTTP_PORT = String(resources.daemonPort);
         daemonEnv.GATEWAY_PORT = String(resources.gatewayPort);
-        daemonEnv.VELLUM_DAEMON_SOCKET = resources.socketPath;
         daemonEnv.QDRANT_HTTP_PORT = String(resources.qdrantPort);
         delete daemonEnv.QDRANT_URL;
       }
@@ -784,34 +743,34 @@ export async function startLocalDaemon(
       ensureBunInstalled();
     }
 
-    // Wait for socket at ~/.vellum/vellum.sock (up to 60s — fresh installs
+    // Wait for daemon to respond on HTTP (up to 60s — fresh installs
     // may need 30-60s for Qdrant download, migrations, and first-time init)
-    let socketReady = await waitForSocketFile(socketFile, 60000);
+    let daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
 
-    // Dev fallback: if the bundled daemon did not create a socket in time,
+    // Dev fallback: if the bundled daemon did not become ready in time,
     // fall back to source daemon startup so local `./build.sh run` still works.
-    if (!socketReady) {
+    if (!daemonReady) {
       const assistantIndex = resolveAssistantIndexPath();
       if (assistantIndex) {
         console.log(
-          "   Bundled assistant socket not ready after 60s — falling back to source assistant...",
+          "   Bundled assistant not ready after 60s — falling back to source assistant...",
         );
-        // Kill the bundled daemon to avoid two processes competing for the same socket/port
-        await stopProcessByPidFile(pidFile, "bundled daemon", [socketFile]);
+        // Kill the bundled daemon to avoid two processes competing for the same port
+        await stopProcessByPidFile(pidFile, "bundled daemon");
         if (watch) {
           await startDaemonWatchFromSource(assistantIndex, resources);
         } else {
           await startDaemonFromSource(assistantIndex, resources);
         }
-        socketReady = await waitForSocketFile(socketFile, 60000);
+        daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
       }
     }
 
-    if (socketReady) {
-      console.log("   Assistant socket ready\n");
+    if (daemonReady) {
+      console.log("   Assistant ready\n");
     } else {
       console.log(
-        "   ⚠️  Assistant socket did not appear within 60s — continuing anyway\n",
+        "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
       );
     }
   } else {
@@ -827,23 +786,23 @@ export async function startLocalDaemon(
     if (watch) {
       await startDaemonWatchFromSource(assistantIndex, resources);
 
-      const socketReady = await waitForSocketFile(resources.socketPath, 60000);
-      if (socketReady) {
-        console.log("   Assistant socket ready\n");
+      const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
+      if (daemonReady) {
+        console.log("   Assistant ready\n");
       } else {
         console.log(
-          "   ⚠️  Assistant socket did not appear within 60s — continuing anyway\n",
+          "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
         );
       }
     } else {
       await startDaemonFromSource(assistantIndex, resources);
 
-      const socketReady = await waitForSocketFile(resources.socketPath, 60000);
-      if (socketReady) {
-        console.log("   Assistant socket ready\n");
+      const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
+      if (daemonReady) {
+        console.log("   Assistant ready\n");
       } else {
         console.log(
-          "   ⚠️  Assistant socket did not appear within 60s — continuing anyway\n",
+          "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
         );
       }
     }
@@ -1068,7 +1027,7 @@ export async function startGateway(
 
 /**
  * Stop any locally-running daemon and gateway processes
- * and clean up PID/socket files. Called when hatch fails partway through
+ * and clean up PID files. Called when hatch fails partway through
  * so we don't leave orphaned processes with no lock file entry.
  *
  * When `resources` is provided, uses instance-specific paths instead of
@@ -1081,8 +1040,7 @@ export async function stopLocalProcesses(
     ? join(resources.instanceDir, ".vellum")
     : join(homedir(), ".vellum");
   const daemonPidFile = resources?.pidFile ?? join(vellumDir, "vellum.pid");
-  const socketFile = resources?.socketPath ?? join(vellumDir, "vellum.sock");
-  await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
+  await stopProcessByPidFile(daemonPidFile, "daemon");
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);

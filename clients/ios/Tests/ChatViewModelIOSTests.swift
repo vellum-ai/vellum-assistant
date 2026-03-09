@@ -503,7 +503,6 @@ final class ChatViewModelIOSTests: XCTestCase {
 @MainActor
 private final class FailOnceDaemonClient: DaemonClientProtocol {
     var isConnected: Bool = false
-    var isBlobTransportAvailable: Bool = false
 
     /// All messages attempted (including failed ones).
     private(set) var allAttemptedMessages: [Any] = []

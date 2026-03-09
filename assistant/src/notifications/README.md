@@ -88,9 +88,9 @@ Each policy defines:
 
 | Strategy                         | Behavior                                                                                                                                                                                                                                     | Used by                                  |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `start_new_conversation`         | Creates a fresh conversation per delivery. The thread is surfaced via IPC.                                                                                                                                                                   | `vellum`                                 |
+| `start_new_conversation`         | Creates a fresh conversation per delivery. The thread is surfaced via SSE.                                                                                                                                                                   | `vellum`                                 |
 | `continue_existing_conversation` | Looks up a previously bound conversation by binding key (sourceChannel + externalChatId) and appends to it. When no bound conversation exists (first delivery to a destination), creates a new one and upserts the binding for future reuse. | `telegram`, `whatsapp`, `slack`, `email` |
-| `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                                                                                                              | `voice`                                  |
+| `not_deliverable`                | Channel cannot receive notifications. Pairing returns null IDs.                                                                                                                                                                              | `phone`                                  |
 
 ### Helper Functions
 
@@ -416,11 +416,11 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 | `decision-engine.ts`      | LLM-based routing with forced tool_choice; deterministic fallback                              |
 | `deterministic-checks.ts` | Pre-send gate checks (dedupe, source-active, channel availability)                             |
 | `runtime-dispatch.ts`     | Dispatch gating (no-op decisions, empty channels)                                              |
-| `broadcaster.ts`          | Fan-out to channel adapters with delivery audit trail; emits `notification_thread_created` IPC |
-| `copy-composer.ts`        | Template-based fallback notification copy when LLM copy is unavailable                         |
-| `thread-seed-composer.ts` | Surface-aware thread seed generation (richer than notification copy)                           |
-| `destination-resolver.ts` | Resolves per-channel endpoints (vellum IPC, Telegram chat ID)                                  |
-| `adapters/macos.ts`       | Vellum adapter -- broadcasts `notification_intent` via IPC with deep-link metadata             |
+| `broadcaster.ts`          | Fan-out to channel adapters with delivery audit trail; emits `notification_thread_created` SSE event |
+| `copy-composer.ts`        | Template-based fallback notification copy when LLM copy is unavailable                              |
+| `thread-seed-composer.ts` | Surface-aware thread seed generation (richer than notification copy)                                |
+| `destination-resolver.ts` | Resolves per-channel endpoints (vellum SSE, Telegram chat ID)                                       |
+| `adapters/macos.ts`       | Vellum adapter -- broadcasts `notification_intent` via SSE with deep-link metadata                  |
 | `adapters/telegram.ts`    | Telegram adapter -- POSTs to gateway `/deliver/telegram`                                       |
 | `preference-extractor.ts` | Detects notification preferences in conversation messages                                      |
 | `preference-summary.ts`   | Builds preference context string for the decision engine prompt                                |

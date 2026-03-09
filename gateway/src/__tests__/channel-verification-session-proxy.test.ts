@@ -22,9 +22,6 @@ const { createChannelVerificationSessionProxyHandler } =
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
-    telegramBotToken: "tok",
-    telegramWebhookSecret: "wh-ver",
-    telegramApiBaseUrl: "https://api.telegram.org",
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
     defaultAssistantId: undefined,
@@ -36,30 +33,11 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     maxWebhookPayloadBytes: 1048576,
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };
@@ -90,7 +68,7 @@ describe("channel verification session proxy", () => {
     );
     await handler.handleGetVerificationStatus(
       new Request(
-        "http://localhost:7830/v1/channel-verification-sessions/status?channel=voice",
+        "http://localhost:7830/v1/channel-verification-sessions/status?channel=phone",
         { method: "GET" },
       ),
     );
@@ -113,7 +91,7 @@ describe("channel verification session proxy", () => {
 
     expect(captured).toEqual([
       "http://localhost:7821/v1/channel-verification-sessions",
-      "http://localhost:7821/v1/channel-verification-sessions/status?channel=voice",
+      "http://localhost:7821/v1/channel-verification-sessions/status?channel=phone",
       "http://localhost:7821/v1/channel-verification-sessions",
       "http://localhost:7821/v1/channel-verification-sessions/resend",
       "http://localhost:7821/v1/channel-verification-sessions",
@@ -195,7 +173,7 @@ describe("channel verification session proxy", () => {
     );
     const res = await handler.handleGetVerificationStatus(
       new Request(
-        "http://localhost:7830/v1/channel-verification-sessions/status?channel=voice",
+        "http://localhost:7830/v1/channel-verification-sessions/status?channel=phone",
       ),
     );
 
@@ -211,7 +189,7 @@ describe("channel verification session proxy", () => {
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGetVerificationStatus(
       new Request(
-        "http://localhost:7830/v1/channel-verification-sessions/status?channel=voice",
+        "http://localhost:7830/v1/channel-verification-sessions/status?channel=phone",
       ),
     );
 

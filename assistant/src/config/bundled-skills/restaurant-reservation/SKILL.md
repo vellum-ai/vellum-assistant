@@ -1,10 +1,8 @@
 ---
-name: "Restaurant Reservation Booking"
-description: "Book reservations on OpenTable or Resy with explicit confirmations"
-user-invocable: true
-disable-model-invocation: true
-includes: ["browser"]
-metadata: {"vellum": {"emoji": "🍽️"}}
+name: restaurant-reservation
+description: Book reservations on OpenTable or Resy with explicit confirmations
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🍽️","vellum":{"display-name":"Restaurant Reservation Booking","user-invocable":true,"disable-model-invocation":true,"includes":["browser"]}}
 ---
 
 Book restaurant reservations on OpenTable or Resy using browser automation.

@@ -17,7 +17,7 @@ import { parseArgs } from 'node:util';
 // buildSystemPrompt depends on modules that resolve workspace paths from
 // ~/.vellum/workspace, config, skills, etc. Import it directly so we get
 // the real compiled prompt.
-import { buildSystemPrompt } from '../assistant/src/config/system-prompt.js';
+import { buildSystemPrompt } from '../assistant/src/prompts/system-prompt.js';
 
 const { values } = parseArgs({
   args: process.argv.slice(2),

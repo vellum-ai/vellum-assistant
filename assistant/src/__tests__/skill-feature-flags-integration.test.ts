@@ -47,7 +47,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
   getHistoryPath: () => join(TEST_DIR, "history"),
   getHooksDir: () => join(TEST_DIR, "hooks"),
-  getIpcBlobDir: () => join(TEST_DIR, "ipc-blobs"),
+
   getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => TEST_DIR,
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
@@ -57,7 +57,6 @@ mock.module("../util/platform.js", () => ({
   getPlatformName: () => "linux",
   getClipboardCommand: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
 }));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
@@ -89,8 +88,8 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const realUserReference = require("../config/user-reference.js");
-mock.module("../config/user-reference.js", () => ({
+const realUserReference = require("../prompts/user-reference.js");
+mock.module("../prompts/user-reference.js", () => ({
   ...realUserReference,
   resolveUserReference: () => "TestUser",
   resolveUserPronouns: () => null,
@@ -103,7 +102,7 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
   listCredentialMetadata: () => [],
 }));
 
-const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 
 // ---------------------------------------------------------------------------
 // Setup / Teardown
