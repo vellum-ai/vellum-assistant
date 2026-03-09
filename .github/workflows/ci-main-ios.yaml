@@ -25,6 +25,9 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Design token guard
+        run: bash clients/scripts/check-design-tokens.sh --mode=ratchet
+
       - name: Cache SPM artifacts
         uses: actions/cache@v4
         with:
