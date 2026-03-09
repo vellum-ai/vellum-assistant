@@ -293,6 +293,7 @@ public enum VColor {
     public static let onboardingGradientOuter = adaptiveColor(light: Stone._200, dark: Moss._950)
     public static let onboardingHatchGradientOuter = adaptiveColor(light: Moss._200, dark: Moss._950)
     public static let onboardingStepBackground = adaptiveColor(light: Stone._900, dark: Forest._600)
+    public static let onboardingFileIcon = adaptiveColor(light: Stone._900, dark: Forest._600)
     public static let onboardingLink = adaptiveColor(light: Color(hex: 0x262624), dark: Forest._400)
     public static let onboardingBorderStroke = adaptiveColor(light: Stone._900.opacity(0.3), dark: Forest._600.opacity(0.3))
 

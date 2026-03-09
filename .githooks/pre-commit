@@ -119,6 +119,11 @@ declare -a SAFE_LINE_PATTERNS=(
     # Also covers ternary expressions with no string literals
     # (e.g. `clientSecret: twitterClientSecret.isEmpty ? nil : twitterClientSecret`).
     "[Cc]lient[Ss]ecret:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*([[:space:]]*$|[[:space:]]+[?][[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*$)"
+    # Swift/JS: assignment of privateKey variable to empty string
+    # (e.g. `state.sshPrivateKey = ""`)
+    "[Pp]rivate[Kk]ey[[:space:]]*=[[:space:]]*['\"]['\"][[:space:]]*$"
+    # Swift: assignment of privateKey to a variable (e.g. `state.sshPrivateKey = contents`)
+    "[Pp]rivate[Kk]ey[[:space:]]*=[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*$"
     # Swift: named argument passing a variable for privateKey (e.g. `sshPrivateKey: state.sshPrivateKey,`)
     "[Pp]rivate[Kk]ey:[[:space:]]*[a-zA-Z_][a-zA-Z0-9_.]*[[:space:]]*[,)][[:space:]]*$"
     # Swift/Kotlin: constant declaration whose value is a camelCase identifier
@@ -272,6 +277,10 @@ if [ "${1:-}" = "--self-test" ]; then
     SAFE_SWIFT_NAMED_ARG='                clientSecret: trimmedSecret'
     # Swift named argument passing a variable for privateKey (false positive to whitelist)
     SAFE_SWIFT_PRIVATE_KEY_ARG='            sshPrivateKey: state.sshPrivateKey,'
+    # Swift assignment of privateKey to empty string (false positive to whitelist)
+    SAFE_SWIFT_PRIVATE_KEY_EMPTY='                state.sshPrivateKey = ""'
+    # Swift assignment of privateKey to a variable (false positive to whitelist)
+    SAFE_SWIFT_PRIVATE_KEY_VAR='                state.sshPrivateKey = contents'
     # TS type assertion of clientSecret from dotted property (false positive to whitelist)
     SAFE_TS_TYPE_ASSERTION_SECRET='  const clientSecret = meta?.oauth2ClientSecret as string | undefined;'
     # AWS well-known example key (false positive to whitelist)
@@ -535,6 +544,14 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
     if matches_secret_pattern "$SAFE_SWIFT_PRIVATE_KEY_ARG" && ! matches_safe_line_pattern "$SAFE_SWIFT_PRIVATE_KEY_ARG"; then
         echo -e "${RED}Self-test failed:${NC} Swift named argument sshPrivateKey false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_PRIVATE_KEY_EMPTY" && ! matches_safe_line_pattern "$SAFE_SWIFT_PRIVATE_KEY_EMPTY"; then
+        echo -e "${RED}Self-test failed:${NC} Swift sshPrivateKey empty string assignment false positive"
+        exit 1
+    fi
+    if matches_secret_pattern "$SAFE_SWIFT_PRIVATE_KEY_VAR" && ! matches_safe_line_pattern "$SAFE_SWIFT_PRIVATE_KEY_VAR"; then
+        echo -e "${RED}Self-test failed:${NC} Swift sshPrivateKey variable assignment false positive"
         exit 1
     fi
     if matches_secret_pattern "$SAFE_AWS_EXAMPLE_KEY" && ! matches_safe_line_pattern "$SAFE_AWS_EXAMPLE_KEY"; then
