@@ -403,6 +403,10 @@ export class Session {
     this.onStateSignal = listener;
   }
 
+  get hasStateSignalListener(): boolean {
+    return this.onStateSignal !== undefined;
+  }
+
   setSandboxOverride(enabled: boolean | undefined): void {
     this.sandboxOverride = enabled;
   }

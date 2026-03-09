@@ -437,11 +437,17 @@ export async function runDaemon(): Promise<void> {
           undoLastMessage(sessionId, server.getHandlerContext()),
         regenerateResponse: (sessionId) => {
           let hubChain: Promise<void> = Promise.resolve();
+          const session = server
+            .getHandlerContext()
+            .sessions.get(sessionId);
           const sendEvent = (event: ServerMessage) => {
-            // Skip state-signal events — these are already published to the
-            // hub by session.onStateSignal (set in conversation-routes.ts).
-            // Publishing them here too would duplicate SSE state transitions.
+            // Skip state-signal events only when the session has an
+            // onStateSignal listener wired (set in conversation-routes.ts),
+            // since that listener already publishes them to the hub.
+            // Without the listener (e.g. IPC-originated sessions regenerated
+            // via HTTP), we must let these events through to avoid silent loss.
             if (
+              session?.hasStateSignalListener &&
               "type" in event &&
               (event.type === "assistant_activity_state" ||
                 event.type === "confirmation_state_changed")
