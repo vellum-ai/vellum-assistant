@@ -50,7 +50,10 @@ function handleListSchedules(): Response {
 
 function handleToggleSchedule(id: string, enabled: boolean): Response {
   try {
-    updateSchedule(id, { enabled });
+    const updated = updateSchedule(id, { enabled });
+    if (!updated) {
+      return httpError("NOT_FOUND", "Schedule not found", 404);
+    }
     log.info({ id, enabled }, "Schedule toggled via HTTP");
   } catch (err) {
     log.error({ err }, "Failed to toggle schedule");
