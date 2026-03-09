@@ -145,7 +145,7 @@ interface PendingInteractionsResponse {
   pendingSecret: (PendingSecret & { requestId?: string }) | null;
 }
 
-type TrustDecision = "always_allow" | "always_allow_high_risk" | "always_deny";
+type TrustDecision = "always_allow" | "always_deny";
 
 interface HealthResponse {
   status: string;

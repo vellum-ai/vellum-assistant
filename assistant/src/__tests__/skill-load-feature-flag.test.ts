@@ -33,7 +33,7 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
     join(TEST_DIR, "workspace", String(f)),
   getInterfacesDir: () => join(TEST_DIR, "interfaces"),
   getHooksDir: () => join(TEST_DIR, "hooks"),
-  getIpcBlobDir: () => join(TEST_DIR, "blobs"),
+
   getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
   getSandboxWorkingDir: () => join(TEST_DIR, "sandbox", "work"),
   getHistoryPath: () => join(TEST_DIR, "history"),

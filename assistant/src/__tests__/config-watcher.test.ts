@@ -39,7 +39,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(WORKSPACE_DIR, "data", "logs", "vellum.log"),
   getHistoryPath: () => join(WORKSPACE_DIR, "data", "history"),
   getHooksDir: () => join(WORKSPACE_DIR, "hooks"),
-  getIpcBlobDir: () => join(WORKSPACE_DIR, "data", "ipc-blobs"),
+
   getSandboxRootDir: () => join(WORKSPACE_DIR, "data", "sandbox"),
   getSandboxWorkingDir: () => WORKSPACE_DIR,
   getInterfacesDir: () => join(WORKSPACE_DIR, "data", "interfaces"),
