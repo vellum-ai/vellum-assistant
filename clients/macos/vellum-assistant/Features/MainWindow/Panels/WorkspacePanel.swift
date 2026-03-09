@@ -18,6 +18,14 @@ final class WorkspaceBrowserState {
     var fileLoadTask: Task<Void, Never>?
     var isDropTargeted: Bool = false
     var uploadingCount: Int = 0
+    var editableContent: String = ""
+    var originalContent: String = ""
+    var isDirty: Bool = false
+    var isSaving: Bool = false
+    var showingNewFileAlert = false
+    var showingNewFolderAlert = false
+    var newItemName: String = ""
+    var newItemParentPath: String = ""
 
     func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
         if let response = await daemonClient.fetchWorkspaceTree(path: dirPath) {
@@ -64,11 +72,38 @@ private struct WorkspaceTreeSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Files")
-                .font(VFont.headline)
-                .foregroundColor(VColor.textPrimary)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
+            HStack {
+                Text("Files")
+                    .font(VFont.headline)
+                    .foregroundColor(VColor.textPrimary)
+
+                Spacer()
+
+                Menu {
+                    Button {
+                        state.newItemParentPath = ""
+                        state.newItemName = ""
+                        state.showingNewFileAlert = true
+                    } label: {
+                        Label { Text("New File") } icon: { VIconView(.filePlus, size: 12) }
+                    }
+                    Button {
+                        state.newItemParentPath = ""
+                        state.newItemName = ""
+                        state.showingNewFolderAlert = true
+                    } label: {
+                        Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
+                    }
+                } label: {
+                    VIconView(.plus, size: 12)
+                        .foregroundColor(VColor.textSecondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
 
             Divider().background(VColor.surfaceBorder)
 
@@ -120,6 +155,44 @@ private struct WorkspaceTreeSidebar: View {
             return true
         }
         .background(VColor.backgroundSubtle)
+        .alert("New File", isPresented: $state.showingNewFileAlert) {
+            TextField("Filename", text: $state.newItemName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let parentPath = state.newItemParentPath
+                let name = state.newItemName
+                guard !name.isEmpty else { return }
+                let filePath = parentPath.isEmpty ? name : parentPath + "/" + name
+                Task {
+                    let success = await daemonClient.writeWorkspaceFile(path: filePath, content: Data())
+                    if success {
+                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        if !parentPath.isEmpty {
+                            state.expandedDirs.insert(parentPath)
+                        }
+                    }
+                }
+            }
+        }
+        .alert("New Folder", isPresented: $state.showingNewFolderAlert) {
+            TextField("Folder name", text: $state.newItemName)
+            Button("Cancel", role: .cancel) {}
+            Button("Create") {
+                let parentPath = state.newItemParentPath
+                let name = state.newItemName
+                guard !name.isEmpty else { return }
+                let folderPath = parentPath.isEmpty ? name : parentPath + "/" + name
+                Task {
+                    let success = await daemonClient.createWorkspaceDirectory(path: folderPath)
+                    if success {
+                        await state.refreshDirectory(parentPath, using: daemonClient)
+                        if !parentPath.isEmpty {
+                            state.expandedDirs.insert(parentPath)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -214,6 +287,24 @@ private struct WorkspaceTreeRow: View {
                 }
             }
         }
+        .contextMenu {
+            if entry.isDirectory {
+                Button {
+                    state.newItemParentPath = entry.path
+                    state.newItemName = ""
+                    state.showingNewFileAlert = true
+                } label: {
+                    Label { Text("New File") } icon: { VIconView(.filePlus, size: 12) }
+                }
+                Button {
+                    state.newItemParentPath = entry.path
+                    state.newItemName = ""
+                    state.showingNewFolderAlert = true
+                } label: {
+                    Label { Text("New Folder") } icon: { VIconView(.folder, size: 12) }
+                }
+            }
+        }
     }
 
     private func handleTap() async {
@@ -234,11 +325,17 @@ private struct WorkspaceTreeRow: View {
             state.selectedFilePath = targetPath
             state.isLoadingFile = true
             state.selectedFileDetail = nil
+            state.isDirty = false
+            state.editableContent = ""
             state.fileLoadTask?.cancel()
             let task = Task {
                 let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
                 guard !Task.isCancelled, state.selectedFilePath == targetPath else { return }
                 state.selectedFileDetail = detail
+                state.editableContent = detail?.content ?? ""
+                state.originalContent = detail?.content ?? ""
+                state.isDirty = false
+                state.isSaving = false
                 state.isLoadingFile = false
             }
             state.fileLoadTask = task
@@ -304,15 +401,49 @@ private struct WorkspaceFileViewer: View {
     }
 
     private func textViewer(_ detail: WorkspaceFileResponse) -> some View {
-        ScrollView([.horizontal, .vertical]) {
-            Text(detail.content ?? "")
+        VStack(spacing: 0) {
+            if state.isDirty {
+                HStack {
+                    Spacer()
+                    Button {
+                        Task { await saveFile(path: detail.path) }
+                    } label: {
+                        HStack(spacing: VSpacing.xs) {
+                            if state.isSaving {
+                                ProgressView().controlSize(.small)
+                            }
+                            Text("Save")
+                                .font(VFont.bodyMedium)
+                        }
+                    }
+                    .disabled(state.isSaving)
+                    .keyboardShortcut("s", modifiers: .command)
+                    .padding(.trailing, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                }
+            }
+
+            TextEditor(text: $state.editableContent)
                 .font(VFont.mono)
                 .foregroundColor(VColor.textPrimary)
-                .textSelection(.enabled)
+                .scrollContentBackground(.hidden)
                 .padding(VSpacing.md)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: state.editableContent) { _, newValue in
+                    state.isDirty = newValue != state.originalContent
+                }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func saveFile(path: String) async {
+        state.isSaving = true
+        let data = Data(state.editableContent.utf8)
+        let success = await daemonClient.writeWorkspaceFile(path: path, content: data)
+        if success {
+            state.originalContent = state.editableContent
+            state.isDirty = false
+        }
+        state.isSaving = false
     }
 
     private func fileTooLarge(_ detail: WorkspaceFileResponse) -> some View {
