@@ -389,6 +389,14 @@ extension AppDelegate {
     func ensureActorCredentials() {
         actorTokenBootstrapTask?.cancel()
 
+        // Re-bootstrap on instance switch
+        NotificationCenter.default.removeObserver(self, name: .daemonInstanceChanged, object: nil)
+        NotificationCenter.default.addObserver(forName: .daemonInstanceChanged, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            log.info("Daemon instance changed — re-running credential bootstrap")
+            self.ensureActorCredentials()
+        }
+
         actorTokenBootstrapTask = Task { [weak self] in
             guard let self else { return }
 

@@ -292,6 +292,10 @@ extension Notification.Name {
     /// The health monitor observes this to trigger an immediate restart instead of waiting
     /// for the next periodic health check.
     public static let daemonSocketNotFound = Notification.Name("daemonSocketNotFound")
+
+    /// Posted when the daemon's signing key fingerprint changes, indicating an instance switch.
+    /// Observers should trigger credential re-bootstrap.
+    public static let daemonInstanceChanged = Notification.Name("daemonInstanceChanged")
 }
 
 /// Platform-agnostic client for communicating with the Vellum daemon.
