@@ -272,6 +272,26 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "workspace/rename", scopes: ["settings.write"] },
   { endpoint: "workspace/delete", scopes: ["settings.write"] },
 
+  // Documents
+  { endpoint: "documents:GET", scopes: ["settings.read"] },
+  { endpoint: "documents:POST", scopes: ["settings.write"] },
+
+  // Work items
+  { endpoint: "work-items:GET", scopes: ["settings.read"] },
+  { endpoint: "work-items:PATCH", scopes: ["settings.write"] },
+  { endpoint: "work-items:DELETE", scopes: ["settings.write"] },
+  { endpoint: "work-items/complete", scopes: ["settings.write"] },
+  { endpoint: "work-items/cancel", scopes: ["settings.write"] },
+  { endpoint: "work-items/approve-permissions", scopes: ["approval.write"] },
+  { endpoint: "work-items/preflight", scopes: ["settings.read"] },
+  { endpoint: "work-items/run", scopes: ["settings.write"] },
+  { endpoint: "work-items/output", scopes: ["settings.read"] },
+
+  // Subagents
+  { endpoint: "subagents:GET", scopes: ["chat.read"] },
+  { endpoint: "subagents/abort", scopes: ["chat.write"] },
+  { endpoint: "subagents/message", scopes: ["chat.write"] },
+
   // Browser relay
   { endpoint: "browser-relay/status", scopes: ["settings.read"] },
   { endpoint: "browser-relay/command", scopes: ["settings.write"] },

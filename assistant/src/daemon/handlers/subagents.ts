@@ -4,8 +4,8 @@
 
 import * as net from "node:net";
 
-import { getMessages } from "../../memory/conversation-crud.js";
 import { getSubagentManager } from "../../subagent/index.js";
+import { getSubagentDetail } from "../../runtime/routes/subagents-routes.js";
 import type {
   SubagentAbortRequest,
   SubagentDetailRequest,
@@ -192,89 +192,11 @@ export function handleSubagentDetailRequest(
     return;
   }
 
-  const subagentMsgs = getMessages(msg.conversationId);
-
-  // Extract objective from the first user message
-  let objective: string | undefined;
-  const firstUser = subagentMsgs.find((m) => m.role === "user");
-  if (firstUser) {
-    try {
-      const parsed = JSON.parse(firstUser.content);
-      if (Array.isArray(parsed)) {
-        const textBlock = parsed.find(
-          (b: Record<string, unknown>) => isRecord(b) && b.type === "text",
-        );
-        if (textBlock && typeof textBlock.text === "string") {
-          objective = textBlock.text;
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // Extract events from both assistant and user messages.
-  // Subagent conversations are not consolidated, so tool_result blocks
-  // live in separate user-role messages following the assistant's tool_use.
-  const events: Array<{
-    type: string;
-    content: string;
-    toolName?: string;
-    isError?: boolean;
-  }> = [];
-  const pendingTools = new Map<string, string>();
-  for (const m of subagentMsgs) {
-    if (m.role !== "assistant" && m.role !== "user") continue;
-    let content: unknown[];
-    try {
-      const parsed = JSON.parse(m.content);
-      content = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      continue;
-    }
-
-    for (const block of content) {
-      if (!isRecord(block) || typeof block.type !== "string") continue;
-      if (
-        m.role === "assistant" &&
-        block.type === "text" &&
-        typeof block.text === "string"
-      ) {
-        events.push({ type: "text", content: block.text });
-      } else if (block.type === "tool_use") {
-        const name = typeof block.name === "string" ? block.name : "unknown";
-        const input = isRecord(block.input)
-          ? (block.input as Record<string, unknown>)
-          : {};
-        const id = typeof block.id === "string" ? block.id : "";
-        events.push({
-          type: "tool_use",
-          content: JSON.stringify(input),
-          toolName: name,
-        });
-        if (id) pendingTools.set(id, name);
-      } else if (block.type === "tool_result") {
-        const toolUseId =
-          typeof block.tool_use_id === "string" ? block.tool_use_id : "";
-        const resultContent =
-          typeof block.content === "string" ? block.content : "";
-        const isError = block.is_error === true;
-        const toolName = toolUseId ? pendingTools.get(toolUseId) : undefined;
-        events.push({
-          type: "tool_result",
-          content: resultContent,
-          toolName: toolName ?? "unknown",
-          isError,
-        });
-      }
-    }
-  }
+  const result = getSubagentDetail(msg.subagentId, msg.conversationId);
 
   ctx.send(socket, {
     type: "subagent_detail_response",
-    subagentId: msg.subagentId,
-    objective,
-    events,
+    ...result,
   });
 }
 
