@@ -242,7 +242,7 @@ extension MainWindowView {
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                 if sidebar.dropTargetThreadId == thread.id {
                                     Rectangle()
-                                        .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                        .fill(VColor.iconAccent)
                                         .frame(height: 2)
                                         .transition(.opacity)
                                 }
@@ -275,7 +275,7 @@ extension MainWindowView {
                         } label: {
                             Text(sidebar.showAllThreads ? "Show less" : "Show more")
                                 .font(VFont.caption)
-                                .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
+                                .foregroundColor(VColor.buttonSecondaryText)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
                                 .padding(.top, VSpacing.sm)
@@ -312,7 +312,7 @@ extension MainWindowView {
                                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                         if sidebar.dropTargetThreadId == thread.id {
                                             Rectangle()
-                                                .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                                .fill(VColor.iconAccent)
                                                 .frame(height: 2)
                                                 .transition(.opacity)
                                         }
@@ -346,7 +346,7 @@ extension MainWindowView {
                                                 .animation(VAnimation.fast, value: isGroupExpanded)
                                             if hasUnread {
                                                 Circle()
-                                                    .fill(Color(hex: 0xE86B40))
+                                                    .fill(VColor.unreadIndicator)
                                                     .frame(width: 6, height: 6)
                                                     .transition(.opacity)
                                             }
@@ -392,7 +392,7 @@ extension MainWindowView {
                                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                                 if sidebar.dropTargetThreadId == thread.id {
                                                     Rectangle()
-                                                        .fill(adaptiveColor(light: Forest._500, dark: Forest._400))
+                                                        .fill(VColor.iconAccent)
                                                         .frame(height: 2)
                                                         .transition(.opacity)
                                                 }
@@ -425,7 +425,7 @@ extension MainWindowView {
                             } label: {
                                 Text(sidebar.showAllScheduleThreads ? "Show less" : "Show more")
                                     .font(VFont.caption)
-                                    .foregroundColor(adaptiveColor(light: Forest._600, dark: Forest._400))
+                                    .foregroundColor(VColor.buttonSecondaryText)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
                                     .padding(.top, VSpacing.sm)
@@ -501,7 +501,7 @@ extension MainWindowView {
                     ZStack(alignment: .bottomTrailing) {
                         Text(switcher.badgeText)
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                            .foregroundColor(VColor.buttonSecondaryText)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
                             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
@@ -514,7 +514,7 @@ extension MainWindowView {
 
                         if switcher.switchTargets.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
                             Circle()
-                                .fill(Color(hex: 0xE86B40))
+                                .fill(VColor.unreadIndicator)
                                 .frame(width: 8, height: 8)
                                 .offset(x: 4, y: 4)
                         }

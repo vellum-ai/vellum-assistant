@@ -18,7 +18,7 @@ struct SidebarPrimaryRow: View {
         Button(action: action) {
             HStack(spacing: isExpanded ? VSpacing.xs : 0) {
                 VIconView(.resolve(icon), size: 13)
-                    .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                    .foregroundColor(VColor.buttonSecondaryText)
                     .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
                 Text(label)
                     .font(VFont.body)
@@ -33,7 +33,7 @@ struct SidebarPrimaryRow: View {
                     Spacer()
                     if let trailingIcon {
                         VIconView(.resolve(trailingIcon), size: 10)
-                            .foregroundColor(adaptiveColor(light: Color(hex: 0x537D53), dark: Forest._400))
+                            .foregroundColor(VColor.buttonSecondaryText)
                     }
                 }
             }
