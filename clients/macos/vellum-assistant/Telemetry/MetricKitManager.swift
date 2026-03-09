@@ -56,6 +56,7 @@ import os
     /// `nonisolated` so the Settings sheet can call it from a detached Task.
     nonisolated static func sendManualReport(
         _ event: Event,
+        attachments: [Attachment] = [],
         completion: (@Sendable () -> Void)? = nil
     ) {
         sentrySerialQueue.async {
@@ -70,7 +71,25 @@ import os
                     options.enableAutoSessionTracking = false
                 }
             }
+
+            // Attach files to the scope before capturing the event.
+            if !attachments.isEmpty {
+                SentrySDK.configureScope { scope in
+                    for attachment in attachments {
+                        scope.addAttachment(attachment)
+                    }
+                }
+            }
+
             SentrySDK.capture(event: event)
+
+            // Clean up attachments so they don't leak into subsequent events.
+            if !attachments.isEmpty {
+                SentrySDK.configureScope { scope in
+                    scope.clearAttachments()
+                }
+            }
+
             if wasDisabled {
                 SentrySDK.flush(timeout: 5)
                 SentrySDK.close()

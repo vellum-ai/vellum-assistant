@@ -13,7 +13,9 @@ enum CrashReporter {
     }
 
     /// Returns the most recent unseen crash log from the previous session, or nil.
-    static func pendingCrashLog() -> (url: URL, content: String)? {
+    /// Also returns companion file URLs (e.g. `.tar.gz`, `.diag`) that macOS may
+    /// generate alongside the crash log with matching base name prefixes.
+    static func pendingCrashLog() -> (url: URL, content: String, companionFiles: [URL])? {
         let diagURL = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Logs/DiagnosticReports")
         guard let items = try? FileManager.default.contentsOfDirectory(
@@ -61,7 +63,17 @@ enum CrashReporter {
               let content = try? String(contentsOf: mostRecent, encoding: .utf8)
         else { return nil }
 
-        return (url: mostRecent, content: content)
+        // Look for companion files that macOS generates alongside crash logs
+        // (e.g. .tar.gz spindump archives, .diag files) by matching the base
+        // name prefix before the extension.
+        let crashBaseName = mostRecent.deletingPathExtension().lastPathComponent
+        let companionFiles = items.filter { url in
+            let name = url.lastPathComponent
+            guard name != mostRecent.lastPathComponent else { return false }
+            return name.hasPrefix(crashBaseName)
+        }
+
+        return (url: mostRecent, content: content, companionFiles: companionFiles)
     }
 
     /// Marks a crash log as seen so it is not surfaced again on future launches.
