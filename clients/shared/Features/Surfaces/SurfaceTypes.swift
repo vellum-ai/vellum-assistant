@@ -445,13 +445,13 @@ public struct SurfaceActionButton: Identifiable, Equatable, Sendable {
 
 public struct Surface: Identifiable, Sendable {
     public let id: String
-    public let sessionId: String
+    public let sessionId: String?
     public let type: SurfaceType
     public let title: String?
     public let data: SurfaceData
     public let actions: [SurfaceActionButton]
 
-    public init(id: String, sessionId: String, type: SurfaceType, title: String? = nil, data: SurfaceData, actions: [SurfaceActionButton]) {
+    public init(id: String, sessionId: String?, type: SurfaceType, title: String? = nil, data: SurfaceData, actions: [SurfaceActionButton]) {
         self.id = id
         self.sessionId = sessionId
         self.type = type
@@ -468,9 +468,6 @@ public extension Surface {
     /// The message carries an `AnyCodable` data payload whose shape depends on `surfaceType`.
     static func from(_ message: UiSurfaceShowMessage) -> Surface? {
         guard let surfaceType = SurfaceType(rawValue: message.surfaceType) else {
-            return nil
-        }
-        guard let sessionId = message.sessionId else {
             return nil
         }
 
@@ -491,7 +488,7 @@ public extension Surface {
 
         return Surface(
             id: message.surfaceId,
-            sessionId: sessionId,
+            sessionId: message.sessionId,
             type: surfaceType,
             title: message.title,
             data: surfaceData,
@@ -499,9 +496,9 @@ public extension Surface {
         )
     }
 
-    /// Create a Surface from a history response surface (without sessionId).
+    /// Create a Surface from a history response surface.
     /// Used when populating messages from history.
-    static func from(_ historySurface: IPCHistoryResponseSurface, sessionId: String) -> Surface? {
+    static func from(_ historySurface: IPCHistoryResponseSurface, sessionId: String?) -> Surface? {
         guard let surfaceType = SurfaceType(rawValue: historySurface.surfaceType) else {
             return nil
         }

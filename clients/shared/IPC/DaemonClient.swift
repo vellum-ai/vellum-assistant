@@ -775,7 +775,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
     /// Convenience method for sending a surface action response to the daemon.
     /// Keeps the IPC message construction co-located with the client.
-    public func sendSurfaceAction(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
+    public func sendSurfaceAction(sessionId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) throws {
         let message = UiSurfaceActionMessage(
             sessionId: sessionId,
             surfaceId: surfaceId,

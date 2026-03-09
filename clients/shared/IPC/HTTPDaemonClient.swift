@@ -2267,10 +2267,12 @@ public final class HTTPTransport {
         applyAuth(&request)
 
         var body: [String: Any] = [
-            "sessionId": action.sessionId,
             "surfaceId": action.surfaceId,
             "actionId": action.actionId,
         ]
+        if let sessionId = action.sessionId {
+            body["sessionId"] = sessionId
+        }
         if let data = action.data {
             body["data"] = jsonCompatibleDictionary(data)
         }
