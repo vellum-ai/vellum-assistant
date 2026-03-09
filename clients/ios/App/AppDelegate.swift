@@ -42,9 +42,16 @@ final class ClientProvider: ObservableObject {
     /// Call this after QR pairing, cloud provisioning, or Settings changes so the
     /// new transport configuration takes effect without an app restart.
     func rebuildClient() {
+        // Preserve recovery credentials across client replacement
+        let prevPlatform = (client as? DaemonClient)?.recoveryPlatform
+        let prevDeviceId = (client as? DaemonClient)?.recoveryDeviceId
+
         // Tear down the old client's connection, timers, and monitors before replacing.
         client.disconnect()
-        self.client = DaemonClient(config: .fromUserDefaults())
+        let newClient = DaemonClient(config: .fromUserDefaults())
+        newClient.recoveryPlatform = prevPlatform
+        newClient.recoveryDeviceId = prevDeviceId
+        self.client = newClient
         self.clientGeneration &+= 1
         self.isConnected = false
         bindCombineBridge()
@@ -94,6 +101,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // v4 upgrade migration — clear legacy pairing state so users re-pair through
         // the new approval flow. Runs once; the flag persists across future launches.
         migrateToPairingV4IfNeeded()
+
+        // Set recovery credentials for automatic 401 re-bootstrap
+        if let daemon = clientProvider.client as? DaemonClient {
+            daemon.recoveryPlatform = "ios"
+            daemon.recoveryDeviceId = Self.getOrCreateDeviceId()
+        }
 
         // Initial connect is handled by SceneDelegate.sceneWillEnterForeground, which fires
         // during launch and on every background→foreground transition. Calling connect() here

@@ -158,6 +158,10 @@ extension AppDelegate {
 
         configureDaemonTransport(for: assistant)
 
+        // Set recovery credentials for automatic 401 re-bootstrap
+        daemonClient.recoveryPlatform = "macos"
+        daemonClient.recoveryDeviceId = PairingQRCodeSheet.computeHostId()
+
         // Rebind the menu bar icon observer after transport reconfiguration
         // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()
