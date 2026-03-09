@@ -35,15 +35,25 @@ export async function handleConfirm(
   const body = (await req.json()) as {
     requestId?: string;
     decision?: string;
+    selectedPattern?: string;
+    selectedScope?: string;
   };
 
-  const { requestId, decision } = body;
+  const { requestId, decision, selectedPattern, selectedScope } = body;
 
   if (!requestId || typeof requestId !== "string") {
     return httpError("BAD_REQUEST", "requestId is required", 400);
   }
 
-  const validConfirmDecisions = ["allow", "allow_10m", "allow_thread", "deny"];
+  const validConfirmDecisions = [
+    "allow",
+    "allow_10m",
+    "allow_thread",
+    "deny",
+    "always_allow",
+    "always_deny",
+    "always_allow_high_risk",
+  ];
   if (
     typeof decision !== "string" ||
     !validConfirmDecisions.includes(decision)
@@ -67,8 +77,8 @@ export async function handleConfirm(
   interaction.session.handleConfirmationResponse(
     requestId,
     decision as UserDecision,
-    undefined,
-    undefined,
+    selectedPattern,
+    selectedScope,
     undefined,
     {
       source: "button",
