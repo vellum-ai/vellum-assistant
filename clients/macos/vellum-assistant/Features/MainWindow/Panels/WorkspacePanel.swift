@@ -285,22 +285,34 @@ private struct WorkspaceTreeSidebar: View {
 private func handleDrop(providers: [NSItemProvider], targetDir: String, state: WorkspaceBrowserState, daemonClient: DaemonClient) {
     for provider in providers {
         provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-            guard let data = item as? Data,
-                  let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+            guard let url = fileURLFromDropItem(item) else { return }
             let fileName = url.lastPathComponent
             let targetPath = targetDir.isEmpty ? fileName : "\(targetDir)/\(fileName)"
-            Task { @MainActor in
-                state.uploadingCount += 1
+            Task {
+                await MainActor.run { state.uploadingCount += 1 }
                 if let fileData = try? Data(contentsOf: url) {
                     let success = await daemonClient.writeWorkspaceFile(path: targetPath, content: fileData)
                     if success {
                         await state.refreshDirectory(targetDir, using: daemonClient)
                     }
                 }
-                state.uploadingCount -= 1
+                await MainActor.run { state.uploadingCount -= 1 }
             }
         }
     }
+}
+
+private func fileURLFromDropItem(_ item: NSSecureCoding?) -> URL? {
+    if let data = item as? Data {
+        return URL(dataRepresentation: data, relativeTo: nil)
+    }
+    if let url = item as? URL {
+        return url
+    }
+    if let str = item as? String, let url = URL(string: str), url.isFileURL {
+        return url
+    }
+    return nil
 }
 
 // MARK: - Tree Row
@@ -425,11 +437,28 @@ private struct WorkspaceTreeRow: View {
             if success {
                 await state.refreshDirectory(parentPath, using: daemonClient)
 
-                // Update selectedFilePath for exact match or descendants
+                // Update selectedFilePath and selectedFileDetail for exact match or descendants
                 if state.selectedFilePath == oldPath {
                     state.selectedFilePath = newPath
+                    if let detail = state.selectedFileDetail {
+                        let newName = String(newPath.split(separator: "/").last ?? Substring(newPath))
+                        state.selectedFileDetail = WorkspaceFileResponse(
+                            path: newPath, name: newName, size: detail.size,
+                            mimeType: detail.mimeType, modifiedAt: detail.modifiedAt,
+                            content: detail.content, isBinary: detail.isBinary
+                        )
+                    }
                 } else if let selected = state.selectedFilePath, selected.hasPrefix(oldPath + "/") {
-                    state.selectedFilePath = newPath + selected.dropFirst(oldPath.count)
+                    let updatedPath = newPath + selected.dropFirst(oldPath.count)
+                    state.selectedFilePath = updatedPath
+                    if let detail = state.selectedFileDetail {
+                        let newName = String(updatedPath.split(separator: "/").last ?? Substring(updatedPath))
+                        state.selectedFileDetail = WorkspaceFileResponse(
+                            path: updatedPath, name: newName, size: detail.size,
+                            mimeType: detail.mimeType, modifiedAt: detail.modifiedAt,
+                            content: detail.content, isBinary: detail.isBinary
+                        )
+                    }
                 }
 
                 // Migrate expandedDirs and directoryCache for renamed directories

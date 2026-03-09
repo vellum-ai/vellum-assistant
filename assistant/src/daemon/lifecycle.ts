@@ -81,6 +81,14 @@ import {
   createGuardianFollowUpConversationGenerator,
 } from "./guardian-action-generators.js";
 import { initPairingHandlers } from "./handlers/pairing.js";
+import {
+  cancelGeneration,
+  clearAllSessions,
+  regenerateResponse,
+  renameSession,
+  switchSession,
+  undoLastMessage,
+} from "./handlers/sessions.js";
 import { installCliLaunchers } from "./install-cli-launchers.js";
 import type { ServerMessage } from "./ipc-protocol.js";
 import {
@@ -434,6 +442,22 @@ export async function runDaemon(): Promise<void> {
           })),
       },
       findSession: (sessionId) => server.findSession(sessionId),
+      sessionManagementDeps: {
+        switchSession: (sessionId) =>
+          switchSession(sessionId, server.getHandlerContext()),
+        renameSession: (sessionId, name) => renameSession(sessionId, name),
+        clearAllSessions: () => clearAllSessions(server.getHandlerContext()),
+        cancelGeneration: (sessionId) =>
+          cancelGeneration(sessionId, server.getHandlerContext()),
+        undoLastMessage: (sessionId) =>
+          undoLastMessage(sessionId, server.getHandlerContext()),
+        regenerateResponse: (sessionId) =>
+          regenerateResponse(
+            sessionId,
+            server.getHandlerContext(),
+            () => {},
+          ),
+      },
     });
 
     // Inject voice bridge deps BEFORE attempting to start the HTTP server.
