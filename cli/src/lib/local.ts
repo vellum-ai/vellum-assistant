@@ -207,7 +207,6 @@ async function startDaemonFromSource(
   mkdirSync(dirname(resources.pidFile), { recursive: true });
 
   const pidFile = resources.pidFile;
-  const socketFile = resources.socketPath;
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
   if (existsSync(pidFile)) {
@@ -242,10 +241,6 @@ async function startDaemonFromSource(
     return;
   }
 
-  try {
-    unlinkSync(socketFile);
-  } catch {}
-
   const env: Record<string, string | undefined> = {
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
@@ -259,7 +254,6 @@ async function startDaemonFromSource(
     env.BASE_DATA_DIR = resources.instanceDir;
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.GATEWAY_PORT = String(resources.gatewayPort);
-    env.VELLUM_DAEMON_SOCKET = resources.socketPath;
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
   }
@@ -297,7 +291,6 @@ async function startDaemonWatchFromSource(
   mkdirSync(dirname(resources.pidFile), { recursive: true });
 
   const pidFile = resources.pidFile;
-  const socketFile = resources.socketPath;
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
   // If a daemon is already running, skip spawning a new one.
@@ -334,11 +327,6 @@ async function startDaemonWatchFromSource(
     return;
   }
 
-  // Daemon is unresponsive — safe to clean up and start fresh.
-  try {
-    unlinkSync(socketFile);
-  } catch {}
-
   const env: Record<string, string | undefined> = {
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
@@ -348,7 +336,6 @@ async function startDaemonWatchFromSource(
     env.BASE_DATA_DIR = resources.instanceDir;
     env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
     env.GATEWAY_PORT = String(resources.gatewayPort);
-    env.VELLUM_DAEMON_SOCKET = resources.socketPath;
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
   }
@@ -633,7 +620,6 @@ export async function startLocalDaemon(
     }
 
     const pidFile = resources.pidFile;
-    const socketFile = resources.socketPath;
 
     // If a daemon is already running, skip spawning a new one.
     // This prevents cascading kill→restart cycles when multiple callers
@@ -678,17 +664,12 @@ export async function startLocalDaemon(
         return;
       }
 
-      // Daemon is unresponsive — safe to clean up and start fresh.
-      try {
-        unlinkSync(socketFile);
-      } catch {}
-
       console.log("🔨 Starting assistant...");
 
       // Ensure bun is available for runtime features (browser, skills install)
       ensureBunInstalled();
 
-      // Ensure the directory containing PID/socket files exists
+      // Ensure the directory containing PID files exists
       mkdirSync(dirname(pidFile), { recursive: true });
 
       // Build a minimal environment for the daemon. When launched from the
@@ -712,7 +693,6 @@ export async function startLocalDaemon(
         "RUNTIME_HTTP_PORT",
         "VELLUM_DAEMON_TCP_PORT",
         "VELLUM_DAEMON_TCP_HOST",
-        "VELLUM_DAEMON_SOCKET",
         "VELLUM_KEYCHAIN_BROKER_SOCKET",
         "VELLUM_DEBUG",
         "SENTRY_DSN",
@@ -730,7 +710,6 @@ export async function startLocalDaemon(
         daemonEnv.BASE_DATA_DIR = resources.instanceDir;
         daemonEnv.RUNTIME_HTTP_PORT = String(resources.daemonPort);
         daemonEnv.GATEWAY_PORT = String(resources.gatewayPort);
-        daemonEnv.VELLUM_DAEMON_SOCKET = resources.socketPath;
         daemonEnv.QDRANT_HTTP_PORT = String(resources.qdrantPort);
         delete daemonEnv.QDRANT_URL;
       }
@@ -777,7 +756,7 @@ export async function startLocalDaemon(
           "   Bundled assistant not ready after 60s — falling back to source assistant...",
         );
         // Kill the bundled daemon to avoid two processes competing for the same port
-        await stopProcessByPidFile(pidFile, "bundled daemon", [socketFile]);
+        await stopProcessByPidFile(pidFile, "bundled daemon");
         if (watch) {
           await startDaemonWatchFromSource(assistantIndex, resources);
         } else {
@@ -1048,7 +1027,7 @@ export async function startGateway(
 
 /**
  * Stop any locally-running daemon and gateway processes
- * and clean up PID/socket files. Called when hatch fails partway through
+ * and clean up PID files. Called when hatch fails partway through
  * so we don't leave orphaned processes with no lock file entry.
  *
  * When `resources` is provided, uses instance-specific paths instead of
@@ -1061,8 +1040,7 @@ export async function stopLocalProcesses(
     ? join(resources.instanceDir, ".vellum")
     : join(homedir(), ".vellum");
   const daemonPidFile = resources?.pidFile ?? join(vellumDir, "vellum.pid");
-  const socketFile = resources?.socketPath ?? join(vellumDir, "vellum.sock");
-  await stopProcessByPidFile(daemonPidFile, "daemon", [socketFile]);
+  await stopProcessByPidFile(daemonPidFile, "daemon");
 
   const gatewayPidFile = join(vellumDir, "gateway.pid");
   await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);

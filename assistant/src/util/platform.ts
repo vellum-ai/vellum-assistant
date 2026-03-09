@@ -13,7 +13,6 @@ import { join } from "node:path";
 import {
   getBaseDataDir,
   getDaemonIosPairing,
-  getDaemonSocket,
   getDaemonTcpEnabled,
   getDaemonTcpHost,
   getDaemonTcpPort,
@@ -255,10 +254,6 @@ export function getInterfacesDir(): string {
 }
 
 export function getSocketPath(): string {
-  const override = getDaemonSocket();
-  if (override) {
-    return expandHomePath(override);
-  }
   return join(getRootDir(), "vellum.sock");
 }
 
@@ -358,16 +353,10 @@ export function readSessionToken(): string | null {
   }
 }
 
-function expandHomePath(p: string): string {
-  if (p === "~") return homedir();
-  if (p.startsWith("~/")) return join(homedir(), p.slice(2));
-  return p;
-}
-
 /**
  * Remove a socket file only if it is actually a Unix socket.
  * Refuses to delete regular files, directories, etc. to prevent
- * accidental data loss when VELLUM_DAEMON_SOCKET points to a non-socket path.
+ * accidental data loss.
  */
 export function removeSocketFile(socketPath: string): void {
   if (!existsSync(socketPath)) return;
