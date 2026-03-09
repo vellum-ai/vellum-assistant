@@ -460,13 +460,6 @@ function handleTwitterAuthStatus(): Response {
       "credential:integration:twitter:client_id",
     );
 
-    // Strategy
-    const strategyRaw = getNestedValue(raw, "twitter.strategy") as
-      | string
-      | undefined;
-    const strategy = strategyRaw ?? "auto";
-    const strategyConfigured = strategyRaw !== undefined;
-
     // In managed mode, connected is always false (auth goes through platform)
     const connected = mode === "managed" ? false : !!accessToken;
 
@@ -477,8 +470,6 @@ function handleTwitterAuthStatus(): Response {
       managedAvailable,
       managedPrerequisites,
       localClientConfigured,
-      strategy,
-      strategyConfigured,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

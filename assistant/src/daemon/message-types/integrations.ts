@@ -36,13 +36,10 @@ export interface TwitterIntegrationConfigRequest {
     | "set_mode"
     | "set_local_client"
     | "clear_local_client"
-    | "disconnect"
-    | "get_strategy"
-    | "set_strategy";
+    | "disconnect";
   mode?: "local_byo" | "managed";
   clientId?: string;
   clientSecret?: string;
-  strategy?: string;
 }
 
 export interface TelegramConfigRequest {
@@ -159,9 +156,6 @@ export interface TwitterIntegrationConfigResponse {
   localClientConfigured: boolean;
   connected: boolean;
   accountInfo?: string;
-  strategy?: "oauth" | "browser" | "auto";
-  /** Whether the user has explicitly set a strategy (vs. relying on the default 'auto'). */
-  strategyConfigured?: boolean;
   error?: string;
 }
 
