@@ -228,6 +228,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             }
         }
 
+        removeAbandonedEmptyThread()
+
         let thread = ThreadModel()
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true  // No session yet — nothing to load
@@ -693,6 +695,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func selectThread(id: UUID) {
         guard let thread = threads.first(where: { $0.id == id }) else { return }
+
+        removeAbandonedEmptyThread(switching: id)
 
         let previousActiveId = activeThreadId
         trimPreviousThreadIfNeeded(nextThreadId: id)
@@ -1409,6 +1413,26 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 schedulePendingSeenSignals()
             }
         }
+    }
+
+    /// Remove the currently active thread if it was never used (no messages,
+    /// no persisted session, not private). Prevents abandoned empty threads
+    /// from accumulating in the sidebar.
+    /// - Parameter switching: The thread ID being switched to. Pass `nil`
+    ///   when called from `createThread()` (the active thread is checked
+    ///   separately by the reuse guard above).
+    private func removeAbandonedEmptyThread(switching nextId: UUID? = nil) {
+        guard let previousId = activeThreadId,
+              previousId != nextId,
+              let vm = chatViewModels[previousId],
+              vm.messages.isEmpty else { return }
+        let thread = threads.first(where: { $0.id == previousId })
+        guard thread?.kind != .private, thread?.sessionId == nil else { return }
+        threads.removeAll { $0.id == previousId }
+        chatViewModels.removeValue(forKey: previousId)
+        unsubscribeAllForThread(id: previousId)
+        vmAccessOrder.removeAll { $0 == previousId }
+        log.info("Removed abandoned empty thread \(previousId)")
     }
 
     /// Trim the previously active thread's view model to shed memory before

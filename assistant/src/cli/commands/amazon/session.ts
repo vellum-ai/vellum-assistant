@@ -5,17 +5,20 @@
  */
 
 import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
-import {
-  type CookieSession,
-  importFromRecordingBase,
-} from "../../../util/cookie-session.js";
 import type { ExtractedCredential } from "./client.js";
 
 const execFileAsync = promisify(execFile);
 
-export type AmazonSession = CookieSession;
+export interface AmazonSession {
+  cookies: ExtractedCredential[];
+}
+
+interface SessionRecording {
+  cookies?: ExtractedCredential[];
+}
 
 export async function loadSession(): Promise<AmazonSession | null> {
   try {
@@ -65,26 +68,38 @@ export async function clearSession(): Promise<void> {
 export async function importFromRecording(
   recordingPath: string,
 ): Promise<AmazonSession> {
-  const session = importFromRecordingBase(recordingPath, (cookieNames) => {
-    if (!cookieNames.has("session-id")) {
-      throw new Error(
-        "Recording is missing required Amazon cookie: session-id. " +
-          "Make sure you are logged in to Amazon.",
-      );
-    }
-    if (!cookieNames.has("ubid-main")) {
-      throw new Error(
-        "Recording is missing required Amazon cookie: ubid-main. " +
-          "Make sure you are logged in to Amazon.",
-      );
-    }
-    if (!cookieNames.has("at-main") && !cookieNames.has("x-main")) {
-      throw new Error(
-        "Recording is missing required Amazon auth cookie (at-main or x-main). " +
-          "Make sure you are fully logged in to Amazon.",
-      );
-    }
-  });
+  if (!existsSync(recordingPath)) {
+    throw new Error(`Recording not found: ${recordingPath}`);
+  }
+  const recording = JSON.parse(
+    readFileSync(recordingPath, "utf-8"),
+  ) as SessionRecording;
+  if (!recording.cookies?.length) {
+    throw new Error("Recording contains no cookies");
+  }
+
+  const cookieNames = new Set(recording.cookies.map((c) => c.name));
+
+  if (!cookieNames.has("session-id")) {
+    throw new Error(
+      "Recording is missing required Amazon cookie: session-id. " +
+        "Make sure you are logged in to Amazon.",
+    );
+  }
+  if (!cookieNames.has("ubid-main")) {
+    throw new Error(
+      "Recording is missing required Amazon cookie: ubid-main. " +
+        "Make sure you are logged in to Amazon.",
+    );
+  }
+  if (!cookieNames.has("at-main") && !cookieNames.has("x-main")) {
+    throw new Error(
+      "Recording is missing required Amazon auth cookie (at-main or x-main). " +
+        "Make sure you are fully logged in to Amazon.",
+    );
+  }
+
+  const session: AmazonSession = { cookies: recording.cookies };
   await saveSession(session);
   return session;
 }

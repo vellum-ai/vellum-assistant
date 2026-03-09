@@ -1,11 +1,23 @@
 /**
  * Strategy router for Twitter operations.
- * Selects OAuth or browser path based on the caller-provided strategy.
+ * Selects managed proxy, OAuth, or browser path based on the caller-provided strategy.
  */
 
-import type { PostTweetResult } from "./client.js";
 import {
+  getTweet as managedGetTweet,
+  getUserByUsername as managedGetUserByUsername,
+  getUserTweets as managedGetUserTweets,
+  postTweet as managedPostTweet,
+  searchRecentTweets as managedSearchRecentTweets,
+  TwitterProxyError,
+} from "../../../twitter/platform-proxy-client.js";
+import type { PostTweetResult, TweetEntry, UserInfo } from "./client.js";
+import {
+  getTweetDetail as browserGetTweetDetail,
+  getUserByScreenName as browserGetUserByScreenName,
+  getUserTweets as browserGetUserTweets,
   postTweet as browserPostTweet,
+  searchTweets as browserSearchTweets,
   SessionExpiredError,
 } from "./client.js";
 import {
@@ -14,7 +26,7 @@ import {
   oauthSupportsOperation,
 } from "./oauth-client.js";
 
-export type TwitterStrategy = "oauth" | "browser" | "auto";
+export type TwitterStrategy = "oauth" | "browser" | "auto" | "managed";
 
 export interface RoutedResult<T> {
   result: T;
@@ -38,6 +50,46 @@ export async function routedPostTweet(
 ): Promise<RoutedResult<PostTweetResult>> {
   const strategy = opts.strategy;
   const operation = opts.inReplyToTweetId ? "reply" : "post";
+
+  if (strategy === "managed") {
+    // Route through platform proxy — the platform holds the OAuth credentials
+    try {
+      const response = await managedPostTweet(text, {
+        replyToId: opts.inReplyToTweetId,
+      });
+      const data = response.data as Record<string, unknown>;
+      const tweetData = (data?.data ?? data) as Record<string, unknown>;
+      const tweetId = String(tweetData.id ?? "");
+      if (!tweetId) {
+        throw Object.assign(
+          new Error(
+            "Managed post succeeded but the proxy response did not include a tweet ID",
+          ),
+          {
+            pathUsed: "managed" as const,
+          },
+        );
+      }
+      return {
+        result: {
+          tweetId,
+          text,
+          url: `https://x.com/i/status/${tweetId}`,
+        },
+        pathUsed: "managed",
+      };
+    } catch (err) {
+      if (err instanceof TwitterProxyError) {
+        // Surface actionable error messages from the proxy
+        throw Object.assign(new Error(err.message), {
+          pathUsed: "managed" as const,
+          proxyErrorCode: err.code,
+          retryable: err.retryable,
+        });
+      }
+      throw err;
+    }
+  }
 
   if (strategy === "oauth") {
     // User explicitly wants OAuth
@@ -128,4 +180,217 @@ export async function routedPostTweet(
     }
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Routed read operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Look up a user by screen name.
+ * Managed mode uses GET /2/users/by/username/:username; browser mode uses GraphQL.
+ */
+export async function routedGetUserByScreenName(
+  screenName: string,
+  opts: { strategy: TwitterStrategy },
+): Promise<RoutedResult<UserInfo>> {
+  if (opts.strategy === "managed") {
+    try {
+      const response = await managedGetUserByUsername(screenName, {
+        "user.fields": "id,name,username",
+      });
+      const data = response.data as Record<string, unknown>;
+      const userData = (data?.data ?? data) as Record<string, unknown>;
+      if (!userData.id) {
+        throw Object.assign(new Error(`User not found: @${screenName}`), {
+          pathUsed: "managed" as const,
+        });
+      }
+      return {
+        result: {
+          userId: String(userData.id),
+          screenName: String(
+            userData.username ?? userData.screen_name ?? screenName,
+          ),
+          name: String(userData.name ?? screenName),
+        },
+        pathUsed: "managed",
+      };
+    } catch (err) {
+      if (err instanceof TwitterProxyError) {
+        throw Object.assign(new Error(err.message), {
+          pathUsed: "managed" as const,
+          proxyErrorCode: err.code,
+          retryable: err.retryable,
+        });
+      }
+      throw err;
+    }
+  }
+
+  // Browser path (used for browser, oauth, auto — read operations always go through browser)
+  const result = await browserGetUserByScreenName(screenName);
+  return { result, pathUsed: "browser" };
+}
+
+/**
+ * Fetch a user's recent tweets.
+ * Managed mode uses GET /2/users/:id/tweets; browser mode uses GraphQL.
+ */
+export async function routedGetUserTweets(
+  userId: string,
+  count: number,
+  opts: { strategy: TwitterStrategy },
+): Promise<RoutedResult<TweetEntry[]>> {
+  if (opts.strategy === "managed") {
+    try {
+      const response = await managedGetUserTweets(userId, {
+        max_results: String(Math.min(count, 100)),
+        "tweet.fields": "id,text,created_at,author_id",
+      });
+      const data = response.data as Record<string, unknown>;
+      const tweetsArray = (data?.data ?? []) as Array<Record<string, unknown>>;
+      const tweets: TweetEntry[] = tweetsArray.map((t) => ({
+        tweetId: String(t.id ?? ""),
+        text: String(t.text ?? ""),
+        url: `https://x.com/i/status/${t.id}`,
+        createdAt: String(t.created_at ?? ""),
+      }));
+      return { result: tweets, pathUsed: "managed" };
+    } catch (err) {
+      if (err instanceof TwitterProxyError) {
+        throw Object.assign(new Error(err.message), {
+          pathUsed: "managed" as const,
+          proxyErrorCode: err.code,
+          retryable: err.retryable,
+        });
+      }
+      throw err;
+    }
+  }
+
+  const result = await browserGetUserTweets(userId, count);
+  return { result, pathUsed: "browser" };
+}
+
+/**
+ * Fetch a single tweet by ID.
+ * Managed mode uses GET /2/tweets/:id; browser mode uses GraphQL TweetDetail.
+ */
+export async function routedGetTweetDetail(
+  tweetId: string,
+  opts: { strategy: TwitterStrategy },
+): Promise<RoutedResult<TweetEntry[]>> {
+  if (opts.strategy === "managed") {
+    try {
+      const response = await managedGetTweet(tweetId, {
+        "tweet.fields": "id,text,created_at,author_id,conversation_id",
+      });
+      const data = response.data as Record<string, unknown>;
+      const tweetData = (data?.data ?? data) as Record<string, unknown>;
+      const primaryTweet: TweetEntry = {
+        tweetId: String(tweetData.id ?? ""),
+        text: String(tweetData.text ?? ""),
+        url: `https://x.com/i/status/${tweetData.id}`,
+        createdAt: String(tweetData.created_at ?? ""),
+      };
+
+      // If the tweet has a conversation_id, fetch the thread via search
+      const conversationId = tweetData.conversation_id as string | undefined;
+      if (conversationId) {
+        try {
+          const threadResponse = await managedSearchRecentTweets(
+            `conversation_id:${conversationId}`,
+            {
+              "tweet.fields": "id,text,created_at,author_id",
+              max_results: "100",
+            },
+          );
+          const threadData = threadResponse.data as Record<string, unknown>;
+          const threadArray = (threadData?.data ?? []) as Array<
+            Record<string, unknown>
+          >;
+          const threadTweets: TweetEntry[] = threadArray.map((t) => ({
+            tweetId: String(t.id ?? ""),
+            text: String(t.text ?? ""),
+            url: `https://x.com/i/status/${t.id}`,
+            createdAt: String(t.created_at ?? ""),
+          }));
+          // Deduplicate: the primary tweet may already be in the search results
+          const seen = new Set(threadTweets.map((t) => t.tweetId));
+          if (!seen.has(primaryTweet.tweetId)) {
+            threadTweets.unshift(primaryTweet);
+          }
+          return { result: threadTweets, pathUsed: "managed" };
+        } catch {
+          // If thread search fails, fall back to returning just the single tweet
+        }
+      }
+
+      return { result: [primaryTweet], pathUsed: "managed" };
+    } catch (err) {
+      if (err instanceof TwitterProxyError) {
+        throw Object.assign(new Error(err.message), {
+          pathUsed: "managed" as const,
+          proxyErrorCode: err.code,
+          retryable: err.retryable,
+        });
+      }
+      throw err;
+    }
+  }
+
+  const result = await browserGetTweetDetail(tweetId);
+  return { result, pathUsed: "browser" };
+}
+
+/**
+ * Search tweets.
+ * Managed mode uses GET /2/tweets/search/recent; browser mode uses GraphQL SearchTimeline.
+ */
+export async function routedSearchTweets(
+  query: string,
+  product: "Top" | "Latest" | "People" | "Media",
+  opts: { strategy: TwitterStrategy },
+): Promise<RoutedResult<TweetEntry[]>> {
+  if (opts.strategy === "managed") {
+    if (product === "People" || product === "Media") {
+      throw Object.assign(
+        new Error(
+          `Product type "${product}" is not supported in managed mode. Only "Top" and "Latest" are supported.`,
+        ),
+        { pathUsed: "managed" as const },
+      );
+    }
+    try {
+      const queryParams: Record<string, string> = {
+        "tweet.fields": "id,text,created_at,author_id",
+      };
+      if (product === "Latest") {
+        queryParams.sort_order = "recency";
+      }
+      const response = await managedSearchRecentTweets(query, queryParams);
+      const data = response.data as Record<string, unknown>;
+      const tweetsArray = (data?.data ?? []) as Array<Record<string, unknown>>;
+      const tweets: TweetEntry[] = tweetsArray.map((t) => ({
+        tweetId: String(t.id ?? ""),
+        text: String(t.text ?? ""),
+        url: `https://x.com/i/status/${t.id}`,
+        createdAt: String(t.created_at ?? ""),
+      }));
+      return { result: tweets, pathUsed: "managed" };
+    } catch (err) {
+      if (err instanceof TwitterProxyError) {
+        throw Object.assign(new Error(err.message), {
+          pathUsed: "managed" as const,
+          proxyErrorCode: err.code,
+          retryable: err.retryable,
+        });
+      }
+      throw err;
+    }
+  }
+
+  const result = await browserSearchTweets(query, product);
+  return { result, pathUsed: "browser" };
 }

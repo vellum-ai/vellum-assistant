@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 import Combine
 import Foundation
@@ -83,11 +84,41 @@ public final class SettingsStore: ObservableObject {
 
     @Published var twitterMode: String = "local_byo"
     @Published var twitterManagedAvailable: Bool = false
+    @Published var twitterManagedPrerequisites: IPCManagedPrerequisites?
     @Published var twitterLocalClientConfigured: Bool = false
     @Published var twitterConnected: Bool = false
     @Published var twitterAccountInfo: String?
     @Published var twitterAuthInProgress: Bool = false
+    @Published var twitterAuthErrorCode: String?
     @Published var twitterAuthError: String?
+
+    // Managed Twitter connection state (populated via PlatformTwitterOAuthService)
+    @Published var managedTwitterConnected: Bool = false
+    @Published var managedTwitterAccountInfo: String?
+    @Published var managedTwitterConnectInProgress: Bool = false
+    @Published var managedTwitterError: String?
+
+    /// Whether all managed Twitter prerequisites are met.
+    var isManagedTwitterEligible: Bool {
+        twitterManagedAvailable
+    }
+
+    /// Human-readable reason why managed Twitter is not available, or nil if eligible.
+    var managedTwitterBlockReason: String? {
+        guard let prereqs = twitterManagedPrerequisites else {
+            return "Managed Twitter status is unavailable."
+        }
+        if !prereqs.integrationModeManaged {
+            return "Switch to Managed mode to use platform-managed Twitter."
+        }
+        if !prereqs.assistantApiKeyPresent {
+            return "Assistant API key is not configured. Set up your API key in settings."
+        }
+        if !prereqs.platformAssistantIdResolvable {
+            return "Platform connection is not configured. Set up your platform URL."
+        }
+        return nil
+    }
 
     // MARK: - Telegram Integration State
 
@@ -471,6 +502,7 @@ public final class SettingsStore: ObservableObject {
             if response.success {
                 self.twitterMode = response.mode ?? "local_byo"
                 self.twitterManagedAvailable = response.managedAvailable
+                self.twitterManagedPrerequisites = response.managedPrerequisites
                 self.twitterLocalClientConfigured = response.localClientConfigured
                 self.twitterConnected = response.connected
                 self.twitterAccountInfo = response.accountInfo
@@ -544,8 +576,10 @@ public final class SettingsStore: ObservableObject {
             if response.success {
                 self.twitterConnected = true
                 self.twitterAccountInfo = response.accountInfo
+                self.twitterAuthErrorCode = nil
                 self.twitterAuthError = nil
             } else {
+                self.twitterAuthErrorCode = response.errorCode
                 self.twitterAuthError = response.error
             }
             self.refreshTwitterStatus()
@@ -931,6 +965,7 @@ public final class SettingsStore: ObservableObject {
 
     func connectTwitter() {
         twitterAuthInProgress = true
+        twitterAuthErrorCode = nil
         twitterAuthError = nil
         do {
             guard let daemonClient else {
@@ -949,6 +984,130 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
         } catch {
             log.error("Failed to send Twitter disconnect: \(error)")
+        }
+    }
+
+    // MARK: - Managed Twitter Actions
+
+    /// Resolves the platform assistant ID and organization ID for managed Twitter calls.
+    /// Returns nil if the required context is unavailable.
+    private func resolveManagedTwitterContext() async -> (platformAssistantId: String, organizationId: String, baseURL: String)? {
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+            ?? LockfileAssistant.loadLatest()
+        guard let assistant else { return nil }
+
+        guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+              !orgId.isEmpty else { return nil }
+
+        // Resolve the current user ID from the auth session so self-hosted local
+        // assistants can look up their persisted platform assistant ID.
+        let userId: String? = try? await AuthService.shared.getSession().data?.user?.id
+
+        let platformId = PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: assistant.assistantId,
+            isManaged: assistant.isManaged,
+            organizationId: orgId,
+            userId: userId,
+            credentialStorage: KeychainCredentialStorage()
+        )
+        guard let platformId else { return nil }
+
+        // Always use the platform base URL for managed Twitter OAuth API calls.
+        // The assistant's runtimeUrl points to the local daemon endpoint for
+        // self-hosted assistants, which is not the platform API.
+        let baseURL = AuthService.shared.baseURL
+        return (platformAssistantId: platformId, organizationId: orgId, baseURL: baseURL)
+    }
+
+    /// Fetches managed Twitter connection status from the platform.
+    func refreshManagedTwitterStatus() {
+        Task { @MainActor in
+            guard let ctx = await resolveManagedTwitterContext() else {
+                managedTwitterConnected = false
+                managedTwitterAccountInfo = nil
+                return
+            }
+
+            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
+            do {
+                let connections = try await service.listConnections(
+                    platformAssistantId: ctx.platformAssistantId,
+                    organizationId: ctx.organizationId
+                )
+                if let connection = connections.first(where: { $0.provider == "twitter" && $0.connected }) {
+                    managedTwitterConnected = true
+                    managedTwitterAccountInfo = connection.accountLabel
+                } else {
+                    managedTwitterConnected = false
+                    managedTwitterAccountInfo = nil
+                }
+                managedTwitterError = nil
+            } catch {
+                log.error("Failed to fetch managed Twitter status: \(error)")
+                managedTwitterError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Starts the managed Twitter OAuth connect flow: calls the platform to get
+    /// an authorization URL and opens it in the default browser.
+    func connectManagedTwitter() {
+        managedTwitterConnectInProgress = true
+        managedTwitterError = nil
+        Task { @MainActor in
+            defer { managedTwitterConnectInProgress = false }
+
+            guard let ctx = await resolveManagedTwitterContext() else {
+                managedTwitterError = "Unable to resolve platform assistant. Check your account settings."
+                return
+            }
+
+            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
+            do {
+                let response = try await service.startTwitterConnect(
+                    platformAssistantId: ctx.platformAssistantId,
+                    organizationId: ctx.organizationId
+                )
+                if let url = URL(string: response.connectUrl) {
+                    NSWorkspace.shared.open(url)
+                } else {
+                    managedTwitterError = "Invalid authorization URL received."
+                }
+            } catch {
+                log.error("Failed to start managed Twitter connect: \(error)")
+                managedTwitterError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Disconnects the managed Twitter connection via the platform API.
+    func disconnectManagedTwitter() {
+        managedTwitterConnectInProgress = true
+        managedTwitterError = nil
+        Task { @MainActor in
+            defer { managedTwitterConnectInProgress = false }
+
+            guard let ctx = await resolveManagedTwitterContext() else {
+                managedTwitterError = "Unable to resolve platform assistant. Check your account settings."
+                return
+            }
+
+            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
+            do {
+                _ = try await service.disconnectTwitter(
+                    platformAssistantId: ctx.platformAssistantId,
+                    organizationId: ctx.organizationId
+                )
+                managedTwitterConnected = false
+                managedTwitterAccountInfo = nil
+                managedTwitterError = nil
+                // Refresh to confirm
+                refreshManagedTwitterStatus()
+            } catch {
+                log.error("Failed to disconnect managed Twitter: \(error)")
+                managedTwitterError = error.localizedDescription
+            }
         }
     }
 

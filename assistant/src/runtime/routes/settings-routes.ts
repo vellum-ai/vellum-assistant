@@ -16,6 +16,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  getPlatformAssistantId,
+  getPlatformBaseUrl,
+} from "../../config/env.js";
+import {
   getNestedValue,
   invalidateConfigCache,
   loadConfig,
@@ -298,6 +302,29 @@ async function handleTwitterAuthStart(): Promise<Response> {
     const mode =
       (getNestedValue(raw, "twitter.integrationMode") as string | undefined) ??
       "local_byo";
+    if (mode === "managed") {
+      const apiKey = getSecureKey("credential:vellum:assistant_api_key");
+      if (!apiKey) {
+        return Response.json(
+          {
+            ok: false,
+            error:
+              "An AssistantAPIKey is required for managed Twitter. Run assistant setup.",
+            errorCode: "managed_missing_api_key",
+          },
+          { status: 400 },
+        );
+      }
+      return Response.json(
+        {
+          ok: false,
+          error:
+            "Managed Twitter authentication is handled through the Vellum platform. Open Settings to connect.",
+          errorCode: "managed_auth_via_platform",
+        },
+        { status: 400 },
+      );
+    }
     if (mode !== "local_byo") {
       return httpError(
         "BAD_REQUEST",
@@ -395,11 +422,7 @@ async function handleTwitterAuthStart(): Promise<Response> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Twitter OAuth flow failed");
-    return httpError(
-      "INTERNAL_ERROR",
-      sanitizeTwitterAuthError(message),
-      500,
-    );
+    return httpError("INTERNAL_ERROR", sanitizeTwitterAuthError(message), 500);
   }
 }
 
@@ -418,10 +441,54 @@ function handleTwitterAuthStatus(): Response {
       | string
       | undefined;
 
+    // Managed prerequisites
+    const integrationModeManaged = mode === "managed";
+    const assistantApiKeyPresent = !!getSecureKey(
+      "credential:vellum:assistant_api_key",
+    );
+    const platformBaseUrlFromEnv = getPlatformBaseUrl();
+    const platformBaseUrlFromConfig = (
+      raw?.platform as Record<string, unknown> | undefined
+    )?.baseUrl as string | undefined;
+    const platformAssistantIdResolvable = !!(
+      (platformBaseUrlFromEnv || platformBaseUrlFromConfig) &&
+      getPlatformAssistantId()
+    );
+
+    const managedPrerequisites = {
+      integrationModeManaged,
+      assistantApiKeyPresent,
+      platformAssistantIdResolvable,
+    };
+    const managedAvailable =
+      integrationModeManaged &&
+      assistantApiKeyPresent &&
+      platformAssistantIdResolvable;
+
+    // Local client configured
+    const localClientConfigured = !!getSecureKey(
+      "credential:integration:twitter:client_id",
+    );
+
+    // Strategy
+    const strategyRaw = getNestedValue(raw, "twitter.strategy") as
+      | string
+      | undefined;
+    const strategy = strategyRaw ?? "auto";
+    const strategyConfigured = strategyRaw !== undefined;
+
+    // In managed mode, connected is always false (auth goes through platform)
+    const connected = mode === "managed" ? false : !!accessToken;
+
     return Response.json({
-      connected: !!accessToken,
+      connected,
       accountInfo: accountInfo ?? undefined,
       mode,
+      managedAvailable,
+      managedPrerequisites,
+      localClientConfigured,
+      strategy,
+      strategyConfigured,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -589,7 +656,8 @@ function handleToolNamesList(): Response {
         for (const entry of manifest.tools) {
           if (nameSet.has(entry.name)) continue;
           nameSet.add(entry.name);
-          schemas[entry.name] = entry.input_schema as unknown as (typeof schemas)[string];
+          schemas[entry.name] =
+            entry.input_schema as unknown as (typeof schemas)[string];
         }
       } catch {
         // Skip skills whose manifests can't be parsed
@@ -779,11 +847,7 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       handler: async ({ req }) => {
         const body = (await req.json()) as { activationKey?: string };
         if (!body.activationKey) {
-          return httpError(
-            "BAD_REQUEST",
-            "activationKey is required",
-            400,
-          );
+          return httpError("BAD_REQUEST", "activationKey is required", 400);
         }
         return handleVoiceConfigUpdate(body.activationKey);
       },
@@ -808,11 +872,7 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       handler: async ({ req }) => {
         const body = (await req.json()) as { key?: string; value?: string };
         if (!body.key || body.value === undefined) {
-          return httpError(
-            "BAD_REQUEST",
-            "key and value are required",
-            400,
-          );
+          return httpError("BAD_REQUEST", "key and value are required", 400);
         }
         return handleClientSettingsUpdate(body.key, body.value);
       },
@@ -871,7 +931,11 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       handler: ({ url }) => {
         const filePath = url.searchParams.get("path") ?? "";
         if (!filePath) {
-          return httpError("BAD_REQUEST", "path query parameter is required", 400);
+          return httpError(
+            "BAD_REQUEST",
+            "path query parameter is required",
+            400,
+          );
         }
         return handleWorkspaceFileRead(filePath);
       },

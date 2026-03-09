@@ -265,9 +265,9 @@ The channel guardian service generates verification challenge instructions with 
 
 ### Vellum Guardian Identity (Actor Tokens)
 
-The vellum channel (macOS, iOS, CLI) uses JWTs to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram) use `actorExternalId` for guardian identity.
+The vellum channel (macOS, iOS) uses JWTs to bind guardian identity to HTTP requests. This enables identity-based authentication for the local desktop/mobile channel, paralleling how external channels (Telegram) use `actorExternalId` for guardian identity. The CLI authenticates using its bearer token obtained during `hatch`.
 
-- **Bootstrap**: After hatch, the macOS client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint fresh credentials.
+- **Bootstrap**: After hatch, the macOS client calls `POST /v1/guardian/init` with `{ platform, deviceId }`. Returns `{ guardianPrincipalId, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, refreshAfter, isNew }`. The endpoint is idempotent -- repeated calls with the same device return the same principal but mint fresh credentials. The CLI does not bootstrap separately; it uses the bearer token minted during `hatch`.
 - **iOS pairing**: The pairing response includes `accessToken` and `refreshToken` credentials automatically when a vellum guardian binding exists.
 - **Local identity**: Local connections resolve identity server-side via `resolveLocalGuardianContext()` without requiring a JWT.
 - **HTTP enforcement**: All vellum HTTP routes require a valid JWT via the `Authorization: Bearer <jwt>` header. The JWT carries identity claims (`sub` with principal type and ID) and scope permissions. Route-level enforcement in `route-policy.ts` checks scopes and principal types.

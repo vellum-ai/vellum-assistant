@@ -9,7 +9,32 @@ You are an X (formerly Twitter) assistant. Use the `bash` tool to run `assistant
 
 ## Connection Options
 
-There are two supported ways to connect to X. Both are fully functional; choose whichever fits the user's situation.
+There are three supported ways to connect to X. Choose whichever fits the user's situation.
+
+### Managed mode (platform-hosted credentials)
+
+When `twitter.integrationMode` is set to `managed`, the platform holds the OAuth credentials and proxies Twitter API calls on behalf of the assistant. No local OAuth setup or browser session is needed.
+
+- Supports: **post** and **reply** (routed through the platform proxy)
+- Read-only operations still use the browser path when available.
+- Prerequisites: The assistant must be registered with the platform (`PLATFORM_ASSISTANT_ID`), have an API key (`credential:vellum:assistant_api_key`), and the assistant owner must have connected their Twitter account on the platform.
+- The strategy is automatically set to `managed` when `integrationMode` is `managed` and prerequisites are satisfied.
+
+**Error scenarios in managed mode:**
+- *"Assistant not bootstrapped"* — The assistant API key is missing. Run setup.
+- *"Local assistant not registered with platform"* — `PLATFORM_ASSISTANT_ID` is not set.
+- *"Connect Twitter in Settings as the assistant owner"* — The owner hasn't connected their X account on the platform yet.
+- *"Sign in as the assistant owner"* — The current user is not the assistant owner.
+- *"Reconnect Twitter or retry"* — The platform's OAuth token may have expired. Reconnect on the platform.
+
+**Architecture notes for managed mode:**
+
+- **Assistant hosting mode and Twitter credential mode are separate concepts.** An assistant can be self-hosted (local daemon) yet use managed Twitter credentials, or platform-hosted yet use local BYO OAuth. The `twitter.integrationMode` config controls credential mode; the assistant's hosting mode is determined by its lockfile entry.
+- **Managed Twitter is bound to the assistant owner.** Only the owner of the assistant (as determined by the platform) can connect or disconnect the Twitter account. Non-owner users receive a `403` with an `owner_only` or `owner_credential_required` error code.
+- **Connect/disconnect/status uses desktop session authentication.** The macOS Settings UI calls the platform's Twitter OAuth endpoints using the user's `X-Session-Token` header (obtained during managed sign-in via WorkOS). This authenticates the human user, not the assistant.
+- **Actual Twitter API calls use assistant-level API key authentication.** At runtime, the proxy client sends `Authorization: Api-Key {assistant_api_key}` — it never includes user-level session tokens or OAuth tokens. This ensures the assistant's identity is what the platform uses for token lookup and rate limiting.
+- **The platform proxy handles token storage and refresh.** OAuth tokens are stored server-side by the platform. The assistant never sees or stores the Twitter OAuth access/refresh tokens in managed mode. Token refresh is handled transparently by the proxy.
+- **The daemon auth handler never starts local OAuth in managed mode.** When `integrationMode` is `managed`, `handleTwitterAuthStart` returns a managed-specific error code (`managed_auth_via_platform` or `managed_missing_api_key`) and never calls `orchestrateOAuthConnect`. This is a critical guardrail to prevent credential confusion.
 
 ### OAuth (recommended with X developer credentials)
 
@@ -95,6 +120,11 @@ When a Twitter operation fails, follow these steps:
    - `Twitter API error (401)` — OAuth token may be expired or revoked.
    - `UnsupportedOAuthOperationError` — the requested write operation is not available via OAuth.
    - `Cannot connect to assistant` — the Vellum assistant is not running.
+   - `proxyErrorCode: "owner_credential_required"` — managed mode: the assistant owner has not connected their X account on the platform.
+   - `proxyErrorCode: "owner_only"` — managed mode: the current user is not the assistant owner.
+   - `proxyErrorCode: "auth_failure"` or `"upstream_failure"` — managed mode: platform token issue, reconnect Twitter on the platform.
+   - `proxyErrorCode: "missing_assistant_api_key"` — managed mode: the assistant is not bootstrapped.
+   - `proxyErrorCode: "missing_platform_assistant_id"` — managed mode: the assistant is not registered with the platform.
 
 2. **Explain the likely cause clearly** to the user.
 
@@ -102,6 +132,7 @@ When a Twitter operation fails, follow these steps:
    - If the browser session expired: suggest setting up OAuth for post/reply operations, or refresh the browser session with `assistant x refresh`.
    - If OAuth failed or is not configured: suggest using the browser path with `assistant config set twitter.operationStrategy browser` and `assistant x refresh`.
    - If the operation is unsupported via OAuth: explain that this write operation is not yet supported via OAuth, and suggest using the browser path with `assistant config set twitter.operationStrategy browser`.
+   - If managed mode failed with a credential or ownership error: explain the specific issue and guide the user to resolve it on the platform (connect Twitter, sign in as owner, etc.).
 
 4. **Offer concrete steps to switch:**
 
@@ -130,34 +161,44 @@ assistant x status --json
 
 ## Posting
 
-Before posting, fetch the current strategy and OAuth token:
+Before posting, check the integration mode and fetch the current strategy:
 
 ```bash
-# 1. Get the configured strategy
+# 1. Check integration mode
+MODE=$(assistant config get twitter.integrationMode)
+
+# 2. Get the configured strategy
 STRATEGY=$(assistant config get twitter.operationStrategy)
 # If not set, default to "auto"
-
-# 2. If strategy is "oauth" or "auto", get a valid OAuth token
-TOKEN=$(assistant oauth token twitter)
 ```
 
-Then post with the fetched values:
+Then post based on the mode and strategy:
 
 ```bash
+# Managed mode — route through platform proxy (no local token needed):
+assistant x post "The post text here" --strategy managed
+
 # With OAuth token (strategy is oauth or auto):
+TOKEN=$(assistant oauth token twitter)
 assistant x post "The post text here" --strategy "$STRATEGY" --oauth-token "$TOKEN"
 
 # With browser-only strategy:
 assistant x post "The post text here" --strategy browser
 ```
 
-Returns JSON with `ok`, `tweetId`, `text`, `url`, and `pathUsed` fields. Share the URL with the user so they can verify the post.
+When `twitter.integrationMode` is `managed`, always use `--strategy managed`. The platform proxy handles authentication.
+
+Returns JSON with `ok`, `tweetId`, `text`, `url`, and `pathUsed` fields. Share the URL with the user so they can verify the post. For managed mode errors, the response includes `proxyErrorCode` and `retryable` fields.
 
 ## Replying
 
-Same setup as posting — fetch strategy and token first, then:
+Same setup as posting — check integration mode and fetch strategy first, then:
 
 ```bash
+# Managed mode:
+assistant x reply <tweetUrl> "The reply text here" --strategy managed
+
+# Local OAuth or auto:
 assistant x reply <tweetUrl> "The reply text here" --strategy "$STRATEGY" --oauth-token "$TOKEN"
 ```
 
