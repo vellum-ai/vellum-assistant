@@ -72,8 +72,9 @@ struct ImproveExperienceStepView: View {
             }
 
             // Reset stale cloud provider when the user didn't go through CloudCredentials
-            // (e.g., user_hosted_enabled was turned off after a previous session set cloudProvider to "aws")
-            if !state.needsCloudCredentials {
+            // (e.g., user_hosted_enabled was turned off after a previous session set cloudProvider to "aws").
+            // Preserve "docker" since Docker users intentionally chose that path.
+            if !state.needsCloudCredentials && state.cloudProvider != "local" && state.cloudProvider != "docker" {
                 state.cloudProvider = "local"
             }
 
