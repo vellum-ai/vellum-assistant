@@ -538,13 +538,45 @@ async function finalizeLearnRecording(
     const networkEntries = recorder ? await recorder.stop() : [];
     activeRecorders.delete(watchId);
 
+    // Save cookies to the encrypted credential store (keyed by target domain)
+    // so they don't need to be persisted in the plaintext recording file.
+    if (session.targetDomain && cookies.length > 0) {
+      const { setSecureKeyAsync } = await import("../security/secure-keys.js");
+      const { upsertCredentialMetadata } =
+        await import("../tools/credentials/metadata-store.js");
+
+      const service = session.targetDomain;
+      const field = "session:cookies";
+      const storageKey = `credential:${service}:${field}`;
+      const stored = await setSecureKeyAsync(
+        storageKey,
+        JSON.stringify(cookies),
+      );
+      if (stored) {
+        try {
+          upsertCredentialMetadata(service, field, {});
+        } catch {
+          // Non-critical: metadata upsert is best-effort
+        }
+        log.info(
+          { targetDomain: service, cookieCount: cookies.length },
+          "Cookies saved to credential store",
+        );
+      } else {
+        log.warn(
+          { targetDomain: service },
+          "Failed to save cookies to credential store",
+        );
+      }
+    }
+
     const recording: SessionRecording = {
       id: recordingId,
       startedAt: session.startedAt,
       endedAt: Date.now(),
       targetDomain: session.targetDomain,
       networkEntries,
-      cookies,
+      cookies: [], // Cookies saved to credential store above — not persisted in recording
       observations: session.observations.map((obs) => ({
         ocrText: obs.ocrText,
         appName: obs.appName,
