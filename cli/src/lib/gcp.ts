@@ -629,7 +629,6 @@ export async function hatchGcp(
     const gcpEntry: AssistantEntry = {
       assistantId: instanceName,
       runtimeUrl,
-      bearerToken,
       cloud: "gcp",
       project,
       zone,
@@ -701,10 +700,11 @@ export async function hatchGcp(
         sshUser,
         account,
       );
-      if (remoteBearerToken) {
-        gcpEntry.bearerToken = remoteBearerToken;
-        saveAssistantEntry(gcpEntry);
-      }
+      // Bearer token is no longer persisted to the lockfile for remote
+      // assistants — the macOS app seeds credentials from the lockfile's
+      // bearer token field only as a legacy path; new hatches rely on the
+      // guardian bootstrap flow instead.
+      void remoteBearerToken;
 
       console.log("Instance details:");
       console.log(`  Name: ${instanceName}`);

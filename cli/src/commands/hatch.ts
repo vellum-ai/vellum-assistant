@@ -765,6 +765,7 @@ async function hatchLocal(
     assistantId: instanceName,
     runtimeUrl,
     localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
+    bearerToken,
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
