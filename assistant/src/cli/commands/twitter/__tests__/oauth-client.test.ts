@@ -187,10 +187,9 @@ describe("Twitter OAuth client", () => {
       const err = new UnsupportedOAuthOperationError("search");
       expect(err.name).toBe("UnsupportedOAuthOperationError");
       expect(err.operation).toBe("search");
-      expect(err.suggestFallback).toBe(true);
-      expect(err.fallbackPath).toBe("browser");
       expect(err.message).toContain("search");
       expect(err.message).toContain("not available via the OAuth API");
+      expect(err.message).toContain("managed mode");
       expect(err).toBeInstanceOf(Error);
     });
   });

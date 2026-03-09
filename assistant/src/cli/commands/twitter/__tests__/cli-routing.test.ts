@@ -30,11 +30,11 @@ mock.module("../oauth-client.js", () => ({
     throw new Error("OAuth mock not configured");
   },
   UnsupportedOAuthOperationError: class UnsupportedOAuthOperationError extends Error {
-    public readonly suggestFallback = true;
-    public readonly fallbackPath = "browser" as const;
     public readonly operation: string;
     constructor(operation: string) {
-      super(`The "${operation}" operation is not available via the OAuth API.`);
+      super(
+        `The "${operation}" operation is not available via the OAuth API. Use managed mode instead.`,
+      );
       this.name = "UnsupportedOAuthOperationError";
       this.operation = operation;
     }
