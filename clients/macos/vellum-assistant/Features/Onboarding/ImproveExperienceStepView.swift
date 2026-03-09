@@ -7,7 +7,7 @@ struct ImproveExperienceStepView: View {
 
     @State private var showTitle = false
     @State private var showContent = false
-    @State private var sharePerformanceMetrics: Bool = true
+    @State private var sharePerformanceMetrics: Bool = UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool ?? true
 
     var body: some View {
         VStack(spacing: VSpacing.xxl) {
@@ -53,7 +53,7 @@ struct ImproveExperienceStepView: View {
 
                 Button(action: { goBack() }) {
                     Text("Back")
-                        .font(.system(size: 13))
+                        .font(VFont.body)
                         .foregroundColor(VColor.textMuted)
                 }
                 .buttonStyle(.plain)
@@ -66,8 +66,10 @@ struct ImproveExperienceStepView: View {
         }
         .padding(.horizontal, VSpacing.xxl)
         .onAppear {
-            // Opt in by default during onboarding
-            UserDefaults.standard.set(true, forKey: "sendPerformanceReports")
+            // Opt in by default during onboarding, but preserve any existing choice
+            if UserDefaults.standard.object(forKey: "sendPerformanceReports") == nil {
+                UserDefaults.standard.set(true, forKey: "sendPerformanceReports")
+            }
 
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showTitle = true
@@ -85,7 +87,7 @@ struct ImproveExperienceStepView: View {
     }
 }
 
-#Preview {
+#Preview("ImproveExperienceStepView") {
     ZStack {
         VColor.background.ignoresSafeArea()
         ImproveExperienceStepView(state: {
