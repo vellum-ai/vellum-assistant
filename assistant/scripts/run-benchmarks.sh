@@ -7,15 +7,11 @@ set -uo pipefail
 # Runs each *.benchmark.test.ts file in its own process (same isolation
 # strategy as test.sh) and captures pass/fail + wall-clock duration.
 #
-# Each benchmark is run BENCHMARK_RUNS times (default 3) and the median
-# duration is recorded. This reduces variance from CI runner noise.
-#
 # Output: writes benchmark-results.json to the working directory with
 # per-file timing data suitable for baseline comparison.
 # ---------------------------------------------------------------------------
 
 RESULTS_FILE="${BENCHMARK_RESULTS_FILE:-benchmark-results.json}"
-RUNS="${BENCHMARK_RUNS:-3}"
 
 results_dir="$(mktemp -d)"
 trap 'rm -rf "${results_dir}"' EXIT
@@ -30,7 +26,7 @@ if [[ ${#bench_files[@]} -eq 0 ]]; then
   exit 1
 fi
 
-echo "Running ${#bench_files[@]} benchmark files (${RUNS} runs each, median)"
+echo "Running ${#bench_files[@]} benchmark files"
 
 overall_pass=true
 
@@ -39,38 +35,23 @@ for bench_file in "${bench_files[@]}"; do
   safe_name="$(echo "${bench_file}" | tr "/" "_")"
   out_file="${results_dir}/${safe_name}.out"
 
-  timings=()
-  last_exit_code=0
+  start_ms=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+  bun test "${bench_file}" > "${out_file}" 2>&1
+  exit_code=$?
+  end_ms=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
 
-  for (( run=1; run<=RUNS; run++ )); do
-    start_ms=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
-    bun test "${bench_file}" > "${out_file}" 2>&1
-    last_exit_code=$?
-    end_ms=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+  elapsed=$(( end_ms - start_ms ))
 
-    elapsed=$(( end_ms - start_ms ))
-    timings+=("${elapsed}")
-
-    if [[ ${last_exit_code} -ne 0 ]]; then
-      break
-    fi
-  done
-
-  if [[ ${last_exit_code} -ne 0 ]]; then
-    echo "  FAIL ${base} (${timings[*]}ms)"
+  if [[ ${exit_code} -ne 0 ]]; then
+    echo "  FAIL ${base} (${elapsed}ms)"
     echo "${bench_file}" >> "${results_dir}/failures"
     overall_pass=false
-    # Use last timing for the result
-    median="${timings[-1]}"
   else
-    # Sort timings and pick median
-    sorted=($(printf '%s\n' "${timings[@]}" | sort -n))
-    median_idx=$(( ${#sorted[@]} / 2 ))
-    median="${sorted[${median_idx}]}"
-    echo "  PASS ${base} (runs: ${timings[*]}ms, median: ${median}ms)"
+    echo "  PASS ${base} (${elapsed}ms)"
   fi
 
-  echo "{\"file\":\"${base}\",\"duration_ms\":${median},\"passed\":$([ ${last_exit_code} -eq 0 ] && echo true || echo false)}" >> "${results_dir}/results.jsonl"
+  # Store per-file result as a line of JSON
+  echo "{\"file\":\"${base}\",\"duration_ms\":${elapsed},\"passed\":$([ ${exit_code} -eq 0 ] && echo true || echo false)}" >> "${results_dir}/results.jsonl"
 done
 
 # Build final JSON output
