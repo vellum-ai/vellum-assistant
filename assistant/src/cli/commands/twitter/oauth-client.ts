@@ -2,9 +2,8 @@
  * OAuth-backed Twitter API client.
  *
  * Accepts an OAuth2 Bearer token as a parameter and uses it to execute
- * Twitter API v2 operations directly, without requiring a browser session.
- * Currently supports post and reply; all other operations fall back to the
- * browser-based CDP client.
+ * Twitter API v2 operations directly. Currently supports post and reply;
+ * all other operations require managed mode.
  */
 
 const TWITTER_API_BASE = "https://api.x.com/2";
@@ -20,18 +19,14 @@ export interface OAuthPostResult {
 
 export interface OAuthOperationError {
   message: string;
-  suggestFallback: boolean;
-  fallbackPath: "browser";
   operation: string;
 }
 
 export class UnsupportedOAuthOperationError extends Error {
-  public readonly suggestFallback = true;
-  public readonly fallbackPath = "browser" as const;
   public readonly operation: string;
   constructor(operation: string) {
     super(
-      `The "${operation}" operation is not available via the OAuth API. Use the browser path instead.`,
+      `The "${operation}" operation is not available via the OAuth API. Use managed mode instead.`,
     );
     this.name = "UnsupportedOAuthOperationError";
     this.operation = operation;
@@ -87,7 +82,7 @@ export function oauthIsAvailable(oauthToken: string | undefined): boolean {
 /**
  * Check whether a given operation is supported via the OAuth API path.
  * Only `post` and `reply` are currently supported; everything else
- * (timeline, search, bookmarks, etc.) requires the browser path.
+ * (timeline, search, bookmarks, etc.) requires managed mode.
  */
 export function oauthSupportsOperation(operation: string): boolean {
   return SUPPORTED_OPERATIONS.has(operation);
