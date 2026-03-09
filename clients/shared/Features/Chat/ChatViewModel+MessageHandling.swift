@@ -1319,7 +1319,8 @@ extension ChatViewModel {
                     toolResult: truncatedResult,
                     isError: toolErrored
                 )
-                if toolErrored, Self.isOSPermissionDeniedError(truncatedResult) {
+                if toolErrored, Self.isOSPermissionDeniedError(truncatedResult),
+                   messages[msgIndex].toolCalls[tcIndex].confirmationDecision == .approved {
                     messages[msgIndex].toolCalls[tcIndex].confirmationDecision = .denied
                 }
                 for stepIdx in messages[msgIndex].toolCalls[tcIndex].claudeCodeSteps.indices {
