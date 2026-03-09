@@ -19,12 +19,7 @@ mock.module("../../../../util/logger.js", () => ({
   }),
 }));
 
-import {
-  oauthIsAvailable,
-  oauthPostTweet,
-  oauthSupportsOperation,
-  UnsupportedOAuthOperationError,
-} from "../oauth-client.js";
+import { oauthIsAvailable, oauthPostTweet } from "../oauth-client.js";
 
 // --- Global fetch mock ---
 
@@ -151,46 +146,6 @@ describe("Twitter OAuth client", () => {
 
     test("returns false when token is empty string", () => {
       expect(oauthIsAvailable("")).toBe(false);
-    });
-  });
-
-  describe("oauthSupportsOperation", () => {
-    test("returns true for post", () => {
-      expect(oauthSupportsOperation("post")).toBe(true);
-    });
-
-    test("returns true for reply", () => {
-      expect(oauthSupportsOperation("reply")).toBe(true);
-    });
-
-    test("returns false for unsupported operations", () => {
-      const unsupported = [
-        "timeline",
-        "search",
-        "bookmarks",
-        "home",
-        "notifications",
-        "likes",
-        "followers",
-        "following",
-        "media",
-        "tweet",
-      ];
-      for (const op of unsupported) {
-        expect(oauthSupportsOperation(op)).toBe(false);
-      }
-    });
-  });
-
-  describe("UnsupportedOAuthOperationError", () => {
-    test("has correct properties", () => {
-      const err = new UnsupportedOAuthOperationError("search");
-      expect(err.name).toBe("UnsupportedOAuthOperationError");
-      expect(err.operation).toBe("search");
-      expect(err.message).toContain("search");
-      expect(err.message).toContain("not available via the OAuth API");
-      expect(err.message).toContain("managed mode");
-      expect(err).toBeInstanceOf(Error);
     });
   });
 });

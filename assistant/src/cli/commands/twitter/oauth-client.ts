@@ -2,35 +2,15 @@
  * OAuth-backed Twitter API client.
  *
  * Accepts an OAuth2 Bearer token as a parameter and uses it to execute
- * Twitter API v2 operations directly. Currently supports post and reply;
- * all other operations require managed mode.
+ * Twitter API v2 operations directly (post and reply).
  */
 
 const TWITTER_API_BASE = "https://api.x.com/2";
-
-/** Operations that the OAuth client can handle natively. */
-const SUPPORTED_OPERATIONS = new Set(["post", "reply"]);
 
 export interface OAuthPostResult {
   tweetId: string;
   text: string;
   url?: string;
-}
-
-export interface OAuthOperationError {
-  message: string;
-  operation: string;
-}
-
-export class UnsupportedOAuthOperationError extends Error {
-  public readonly operation: string;
-  constructor(operation: string) {
-    super(
-      `The "${operation}" operation is not available via the OAuth API. Use managed mode instead.`,
-    );
-    this.name = "UnsupportedOAuthOperationError";
-    this.operation = operation;
-  }
 }
 
 /**
@@ -77,13 +57,4 @@ export async function oauthPostTweet(
  */
 export function oauthIsAvailable(oauthToken: string | undefined): boolean {
   return oauthToken != null && oauthToken.length > 0;
-}
-
-/**
- * Check whether a given operation is supported via the OAuth API path.
- * Only `post` and `reply` are currently supported; everything else
- * (timeline, search, bookmarks, etc.) requires managed mode.
- */
-export function oauthSupportsOperation(operation: string): boolean {
-  return SUPPORTED_OPERATIONS.has(operation);
 }
