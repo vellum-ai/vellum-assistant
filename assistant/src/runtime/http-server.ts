@@ -116,6 +116,7 @@ import {
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { debugRouteDefinitions } from "./routes/debug-routes.js";
+import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
@@ -138,10 +139,12 @@ import {
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { sessionManagementRouteDefinitions } from "./routes/session-management-routes.js";
 import { sessionQueryRouteDefinitions } from "./routes/session-query-routes.js";
+import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
+import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
 import {
   computerUseRouteDefinitions,
@@ -710,6 +713,19 @@ export class RuntimeHttpServer {
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...workspaceRouteDefinitions(),
+      ...documentRouteDefinitions(),
+      ...workItemRouteDefinitions({
+        getOrCreateSession: async (conversationId) => {
+          if (!this.sendMessageDeps) {
+            throw new Error("Session management not available");
+          }
+          return this.sendMessageDeps.getOrCreateSession(conversationId);
+        },
+        findSession: this.findSession
+          ? undefined // findSession in http-types returns a different shape; session lookup for cancellation uses sendMessageDeps
+          : undefined,
+      }),
+      ...subagentRouteDefinitions(),
       ...sessionQueryRouteDefinitions({
         modelSetContext: this.modelSetContext,
         findSessionForQueue: this.findSession
