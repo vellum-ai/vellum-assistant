@@ -63,6 +63,9 @@ public final class ContactsStore: ObservableObject {
 
             for await message in stream {
                 if case .contactsResponse(let response) = message {
+                    // Only handle list responses (contacts array present);
+                    // skip unrelated get/update/delete responses.
+                    guard response.contacts != nil || !response.success else { continue }
                     if response.success, let contacts = response.contacts {
                         self.contacts = contacts
                     }
@@ -87,6 +90,9 @@ public final class ContactsStore: ObservableObject {
 
             for await message in stream {
                 if case .contactsResponse(let response) = message {
+                    // Only handle single-contact responses (contact field present);
+                    // skip unrelated list/update/delete responses.
+                    guard response.contact != nil || !response.success else { continue }
                     if response.success, let contact = response.contact {
                         // Update the contact in-place if it exists
                         if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
