@@ -43,6 +43,33 @@ extension AppDelegate {
             }
     }
 
+    func setupFileMenu() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+
+        // Avoid duplicate File menus on logout/re-login cycles
+        if mainMenu.indexOfItem(withTitle: "File") >= 0 { return }
+
+        let fileMenu = NSMenu(title: "File")
+
+        let newChatItem = NSMenuItem(title: "New Chat", action: #selector(openNewChat), keyEquivalent: "n")
+        newChatItem.keyEquivalentModifierMask = .command
+        newChatItem.target = self
+        fileMenu.addItem(newChatItem)
+
+        let markAllSeenItem = NSMenuItem(
+            title: "Mark All Threads as Seen",
+            action: #selector(markAllThreadsSeen),
+            keyEquivalent: "k"
+        )
+        markAllSeenItem.keyEquivalentModifierMask = [.command, .shift]
+        markAllSeenItem.target = self
+        fileMenu.addItem(markAllSeenItem)
+
+        let fileMenuItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        fileMenuItem.submenu = fileMenu
+        mainMenu.insertItem(fileMenuItem, at: 1)
+    }
+
     // MARK: - Menu Item Validation
 
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -317,7 +344,7 @@ extension AppDelegate {
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 2), in: button)
     }
 
-    @objc public func markAllThreadsSeen() {
+    @objc func markAllThreadsSeen() {
         guard let threadManager = mainWindow?.threadManager else { return }
         let markedIds = threadManager.markAllThreadsSeen()
         guard !markedIds.isEmpty else { return }
@@ -362,7 +389,7 @@ extension AppDelegate {
         showMainWindow()
     }
 
-    @objc public func openNewChat() {
+    @objc func openNewChat() {
         guard !isBootstrapping else { return }
         showMainWindow()
         mainWindow?.threadManager.createThread()

@@ -137,6 +137,13 @@ extension AppDelegate {
                 statusItem = nil
             }
 
+            if let mainMenu = NSApp.mainMenu {
+                for title in ["File", "View"] {
+                    let idx = mainMenu.indexOfItem(withTitle: title)
+                    if idx >= 0 { mainMenu.removeItem(at: idx) }
+                }
+            }
+
             actorTokenBootstrapTask?.cancel()
             actorTokenBootstrapTask = nil
             ActorTokenManager.deleteToken()
@@ -412,6 +419,13 @@ extension AppDelegate {
         if let item = statusItem {
             NSStatusBar.system.removeStatusItem(item)
             statusItem = nil
+        }
+
+        if let mainMenu = NSApp.mainMenu {
+            for title in ["File", "View"] {
+                let idx = mainMenu.indexOfItem(withTitle: title)
+                if idx >= 0 { mainMenu.removeItem(at: idx) }
+            }
         }
 
         hasSetupApp = false

@@ -10,20 +10,6 @@ struct VellumAssistantApp: App {
             EmptyView()
         }
         .commands {
-            CommandMenu("File") {
-                Button("New Chat") {
-                    appDelegate.openNewChat()
-                }
-                .keyboardShortcut("n", modifiers: .command)
-                Button("Mark All Threads as Seen") {
-                    appDelegate.markAllThreadsSeen()
-                }
-                .keyboardShortcut("k", modifiers: [.command, .shift])
-                Divider()
-                Button("Export Logs...") {
-                    appDelegate.exportAssistantLogs()
-                }
-            }
             CommandGroup(replacing: .appInfo) {
                 Button("About Vellum") {
                     appDelegate.showAboutPanel()
@@ -32,6 +18,10 @@ struct VellumAssistantApp: App {
                     appDelegate.updateManager.checkForUpdates()
                 }
                 .disabled(!appDelegate.updateManager.canCheckForUpdates)
+                Divider()
+                Button("Export Logs...") {
+                    appDelegate.exportAssistantLogs()
+                }
             }
             // Replace the default Settings menu item (which opens the SwiftUI
             // Settings scene window) with one that opens the in-app panel.
