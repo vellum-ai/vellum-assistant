@@ -15,7 +15,7 @@ struct PointerCursorModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
 
     #if os(macOS)
-    @State private var isHovered = false
+    @State private var didPushCursor = false
     #endif
 
     func body(content: Content) -> some View {
@@ -26,17 +26,18 @@ struct PointerCursorModifier: ViewModifier {
         } else {
             content
                 .onHover { hovering in
-                    isHovered = hovering
-                    guard isEnabled else { return }
-                    if hovering {
+                    if hovering && isEnabled {
                         NSCursor.pointingHand.push()
-                    } else {
+                        didPushCursor = true
+                    } else if didPushCursor {
                         NSCursor.pop()
+                        didPushCursor = false
                     }
                 }
                 .onDisappear {
-                    if isHovered {
+                    if didPushCursor {
                         NSCursor.pop()
+                        didPushCursor = false
                     }
                 }
         }
