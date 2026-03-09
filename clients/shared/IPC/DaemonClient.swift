@@ -1016,19 +1016,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return await httpTransport.fetchUsageTotals(from: from, to: to)
         }
 
-        guard let request = buildLocalRequest(
-            target: .daemon,
-            path: "v1/usage/totals?from=\(from)&to=\(to)",
-            timeout: 10
-        ) else { return nil }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-            return try JSONDecoder().decode(UsageTotalsResponse.self, from: data)
-        } catch {
-            return nil
-        }
+        return await executeLocalRequest(path: "v1/usage/totals?from=\(from)&to=\(to)", timeout: 10)
     }
 
     /// Fetch per-day usage buckets for a time range (epoch milliseconds).
@@ -1037,19 +1025,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
             return await httpTransport.fetchUsageDaily(from: from, to: to)
         }
 
-        guard let request = buildLocalRequest(
-            target: .daemon,
-            path: "v1/usage/daily?from=\(from)&to=\(to)",
-            timeout: 10
-        ) else { return nil }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-            return try JSONDecoder().decode(UsageDailyResponse.self, from: data)
-        } catch {
-            return nil
-        }
+        return await executeLocalRequest(path: "v1/usage/daily?from=\(from)&to=\(to)", timeout: 10)
     }
 
     /// Fetch grouped usage breakdown for a time range (epoch milliseconds).
@@ -1059,19 +1035,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         let encoded = groupBy.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? groupBy
-        guard let request = buildLocalRequest(
-            target: .daemon,
-            path: "v1/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)",
-            timeout: 10
-        ) else { return nil }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-            return try JSONDecoder().decode(UsageBreakdownResponse.self, from: data)
-        } catch {
-            return nil
-        }
+        return await executeLocalRequest(path: "v1/usage/breakdown?from=\(from)&to=\(to)&groupBy=\(encoded)", timeout: 10)
     }
 
     // MARK: - Workspace API
@@ -1095,15 +1059,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
         let queryPath = path.isEmpty ? "v1/workspace/tree" : "v1/workspace/tree?path=\(encoded)"
-        guard let request = buildLocalRequest(target: .daemon, path: queryPath, timeout: 10) else { return nil }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-            return try JSONDecoder().decode(WorkspaceTreeResponse.self, from: data)
-        } catch {
-            return nil
-        }
+        return await executeLocalRequest(path: queryPath, timeout: 10)
     }
 
     /// Fetch a single workspace file's metadata and optional content.
@@ -1114,19 +1070,7 @@ public final class DaemonClient: ObservableObject, DaemonClientProtocol {
         }
 
         let encoded = path.addingPercentEncoding(withAllowedCharacters: Self.queryValueAllowed) ?? path
-        guard let request = buildLocalRequest(
-            target: .daemon,
-            path: "v1/workspace/file?path=\(encoded)",
-            timeout: 10
-        ) else { return nil }
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-            return try JSONDecoder().decode(WorkspaceFileResponse.self, from: data)
-        } catch {
-            return nil
-        }
+        return await executeLocalRequest(path: "v1/workspace/file?path=\(encoded)", timeout: 10)
     }
 
     /// Build a URL for streaming/downloading workspace file content.
