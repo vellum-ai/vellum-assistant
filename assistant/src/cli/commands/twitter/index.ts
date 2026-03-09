@@ -176,7 +176,6 @@ Examples:
         return {
           message: "Session imported successfully",
           cookieCount: session.cookies.length,
-          recordingId: session.recordingId,
         };
       });
     });
@@ -297,8 +296,6 @@ Examples:
         ? {
             browserSessionActive: true,
             cookieCount: session.cookies.length,
-            importedAt: session.importedAt,
-            recordingId: session.recordingId,
           }
         : { browserSessionActive: false };
 
@@ -393,7 +390,9 @@ Examples:
     .action(async (value: string, _opts: unknown, cmd: Command) => {
       const json = getJson(cmd);
       try {
-        const r = await sendTwitterConfigRequest("set_strategy", { strategy: value });
+        const r = await sendTwitterConfigRequest("set_strategy", {
+          strategy: value,
+        });
         if (r.success) {
           output({ ok: true, strategy: r.strategy }, json);
         } else {

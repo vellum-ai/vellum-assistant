@@ -490,7 +490,6 @@ export async function refreshSessionFromExtension(): Promise<AmazonSession> {
 
   const session: AmazonSession = {
     cookies,
-    importedAt: new Date().toISOString(),
   };
 
   saveSession(session);

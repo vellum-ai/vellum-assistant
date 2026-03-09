@@ -143,7 +143,6 @@ Examples:
         return {
           message: "Session imported successfully",
           cookieCount: session.cookies.length,
-          recordingId: session.recordingId,
         };
       });
     });
@@ -267,8 +266,7 @@ Examples:
       "after",
       `
 Reports whether an Amazon session is currently stored locally. If a session
-exists, returns the cookie count, import timestamp, and recording ID. If no
-session exists, returns loggedIn: false.
+exists, returns the cookie count. If no session exists, returns loggedIn: false.
 
 Use this to verify session health before running shopping commands.
 
@@ -284,8 +282,6 @@ Examples:
             ok: true,
             loggedIn: true,
             cookieCount: session.cookies.length,
-            importedAt: session.importedAt,
-            recordingId: session.recordingId,
           },
           getJson(cmd),
         );
@@ -920,6 +916,5 @@ async function extractSessionFromChromeCookies(): Promise<
 
   return {
     cookies,
-    importedAt: new Date().toISOString(),
   };
 }

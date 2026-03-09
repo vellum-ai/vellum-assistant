@@ -14,8 +14,7 @@ export type AmazonSession = CookieSession;
 
 const store = createSessionStore("amazon");
 
-export const { loadSession, saveSession, clearSession, getCookieHeader } =
-  store;
+export const { loadSession, saveSession, clearSession } = store;
 
 /**
  * Import cookies from a Ride Shotgun recording file.

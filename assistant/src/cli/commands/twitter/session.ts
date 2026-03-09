@@ -24,8 +24,6 @@ const store = createSessionStore("twitter");
 export const loadSession: () => TwitterSession | null = store.loadSession;
 export const saveSession: (session: TwitterSession) => void = store.saveSession;
 export const clearSession: () => void = store.clearSession;
-export const getCookieHeader: (session: TwitterSession) => string =
-  store.getCookieHeader;
 
 /**
  * Import cookies from a Ride Shotgun recording file.
