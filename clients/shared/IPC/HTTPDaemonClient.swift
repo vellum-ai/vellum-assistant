@@ -203,6 +203,8 @@ public final class HTTPTransport {
         registerDocumentsRoutes()
         registerWorkItemsRoutes()
         registerSubagentsRoutes()
+        registerSessionRoutes()
+        registerSkillRoutes()
     }
 
     // MARK: - Endpoint Builder
@@ -295,6 +297,31 @@ public final class HTTPTransport {
         case subagentDetail(id: String)
         case subagentAbort(id: String)
         case subagentMessage(id: String)
+        // Session management
+        case conversationsSwitch
+        case conversationRename(id: String)
+        case conversationsClear
+        case conversationCancel(id: String)
+        case conversationUndo(id: String)
+        case conversationRegenerate(id: String)
+        case model
+        case modelImageGen
+        case conversationSearch(query: String, limit: Int?, maxMessagesPerConversation: Int?)
+        case messageContent(id: String, sessionId: String?)
+        case deleteQueuedMessage(id: String, sessionId: String)
+        // Skill management
+        case skillsList
+        case skillEnable(id: String)
+        case skillDisable(id: String)
+        case skillConfigure(id: String)
+        case skillInstall
+        case skillUninstall(id: String)
+        case skillUpdate(id: String)
+        case skillsCheckUpdates
+        case skillsSearch(query: String)
+        case skillInspect(id: String)
+        case skillsDraft
+        case skillsCreate
     }
 
     /// Build a URL for the given endpoint using the current route mode.
@@ -517,6 +544,76 @@ public final class HTTPTransport {
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("/v1/subagents/\(encoded)/message", nil)
+        // Session management
+        case .conversationsSwitch:
+            return ("/v1/conversations/switch", nil)
+        case .conversationRename(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/conversations/\(encoded)/name", nil)
+        case .conversationsClear:
+            return ("/v1/conversations", nil)
+        case .conversationCancel(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/conversations/\(encoded)/cancel", nil)
+        case .conversationUndo(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/conversations/\(encoded)/undo", nil)
+        case .conversationRegenerate(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/conversations/\(encoded)/regenerate", nil)
+        case .model:
+            return ("/v1/model", nil)
+        case .modelImageGen:
+            return ("/v1/model/image-gen", nil)
+        case .conversationSearch(let query, let limit, let maxMessages):
+            let qEncoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            var qs = "q=\(qEncoded)"
+            if let limit { qs += "&limit=\(limit)" }
+            if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
+            return ("/v1/conversations/search", qs)
+        case .messageContent(let id, let sessionId):
+            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            if let sessionId {
+                let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+                return ("/v1/messages/\(idEncoded)/content", "sessionId=\(sEncoded)")
+            }
+            return ("/v1/messages/\(idEncoded)/content", nil)
+        case .deleteQueuedMessage(let id, let sessionId):
+            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            return ("/v1/messages/queued/\(idEncoded)", "sessionId=\(sEncoded)")
+        // Skill management
+        case .skillsList:
+            return ("/v1/skills", nil)
+        case .skillEnable(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/skills/\(encoded)/enable", nil)
+        case .skillDisable(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/skills/\(encoded)/disable", nil)
+        case .skillConfigure(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/skills/\(encoded)/config", nil)
+        case .skillInstall:
+            return ("/v1/skills/install", nil)
+        case .skillUninstall(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/skills/\(encoded)", nil)
+        case .skillUpdate(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/skills/\(encoded)/update", nil)
+        case .skillsCheckUpdates:
+            return ("/v1/skills/check-updates", nil)
+        case .skillsSearch(let query):
+            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            return ("/v1/skills/search", "q=\(encoded)")
+        case .skillInspect(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("/v1/skills/\(encoded)/inspect", nil)
+        case .skillsDraft:
+            return ("/v1/skills/draft", nil)
+        case .skillsCreate:
+            return ("/v1/skills", nil)
         }
     }
 
@@ -720,6 +817,76 @@ public final class HTTPTransport {
         case .subagentMessage(let id):
             let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
             return ("\(prefix)/subagents/\(encoded)/message/", nil)
+        // Session management
+        case .conversationsSwitch:
+            return ("\(prefix)/conversations/switch/", nil)
+        case .conversationRename(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/conversations/\(encoded)/name/", nil)
+        case .conversationsClear:
+            return ("\(prefix)/conversations/", nil)
+        case .conversationCancel(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/conversations/\(encoded)/cancel/", nil)
+        case .conversationUndo(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/conversations/\(encoded)/undo/", nil)
+        case .conversationRegenerate(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/conversations/\(encoded)/regenerate/", nil)
+        case .model:
+            return ("\(prefix)/model/", nil)
+        case .modelImageGen:
+            return ("\(prefix)/model/image-gen/", nil)
+        case .conversationSearch(let query, let limit, let maxMessages):
+            let qEncoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            var qs = "q=\(qEncoded)"
+            if let limit { qs += "&limit=\(limit)" }
+            if let maxMessages { qs += "&maxMessagesPerConversation=\(maxMessages)" }
+            return ("\(prefix)/conversations/search/", qs)
+        case .messageContent(let id, let sessionId):
+            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            if let sessionId {
+                let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+                return ("\(prefix)/messages/\(idEncoded)/content/", "sessionId=\(sEncoded)")
+            }
+            return ("\(prefix)/messages/\(idEncoded)/content/", nil)
+        case .deleteQueuedMessage(let id, let sessionId):
+            let idEncoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            let sEncoded = sessionId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionId
+            return ("\(prefix)/messages/queued/\(idEncoded)/", "sessionId=\(sEncoded)")
+        // Skill management
+        case .skillsList:
+            return ("\(prefix)/skills/", nil)
+        case .skillEnable(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/skills/\(encoded)/enable/", nil)
+        case .skillDisable(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/skills/\(encoded)/disable/", nil)
+        case .skillConfigure(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/skills/\(encoded)/config/", nil)
+        case .skillInstall:
+            return ("\(prefix)/skills/install/", nil)
+        case .skillUninstall(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/skills/\(encoded)/", nil)
+        case .skillUpdate(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/skills/\(encoded)/update/", nil)
+        case .skillsCheckUpdates:
+            return ("\(prefix)/skills/check-updates/", nil)
+        case .skillsSearch(let query):
+            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            return ("\(prefix)/skills/search/", "q=\(encoded)")
+        case .skillInspect(let id):
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            return ("\(prefix)/skills/\(encoded)/inspect/", nil)
+        case .skillsDraft:
+            return ("\(prefix)/skills/draft/", nil)
+        case .skillsCreate:
+            return ("\(prefix)/skills/", nil)
         }
     }
 
@@ -2514,6 +2681,933 @@ public final class HTTPTransport {
             log.error("deleteWorkspaceItem failed: \(error.localizedDescription)")
             return false
         }
+    }
+
+    // MARK: - Session Management HTTP Handlers
+
+    func switchSession(conversationId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationsSwitch) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = ["conversationId": conversationId]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                // Successful switch — session_info will arrive via SSE
+                log.info("Session switch to \(conversationId) succeeded")
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await switchSession(conversationId: conversationId, isRetry: true)
+                }
+            } else {
+                log.error("Session switch failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Session switch error: \(error.localizedDescription)")
+        }
+    }
+
+    func renameSession(sessionId: String, name: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationRename(id: sessionId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = ["name": name]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                // Emit session_title_updated so the UI refreshes
+                onMessage?(.sessionTitleUpdated(SessionTitleUpdatedMessage(
+                    type: "session_title_updated",
+                    sessionId: sessionId,
+                    title: name
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await renameSession(sessionId: sessionId, name: name, isRetry: true)
+                }
+            } else {
+                log.error("Session rename failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Session rename error: \(error.localizedDescription)")
+        }
+    }
+
+    func clearAllSessions(isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationsClear) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 204 || http.statusCode == 200 {
+                onMessage?(.sessionListResponse(SessionListResponseMessage(
+                    type: "session_list_response",
+                    sessions: [],
+                    hasMore: nil
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await clearAllSessions(isRetry: true)
+                }
+            } else {
+                log.error("Clear sessions failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Clear sessions error: \(error.localizedDescription)")
+        }
+    }
+
+    func cancelGeneration(sessionId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationCancel(id: sessionId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 202 || http.statusCode == 200 {
+                log.info("Cancel generation succeeded for \(sessionId)")
+                // generation_cancelled will arrive via SSE
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await cancelGeneration(sessionId: sessionId, isRetry: true)
+                }
+            } else {
+                log.error("Cancel generation failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Cancel generation error: \(error.localizedDescription)")
+        }
+    }
+
+    func undoLastMessage(sessionId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationUndo(id: sessionId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let removedCount = json["removedCount"] as? Int {
+                    onMessage?(.undoComplete(UndoCompleteMessage(
+                        type: "undo_complete",
+                        removedCount: removedCount,
+                        sessionId: sessionId
+                    )))
+                }
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await undoLastMessage(sessionId: sessionId, isRetry: true)
+                }
+            } else {
+                log.error("Undo failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Undo error: \(error.localizedDescription)")
+        }
+    }
+
+    func regenerateLastResponse(sessionId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationRegenerate(id: sessionId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 202 || http.statusCode == 200 {
+                log.info("Regenerate succeeded for \(sessionId)")
+                // Response messages will arrive via SSE
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await regenerateLastResponse(sessionId: sessionId, isRetry: true)
+                }
+            } else {
+                log.error("Regenerate failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Regenerate error: \(error.localizedDescription)")
+        }
+    }
+
+    func fetchModelInfo(isRetry: Bool = false) async {
+        guard let url = buildURL(for: .model) else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                let patched = injectType("model_info", into: data)
+                let decoded = try decoder.decode(ModelInfoMessage.self, from: patched)
+                onMessage?(.modelInfo(decoded))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await fetchModelInfo(isRetry: true)
+                }
+            } else {
+                log.error("Model get failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Model get error: \(error.localizedDescription)")
+        }
+    }
+
+    func setModel(modelId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .model) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = ["modelId": modelId]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                let patched = injectType("model_info", into: data)
+                let decoded = try decoder.decode(ModelInfoMessage.self, from: patched)
+                onMessage?(.modelInfo(decoded))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await setModel(modelId: modelId, isRetry: true)
+                }
+            } else {
+                log.error("Model set failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Model set error: \(error.localizedDescription)")
+        }
+    }
+
+    func setImageGenModel(modelId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .modelImageGen) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = ["modelId": modelId]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                // model_info will arrive via SSE or the response itself
+                let patched = injectType("model_info", into: data)
+                if let decoded = try? decoder.decode(ModelInfoMessage.self, from: patched) {
+                    onMessage?(.modelInfo(decoded))
+                }
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await setImageGenModel(modelId: modelId, isRetry: true)
+                }
+            } else {
+                log.error("Image gen model set failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Image gen model set error: \(error.localizedDescription)")
+        }
+    }
+
+    func searchConversations(query: String, limit: Int?, maxMessagesPerConversation: Int?, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .conversationSearch(query: query, limit: limit, maxMessagesPerConversation: maxMessagesPerConversation)) else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                let patched = injectType("conversation_search_response", into: data)
+                let decoded = try decoder.decode(IPCConversationSearchResponse.self, from: patched)
+                onMessage?(.conversationSearchResponse(decoded))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await searchConversations(query: query, limit: limit, maxMessagesPerConversation: maxMessagesPerConversation, isRetry: true)
+                }
+            } else {
+                log.error("Conversation search failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Conversation search error: \(error.localizedDescription)")
+        }
+    }
+
+    func fetchMessageContent(sessionId: String, messageId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .messageContent(id: messageId, sessionId: sessionId)) else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                let patched = injectType("message_content_response", into: data)
+                let decoded = try decoder.decode(IPCMessageContentResponse.self, from: patched)
+                onMessage?(.messageContentResponse(decoded))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await fetchMessageContent(sessionId: sessionId, messageId: messageId, isRetry: true)
+                }
+            } else {
+                log.error("Message content fetch failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Message content fetch error: \(error.localizedDescription)")
+        }
+    }
+
+    func deleteQueuedMessage(sessionId: String, requestId: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .deleteQueuedMessage(id: requestId, sessionId: sessionId)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                onMessage?(.messageQueuedDeleted(MessageQueuedDeletedMessage(
+                    sessionId: sessionId,
+                    requestId: requestId
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await deleteQueuedMessage(sessionId: sessionId, requestId: requestId, isRetry: true)
+                }
+            } else {
+                log.error("Delete queued message failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Delete queued message error: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Skill Management HTTP Handlers
+
+    func fetchSkillsList(isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillsList) else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                let patched = injectType("skills_list_response", into: data)
+                let decoded = try decoder.decode(SkillsListResponseMessage.self, from: patched)
+                onMessage?(.skillsListResponse(decoded))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await fetchSkillsList(isRetry: true)
+                }
+            } else {
+                log.error("Skills list failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Skills list error: \(error.localizedDescription)")
+        }
+    }
+
+    func enableSkill(name: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillEnable(id: name)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "enable",
+                    success: true,
+                    error: nil,
+                    data: nil
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await enableSkill(name: name, isRetry: true)
+                }
+            } else {
+                let errorMsg = extractErrorMessage(from: data)
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "enable",
+                    success: false,
+                    error: errorMsg,
+                    data: nil
+                )))
+            }
+        } catch {
+            log.error("Enable skill error: \(error.localizedDescription)")
+            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                operation: "enable",
+                success: false,
+                error: error.localizedDescription,
+                data: nil
+            )))
+        }
+    }
+
+    func disableSkill(name: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillDisable(id: name)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "disable",
+                    success: true,
+                    error: nil,
+                    data: nil
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await disableSkill(name: name, isRetry: true)
+                }
+            } else {
+                let errorMsg = extractErrorMessage(from: data)
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "disable",
+                    success: false,
+                    error: errorMsg,
+                    data: nil
+                )))
+            }
+        } catch {
+            log.error("Disable skill error: \(error.localizedDescription)")
+            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "disable",
+                    success: false,
+                    error: error.localizedDescription,
+                    data: nil
+                )))
+        }
+    }
+
+    func configureSkill(name: String, env: [String: String]?, apiKey: String?, config: [String: AnyCodable]?, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillConfigure(id: name)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [:]
+        if let env { body["env"] = env }
+        if let apiKey { body["apiKey"] = apiKey }
+        if let config {
+            // Convert AnyCodable values to raw dictionary
+            var rawConfig: [String: Any] = [:]
+            for (key, value) in config {
+                rawConfig[key] = value.value
+            }
+            body["config"] = rawConfig
+        }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "configure",
+                    success: true,
+                    error: nil,
+                    data: nil
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await configureSkill(name: name, env: env, apiKey: apiKey, config: config, isRetry: true)
+                }
+            } else {
+                let errorMsg = extractErrorMessage(from: data)
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "configure",
+                    success: false,
+                    error: errorMsg,
+                    data: nil
+                )))
+            }
+        } catch {
+            log.error("Configure skill error: \(error.localizedDescription)")
+            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "configure",
+                    success: false,
+                    error: error.localizedDescription,
+                    data: nil
+                )))
+        }
+    }
+
+    func installSkill(slug: String, version: String?, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillInstall) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = ["slug": slug]
+        if let version { body["version"] = version }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "install",
+                    success: true,
+                    error: nil,
+                    data: nil
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await installSkill(slug: slug, version: version, isRetry: true)
+                }
+            } else {
+                let errorMsg = extractErrorMessage(from: data)
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "install",
+                    success: false,
+                    error: errorMsg,
+                    data: nil
+                )))
+            }
+        } catch {
+            log.error("Install skill error: \(error.localizedDescription)")
+            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "install",
+                    success: false,
+                    error: error.localizedDescription,
+                    data: nil
+                )))
+        }
+    }
+
+    func uninstallSkill(name: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillUninstall(id: name)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 204 || http.statusCode == 200 {
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "uninstall",
+                    success: true,
+                    error: nil,
+                    data: nil
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await uninstallSkill(name: name, isRetry: true)
+                }
+            } else {
+                let errorMsg = extractErrorMessage(from: data)
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "uninstall",
+                    success: false,
+                    error: errorMsg,
+                    data: nil
+                )))
+            }
+        } catch {
+            log.error("Uninstall skill error: \(error.localizedDescription)")
+            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "uninstall",
+                    success: false,
+                    error: error.localizedDescription,
+                    data: nil
+                )))
+        }
+    }
+
+    func updateSkill(name: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillUpdate(id: name)) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "update",
+                    success: true,
+                    error: nil,
+                    data: nil
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await updateSkill(name: name, isRetry: true)
+                }
+            } else {
+                let errorMsg = extractErrorMessage(from: data)
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "update",
+                    success: false,
+                    error: errorMsg,
+                    data: nil
+                )))
+            }
+        } catch {
+            log.error("Update skill error: \(error.localizedDescription)")
+            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "update",
+                    success: false,
+                    error: error.localizedDescription,
+                    data: nil
+                )))
+        }
+    }
+
+    func checkSkillUpdates(isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillsCheckUpdates) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                // The check-updates endpoint returns {data: ...}
+                // Emit as a skills_operation_response with success
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "check_updates",
+                    success: true,
+                    error: nil,
+                    data: nil
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await checkSkillUpdates(isRetry: true)
+                }
+            } else {
+                let errorMsg = extractErrorMessage(from: data)
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "check_updates",
+                    success: false,
+                    error: errorMsg,
+                    data: nil
+                )))
+            }
+        } catch {
+            log.error("Check skill updates error: \(error.localizedDescription)")
+            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "check_updates",
+                    success: false,
+                    error: error.localizedDescription,
+                    data: nil
+                )))
+        }
+    }
+
+    func searchSkills(query: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillsSearch(query: query)) else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                // The HTTP route returns { data: ... }. The IPC handler emits
+                // skills_operation_response with operation: "search".
+                // Try to decode the `data` field as ClawhubSearchData.
+                var searchData: ClawhubSearchData?
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let dataObj = json["data"],
+                   let dataBytes = try? JSONSerialization.data(withJSONObject: dataObj) {
+                    searchData = try? decoder.decode(ClawhubSearchData.self, from: dataBytes)
+                }
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "search",
+                    success: true,
+                    error: nil,
+                    data: searchData
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await searchSkills(query: query, isRetry: true)
+                }
+            } else {
+                let errorMsg = extractErrorMessage(from: data)
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "search",
+                    success: false,
+                    error: errorMsg,
+                    data: nil
+                )))
+            }
+        } catch {
+            log.error("Skills search error: \(error.localizedDescription)")
+            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "search",
+                    success: false,
+                    error: error.localizedDescription,
+                    data: nil
+                )))
+        }
+    }
+
+    func inspectSkill(slug: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillInspect(id: slug)) else { return }
+
+        var request = URLRequest(url: url)
+        applyAuth(&request)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                let patched = injectType("skills_inspect_response", into: data)
+                // The HTTP response may not contain "slug", inject it
+                var json = (try? JSONSerialization.jsonObject(with: patched) as? [String: Any]) ?? [:]
+                if json["slug"] == nil { json["slug"] = slug }
+                json["type"] = "skills_inspect_response"
+                let enriched = (try? JSONSerialization.data(withJSONObject: json)) ?? patched
+                let decoded = try decoder.decode(SkillsInspectResponseMessage.self, from: enriched)
+                onMessage?(.skillsInspectResponse(decoded))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await inspectSkill(slug: slug, isRetry: true)
+                }
+            } else {
+                log.error("Skill inspect failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Skill inspect error: \(error.localizedDescription)")
+        }
+    }
+
+    func draftSkill(sourceText: String, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillsDraft) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        let body: [String: Any] = ["sourceText": sourceText]
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 200 {
+                let patched = injectType("skills_draft_response", into: data)
+                let decoded = try decoder.decode(SkillsDraftResponseMessage.self, from: patched)
+                onMessage?(.skillsDraftResponse(decoded))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await draftSkill(sourceText: sourceText, isRetry: true)
+                }
+            } else {
+                log.error("Skill draft failed (HTTP \(http.statusCode))")
+            }
+        } catch {
+            log.error("Skill draft error: \(error.localizedDescription)")
+        }
+    }
+
+    func createSkill(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String, userInvocable: Bool?, disableModelInvocation: Bool?, overwrite: Bool?, isRetry: Bool = false) async {
+        guard let url = buildURL(for: .skillsCreate) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+
+        var body: [String: Any] = [
+            "skillId": skillId,
+            "name": name,
+            "description": description,
+            "bodyMarkdown": bodyMarkdown
+        ]
+        if let emoji { body["emoji"] = emoji }
+        if let userInvocable { body["userInvocable"] = userInvocable }
+        if let disableModelInvocation { body["disableModelInvocation"] = disableModelInvocation }
+        if let overwrite { body["overwrite"] = overwrite }
+
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let http = response as? HTTPURLResponse else { return }
+
+            if http.statusCode == 201 || http.statusCode == 200 {
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "create",
+                    success: true,
+                    error: nil,
+                    data: nil
+                )))
+            } else if http.statusCode == 401 && !isRetry {
+                let refreshResult = await handleAuthenticationFailureAsync(responseData: data)
+                if case .success = refreshResult {
+                    await createSkill(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown, userInvocable: userInvocable, disableModelInvocation: disableModelInvocation, overwrite: overwrite, isRetry: true)
+                }
+            } else {
+                let errorMsg = extractErrorMessage(from: data)
+                onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "create",
+                    success: false,
+                    error: errorMsg,
+                    data: nil
+                )))
+            }
+        } catch {
+            log.error("Create skill error: \(error.localizedDescription)")
+            onMessage?(.skillsOperationResponse(SkillsOperationResponseMessage(
+                    operation: "create",
+                    success: false,
+                    error: error.localizedDescription,
+                    data: nil
+                )))
+        }
+    }
+
+    /// Extract an error message from an HTTP error response body.
+    private func extractErrorMessage(from data: Data) -> String {
+        if let envelope = try? decoder.decode(HTTPErrorEnvelope.self, from: data) {
+            return envelope.error.message
+        }
+        return "Unknown error"
+    }
+
+    /// Inject a `"type"` field into a JSON response before decoding.
+    /// HTTP endpoints return raw payloads without the IPC `type` discriminator.
+    /// This helper patches the JSON so existing Codable types (which expect
+    /// `type`) can decode unchanged.
+    private func injectType(_ typeValue: String, into data: Data) -> Data {
+        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return data
+        }
+        json["type"] = typeValue
+        return (try? JSONSerialization.data(withJSONObject: json)) ?? data
     }
 
     // MARK: - Disconnect

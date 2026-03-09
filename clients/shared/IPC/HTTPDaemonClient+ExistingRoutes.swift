@@ -25,10 +25,6 @@ extension HTTPTransport {
             } else if let msg = message as? SecretResponseMessage {
                 Task { await self.sendSecret(requestId: msg.requestId, value: msg.value, delivery: msg.delivery) }
                 return true
-            } else if let msg = message as? CancelMessage {
-                // Best-effort cancel — no dedicated endpoint yet
-                log.info("Cancel requested for session \(msg.sessionId ?? "unknown") (no-op over HTTP)")
-                return true
             } else if let msg = message as? SessionCreateMessage {
                 // For HTTP transport, session creation is implicit — the conversationKey
                 // acts as the session. Emit a synthetic session_info so ChatViewModel
