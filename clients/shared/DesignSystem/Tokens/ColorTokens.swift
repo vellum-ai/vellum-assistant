@@ -325,4 +325,10 @@ public enum VColor {
     public static let iconGhostActiveBg = adaptiveColor(light: Moss._100, dark: Moss._700)
     public static let iconGhostActivePressed = adaptiveColor(light: Moss._200, dark: Moss._600)
     public static let iconGhostActiveDisabled = adaptiveColor(light: Moss._100, dark: Moss._700)
+
+    // Sidebar drop indicator
+    public static let dropIndicator = adaptiveColor(light: Forest._500, dark: Forest._400)
+
+    // Sidebar action text (Show more / Show less)
+    public static let sidebarActionText = adaptiveColor(light: Forest._600, dark: Forest._400)
 }
