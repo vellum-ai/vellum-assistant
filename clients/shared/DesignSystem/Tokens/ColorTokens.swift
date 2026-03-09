@@ -262,7 +262,7 @@ public enum VColor {
     // Skill category colors (constellation)
     public static let skillCatCommunication = Color(hex: 0x8B5DAA)
     public static let skillCatProductivity = Color(hex: 0x4682B4)
-    public static let skillCatDevelopment = Danger._700
+    public static let skillCatDevelopment = Color(hex: 0xC1421B)
     public static let skillCatMedia = Color(hex: 0xD4A017)
     public static let skillCatAutomation = Color(hex: 0x2E8B57)
     public static let skillCatWebSocial = Color(hex: 0xCD853F)
