@@ -449,7 +449,13 @@ public final class SettingsStore: ObservableObject {
         $sendPerformanceReports
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-            .sink { UserDefaults.standard.set($0, forKey: "sendPerformanceReports") }
+            .sink {
+                UserDefaults.standard.set($0, forKey: "sendPerformanceReports")
+                // Restart Sentry so the updated profilesSampleRate takes effect
+                // (Sentry config is immutable after start).
+                MetricKitManager.closeSentry()
+                MetricKitManager.startSentry()
+            }
             .store(in: &cancellables)
 
         // Persist shortcut changes immediately so the hotkey re-registers without delay
