@@ -557,25 +557,11 @@ export async function handleSendMessage(
   }
 
   const onEvent = makeHubPublisher(smDeps, mapping.conversationId, session);
-  // Route server-authoritative state signals (confirmation_state_changed,
-  // assistant_activity_state) to the SSE hub. Without this, these signals
-  // only travel through session.sendToClient, which is a no-op for
-  // socketless HTTP sessions.
-  session.setStateSignalListener(onEvent);
-
-  // Route ui_surface_show/complete/update events through the SSE hub.
-  // sendToClient is a no-op for HTTP sessions, but tool execution (e.g.
-  // the surface proxy resolver) sends surface events through it directly.
-  // This wrapper ensures those events also reach SSE consumers.
-  session.updateClient((msg) => {
-    if (
-      msg.type === "ui_surface_show" ||
-      msg.type === "ui_surface_complete" ||
-      msg.type === "ui_surface_update"
-    ) {
-      onEvent(msg);
-    }
-  }, true);
+  // Wire sendToClient to the SSE hub so all subsystems (prompter, surface
+  // resolver, notifiers, trace emitter) can reach the HTTP client.  The
+  // IPC socket removal (PR #14431) left sendToClient as a no-op; this
+  // restores the delivery path using the SSE hub instead.
+  session.updateClient(onEvent, true);
 
   const attachments = hasAttachments
     ? smDeps.resolveAttachments(attachmentIds)
@@ -627,7 +613,7 @@ export async function handleSendMessage(
     // can finish the current turn and process this queued message.
     if (session.hasAnyPendingConfirmation()) {
       // Emit authoritative denial state for each pending request.
-      // The onStateSignal listener routes these to the SSE hub automatically.
+      // sendToClient (wired to the SSE hub) delivers these to the client.
       for (const interaction of pendingInteractions.getByConversation(
         mapping.conversationId,
       )) {
