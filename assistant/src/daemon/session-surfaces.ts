@@ -560,20 +560,42 @@ export function handleSurfaceAction(
     ctx.surfaceActionRequestIds.add(requestId);
     const onEvent = (msg: ServerMessage) => ctx.sendToClient(msg);
 
-    // Echo the prompt to the client so it appears in the chat UI
-    ctx.sendToClient({
-      type: "user_message_echo",
-      text: prompt,
-      sessionId: ctx.conversationId,
-    });
-
     ctx.traceEmitter.emit("request_received", "Surface action received", {
       requestId,
       status: "info",
       attributes: { source: "surface_action", surfaceId, actionId },
     });
 
-    ctx.enqueueMessage(prompt, [], onEvent, requestId, surfaceId);
+    const result = ctx.enqueueMessage(
+      prompt,
+      [],
+      onEvent,
+      requestId,
+      surfaceId,
+    );
+    if (result.rejected) {
+      log.error({ surfaceId, actionId }, "Relay prompt rejected — queue full");
+      onEvent(
+        buildSessionErrorMessage(ctx.conversationId, {
+          code: "QUEUE_FULL",
+          userMessage:
+            "Message queue is full (max depth: 10). Please wait for current messages to be processed.",
+          retryable: true,
+          debugDetails: "Relay prompt rejected — session queue is full",
+        }),
+      );
+      return;
+    }
+
+    // Echo the prompt to the client so it appears in the chat UI.
+    // Sent after enqueue succeeds so the user doesn't see a prompt that
+    // won't be processed.
+    ctx.sendToClient({
+      type: "user_message_echo",
+      text: prompt,
+      sessionId: ctx.conversationId,
+    });
+
     log.info(
       { surfaceId, actionId, requestId },
       "Relay prompt handled without pending surface (history-restored)",
@@ -1057,7 +1079,7 @@ export async function surfaceProxyResolver(
         surfaceType,
         title,
         dataKeys: Object.keys(data),
-        actionCount: mappedActions.length,
+        actionCount: mappedActions?.length ?? 0,
         display,
         conversationId: ctx.conversationId,
       },
