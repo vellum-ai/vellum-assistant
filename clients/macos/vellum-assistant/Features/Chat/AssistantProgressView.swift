@@ -554,50 +554,63 @@ private struct StepDetailRow: View {
                             .frame(width: 16)
                     }
 
-                    // Title + reason
+                    // Title (reason-first, falling back to action/running label)
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         if toolCall.isComplete {
-                            Text(toolCall.actionDescription)
+                            Text({
+                                if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                                    return reason
+                                }
+                                return toolCall.actionDescription
+                            }())
                                 .font(VFont.bodyMedium)
                                 .foregroundColor(toolCall.isError ? VColor.error : VColor.textPrimary)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         } else if phase == .denied {
-                            Text("Blocked — " + ChatBubble.friendlyRunningLabel(
-                                toolCall.toolName,
-                                inputSummary: toolCall.inputSummary,
-                                buildingStatus: toolCall.buildingStatus
-                            ))
+                            Text({
+                                if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                                    return "Blocked — " + reason
+                                }
+                                return "Blocked — " + ChatBubble.friendlyRunningLabel(
+                                    toolCall.toolName,
+                                    inputSummary: toolCall.inputSummary,
+                                    buildingStatus: toolCall.buildingStatus
+                                )
+                            }())
                             .font(VFont.bodyMedium)
                             .foregroundColor(VColor.textMuted)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         } else {
-                            Text(ChatBubble.friendlyRunningLabel(
-                                toolCall.toolName,
-                                inputSummary: toolCall.inputSummary,
-                                buildingStatus: toolCall.buildingStatus
-                            ))
+                            Text({
+                                if let reason = toolCall.reasonDescription, !reason.isEmpty {
+                                    return reason
+                                }
+                                return ChatBubble.friendlyRunningLabel(
+                                    toolCall.toolName,
+                                    inputSummary: toolCall.inputSummary,
+                                    buildingStatus: toolCall.buildingStatus
+                                )
+                            }())
                             .font(VFont.bodyMedium)
                             .foregroundColor(VColor.textPrimary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         }
-
-                        // Reason subtitle — only for completed tools
-                        if let reason = toolCall.reasonDescription, !reason.isEmpty, toolCall.isComplete {
-                            Text(reason)
-                                .font(VFont.caption)
-                                .foregroundColor(VColor.textMuted)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
                     }
 
                     Spacer()
 
-                    // Duration + chevron (completed only)
+                    // Permission badge + duration + chevron (completed only)
                     HStack(spacing: VSpacing.xs) {
+                        if let decision = toolCall.confirmationDecision {
+                            compactPermissionChip(
+                                state: decision,
+                                label: toolCall.confirmationLabel ?? toolCall.toolName
+                            )
+                        }
+
                         if let start = toolCall.startedAt, let end = toolCall.completedAt, toolCall.isComplete {
                             Text(formatDuration(end.timeIntervalSince(start)))
                                 .font(VFont.small)
@@ -683,6 +696,9 @@ private struct StepDetailRow: View {
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(toolCall.actionDescription)
+                        .font(VFont.captionMedium)
+                        .foregroundColor(VColor.textSecondary)
                     Text(toolCall.friendlyName)
                         .font(VFont.captionMedium)
                         .foregroundColor(VColor.textSecondary)
@@ -851,6 +867,44 @@ private struct StepDetailRow: View {
         seconds < 60
             ? String(format: "%.1fs", seconds)
             : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
+    }
+
+    /// Renders a compact permission chip from a confirmation state + label.
+    private func compactPermissionChip(state: ToolConfirmationState, label: String) -> some View {
+        let isApproved = state == .approved
+        let isDenied = state == .denied
+        let chipColor: Color = isApproved ? VColor.iconAccent : isDenied ? VColor.error : VColor.textMuted
+
+        return HStack(spacing: VSpacing.xxs) {
+            Group {
+                switch state {
+                case .approved:
+                    VIconView(.circleCheck, size: 10)
+                        .foregroundColor(chipColor)
+                case .denied:
+                    VIconView(.circleAlert, size: 10)
+                        .foregroundColor(chipColor)
+                case .timedOut:
+                    VIconView(.clock, size: 10)
+                        .foregroundColor(chipColor)
+                default:
+                    EmptyView()
+                }
+            }
+
+            Text(isApproved ? "\(label) Allowed" :
+                 isDenied ? "\(label) Denied" : "Timed Out")
+                .font(VFont.small)
+                .foregroundColor(chipColor)
+        }
+        .padding(.horizontal, VSpacing.xs)
+        .padding(.vertical, VSpacing.xxs)
+        .background(
+            Capsule().fill(Color.clear)
+        )
+        .overlay(
+            Capsule().stroke(chipColor.opacity(0.3), lineWidth: 1)
+        )
     }
 }
 
