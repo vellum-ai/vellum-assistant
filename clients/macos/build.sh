@@ -902,6 +902,18 @@ codesign "${APP_SIGN_FLAGS[@]}" "$APP_DIR"
 
 echo "Built: $APP_DIR"
 
+# Generate dSYM debug symbol bundles for Sentry crash symbolication (release only)
+if [ "$CONFIG" = "release" ]; then
+    echo "Generating dSYM debug symbols..."
+    dsymutil "$MACOS_DIR/$BUNDLE_DISPLAY_NAME" -o "$SCRIPT_DIR/dist/$BUNDLE_DISPLAY_NAME.app.dSYM"
+    echo "Generated dSYM: dist/$BUNDLE_DISPLAY_NAME.app.dSYM"
+
+    if [ -f "$FRAMEWORKS_DIR/Sentry.framework/Versions/A/Sentry" ]; then
+        dsymutil "$FRAMEWORKS_DIR/Sentry.framework/Versions/A/Sentry" -o "$SCRIPT_DIR/dist/Sentry.framework.dSYM"
+        echo "Generated dSYM: dist/Sentry.framework.dSYM"
+    fi
+fi
+
 # 7. Run if requested
 if [ "$CMD" = "run" ]; then
     echo "Launching..."
