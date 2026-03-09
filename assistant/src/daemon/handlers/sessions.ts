@@ -629,31 +629,58 @@ export function handleUsageRequest(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Shared business logic (transport-agnostic)
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete a queued message from a session.
+ * Returns `{ removed: true }` on success, `{ removed: false, reason }` on failure.
+ */
+export function deleteQueuedMessage(
+  sessionId: string,
+  requestId: string,
+  findSession: (id: string) => { removeQueuedMessage(requestId: string): boolean } | undefined,
+): { removed: true } | { removed: false; reason: "session_not_found" | "message_not_found" } {
+  const session = findSession(sessionId);
+  if (!session) {
+    log.warn(
+      { sessionId, requestId },
+      "No session found for delete_queued_message",
+    );
+    return { removed: false, reason: "session_not_found" };
+  }
+  const removed = session.removeQueuedMessage(requestId);
+  if (removed) {
+    return { removed: true };
+  }
+  log.warn(
+    { sessionId, requestId },
+    "Queued message not found for deletion",
+  );
+  return { removed: false, reason: "message_not_found" };
+}
+
+// ---------------------------------------------------------------------------
+// IPC handler (delegates to shared logic)
+// ---------------------------------------------------------------------------
+
 export function handleDeleteQueuedMessage(
   msg: DeleteQueuedMessage,
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const session = ctx.sessions.get(msg.sessionId);
-  if (!session) {
-    log.warn(
-      { sessionId: msg.sessionId, requestId: msg.requestId },
-      "No session found for delete_queued_message",
-    );
-    return;
-  }
-  const removed = session.removeQueuedMessage(msg.requestId);
-  if (removed) {
+  const result = deleteQueuedMessage(
+    msg.sessionId,
+    msg.requestId,
+    (id) => ctx.sessions.get(id),
+  );
+  if (result.removed) {
     ctx.send(socket, {
       type: "message_queued_deleted",
       sessionId: msg.sessionId,
       requestId: msg.requestId,
     });
-  } else {
-    log.warn(
-      { sessionId: msg.sessionId, requestId: msg.requestId },
-      "Queued message not found for deletion",
-    );
   }
 }
 

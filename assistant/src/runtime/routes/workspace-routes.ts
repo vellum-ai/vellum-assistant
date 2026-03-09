@@ -319,6 +319,11 @@ async function handleWorkspaceRename(ctx: RouteContext): Promise<Response> {
     return httpError("BAD_REQUEST", "Invalid newPath", 400);
   }
 
+  const workspaceDir = getWorkspaceDir();
+  if (resolvedOld === workspaceDir || resolvedNew === workspaceDir) {
+    return httpError("BAD_REQUEST", "Cannot rename workspace root", 400);
+  }
+
   if (!existsSync(resolvedOld)) {
     return httpError("NOT_FOUND", "Source path not found", 404);
   }
