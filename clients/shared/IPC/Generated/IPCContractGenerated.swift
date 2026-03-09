@@ -1385,11 +1385,13 @@ public struct IPCDaemonStatusMessage: Codable, Sendable {
     public let type: String
     public let httpPort: Double?
     public let version: String?
+    public let keyFingerprint: String?
 
-    public init(type: String, httpPort: Double? = nil, version: String? = nil) {
+    public init(type: String, httpPort: Double? = nil, version: String? = nil, keyFingerprint: String? = nil) {
         self.type = type
         self.httpPort = httpPort
         self.version = version
+        self.keyFingerprint = keyFingerprint
     }
 }
 
