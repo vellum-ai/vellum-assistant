@@ -5,12 +5,9 @@
  * the given domain, then analyzes captured network traffic into a deduplicated API map.
  */
 
-import * as net from "node:net";
-
 import { Command } from "commander";
 import { parse as parseTld } from "tldts";
 
-import { createMessageParser, serialize } from "../../daemon/message-protocol.js";
 import {
   analyzeApiMap,
   printApiMapTable,
@@ -18,7 +15,7 @@ import {
 } from "../../tools/browser/api-map.js";
 import { ensureChromeWithCdp } from "../../tools/browser/chrome-cdp.js";
 import { loadRecording } from "../../tools/browser/recording-store.js";
-import { getSocketPath, readSessionToken } from "../../util/platform.js";
+import { httpSend } from "../http-client.js";
 import { getCliLogger } from "../logger.js";
 
 const log = getCliLogger("cli:map");
@@ -164,105 +161,37 @@ async function startLearnSession(
     process.stderr.write(`Chrome is ready — using tab at ${tabUrl}\n`);
   }
 
-  return new Promise((resolve, reject) => {
-    const socketPath = getSocketPath();
-    const sessionToken = readSessionToken();
-    const socket = net.createConnection(socketPath);
-    const parser = createMessageParser();
-
-    socket.on("error", (err) => {
-      reject(
-        new Error(
-          `Cannot connect to assistant: ${err.message}. Is the assistant running?`,
-        ),
-      );
-    });
-
-    const timeoutHandle = setTimeout(
-      () => {
-        socket.destroy();
-        reject(
-          new Error(`Learn session timed out after ${durationSeconds + 30}s`),
-        );
-      },
-      (durationSeconds + 30) * 1000,
-    );
-    timeoutHandle.unref();
-
-    let authenticated = !sessionToken;
-
-    const sendStartCommand = () => {
-      socket.write(
-        serialize({
-          type: "ride_shotgun_start",
-          durationSeconds,
-          intervalSeconds: 5,
-          mode: "learn",
-          targetDomain: recordDomain,
-          navigateDomain,
-          autoNavigate,
-        } as unknown as import("../../daemon/message-protocol.js").ClientMessage),
-      );
-    };
-
-    socket.on("data", (chunk) => {
-      const messages = parser.feed(chunk.toString("utf-8"));
-      for (const msg of messages) {
-        const m = msg as unknown as Record<string, unknown>;
-
-        if (!authenticated && m.type === "auth_result") {
-          if ((m as { success: boolean }).success) {
-            authenticated = true;
-            sendStartCommand();
-          } else {
-            clearTimeout(timeoutHandle);
-            socket.destroy();
-            reject(new Error("Authentication failed"));
-          }
-          continue;
-        }
-
-        if (m.type === "auth_result") {
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_progress") {
-          // Live progress from auto-navigator
-          process.stderr.write(`  ${m.message}\n`);
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_error") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          reject(new Error((m as { message: string }).message));
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_result") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          resolve({
-            recordingId: m.recordingId as string | undefined,
-            recordingPath: m.recordingPath as string | undefined,
-          });
-        }
-      }
-    });
-
-    socket.on("connect", () => {
-      if (sessionToken) {
-        socket.write(
-          serialize({
-            type: "auth",
-            token: sessionToken,
-          } as unknown as import("../../daemon/message-protocol.js").ClientMessage),
-        );
-      } else {
-        sendStartCommand();
-      }
-    });
+  // Start ride shotgun via HTTP
+  const response = await httpSend("/v1/computer-use/ride-shotgun/start", {
+    method: "POST",
+    body: JSON.stringify({
+      durationSeconds,
+      intervalSeconds: 5,
+      mode: "learn",
+      targetDomain: recordDomain,
+      navigateDomain,
+      autoNavigate,
+    }),
   });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `Failed to start learn session: ${response.status} ${body}`,
+    );
+  }
+
+  const result = (await response.json()) as {
+    watchId?: string;
+    sessionId?: string;
+    recordingId?: string;
+    recordingPath?: string;
+  };
+
+  return {
+    recordingId: result.recordingId,
+    recordingPath: result.recordingPath,
+  };
 }
 
 // ---------------------------------------------------------------------------
