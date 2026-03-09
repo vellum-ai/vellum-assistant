@@ -6,19 +6,23 @@ import VellumAssistantShared
 ///
 /// Positioned in the bottom-left corner of the screen, this panel reads
 /// a JSON status file written by the Playwright agent and updates the
-/// display each time the file changes. Enabled via the `--e2e-overlay`
-/// launch argument so it only appears during automated test runs.
+/// display each time the file changes. Enabled via the `E2E_STATUS_FILE`
+/// environment variable so it only appears during automated test runs.
 @MainActor
 final class E2EStatusOverlayWindow {
     private var panel: NSPanel?
     private var viewModel: E2EStatusOverlayViewModel?
 
-    static let statusFilePath = "/tmp/vellum-e2e-status.json"
+    private let statusFilePath: String
+
+    init(statusFilePath: String) {
+        self.statusFilePath = statusFilePath
+    }
 
     func show() {
         dismiss()
 
-        let vm = E2EStatusOverlayViewModel(statusFilePath: Self.statusFilePath)
+        let vm = E2EStatusOverlayViewModel(statusFilePath: statusFilePath)
         self.viewModel = vm
 
         let hostingController = NSHostingController(rootView: E2EStatusOverlayView(viewModel: vm))

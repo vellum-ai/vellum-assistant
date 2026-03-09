@@ -183,8 +183,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         let skipOnboarding = false
         #endif
 
-        if CommandLine.arguments.contains("--e2e-overlay") {
-            let overlay = E2EStatusOverlayWindow()
+        if let statusFile = ProcessInfo.processInfo.environment["E2E_STATUS_FILE"] {
+            let overlay = E2EStatusOverlayWindow(statusFilePath: statusFile)
             overlay.show()
             self.e2eStatusOverlayWindow = overlay
         }

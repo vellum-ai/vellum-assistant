@@ -91,8 +91,6 @@ export interface AgentOptions {
   testName?: string;
 }
 
-const E2E_STATUS_FILE = "/tmp/vellum-e2e-status.json";
-
 interface E2EStatus {
   iteration: number;
   maxIterations: number;
@@ -102,17 +100,21 @@ interface E2EStatus {
   testName: string;
 }
 
-function writeE2EStatus(status: E2EStatus): void {
+function e2eStatusFilePath(testName: string): string {
+  return `/tmp/vellum-e2e-status-${testName}.json`;
+}
+
+function writeE2EStatus(statusFilePath: string, status: E2EStatus): void {
   try {
-    writeFileSync(E2E_STATUS_FILE, JSON.stringify(status));
+    writeFileSync(statusFilePath, JSON.stringify(status));
   } catch {
     // Non-critical — overlay simply won't update.
   }
 }
 
-function clearE2EStatus(): void {
+function clearE2EStatus(statusFilePath: string): void {
   try {
-    unlinkSync(E2E_STATUS_FILE);
+    unlinkSync(statusFilePath);
   } catch {
     // File may not exist.
   }
@@ -128,7 +130,7 @@ export async function runAgent(options: AgentOptions): Promise<TestResult> {
     return await runAgentLoop(options, signal);
   } finally {
     clearTimeout(timeoutId);
-    clearE2EStatus();
+    clearE2EStatus(e2eStatusFilePath(options.testName ?? "unknown"));
   }
 }
 
@@ -148,7 +150,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
     traceLog(traceLogPath, "Agent started");
   }
 
-  const executeTool = createToolExecutor(screenshotDir, workerIndex);
+  const executeTool = createToolExecutor(screenshotDir, workerIndex, testName);
   const client = new Anthropic();
   const messages: Anthropic.MessageParam[] = [
     {
@@ -159,7 +161,9 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
 
   const startTime = Date.now();
 
-  writeE2EStatus({
+  const statusFilePath = e2eStatusFilePath(testName);
+
+  writeE2EStatus(statusFilePath, {
     iteration: 0,
     maxIterations: MAX_ITERATIONS,
     tool: "—",
@@ -276,7 +280,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
       const inputStr = JSON.stringify(block.input);
       const summaryText = inputStr.length > 60 ? inputStr.slice(0, 57) + "..." : inputStr;
 
-      writeE2EStatus({
+      writeE2EStatus(statusFilePath, {
         iteration: iteration + 1,
         maxIterations: MAX_ITERATIONS,
         tool: block.name,
@@ -333,7 +337,7 @@ async function runAgentLoop(options: AgentOptions, signal: AbortSignal): Promise
 
     // If the agent reported a result, we're done
     if (finalTestResult) {
-      clearE2EStatus();
+      clearE2EStatus(statusFilePath);
       return finalTestResult;
     }
   }
