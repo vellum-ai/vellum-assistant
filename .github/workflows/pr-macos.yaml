@@ -99,6 +99,7 @@ jobs:
           bun-version: '1.3.9'
 
       - name: Design token guard
+        working-directory: .
         run: bash clients/scripts/check-design-tokens.sh --mode=strict
 
       - name: Build binaries
