@@ -21,7 +21,21 @@ extension DaemonClient {
             if let version = status.version {
                 daemonVersion = version
             }
-            keyFingerprint = status.keyFingerprint
+            if let newFingerprint = status.keyFingerprint {
+                let oldFingerprint = keyFingerprint
+                keyFingerprint = newFingerprint
+
+                if let oldFingerprint, oldFingerprint != newFingerprint {
+                    // Instance changed mid-connection
+                    log.info("Daemon key fingerprint changed (\(oldFingerprint, privacy: .public) → \(newFingerprint, privacy: .public)) — invalidating credentials")
+                    ActorTokenManager.deleteAllCredentials()
+                    NotificationCenter.default.post(name: .daemonInstanceChanged, object: nil)
+                } else if oldFingerprint == nil, ActorTokenManager.hasToken {
+                    // First daemon_status with a fingerprint, but we already have a stored token.
+                    // The reactive 401 retry (executeLocalRequest) handles re-bootstrap if the
+                    // token is stale. No proactive action needed here.
+                }
+            }
         }
 
         // Handle blob probe result internally.
