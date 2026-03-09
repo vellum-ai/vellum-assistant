@@ -32,16 +32,18 @@ struct GatewaySettingsCard: View {
 
             HStack(spacing: VSpacing.sm) {
                 Text(store.localGatewayTarget)
-                    .font(VFont.mono)
+                    .font(VFont.body)
                     .foregroundColor(VColor.textPrimary)
                     .textSelection(.enabled)
-                    .padding(VSpacing.md)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                    .frame(height: 28, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VColor.surface.opacity(0.5))
+                    .background(VColor.inputBackground)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                     .overlay(
                         RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.surfaceBorder.opacity(0.3), lineWidth: 1)
+                            .stroke(VColor.surfaceBorder, lineWidth: 1)
                     )
 
                 Button {
