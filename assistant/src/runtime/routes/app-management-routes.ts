@@ -566,9 +566,33 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
           if (!body.payload) {
             return httpError("BAD_REQUEST", "payload is required", 400);
           }
-          // For HTTP-based signing, the client provides the signature
-          // directly rather than using the IPC round-trip pattern.
-          // Return the payload hash for the client to sign.
+
+          // When all signature fields are present, complete the signing step.
+          if (body.signature && body.keyId && body.publicKey) {
+            // Extract content_hashes from the canonical payload the client signed.
+            let contentHashes: Record<string, string> = {};
+            try {
+              const parsed = JSON.parse(body.payload) as {
+                content_hashes?: Record<string, string>;
+              };
+              contentHashes = parsed.content_hashes ?? {};
+            } catch {
+              // If payload isn't valid JSON, proceed with empty hashes.
+            }
+
+            const signatureJson: import("../../bundler/bundle-signer.js").SignatureJson = {
+              algorithm: "ed25519",
+              signer: {
+                key_id: body.keyId,
+                display_name: "HTTP Signer",
+              },
+              content_hashes: contentHashes,
+              signature: body.signature,
+            };
+            return Response.json({ signed: true, signatureJson });
+          }
+
+          // Otherwise return the payload for the client to sign.
           return Response.json({
             payload: body.payload,
             message:
@@ -614,8 +638,14 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       handler: ({ params, url }) => {
         try {
           const method = url.searchParams.get("method") ?? "query";
-          const recordId = url.searchParams.get("recordId") ?? undefined;
-          const result = getAppDataResult(method, params.id, recordId);
+          if (method !== "query") {
+            return httpError(
+              "BAD_REQUEST",
+              "GET app-data only supports method=query; use POST for mutations",
+              400,
+            );
+          }
+          const result = getAppDataResult(method, params.id);
           return Response.json({ success: true, result });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
