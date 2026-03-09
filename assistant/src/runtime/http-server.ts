@@ -209,7 +209,7 @@ export class RuntimeHttpServer {
   private findSession?: RuntimeHttpServerOptions["findSession"];
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
-  private modelSetContext?: RuntimeHttpServerOptions["modelSetContext"];
+  private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
   private getComputerUseDeps?: RuntimeHttpServerOptions["getComputerUseDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private router: HttpRouter;
@@ -229,7 +229,7 @@ export class RuntimeHttpServer {
     this.findSession = options.findSession;
     this.getSkillContext = options.getSkillContext;
     this.sessionManagementDeps = options.sessionManagementDeps;
-    this.modelSetContext = options.modelSetContext;
+    this.getModelSetContext = options.getModelSetContext;
     this.getComputerUseDeps = options.getComputerUseDeps;
     this.getRecordingDeps = options.getRecordingDeps;
     this.router = new HttpRouter(this.buildRouteTable());
@@ -735,7 +735,7 @@ export class RuntimeHttpServer {
       ),
       ...subagentRouteDefinitions(),
       ...sessionQueryRouteDefinitions({
-        modelSetContext: this.modelSetContext,
+        getModelSetContext: this.getModelSetContext,
         findSessionForQueue: this.findSession
           ? (id) => {
               const s = this.findSession!(id);

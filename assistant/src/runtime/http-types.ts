@@ -204,8 +204,8 @@ export interface RuntimeHttpServerOptions {
     | undefined;
   /** Dependencies for session management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
   sessionManagementDeps?: SessionManagementDeps;
-  /** Context for model config set operations (session eviction, config reload suppression). */
-  modelSetContext?: import("../daemon/handlers/config-model.js").ModelSetContext;
+  /** Lazy factory for model config set context (session eviction, config reload suppression). */
+  getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
   /** Provider for computer-use session dependencies (CU routes). */
   getComputerUseDeps?: () => import("./routes/computer-use-routes.js").ComputerUseDeps;
   /** Provider for recording dependencies (recording routes). */
