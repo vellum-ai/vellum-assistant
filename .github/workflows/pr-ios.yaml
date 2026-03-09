@@ -33,7 +33,7 @@ jobs:
         run: rm -rf ~/Library/Caches/org.swift.swiftpm/artifacts
 
       - name: Design token guard
-        run: bash clients/scripts/check-design-tokens.sh --mode=ratchet
+        run: bash clients/scripts/check-design-tokens.sh --mode=strict
 
       - name: Build for simulator
         working-directory: clients/ios
