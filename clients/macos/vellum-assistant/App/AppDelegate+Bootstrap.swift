@@ -384,7 +384,9 @@ extension AppDelegate {
         instanceChangeObserver = NotificationCenter.default.addObserver(forName: .daemonInstanceChanged, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             log.info("Daemon instance changed — re-running credential bootstrap")
-            self.ensureActorCredentials()
+            Task { @MainActor in
+                self.ensureActorCredentials()
+            }
         }
 
         actorTokenBootstrapTask = Task { [weak self] in
