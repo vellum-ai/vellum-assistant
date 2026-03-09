@@ -29,6 +29,7 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
   ]),
   gateway_ingress_v1: new Set<Scope>(["ingress.write", "internal.write"]),
   gateway_service_v1: new Set<Scope>([
+    "chat.read",
     "chat.write",
     "settings.read",
     "settings.write",

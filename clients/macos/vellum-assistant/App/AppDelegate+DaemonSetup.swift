@@ -95,8 +95,10 @@ extension AppDelegate {
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
             // Local assistant or no assistant — use HTTP transport to the local daemon.
             // Bearer token is nil; resolved lazily at connect time.
-            let portString = ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "7821"
-            let port = Int(portString) ?? 7821
+            // Prefer the lockfile's daemonPort (per-instance), then env var, then default.
+            let port = assistant?.daemonPort
+                ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
+                ?? 7821
             let baseURL = "http://localhost:\(port)"
             let conversationKey = assistant?.assistantId ?? UUID().uuidString
             let instanceDir = assistant?.instanceDir
@@ -414,11 +416,15 @@ extension AppDelegate {
             // prevents tearing down the coordinator's in-flight HTTP connection
             // via disconnectInternal().
             if !daemonClient.isConnected && !daemonClient.isConnecting {
+                log.info("setupDaemonClient: calling connect()")
                 do {
                     try await daemonClient.connect()
+                    log.info("setupDaemonClient: connect() succeeded, isConnected=\(self.daemonClient.isConnected)")
                 } catch {
                     log.error("Failed to connect to daemon during setup: \(error)")
                 }
+            } else {
+                log.info("setupDaemonClient: skipping connect() — isConnected=\(self.daemonClient.isConnected), isConnecting=\(self.daemonClient.isConnecting)")
             }
             // Once connected, start ambient agent if it was waiting for daemon
             if daemonClient.isConnected {
