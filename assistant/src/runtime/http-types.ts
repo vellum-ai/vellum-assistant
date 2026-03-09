@@ -9,6 +9,7 @@ import type {
 import type { ServerMessage } from "../daemon/ipc-protocol.js";
 import type { Session } from "../daemon/session.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import type { SessionManagementDeps } from "./routes/session-management-routes.js";
 import type {
   ApprovalMessageContext,
   ComposeApprovalMessageGenerativeOptions,
@@ -198,6 +199,8 @@ export interface RuntimeHttpServerOptions {
         removeQueuedMessage?: (requestId: string) => boolean;
       }
     | undefined;
+  /** Dependencies for session management HTTP routes (switch, rename, clear, cancel, undo, regenerate). */
+  sessionManagementDeps?: SessionManagementDeps;
   /** Context for model config set operations (session eviction, config reload suppression). */
   modelSetContext?: import("../daemon/handlers/config-model.js").ModelSetContext;
   /** Provider for computer-use session dependencies (CU routes). */

@@ -333,16 +333,24 @@ export function handleSessionList(
   });
 }
 
-export function handleSessionsClear(
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
+/**
+ * Clear all sessions and DB conversations. Returns the number of sessions cleared.
+ */
+export function clearAllSessions(ctx: HandlerContext): number {
   const cleared = ctx.clearAllSessions();
   // Also clear DB conversations. When a new IPC connection triggers
   // sendInitialSession, it auto-creates a conversation if none exist.
   // Without this DB clear, that auto-created row survives, contradicting
   // the "clear all conversations" intent.
   clearAll();
+  return cleared;
+}
+
+export function handleSessionsClear(
+  socket: net.Socket,
+  ctx: HandlerContext,
+): void {
+  const cleared = clearAllSessions(ctx);
   ctx.send(socket, { type: "sessions_clear_response", cleared });
 }
 
@@ -456,13 +464,60 @@ export async function handleSessionCreate(
   }
 }
 
+/**
+ * Switch to an existing session/conversation. Returns session info on success,
+ * or throws/returns an error result when the conversation is not found.
+ */
+export async function switchSession(
+  sessionId: string,
+  ctx: HandlerContext,
+  socket?: net.Socket,
+): Promise<{
+  sessionId: string;
+  title: string;
+  threadType: ReturnType<typeof normalizeThreadType>;
+} | null> {
+  const conversation = getConversation(sessionId);
+  if (!conversation) {
+    return null;
+  }
+
+  if (socket) {
+    // If the target session is headless-locked (actively executing a task run),
+    // skip rebinding the socket so tool confirmations stay suppressed.
+    const existingSession = ctx.sessions.get(sessionId);
+    const isHeadlessLocked = existingSession?.headlessLock;
+
+    ctx.socketToSession.set(socket, sessionId);
+
+    if (isHeadlessLocked) {
+      // Load the session without rebinding the client — the session stays headless
+      await ctx.getOrCreateSession(sessionId, socket, false);
+    } else {
+      const session = await ctx.getOrCreateSession(sessionId, socket, true);
+      // Only wire the escalation handler if one isn't already set — handleTaskSubmit
+      // sets a handler with the client's actual screen dimensions, and overwriting it
+      // here would replace those dimensions with the daemon's defaults.
+      if (!session.hasEscalationHandler()) {
+        wireEscalationHandler(session, socket, ctx);
+      }
+    }
+  }
+
+  return {
+    sessionId: conversation.id,
+    title: conversation.title ?? "Untitled",
+    threadType: normalizeThreadType(conversation.threadType),
+  };
+}
+
 export async function handleSessionSwitch(
   msg: SessionSwitchRequest,
   socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
-  const conversation = getConversation(msg.sessionId);
-  if (!conversation) {
+  const result = await switchSession(msg.sessionId, ctx, socket);
+  if (!result) {
     ctx.send(socket, {
       type: "error",
       message: `Session ${msg.sessionId} not found`,
@@ -470,32 +525,27 @@ export async function handleSessionSwitch(
     return;
   }
 
-  // If the target session is headless-locked (actively executing a task run),
-  // skip rebinding the socket so tool confirmations stay suppressed.
-  const existingSession = ctx.sessions.get(msg.sessionId);
-  const isHeadlessLocked = existingSession?.headlessLock;
-
-  ctx.socketToSession.set(socket, msg.sessionId);
-
-  if (isHeadlessLocked) {
-    // Load the session without rebinding the client — the session stays headless
-    await ctx.getOrCreateSession(msg.sessionId, socket, false);
-  } else {
-    const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
-    // Only wire the escalation handler if one isn't already set — handleTaskSubmit
-    // sets a handler with the client's actual screen dimensions, and overwriting it
-    // here would replace those dimensions with the daemon's defaults.
-    if (!session.hasEscalationHandler()) {
-      wireEscalationHandler(session, socket, ctx);
-    }
-  }
-
   ctx.send(socket, {
     type: "session_info",
-    sessionId: conversation.id,
-    title: conversation.title ?? "Untitled",
-    threadType: normalizeThreadType(conversation.threadType),
+    sessionId: result.sessionId,
+    title: result.title,
+    threadType: result.threadType,
   });
+}
+
+/**
+ * Rename a session/conversation. Returns true on success, false if not found.
+ */
+export function renameSession(
+  sessionId: string,
+  name: string,
+): boolean {
+  const conversation = getConversation(sessionId);
+  if (!conversation) {
+    return false;
+  }
+  updateConversationTitle(sessionId, name, 0);
+  return true;
 }
 
 export function handleSessionRename(
@@ -503,20 +553,40 @@ export function handleSessionRename(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const conversation = getConversation(msg.sessionId);
-  if (!conversation) {
+  const success = renameSession(msg.sessionId, msg.title);
+  if (!success) {
     ctx.send(socket, {
       type: "error",
       message: `Session ${msg.sessionId} not found`,
     });
     return;
   }
-  updateConversationTitle(msg.sessionId, msg.title, 0);
   ctx.send(socket, {
     type: "session_title_updated",
     sessionId: msg.sessionId,
     title: msg.title,
   });
+}
+
+/**
+ * Cancel generation for a session. Returns true if a session was found and cancelled.
+ */
+export function cancelGeneration(
+  sessionId: string,
+  ctx: HandlerContext,
+): boolean {
+  const session = ctx.sessions.get(sessionId);
+  if (!session) {
+    return false;
+  }
+  ctx.touchSession(sessionId);
+  session.abort();
+  // Also abort any child subagents spawned by this session.
+  // Omit sendToClient to suppress parent notifications — the parent is
+  // being cancelled, so enqueuing synthetic messages would trigger
+  // unwanted model activity after the user pressed stop.
+  getSubagentManager().abortAllForParent(sessionId);
+  return true;
 }
 
 export function handleCancel(
@@ -526,17 +596,24 @@ export function handleCancel(
 ): void {
   const sessionId = msg.sessionId || ctx.socketToSession.get(socket);
   if (sessionId) {
-    const session = ctx.sessions.get(sessionId);
-    if (session) {
-      ctx.touchSession(sessionId);
-      session.abort();
-      // Also abort any child subagents spawned by this session.
-      // Omit sendToClient to suppress parent notifications — the parent is
-      // being cancelled, so enqueuing synthetic messages would trigger
-      // unwanted model activity after the user pressed stop.
-      getSubagentManager().abortAllForParent(sessionId);
-    }
+    cancelGeneration(sessionId, ctx);
   }
+}
+
+/**
+ * Undo the last message in a session. Returns the removed count, or null if session not found.
+ */
+export function undoLastMessage(
+  sessionId: string,
+  ctx: HandlerContext,
+): { removedCount: number } | null {
+  const session = ctx.sessions.get(sessionId);
+  if (!session) {
+    return null;
+  }
+  ctx.touchSession(sessionId);
+  const removedCount = session.undo();
+  return { removedCount };
 }
 
 export function handleUndo(
@@ -544,18 +621,56 @@ export function handleUndo(
   socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const session = ctx.sessions.get(msg.sessionId);
-  if (!session) {
+  const result = undoLastMessage(msg.sessionId, ctx);
+  if (!result) {
     ctx.send(socket, { type: "error", message: "No active session" });
     return;
   }
-  ctx.touchSession(msg.sessionId);
-  const removedCount = session.undo();
   ctx.send(socket, {
     type: "undo_complete",
-    removedCount,
+    removedCount: result.removedCount,
     sessionId: msg.sessionId,
   });
+}
+
+/**
+ * Regenerate the last assistant response for a session. The caller provides
+ * a `sendEvent` callback for delivering streaming events (IPC or HTTP/SSE).
+ * Returns null if the session is not found. Throws on regeneration errors.
+ */
+export async function regenerateResponse(
+  sessionId: string,
+  ctx: HandlerContext,
+  sendEvent: (event: ServerMessage) => void,
+): Promise<{ requestId: string } | null> {
+  const session = ctx.sessions.get(sessionId);
+  if (!session) {
+    return null;
+  }
+  ctx.touchSession(sessionId);
+  session.updateClient(sendEvent, false);
+  const requestId = uuid();
+  session.traceEmitter.emit("request_received", "Regenerate requested", {
+    requestId,
+    status: "info",
+    attributes: { source: "regenerate" },
+  });
+  try {
+    await session.regenerate(sendEvent, requestId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err, sessionId }, "Error regenerating message");
+    session.traceEmitter.emit("request_error", truncate(message, 200, ""), {
+      requestId,
+      status: "error",
+      attributes: {
+        errorClass: err instanceof Error ? err.constructor.name : "Error",
+        message: truncate(message, 500, ""),
+      },
+    });
+    throw err;
+  }
+  return { requestId };
 }
 
 export async function handleRegenerate(
@@ -568,7 +683,6 @@ export async function handleRegenerate(
     ctx.send(socket, { type: "error", message: "No active session" });
     return;
   }
-  ctx.touchSession(msg.sessionId);
 
   const regenerateChannel =
     parseChannelId(session.getTurnChannelContext()?.assistantMessageChannel) ??
@@ -580,26 +694,11 @@ export async function handleRegenerate(
     conversationId: msg.sessionId,
     sourceChannel: regenerateChannel,
   });
-  session.updateClient(sendEvent, false);
-  const requestId = uuid();
-  session.traceEmitter.emit("request_received", "Regenerate requested", {
-    requestId,
-    status: "info",
-    attributes: { source: "regenerate" },
-  });
+
   try {
-    await session.regenerate(sendEvent, requestId);
+    await regenerateResponse(msg.sessionId, ctx, sendEvent);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, sessionId: msg.sessionId }, "Error regenerating message");
-    session.traceEmitter.emit("request_error", truncate(message, 200, ""), {
-      requestId,
-      status: "error",
-      attributes: {
-        errorClass: err instanceof Error ? err.constructor.name : "Error",
-        message: truncate(message, 500, ""),
-      },
-    });
     ctx.send(socket, {
       type: "error",
       message: `Failed to regenerate: ${message}`,

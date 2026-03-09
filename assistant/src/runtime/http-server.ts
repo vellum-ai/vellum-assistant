@@ -136,6 +136,7 @@ import {
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
+import { sessionManagementRouteDefinitions } from "./routes/session-management-routes.js";
 import { sessionQueryRouteDefinitions } from "./routes/session-query-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
@@ -205,6 +206,7 @@ export class RuntimeHttpServer {
   private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
   private findSession?: RuntimeHttpServerOptions["findSession"];
+  private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
   private modelSetContext?: RuntimeHttpServerOptions["modelSetContext"];
   private getComputerUseDeps?: RuntimeHttpServerOptions["getComputerUseDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
@@ -223,6 +225,7 @@ export class RuntimeHttpServer {
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
     this.findSession = options.findSession;
+    this.sessionManagementDeps = options.sessionManagementDeps;
     this.modelSetContext = options.modelSetContext;
     this.getComputerUseDeps = options.getComputerUseDeps;
     this.getRecordingDeps = options.getRecordingDeps;
@@ -822,6 +825,10 @@ export class RuntimeHttpServer {
       },
 
       ...conversationAttentionRouteDefinitions(),
+
+      ...(this.sessionManagementDeps
+        ? sessionManagementRouteDefinitions(this.sessionManagementDeps)
+        : []),
 
       {
         endpoint: "conversations/seen",
