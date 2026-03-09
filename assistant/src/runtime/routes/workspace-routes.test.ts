@@ -5,8 +5,10 @@
  * directory listing, file metadata, and raw content serving with range support.
  */
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -94,6 +96,22 @@ function getHandler(endpoint: string) {
   const route = routes.find((r) => r.endpoint === endpoint);
   if (!route) throw new Error(`No route found for endpoint: ${endpoint}`);
   return route.handler;
+}
+
+/** Build a RouteContext-like object for POST handler testing with a JSON body. */
+function makePostCtx(body: unknown) {
+  const url = new URL("http://localhost/v1/workspace/write");
+  return {
+    url,
+    req: new Request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    server: {} as ReturnType<typeof Bun.serve>,
+    authContext: {} as never,
+    params: {},
+  };
 }
 
 // ===========================================================================
@@ -426,5 +444,99 @@ describe("GET /v1/workspace/file/content", () => {
     const ctx = makeCtx({ path: "hello.txt" });
     const res = await handler(ctx);
     expect(res.headers.get("Accept-Ranges")).toBe("bytes");
+  });
+});
+
+// ===========================================================================
+// POST /v1/workspace/write
+// ===========================================================================
+
+describe("POST /v1/workspace/write", () => {
+  const handler = getHandler("workspace/write");
+
+  test("creates a new text file with UTF-8 content", async () => {
+    const ctx = makePostCtx({ path: "new-file.txt", content: "hello world" });
+    const res = await handler(ctx);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { path: string; size: number };
+    expect(body.path).toBe("new-file.txt");
+    expect(body.size).toBe(11);
+    const written = readFileSync(join(testWorkspaceDir, "new-file.txt"), "utf-8");
+    expect(written).toBe("hello world");
+  });
+
+  test("overwrites an existing file", async () => {
+    writeFileSync(join(testWorkspaceDir, "overwrite-me.txt"), "old content");
+    const ctx = makePostCtx({
+      path: "overwrite-me.txt",
+      content: "new content",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(201);
+    const written = readFileSync(
+      join(testWorkspaceDir, "overwrite-me.txt"),
+      "utf-8",
+    );
+    expect(written).toBe("new content");
+  });
+
+  test("auto-creates parent directories for nested paths", async () => {
+    const ctx = makePostCtx({
+      path: "new-dir/sub/file.txt",
+      content: "deep content",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(201);
+    const fullPath = join(testWorkspaceDir, "new-dir", "sub", "file.txt");
+    expect(existsSync(fullPath)).toBe(true);
+    const written = readFileSync(fullPath, "utf-8");
+    expect(written).toBe("deep content");
+  });
+
+  test("handles base64 encoding", async () => {
+    const original = "binary\x00data";
+    const encoded = Buffer.from(original).toString("base64");
+    const ctx = makePostCtx({
+      path: "img.bin",
+      content: encoded,
+      encoding: "base64",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(201);
+    const written = readFileSync(join(testWorkspaceDir, "img.bin"));
+    expect(written.toString("binary")).toBe(original);
+  });
+
+  test("rejects path traversal", async () => {
+    const ctx = makePostCtx({
+      path: "../../etc/passwd",
+      content: "malicious",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects missing path", async () => {
+    const ctx = makePostCtx({ content: "no path" });
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects dotfile segments", async () => {
+    const ctx = makePostCtx({
+      path: ".hidden/file.txt",
+      content: "sneaky",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
+  });
+
+  test("returns 201 with path and size in response", async () => {
+    const ctx = makePostCtx({ path: "response-check.txt", content: "abc" });
+    const res = await handler(ctx);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { path: string; size: number };
+    expect(body.path).toBe("response-check.txt");
+    expect(body.size).toBe(3);
   });
 });

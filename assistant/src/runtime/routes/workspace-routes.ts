@@ -1,8 +1,15 @@
 /**
  * Route handlers for workspace file browsing and content serving.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 import { getWorkspaceDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
@@ -219,6 +226,39 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
 }
 
 // ---------------------------------------------------------------------------
+// POST /v1/workspace/write — create or overwrite a file
+// ---------------------------------------------------------------------------
+
+async function handleWorkspaceWrite(ctx: RouteContext): Promise<Response> {
+  const body = (await ctx.req.json()) as {
+    path?: string;
+    content?: string;
+    encoding?: string;
+  };
+
+  const { path, content, encoding } = body;
+
+  if (!path || typeof path !== "string") {
+    return httpError("BAD_REQUEST", "path is required", 400);
+  }
+
+  const resolved = resolveWorkspacePath(path);
+  if (resolved === undefined) {
+    return httpError("BAD_REQUEST", "Invalid path", 400);
+  }
+
+  const buffer =
+    encoding === "base64"
+      ? Buffer.from(content ?? "", "base64")
+      : Buffer.from(content ?? "", "utf-8");
+
+  mkdirSync(dirname(resolved), { recursive: true });
+  writeFileSync(resolved, buffer);
+
+  return Response.json({ path, size: buffer.byteLength }, { status: 201 });
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -238,6 +278,11 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
       endpoint: "workspace/file",
       method: "GET",
       handler: (ctx) => handleWorkspaceFile(ctx),
+    },
+    {
+      endpoint: "workspace/write",
+      method: "POST",
+      handler: (ctx) => handleWorkspaceWrite(ctx),
     },
   ];
 }
