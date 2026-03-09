@@ -30,6 +30,8 @@ final class WorkspaceBrowserState {
     var deleteConfirmName: String = ""
     var renamingPath: String? = nil
     var renamingText: String = ""
+    var pendingSwitchPath: String?
+    var showingDirtyAlert: Bool = false
 
     func refreshDirectory(_ dirPath: String, using daemonClient: DaemonClient) async {
         if let response = await daemonClient.fetchWorkspaceTree(path: dirPath) {
@@ -56,6 +58,21 @@ struct WorkspacePanel: View {
             state.fileLoadTask?.cancel()
             state.fileLoadTask = nil
             state.isLoadingFile = false
+        }
+        .alert(
+            "Unsaved Changes",
+            isPresented: $state.showingDirtyAlert
+        ) {
+            Button("Discard", role: .destructive) {
+                guard let targetPath = state.pendingSwitchPath else { return }
+                state.pendingSwitchPath = nil
+                Task { await loadFile(path: targetPath) }
+            }
+            Button("Cancel", role: .cancel) {
+                state.pendingSwitchPath = nil
+            }
+        } message: {
+            Text("You have unsaved changes. Discard them and switch files?")
         }
         .alert(
             "Delete \"\(state.deleteConfirmName)\"?",
@@ -85,6 +102,26 @@ struct WorkspacePanel: View {
         } message: {
             Text("This cannot be undone.")
         }
+    }
+
+    private func loadFile(path targetPath: String) async {
+        state.selectedFilePath = targetPath
+        state.isLoadingFile = true
+        state.selectedFileDetail = nil
+        state.isDirty = false
+        state.editableContent = ""
+        state.fileLoadTask?.cancel()
+        let task = Task {
+            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
+            guard !Task.isCancelled, state.selectedFilePath == targetPath else { return }
+            state.selectedFileDetail = detail
+            state.editableContent = detail?.content ?? ""
+            state.originalContent = detail?.content ?? ""
+            state.isDirty = false
+            state.isSaving = false
+            state.isLoadingFile = false
+        }
+        state.fileLoadTask = task
     }
 
     private func loadRoot() async {
@@ -431,24 +468,36 @@ private struct WorkspaceTreeRow: View {
             }
         } else {
             let targetPath = entry.path
-            state.selectedFilePath = targetPath
-            state.isLoadingFile = true
-            state.selectedFileDetail = nil
-            state.isDirty = false
-            state.editableContent = ""
-            state.fileLoadTask?.cancel()
-            let task = Task {
-                let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
-                guard !Task.isCancelled, state.selectedFilePath == targetPath else { return }
-                state.selectedFileDetail = detail
-                state.editableContent = detail?.content ?? ""
-                state.originalContent = detail?.content ?? ""
-                state.isDirty = false
-                state.isSaving = false
-                state.isLoadingFile = false
+            // Skip if already selected
+            guard targetPath != state.selectedFilePath else { return }
+            // If there are unsaved changes, confirm before switching
+            if state.isDirty {
+                state.pendingSwitchPath = targetPath
+                state.showingDirtyAlert = true
+            } else {
+                await loadFile(path: targetPath)
             }
-            state.fileLoadTask = task
         }
+    }
+
+    private func loadFile(path targetPath: String) async {
+        state.selectedFilePath = targetPath
+        state.isLoadingFile = true
+        state.selectedFileDetail = nil
+        state.isDirty = false
+        state.editableContent = ""
+        state.fileLoadTask?.cancel()
+        let task = Task {
+            let detail = await daemonClient.fetchWorkspaceFile(path: targetPath)
+            guard !Task.isCancelled, state.selectedFilePath == targetPath else { return }
+            state.selectedFileDetail = detail
+            state.editableContent = detail?.content ?? ""
+            state.originalContent = detail?.content ?? ""
+            state.isDirty = false
+            state.isSaving = false
+            state.isLoadingFile = false
+        }
+        state.fileLoadTask = task
     }
 }
 
