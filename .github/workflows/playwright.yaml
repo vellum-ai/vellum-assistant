@@ -563,5 +563,5 @@ jobs:
           SHOULD_TAG: 'false'
         with:
           status: ${{ steps.status.outputs.status }}
-          channel: "#build-alerts"
+          channel: "#prod-qa"
           config: .github/config/slack.yaml
