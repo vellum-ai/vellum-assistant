@@ -249,11 +249,32 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Pairing (authenticated)
   { endpoint: "pairing/register", scopes: ["settings.write"] },
 
-  // Apps
+  // Apps (existing share/shared routes)
   { endpoint: "apps/share", scopes: ["settings.write"] },
   { endpoint: "apps/shared:GET", scopes: ["settings.read"] },
   { endpoint: "apps/shared:DELETE", scopes: ["settings.write"] },
   { endpoint: "apps/shared/metadata", scopes: ["settings.read"] },
+
+  // Apps management (CRUD, bundling, sharing, versioning)
+  { endpoint: "apps", scopes: ["settings.read"] },
+  { endpoint: "apps/data:GET", scopes: ["settings.read"] },
+  { endpoint: "apps/data:POST", scopes: ["settings.write"] },
+  { endpoint: "apps/open", scopes: ["settings.write"] },
+  { endpoint: "apps/delete", scopes: ["settings.write"] },
+  { endpoint: "apps/preview:GET", scopes: ["settings.read"] },
+  { endpoint: "apps/preview:PUT", scopes: ["settings.write"] },
+  { endpoint: "apps/history", scopes: ["settings.read"] },
+  { endpoint: "apps/diff", scopes: ["settings.read"] },
+  { endpoint: "apps/restore", scopes: ["settings.write"] },
+  { endpoint: "apps/bundle", scopes: ["settings.write"] },
+  { endpoint: "apps/open-bundle", scopes: ["settings.write"] },
+  { endpoint: "apps/shared-list", scopes: ["settings.read"] },
+  { endpoint: "apps/fork", scopes: ["settings.write"] },
+  { endpoint: "apps/share-cloud", scopes: ["settings.write"] },
+  { endpoint: "apps/gallery", scopes: ["settings.read"] },
+  { endpoint: "apps/gallery/install", scopes: ["settings.write"] },
+  { endpoint: "apps/sign-bundle", scopes: ["settings.write"] },
+  { endpoint: "apps/signing-identity", scopes: ["settings.read"] },
 
   // Usage / cost telemetry
   { endpoint: "usage/totals", scopes: ["settings.read"] },
