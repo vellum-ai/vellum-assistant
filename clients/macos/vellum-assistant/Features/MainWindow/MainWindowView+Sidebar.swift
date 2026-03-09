@@ -242,7 +242,7 @@ extension MainWindowView {
                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                 if sidebar.dropTargetThreadId == thread.id {
                                     Rectangle()
-                                        .fill(VColor.iconAccent)
+                                        .fill(VColor.dropIndicator)
                                         .frame(height: 2)
                                         .transition(.opacity)
                                 }
@@ -275,7 +275,7 @@ extension MainWindowView {
                         } label: {
                             Text(sidebar.showAllThreads ? "Show less" : "Show more")
                                 .font(VFont.caption)
-                                .foregroundColor(VColor.buttonSecondaryText)
+                                .foregroundColor(VColor.sidebarActionText)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
                                 .padding(.top, VSpacing.sm)
@@ -312,7 +312,7 @@ extension MainWindowView {
                                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                         if sidebar.dropTargetThreadId == thread.id {
                                             Rectangle()
-                                                .fill(VColor.iconAccent)
+                                                .fill(VColor.dropIndicator)
                                                 .frame(height: 2)
                                                 .transition(.opacity)
                                         }
@@ -392,7 +392,7 @@ extension MainWindowView {
                                             .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                                                 if sidebar.dropTargetThreadId == thread.id {
                                                     Rectangle()
-                                                        .fill(VColor.iconAccent)
+                                                        .fill(VColor.dropIndicator)
                                                         .frame(height: 2)
                                                         .transition(.opacity)
                                                 }
@@ -425,7 +425,7 @@ extension MainWindowView {
                             } label: {
                                 Text(sidebar.showAllScheduleThreads ? "Show less" : "Show more")
                                     .font(VFont.caption)
-                                    .foregroundColor(VColor.buttonSecondaryText)
+                                    .foregroundColor(VColor.sidebarActionText)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.leading, VSpacing.sm + VSpacing.xs + 20 + VSpacing.xs)
                                     .padding(.top, VSpacing.sm)
