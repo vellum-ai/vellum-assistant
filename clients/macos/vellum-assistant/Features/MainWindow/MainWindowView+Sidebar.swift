@@ -217,8 +217,10 @@ extension MainWindowView {
                     }
                 },
                 onNewThread: {
-                    windowState.selection = nil
-                    threadManager.enterDraftMode()
+                    threadManager.createThread()
+                    if let id = threadManager.activeThreadId {
+                        windowState.selection = .thread(id)
+                    }
                 }
             )
 
@@ -481,8 +483,10 @@ extension MainWindowView {
             sidebarSectionDivider(isExpanded: false)
 
             SidebarNavRow(icon: VIcon.squarePen.rawValue, label: "New Chat", isActive: false, isExpanded: false) {
-                windowState.selection = nil
-                threadManager.enterDraftMode()
+                threadManager.createThread()
+                if let id = threadManager.activeThreadId {
+                    windowState.selection = .thread(id)
+                }
             }
 
             // MARK: Thread Section (collapsed)

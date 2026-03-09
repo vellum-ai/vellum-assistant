@@ -285,8 +285,10 @@ extension AppDelegate {
         // Static actions
         window.actions = [
             CommandPaletteAction(id: "new-conversation", icon: VIcon.squarePen.rawValue, label: "New Conversation", shortcutHint: "\u{2318}N") { [weak self] in
-                self?.mainWindow?.threadManager.enterDraftMode()
-                self?.mainWindow?.windowState.selection = nil
+                self?.mainWindow?.threadManager.createThread()
+                if let id = self?.mainWindow?.threadManager.activeThreadId {
+                    self?.mainWindow?.windowState.selection = .thread(id)
+                }
             },
             CommandPaletteAction(id: "settings", icon: VIcon.settings.rawValue, label: "Settings", shortcutHint: "\u{2318},") { [weak self] in
                 self?.mainWindow?.windowState.togglePanel(.settings)
