@@ -6,6 +6,8 @@ import { v4 as uuid } from "uuid";
 import { getConfig } from "../../config/loader.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
+import { RateLimitProvider } from "../../providers/ratelimit.js";
+import { getFailoverProvider } from "../../providers/registry.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
@@ -13,7 +15,6 @@ import { estimateBase64Bytes } from "../assistant-attachments.js";
 import { ComputerUseSession } from "../computer-use-session.js";
 import type {
   ClientMessage,
-  CuSessionCreate,
   ServerMessage,
   SessionTransportMetadata,
 } from "../message-protocol.js";
@@ -236,9 +237,6 @@ export function wireEscalationHandler(
   explicitWidth?: number,
   explicitHeight?: number,
 ): void {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- lazy require to avoid circular dependency
-  const { handleCuSessionCreate } = require("./computer-use.js");
-
   const dims =
     explicitWidth && explicitHeight
       ? { width: explicitWidth, height: explicitHeight }
@@ -248,15 +246,62 @@ export function wireEscalationHandler(
   session.setEscalationHandler(
     (task: string, sourceSessionId: string): boolean => {
       const cuSessionId = uuid();
-      const cuMsg: CuSessionCreate = {
-        type: "cu_session_create",
-        sessionId: cuSessionId,
+
+      // Inline CU session creation (previously delegated to deleted handlers/computer-use.ts)
+      const existingSession = ctx.cuSessions.get(cuSessionId);
+      if (existingSession) {
+        existingSession.abort();
+        ctx.cuSessions.delete(cuSessionId);
+        ctx.cuObservationParseSequence.delete(cuSessionId);
+      }
+
+      const config = getConfig();
+      let provider = getFailoverProvider(config.provider, config.providerOrder);
+      const { rateLimit } = config;
+      if (
+        rateLimit.maxRequestsPerMinute > 0 ||
+        rateLimit.maxTokensPerSession > 0
+      ) {
+        provider = new RateLimitProvider(
+          provider,
+          rateLimit,
+          ctx.sharedRequestTimestamps,
+        );
+      }
+
+      const sendToClient = (serverMsg: ServerMessage) => {
+        ctx.send(socket, serverMsg);
+      };
+
+      const sessionRef: { current?: ComputerUseSession } = {};
+      const onTerminal = (sid: string) => {
+        const current = ctx.cuSessions.get(sid);
+        if (sessionRef.current && current && current !== sessionRef.current) {
+          return;
+        }
+        ctx.cuSessions.delete(sid);
+        ctx.cuObservationParseSequence.delete(sid);
+        log.info({ sessionId: sid }, "Computer-use session cleaned up after terminal state");
+      };
+
+      const cuSession = new ComputerUseSession(
+        cuSessionId,
         task,
         screenWidth,
         screenHeight,
-        interactionType: "computer_use",
-      };
-      handleCuSessionCreate(cuMsg, socket, ctx);
+        provider,
+        sendToClient,
+        "computer_use",
+        onTerminal,
+      );
+      sessionRef.current = cuSession;
+
+      ctx.cuSessions.set(cuSessionId, cuSession);
+
+      log.info(
+        { sessionId: cuSessionId, taskLength: task.length },
+        "Computer-use session created via escalation",
+      );
 
       ctx.broadcast({
         type: "task_routed",
