@@ -466,7 +466,7 @@ export async function startCli(): Promise<void> {
           selectedPattern,
           req.scopeOptions[idx].scope,
           trustDecision,
-          "allow",
+          trustDecision,
         );
       } else {
         // Invalid selection → deny
