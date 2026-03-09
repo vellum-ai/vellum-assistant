@@ -105,6 +105,46 @@ export async function importFromRecording(
 }
 
 /**
+ * Import cookies that the daemon saved to the credential store under the
+ * target domain key. Validates Amazon-specific required cookies, then
+ * copies them to the canonical amazon:session:cookies key.
+ */
+export async function importFromCredentialStore(
+  targetDomain: string,
+): Promise<AmazonSession> {
+  const { stdout } = await execFileAsync("assistant", [
+    "credentials",
+    "reveal",
+    `${targetDomain}:session:cookies`,
+  ]);
+  const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
+  if (!cookies.length) {
+    throw new Error("No cookies found in credential store");
+  }
+
+  const cookieNames = new Set(cookies.map((c) => c.name));
+  if (!cookieNames.has("session-id")) {
+    throw new Error(
+      "Credential store cookies are missing required Amazon cookie: session-id.",
+    );
+  }
+  if (!cookieNames.has("ubid-main")) {
+    throw new Error(
+      "Credential store cookies are missing required Amazon cookie: ubid-main.",
+    );
+  }
+  if (!cookieNames.has("at-main") && !cookieNames.has("x-main")) {
+    throw new Error(
+      "Credential store cookies are missing required Amazon auth cookie (at-main or x-main).",
+    );
+  }
+
+  const session: AmazonSession = { cookies };
+  await saveSession(session);
+  return session;
+}
+
+/**
  * Get the anti-CSRF token from session cookies.
  * Amazon uses anti-csrftoken-a2z or csrf-main for cart POST requests.
  */
