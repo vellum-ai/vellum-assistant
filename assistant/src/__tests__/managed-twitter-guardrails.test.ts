@@ -8,7 +8,6 @@
  */
 
 import { mkdtempSync } from "node:fs";
-import * as net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -77,6 +76,7 @@ mock.module("../inbound/public-ingress-urls.js", () => ({
 mock.module("../util/platform.js", () => ({
   getRootDir: () => testDir,
   getDataDir: () => testDir,
+  getWorkspaceDir: () => testDir,
   getIpcBlobDir: () => join(testDir, "ipc-blobs"),
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -149,48 +149,56 @@ mock.module("../config/env.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { handleMessage } from "../daemon/handlers/index.js";
-import type { HandlerContext } from "../daemon/handlers/shared.js";
-import type {
-  ServerMessage,
-  TwitterAuthStartRequest,
-} from "../daemon/ipc-protocol.js";
+import type { RouteContext } from "../runtime/http-router.js";
+import { settingsRouteDefinitions } from "../runtime/routes/settings-routes.js";
 import {
   mapProxyError,
   resolvePrerequisites,
   TwitterProxyError,
 } from "../twitter/platform-proxy-client.js";
-import { DebouncerMap } from "../util/debounce.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function createTestContext(): { ctx: HandlerContext; sent: ServerMessage[] } {
-  const sent: ServerMessage[] = [];
-  const ctx: HandlerContext = {
-    sessions: new Map(),
-    socketToSession: new Map(),
-    cuSessions: new Map(),
-    socketToCuSession: new Map(),
-    cuObservationParseSequence: new Map(),
-    socketSandboxOverride: new Map(),
-    sharedRequestTimestamps: [],
-    debounceTimers: new DebouncerMap({ defaultDelayMs: 200 }),
-    suppressConfigReload: false,
-    setSuppressConfigReload: () => {},
-    updateConfigFingerprint: () => {},
-    send: (_socket, msg) => {
-      sent.push(msg);
-    },
-    broadcast: () => {},
-    clearAllSessions: () => 0,
-    getOrCreateSession: () => {
-      throw new Error("not implemented");
-    },
-    touchSession: () => {},
-  };
-  return { ctx, sent };
+/**
+ * Find a route definition by endpoint from the settings route table.
+ */
+function findRoute(endpoint: string) {
+  const routes = settingsRouteDefinitions();
+  const route = routes.find((r) => r.endpoint === endpoint);
+  if (!route) {
+    throw new Error(`Route not found: ${endpoint}`);
+  }
+  return route;
+}
+
+/**
+ * Call a route handler with a minimal RouteContext.
+ */
+function callRoute(
+  endpoint: string,
+  options?: { method?: string; body?: unknown },
+): Promise<Response> | Response {
+  const route = findRoute(endpoint);
+  const url = new URL(`http://localhost/v1/${endpoint}`);
+  const req = new Request(url.toString(), {
+    method: options?.method ?? route.method,
+    ...(options?.body
+      ? {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(options.body),
+        }
+      : {}),
+  });
+  const ctx = {
+    req,
+    url,
+    server: {} as RouteContext["server"],
+    authContext: {} as RouteContext["authContext"],
+    params: {},
+  } satisfies RouteContext;
+  return route.handler(ctx);
 }
 
 // ---------------------------------------------------------------------------
@@ -213,20 +221,18 @@ describe("Managed Twitter guardrails", () => {
       rawConfigStore = { twitter: { integrationMode: "managed" } };
       // No API key configured — should NOT start OAuth
 
-      const msg: TwitterAuthStartRequest = { type: "twitter_auth_start" };
-      const { ctx, sent } = createTestContext();
-      await handleMessage(msg, {} as net.Socket, ctx);
-      await new Promise((r) => setTimeout(r, 20));
+      const response = await callRoute("integrations/twitter/auth/start", {
+        method: "POST",
+      });
 
       expect(orchestratorCalled).toBe(false);
-      const result = sent.find((m) => m.type === "twitter_auth_result") as {
-        type: string;
-        success: boolean;
+      expect(response.status).toBe(400);
+      const result = (await response.json()) as {
+        ok: boolean;
         error?: string;
         errorCode?: string;
       };
-      expect(result).toBeDefined();
-      expect(result.success).toBe(false);
+      expect(result.ok).toBe(false);
       expect(result.errorCode).toBe("managed_missing_api_key");
     });
 
@@ -234,20 +240,18 @@ describe("Managed Twitter guardrails", () => {
       rawConfigStore = { twitter: { integrationMode: "managed" } };
       secureKeyStore["credential:vellum:assistant_api_key"] = "test-key";
 
-      const msg: TwitterAuthStartRequest = { type: "twitter_auth_start" };
-      const { ctx, sent } = createTestContext();
-      await handleMessage(msg, {} as net.Socket, ctx);
-      await new Promise((r) => setTimeout(r, 20));
+      const response = await callRoute("integrations/twitter/auth/start", {
+        method: "POST",
+      });
 
       expect(orchestratorCalled).toBe(false);
-      const result = sent.find((m) => m.type === "twitter_auth_result") as {
-        type: string;
-        success: boolean;
+      expect(response.status).toBe(400);
+      const result = (await response.json()) as {
+        ok: boolean;
         error?: string;
         errorCode?: string;
       };
-      expect(result).toBeDefined();
-      expect(result.success).toBe(false);
+      expect(result.ok).toBe(false);
       expect(result.errorCode).toBe("managed_auth_via_platform");
       expect(result.error).toContain("platform");
     });
@@ -261,25 +265,9 @@ describe("Managed Twitter guardrails", () => {
       secureKeyStore["credential:integration:twitter:client_secret"] =
         "test-secret";
 
-      const msg: TwitterAuthStartRequest = { type: "twitter_auth_start" };
-      const { ctx } = createTestContext();
-      await handleMessage(msg, {} as net.Socket, ctx);
-      await new Promise((r) => setTimeout(r, 20));
+      await callRoute("integrations/twitter/auth/start", { method: "POST" });
 
       expect(orchestratorCalled).toBe(false);
-    });
-
-    test("never sends open_url message in managed mode", async () => {
-      rawConfigStore = { twitter: { integrationMode: "managed" } };
-      secureKeyStore["credential:vellum:assistant_api_key"] = "test-key";
-
-      const msg: TwitterAuthStartRequest = { type: "twitter_auth_start" };
-      const { ctx, sent } = createTestContext();
-      await handleMessage(msg, {} as net.Socket, ctx);
-      await new Promise((r) => setTimeout(r, 20));
-
-      const openUrlMsg = sent.find((m) => m.type === "open_url");
-      expect(openUrlMsg).toBeUndefined();
     });
   });
 
