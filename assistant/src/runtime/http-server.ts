@@ -719,17 +719,21 @@ export class RuntimeHttpServer {
       }),
       ...diagnosticsRouteDefinitions(),
       ...documentRouteDefinitions(),
-      ...workItemRouteDefinitions({
-        getOrCreateSession: async (conversationId) => {
-          if (!this.sendMessageDeps) {
-            throw new Error("Session management not available");
-          }
-          return this.sendMessageDeps.getOrCreateSession(conversationId);
-        },
-        findSession: this.findSession
-          ? undefined // findSession in http-types returns a different shape; session lookup for cancellation uses sendMessageDeps
+      ...workItemRouteDefinitions(
+        this.sendMessageDeps
+          ? {
+              getOrCreateSession: (conversationId) =>
+                this.sendMessageDeps!.getOrCreateSession(conversationId),
+              findSession: this.findSession
+                ? (conversationId) => {
+                    const s = this.findSession!(conversationId);
+                    if (!s || !("abort" in s)) return undefined;
+                    return s as import("../daemon/session.js").Session;
+                  }
+                : undefined,
+            }
           : undefined,
-      }),
+      ),
       ...subagentRouteDefinitions(),
       ...sessionQueryRouteDefinitions({
         modelSetContext: this.modelSetContext,
