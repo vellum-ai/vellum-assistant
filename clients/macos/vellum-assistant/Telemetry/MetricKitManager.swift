@@ -91,13 +91,17 @@ import os
             }
 
             // Always flush when attachments are present so large files are
-            // delivered before the user quits the app. When Sentry was temporarily
-            // started (user opted out), also close it afterward.
+            // delivered before the user quits the app. Use a longer timeout
+            // when attachments are present since companion archives (e.g.
+            // spindump .tar.gz) can be several MB on slow connections.
+            // When Sentry was temporarily started (user opted out), also
+            // close it afterward.
+            let flushTimeout: TimeInterval = attachments.isEmpty ? 5 : 15
             if wasDisabled {
-                SentrySDK.flush(timeout: 5)
+                SentrySDK.flush(timeout: flushTimeout)
                 SentrySDK.close()
             } else if !attachments.isEmpty {
-                SentrySDK.flush(timeout: 5)
+                SentrySDK.flush(timeout: flushTimeout)
             }
             completion?()
         }
