@@ -27,7 +27,6 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => "/tmp/test.log",
   getDbPath: () => "/tmp/test.db",
   ensureDataDir: () => {},
-  removeSocketFile: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({

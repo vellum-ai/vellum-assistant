@@ -38,7 +38,6 @@ mock.module("../util/platform.js", () => ({
   getPlatformName: () => process.platform,
   getClipboardCommand: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
   readLockfile: () => null,
   writeLockfile: () => {},
 }));

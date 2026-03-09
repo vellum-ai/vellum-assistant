@@ -115,7 +115,6 @@ mock.module("../util/platform.js", () => ({
   readLockfile: () => null,
   readPlatformToken: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
   writeLockfile: () => {},
   ensureDataDir: () => {},
 }));

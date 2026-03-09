@@ -47,7 +47,6 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
-  removeSocketFile: () => {},
 };
 mock.module("../util/platform.js", () => platformOverrides);
 
