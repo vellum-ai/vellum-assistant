@@ -9,6 +9,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
@@ -227,6 +228,39 @@ function handleWorkspaceFileContent(ctx: RouteContext): Response {
 }
 
 // ---------------------------------------------------------------------------
+// POST /v1/workspace/write — create or overwrite a file
+// ---------------------------------------------------------------------------
+
+async function handleWorkspaceWrite(ctx: RouteContext): Promise<Response> {
+  const body = (await ctx.req.json()) as {
+    path?: string;
+    content?: string;
+    encoding?: string;
+  };
+
+  const { path, content, encoding } = body;
+
+  if (!path || typeof path !== "string") {
+    return httpError("BAD_REQUEST", "path is required", 400);
+  }
+
+  const resolved = resolveWorkspacePath(path);
+  if (resolved === undefined) {
+    return httpError("BAD_REQUEST", "Invalid path", 400);
+  }
+
+  const buffer =
+    encoding === "base64"
+      ? Buffer.from(content ?? "", "base64")
+      : Buffer.from(content ?? "", "utf-8");
+
+  mkdirSync(dirname(resolved), { recursive: true });
+  writeFileSync(resolved, buffer);
+
+  return Response.json({ path, size: buffer.byteLength }, { status: 201 });
+}
+
+// ---------------------------------------------------------------------------
 // POST /v1/workspace/mkdir — create directories
 // ---------------------------------------------------------------------------
 
@@ -338,6 +372,11 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
       endpoint: "workspace/file",
       method: "GET",
       handler: (ctx) => handleWorkspaceFile(ctx),
+    },
+    {
+      endpoint: "workspace/write",
+      method: "POST",
+      handler: (ctx) => handleWorkspaceWrite(ctx),
     },
     {
       endpoint: "workspace/mkdir",
