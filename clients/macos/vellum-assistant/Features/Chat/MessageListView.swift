@@ -489,7 +489,7 @@ struct MessageListView: View {
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
-                .frame(maxWidth: 700)
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)

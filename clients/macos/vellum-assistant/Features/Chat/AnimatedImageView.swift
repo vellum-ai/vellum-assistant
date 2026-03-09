@@ -19,7 +19,7 @@ struct AnimatedImageView: View {
     @Environment(\.displayScale) private var displayScale
 
     /// Maximum display dimension in points (matches text bubble maxWidth).
-    private let maxDimension: CGFloat = 520
+    private let maxDimension: CGFloat = VSpacing.chatBubbleMaxWidth
 
     var body: some View {
         Group {

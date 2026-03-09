@@ -42,4 +42,6 @@ public enum VSpacing {
 
     /// Maximum width for chat message bubbles
     public static let chatBubbleMaxWidth: CGFloat = 680
+    /// Maximum width for the chat message column (bubble width + horizontal padding)
+    public static let chatColumnMaxWidth: CGFloat = chatBubbleMaxWidth + 2 * xl
 }
