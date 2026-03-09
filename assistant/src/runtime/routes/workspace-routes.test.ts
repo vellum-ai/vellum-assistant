@@ -550,6 +550,16 @@ describe("POST /v1/workspace/write", () => {
     expect(body.path).toBe("response-check.txt");
     expect(body.size).toBe(3);
   });
+
+  test("returns 409 when writing to an existing directory path", async () => {
+    // subdir already exists as a directory from beforeAll
+    const ctx = makePostCtx("workspace/write", {
+      path: "subdir",
+      content: "should fail",
+    });
+    const res = await handler(ctx);
+    expect(res.status).toBe(409);
+  });
 });
 
 // ===========================================================================
@@ -728,11 +738,14 @@ describe("POST /v1/workspace/delete", () => {
   });
 
   test("rejects workspace root deletion with 400", async () => {
+    // Empty string is now rejected by the !path guard (consistent with other handlers).
+    // The workspace-root guard remains as defense-in-depth for non-empty paths that
+    // resolve to the workspace root (e.g. "." or "subdir/..").
     const ctx = makePostCtx("workspace/delete", { path: "" });
     const res = await handler(ctx);
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { message: string } };
-    expect(body.error.message).toBe("Cannot delete workspace root");
+    expect(body.error.message).toBe("path is required");
   });
 
   test("rejects path traversal", async () => {
@@ -753,6 +766,12 @@ describe("POST /v1/workspace/delete", () => {
 
   test("rejects missing path field", async () => {
     const ctx = makePostCtx("workspace/delete", {});
+    const res = await handler(ctx);
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects empty string path with 400", async () => {
+    const ctx = makePostCtx("workspace/delete", { path: "" });
     const res = await handler(ctx);
     expect(res.status).toBe(400);
   });

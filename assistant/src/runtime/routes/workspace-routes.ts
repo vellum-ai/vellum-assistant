@@ -254,6 +254,10 @@ async function handleWorkspaceWrite(ctx: RouteContext): Promise<Response> {
       ? Buffer.from(content ?? "", "base64")
       : Buffer.from(content ?? "", "utf-8");
 
+  if (existsSync(resolved) && statSync(resolved).isDirectory()) {
+    return httpError("CONFLICT", "Path is a directory", 409);
+  }
+
   mkdirSync(dirname(resolved), { recursive: true });
   writeFileSync(resolved, buffer);
 
@@ -331,7 +335,7 @@ async function handleWorkspaceRename(ctx: RouteContext): Promise<Response> {
 async function handleWorkspaceDelete(ctx: RouteContext): Promise<Response> {
   const body = (await ctx.req.json()) as { path?: string };
   const path = body.path;
-  if (path == null) {
+  if (!path) {
     return httpError("BAD_REQUEST", "path is required", 400);
   }
 
