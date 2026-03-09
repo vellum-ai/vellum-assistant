@@ -1,0 +1,225 @@
+/**
+ * HTTP route handlers for schedule management.
+ *
+ * Migrated from IPC handler: handlers/config-scheduling.ts
+ */
+
+import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
+import {
+  completeScheduleRun,
+  createScheduleRun,
+  deleteSchedule,
+  describeCronExpression,
+  getSchedule,
+  listSchedules,
+  updateSchedule,
+} from "../../schedule/schedule-store.js";
+import { getLogger } from "../../util/logger.js";
+import { httpError } from "../http-errors.js";
+import type { RouteDefinition } from "../http-router.js";
+import type { SendMessageDeps } from "../http-types.js";
+
+const log = getLogger("schedule-routes");
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
+
+function handleListSchedules(): Response {
+  const jobs = listSchedules();
+  return Response.json({
+    schedules: jobs.map((j) => ({
+      id: j.id,
+      name: j.name,
+      enabled: j.enabled,
+      syntax: j.syntax,
+      expression: j.expression,
+      cronExpression: j.cronExpression,
+      timezone: j.timezone,
+      message: j.message,
+      nextRunAt: j.nextRunAt,
+      lastRunAt: j.lastRunAt,
+      lastStatus: j.lastStatus,
+      description:
+        j.syntax === "cron"
+          ? describeCronExpression(j.cronExpression)
+          : j.expression,
+    })),
+  });
+}
+
+function handleToggleSchedule(id: string, enabled: boolean): Response {
+  try {
+    updateSchedule(id, { enabled });
+    log.info({ id, enabled }, "Schedule toggled via HTTP");
+  } catch (err) {
+    log.error({ err }, "Failed to toggle schedule");
+    return httpError("INTERNAL_ERROR", "Failed to toggle schedule", 500);
+  }
+  return handleListSchedules();
+}
+
+function handleDeleteSchedule(id: string): Response {
+  try {
+    const removed = deleteSchedule(id);
+    if (!removed) {
+      return httpError("NOT_FOUND", "Schedule not found", 404);
+    }
+    log.info({ id }, "Schedule removed via HTTP");
+  } catch (err) {
+    log.error({ err }, "Failed to remove schedule");
+    return httpError("INTERNAL_ERROR", "Failed to remove schedule", 500);
+  }
+  return handleListSchedules();
+}
+
+async function handleRunScheduleNow(
+  id: string,
+  sendMessageDeps?: SendMessageDeps,
+): Promise<Response> {
+  const schedule = getSchedule(id);
+  if (!schedule) {
+    return httpError("NOT_FOUND", "Schedule not found", 404);
+  }
+
+  // Check if message is a task invocation (run_task:<task_id>)
+  const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
+  if (taskMatch) {
+    const taskId = taskMatch[1];
+    try {
+      log.info(
+        { jobId: schedule.id, name: schedule.name, taskId },
+        "Executing scheduled task manually via HTTP (run now)",
+      );
+      const { runTask } = await import("../../tasks/task-runner.js");
+      const result = await runTask(
+        { taskId, workingDir: process.cwd(), source: "schedule" },
+        async (conversationId, message, taskRunId) => {
+          if (!sendMessageDeps) {
+            throw new Error("sendMessageDeps not available for schedule execution");
+          }
+          const session = await sendMessageDeps.getOrCreateSession(
+            conversationId,
+          );
+          session.taskRunId = taskRunId;
+          await session.processMessage(
+            message,
+            [],
+            () => {}, // no event callback for HTTP mode
+            undefined,
+            undefined,
+            undefined,
+            { isInteractive: false },
+          );
+        },
+      );
+
+      const runId = createScheduleRun(schedule.id, result.conversationId);
+      if (result.status === "failed") {
+        completeScheduleRun(runId, {
+          status: "error",
+          error: result.error ?? "Task run failed",
+        });
+      } else {
+        completeScheduleRun(runId, { status: "ok" });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { err, jobId: schedule.id, name: schedule.name, taskId },
+        "Manual scheduled task execution failed",
+      );
+      const fallbackConversation = bootstrapConversation({
+        source: "schedule",
+        origin: "schedule",
+        systemHint: `Schedule (manual): ${schedule.name}`,
+      });
+      const runId = createScheduleRun(schedule.id, fallbackConversation.id);
+      completeScheduleRun(runId, { status: "error", error: message });
+    }
+    return handleListSchedules();
+  }
+
+  // Regular message-based schedule
+  const conversation = bootstrapConversation({
+    source: "schedule",
+    origin: "schedule",
+    systemHint: `Schedule (manual): ${schedule.name}`,
+  });
+  const runId = createScheduleRun(schedule.id, conversation.id);
+
+  try {
+    log.info(
+      {
+        jobId: schedule.id,
+        name: schedule.name,
+        conversationId: conversation.id,
+      },
+      "Executing schedule manually via HTTP (run now)",
+    );
+    if (!sendMessageDeps) {
+      throw new Error("sendMessageDeps not available for schedule execution");
+    }
+    const session = await sendMessageDeps.getOrCreateSession(conversation.id);
+    await session.processMessage(
+      schedule.message,
+      [],
+      () => {}, // no event callback for HTTP mode
+      undefined,
+      undefined,
+      undefined,
+      { isInteractive: false },
+    );
+    completeScheduleRun(runId, { status: "ok" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { err, jobId: schedule.id, name: schedule.name },
+      "Manual schedule execution failed",
+    );
+    completeScheduleRun(runId, { status: "error", error: message });
+  }
+  return handleListSchedules();
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions
+// ---------------------------------------------------------------------------
+
+export function scheduleRouteDefinitions(deps: {
+  sendMessageDeps?: SendMessageDeps;
+}): RouteDefinition[] {
+  return [
+    {
+      endpoint: "schedules",
+      method: "GET",
+      policyKey: "schedules",
+      handler: () => handleListSchedules(),
+    },
+    {
+      endpoint: "schedules/:id/toggle",
+      method: "POST",
+      policyKey: "schedules/toggle",
+      handler: async ({ req, params }) => {
+        const body = (await req.json()) as { enabled?: boolean };
+        if (body.enabled === undefined) {
+          return httpError("BAD_REQUEST", "enabled is required", 400);
+        }
+        return handleToggleSchedule(params.id, body.enabled);
+      },
+    },
+    {
+      endpoint: "schedules/:id",
+      method: "DELETE",
+      policyKey: "schedules",
+      handler: ({ params }) => handleDeleteSchedule(params.id),
+    },
+    {
+      endpoint: "schedules/:id/run",
+      method: "POST",
+      policyKey: "schedules/run",
+      handler: async ({ params }) =>
+        handleRunScheduleNow(params.id, deps.sendMessageDeps),
+    },
+  ];
+}

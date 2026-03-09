@@ -146,6 +146,9 @@ import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
+import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
+import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
+import { settingsRouteDefinitions } from "./routes/settings-routes.js";
 import {
   computerUseRouteDefinitions,
   type ComputerUseDeps,
@@ -713,6 +716,11 @@ export class RuntimeHttpServer {
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
       ...workspaceRouteDefinitions(),
+      ...settingsRouteDefinitions(),
+      ...scheduleRouteDefinitions({
+        sendMessageDeps: this.sendMessageDeps,
+      }),
+      ...diagnosticsRouteDefinitions(),
       ...documentRouteDefinitions(),
       ...workItemRouteDefinitions({
         getOrCreateSession: async (conversationId) => {
