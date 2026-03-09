@@ -6,6 +6,7 @@
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { getDataDir } from "../../util/platform.js";
 
 const SAFE_ENV_VARS = [
   "PATH",
@@ -38,5 +39,8 @@ export function buildSanitizedEnv(): Record<string, string> {
   // Always inject an internal gateway base for local control-plane/API calls.
   const internalGatewayBase = getGatewayInternalBaseUrl();
   env.INTERNAL_GATEWAY_BASE_URL = internalGatewayBase;
+  // Expose the runtime data directory so child processes can locate databases,
+  // logs, and other instance-scoped state without re-deriving the path.
+  env.VELLUM_DATA_DIR = getDataDir();
   return env;
 }
