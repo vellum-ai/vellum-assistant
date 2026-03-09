@@ -64,11 +64,9 @@ public final class ContactsStore: ObservableObject {
             for await message in stream {
                 if case .contactsResponse(let response) = message {
                     // Only handle list responses (contacts array present);
-                    // skip unrelated get/update/delete responses.
-                    guard response.contacts != nil || !response.success else { continue }
-                    if response.success, let contacts = response.contacts {
-                        self.contacts = contacts
-                    }
+                    // skip unrelated get/update/delete responses and their errors.
+                    guard response.contacts != nil else { continue }
+                    self.contacts = response.contacts ?? []
                     isLoading = false
                     return
                 }
@@ -91,9 +89,9 @@ public final class ContactsStore: ObservableObject {
             for await message in stream {
                 if case .contactsResponse(let response) = message {
                     // Only handle single-contact responses (contact field present);
-                    // skip unrelated list/update/delete responses.
-                    guard response.contact != nil || !response.success else { continue }
-                    if response.success, let contact = response.contact {
+                    // skip unrelated list/update/delete responses and their errors.
+                    guard response.contact != nil else { continue }
+                    if let contact = response.contact {
                         // Update the contact in-place if it exists
                         if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
                             contacts[index] = contact
@@ -118,6 +116,9 @@ public final class ContactsStore: ObservableObject {
 
             for await message in stream {
                 if case .contactsResponse(let response) = message {
+                    // Only handle single-contact responses (update returns contact);
+                    // skip unrelated list/get/delete responses.
+                    guard response.contact != nil || !response.success else { continue }
                     if response.success {
                         // Reload contacts to reflect the update
                         loadContacts()
@@ -141,6 +142,9 @@ public final class ContactsStore: ObservableObject {
 
             for await message in stream {
                 if case .contactsResponse(let response) = message {
+                    // Only handle delete acknowledgements (no contact/contacts fields);
+                    // skip unrelated list/get/update responses.
+                    guard response.contact == nil && response.contacts == nil || !response.success else { continue }
                     if response.success {
                         contacts.removeAll { $0.id == id }
                     }
