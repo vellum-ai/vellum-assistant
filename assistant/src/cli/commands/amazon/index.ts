@@ -139,7 +139,7 @@ Examples:
     )
     .action(async (opts: { recording: string }, cmd: Command) => {
       await run(cmd, async () => {
-        const session = importFromRecording(opts.recording);
+        const session = await importFromRecording(opts.recording);
         return {
           message: "Session imported successfully",
           cookieCount: session.cookies.length,
@@ -163,8 +163,8 @@ all shopping commands will fail until a new session is established via
 Examples:
   $ assistant amazon logout`,
     )
-    .action((_opts: unknown, cmd: Command) => {
-      clearSession();
+    .action(async (_opts: unknown, cmd: Command) => {
+      await clearSession();
       output({ ok: true, message: "Session cleared" }, getJson(cmd));
     });
 
@@ -242,7 +242,7 @@ Examples:
       const json = getJson(cmd);
       try {
         const session = await extractSessionFromChromeCookies();
-        saveSession(session);
+        await saveSession(session);
         output(
           {
             ok: true,
@@ -274,8 +274,8 @@ Examples:
   $ assistant amazon status
   $ assistant amazon status --json`,
     )
-    .action((_opts: unknown, cmd: Command) => {
-      const session = loadSession();
+    .action(async (_opts: unknown, cmd: Command) => {
+      const session = await loadSession();
       if (session) {
         output(
           {

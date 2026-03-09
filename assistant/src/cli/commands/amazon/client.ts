@@ -167,8 +167,8 @@ export class RateLimitError extends Error {
   }
 }
 
-function requireSession(): AmazonSession {
-  const session = loadSession();
+async function requireSession(): Promise<AmazonSession> {
+  const session = await loadSession();
   if (!session) {
     throw new SessionExpiredError("No Amazon session found.");
   }
@@ -183,7 +183,7 @@ export async function prepareRequest(): Promise<{
   tabId: number;
   session: AmazonSession;
 }> {
-  const session = requireSession();
+  const session = await requireSession();
   const tabId = await findAmazonTab();
   // Skip cookie sync — use Chrome's own live cookies instead of overwriting with stale CLI ones
   // await syncCookiesToBrowser(session.cookies);
@@ -493,7 +493,7 @@ export async function refreshSessionFromExtension(): Promise<AmazonSession> {
     cookies,
   };
 
-  saveSession(session);
+  await saveSession(session);
   return session;
 }
 
