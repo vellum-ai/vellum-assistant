@@ -5,7 +5,8 @@
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
-import * as net from "node:net";
+import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 import { Command } from "commander";
 
@@ -35,9 +36,8 @@ import {
   importFromRecording,
   loadSession,
 } from "./lib/session.js";
-import { createMessageParser, serialize } from "./lib/shared/ipc.js";
 import { NetworkRecorder } from "./lib/shared/network-recorder.js";
-import { getSocketPath, readSessionToken } from "./lib/shared/platform.js";
+import { buildDaemonUrl, getDataDir, getHttpPort, readHttpToken } from "./lib/shared/platform.js";
 import { loadRecording, saveRecording } from "./lib/shared/recording-store.js";
 import type { SessionRecording } from "./lib/shared/recording-types.js";
 
@@ -950,6 +950,21 @@ interface LearnResult {
   recordingPath?: string;
 }
 
+/**
+ * List recording JSON files in the recordings directory, returning their
+ * full paths. Returns an empty array if the directory doesn't exist.
+ */
+function listRecordingFiles(): string[] {
+  const recordingsDir = join(getDataDir(), "recordings");
+  try {
+    return readdirSync(recordingsDir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => join(recordingsDir, f));
+  } catch {
+    return [];
+  }
+}
+
 async function startLearnSession(
   durationSeconds: number,
 ): Promise<LearnResult> {
@@ -958,101 +973,87 @@ async function startLearnSession(
     startUrl: "https://www.doordash.com/consumer/login/",
   });
 
-  // Step 2: Connect to daemon and start recording
-  return new Promise((resolve, reject) => {
-    const socketPath = getSocketPath();
-    const sessionToken = readSessionToken();
-    const socket = net.createConnection(socketPath);
-    const parser = createMessageParser();
+  // Step 2: Snapshot existing recordings so we can detect new ones
+  const existingRecordings = new Set(listRecordingFiles());
 
-    socket.on("error", (err) => {
-      reject(
-        new Error(
-          `Cannot connect to assistant: ${err.message}. Is the assistant running?`,
-        ),
-      );
-    });
+  // Step 3: Start ride-shotgun learn session via HTTP
+  const port = getHttpPort();
+  const baseUrl = buildDaemonUrl(port);
+  const token = readHttpToken();
 
-    // Timeout safety — unref so it doesn't keep process alive
-    const timeoutHandle = setTimeout(
-      () => {
-        socket.destroy();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const startResponse = await fetch(
+    `${baseUrl}/v1/computer-use/ride-shotgun/start`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        durationSeconds,
+        intervalSeconds: 5,
+        mode: "learn",
+        targetDomain: "doordash.com",
+      }),
+    },
+  );
+
+  if (!startResponse.ok) {
+    const errorBody = await startResponse.text();
+    throw new Error(
+      `Failed to start ride-shotgun session (HTTP ${startResponse.status}): ${errorBody}`,
+    );
+  }
+
+  const startResult = (await startResponse.json()) as {
+    watchId: string;
+    sessionId: string;
+  };
+
+  if (!startResult.watchId) {
+    throw new Error("Ride-shotgun start response missing watchId");
+  }
+
+  // Step 4: Poll for a new recording file to appear.
+  // The daemon's ride-shotgun handler saves recordings to <dataDir>/recordings/<id>.json
+  // when the learn session completes. We poll until a new file appears or timeout.
+  const timeoutMs = (durationSeconds + 30) * 1000;
+  const pollIntervalMs = 2000;
+  const startTime = Date.now();
+
+  return new Promise<LearnResult>((resolve, reject) => {
+    const poll = setInterval(() => {
+      if (Date.now() - startTime > timeoutMs) {
+        clearInterval(poll);
         reject(
           new Error(`Learn session timed out after ${durationSeconds + 30}s`),
         );
-      },
-      (durationSeconds + 30) * 1000,
-    );
-    timeoutHandle.unref();
+        return;
+      }
 
-    let authenticated = !sessionToken; // If no token needed, consider already authenticated
+      const currentRecordings = listRecordingFiles();
+      for (const filePath of currentRecordings) {
+        if (existingRecordings.has(filePath)) continue;
 
-    const sendStartCommand = () => {
-      socket.write(
-        serialize({
-          type: "ride_shotgun_start",
-          durationSeconds,
-          intervalSeconds: 5,
-          mode: "learn",
-          targetDomain: "doordash.com",
-        } as Record<string, unknown>),
-      );
-    };
-
-    socket.on("data", (chunk) => {
-      const messages = parser.feed(chunk.toString("utf-8"));
-      for (const msg of messages) {
-        const m = msg as unknown as Record<string, unknown>;
-
-        // Handle auth handshake
-        if (!authenticated && m.type === "auth_result") {
-          if ((m as { success: boolean }).success) {
-            authenticated = true;
-            sendStartCommand();
-          } else {
-            clearTimeout(timeoutHandle);
-            socket.destroy();
-            reject(new Error("Authentication failed"));
+        // New recording found — verify it was created after we started
+        try {
+          const stat = statSync(filePath);
+          if (stat.mtimeMs >= startTime - 1000) {
+            clearInterval(poll);
+            // Extract recording ID from filename (e.g. "<uuid>.json" -> "<uuid>")
+            const filename = filePath.split("/").pop() ?? "";
+            const recordingId = filename.replace(/\.json$/, "");
+            resolve({ recordingId, recordingPath: filePath });
+            return;
           }
-          continue;
-        }
-
-        // Skip duplicate auth_result after already authenticated
-        if (m.type === "auth_result") {
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_error") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          reject(new Error((m as { message: string }).message));
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_result") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          resolve({
-            recordingId: m.recordingId as string | undefined,
-            recordingPath: m.recordingPath as string | undefined,
-          });
+        } catch {
+          // File may have been deleted between readdir and stat
         }
       }
-    });
-
-    socket.on("connect", () => {
-      if (sessionToken) {
-        // Send auth and wait for auth_result before sending the command
-        socket.write(
-          serialize({
-            type: "auth",
-            token: sessionToken,
-          } as Record<string, unknown>),
-        );
-      } else {
-        // No auth needed, send command immediately
-        sendStartCommand();
-      }
-    });
+    }, pollIntervalMs);
   });
 }
