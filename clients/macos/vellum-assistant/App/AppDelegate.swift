@@ -151,10 +151,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             options.dsn = "https://c8d6b12505ab6b1785f0e82b5fb50662@o4504590528675840.ingest.us.sentry.io/4511015779696640"
             options.debug = false
             options.tracesSampleRate = 0.1
+            // Profile 10% of sampled transactions for performance insights.
+            // Transaction-based profiling is lighter than continuous profiling
+            // and automatically follows the SDK enable/disable lifecycle.
+            options.profilesSampleRate = 1.0
             options.sendDefaultPii = false
         }
-        // Start continuous profiling so performance data is captured alongside traces.
-        SentrySDK.startProfiler()
 
         // Surface any crash log from the previous session so the user can send
         // it. Also records this launch timestamp for the next session's check.
