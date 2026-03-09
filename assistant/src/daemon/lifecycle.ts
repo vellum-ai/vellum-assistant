@@ -43,6 +43,7 @@ import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { syncUpdateBulletinOnStartup } from "../prompts/update-bulletin.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
@@ -166,7 +167,7 @@ export async function runDaemon(): Promise<void> {
 
     // Backfill vellum guardian binding for existing installations
     try {
-      ensureVellumGuardianBinding("self");
+      ensureVellumGuardianBinding(DAEMON_INTERNAL_ASSISTANT_ID);
     } catch (err) {
       log.warn(
         { err },
@@ -448,7 +449,7 @@ export async function runDaemon(): Promise<void> {
               return;
             }
             const ae = buildAssistantEvent(
-              "self",
+              DAEMON_INTERNAL_ASSISTANT_ID,
               event,
               sessionId,
             );
