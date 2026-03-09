@@ -228,6 +228,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "mcp/client.ts", // MCP client cached-token lookup
       "oauth/token-persistence.ts", // OAuth token persistence (set/delete tokens)
       "runtime/routes/secret-routes.ts", // HTTP secret management routes (set/delete secrets)
+      "daemon/ride-shotgun-handler.ts", // learn session cookie persistence
       "daemon/session-messaging.ts", // credential storage during session messaging
       "runtime/routes/settings-routes.ts", // settings routes OAuth credential lookup (client_id/client_secret/access tokens)
       "twitter/platform-proxy-client.ts", // managed Twitter proxy auth token lookup

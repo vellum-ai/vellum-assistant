@@ -32,7 +32,12 @@ import {
   routedPostTweet,
   routedSearchTweets,
 } from "./router.js";
-import { clearSession, importFromRecording, loadSession } from "./session.js";
+import {
+  clearSession,
+  importFromCredentialStore,
+  importFromRecording,
+  loadSession,
+} from "./session.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -243,8 +248,8 @@ Examples:
 
       try {
         const result = await startLearnSession(duration);
-        if (result.recordingPath) {
-          const session = await importFromRecording(result.recordingPath);
+        if (result.recordingId) {
+          const session = await importFromCredentialStore("x.com");
 
           // Hide Chrome after capturing session
           try {
@@ -265,7 +270,7 @@ Examples:
           output(
             {
               ok: false,
-              error: "Recording completed but no recording path returned",
+              error: "Recording completed but no recording ID returned",
             },
             json,
           );

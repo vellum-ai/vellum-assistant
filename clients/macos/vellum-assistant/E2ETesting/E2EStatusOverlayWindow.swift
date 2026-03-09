@@ -143,7 +143,7 @@ struct E2EStatusOverlayView: View {
 
                     Spacer()
 
-                    Text("\(status.iteration)/\(status.maxIterations)")
+                    Text("Step \(status.iteration)")
                         .font(VFont.monoSmall)
                         .foregroundColor(VColor.textSecondary)
                         .monospacedDigit()
@@ -156,10 +156,6 @@ struct E2EStatusOverlayView: View {
 
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.terminal, size: 12)
-                        .foregroundColor(VColor.accent)
-
-                    Text(status.tool)
-                        .font(VFont.monoSmall)
                         .foregroundColor(VColor.accent)
 
                     Text(status.summary)

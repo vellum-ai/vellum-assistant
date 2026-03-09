@@ -105,13 +105,13 @@ describe("DoorDash session persistence", () => {
   });
 
   describe("importFromRecording", () => {
-    it("throws when the recording file does not exist", () => {
-      expect(() => importFromRecording("/nonexistent/recording.json")).toThrow(
-        "Recording not found",
-      );
+    it("throws when the recording file does not exist", async () => {
+      await expect(
+        importFromRecording("/nonexistent/recording.json"),
+      ).rejects.toThrow("Recording not found");
     });
 
-    it("throws when the recording contains no cookies", () => {
+    it("throws when the recording contains no cookies and no targetDomain", async () => {
       const recordingPath = join(TEST_DIR, "empty-recording.json");
       writeFileSync(
         recordingPath,
@@ -119,18 +119,17 @@ describe("DoorDash session persistence", () => {
           id: "rec-empty",
           startedAt: 0,
           endedAt: 1,
-          targetDomain: "doordash.com",
           networkEntries: [],
           cookies: [],
           observations: [],
         }),
       );
-      expect(() => importFromRecording(recordingPath)).toThrow(
+      await expect(importFromRecording(recordingPath)).rejects.toThrow(
         "Recording contains no cookies",
       );
     });
 
-    it("successfully imports a recording with cookies", () => {
+    it("successfully imports a recording with cookies", async () => {
       const recordingPath = join(TEST_DIR, "valid-recording.json");
       writeFileSync(
         recordingPath,
@@ -144,7 +143,7 @@ describe("DoorDash session persistence", () => {
           observations: [],
         }),
       );
-      const session = importFromRecording(recordingPath);
+      const session = await importFromRecording(recordingPath);
       expect(session.cookies).toHaveLength(1);
       expect(session.cookies[0].name).toBe("session_id");
       expect(session.cookies[0].value).toBe("xyz");

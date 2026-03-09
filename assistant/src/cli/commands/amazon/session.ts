@@ -18,6 +18,7 @@ export interface AmazonSession {
 
 interface SessionRecording {
   cookies?: ExtractedCredential[];
+  targetDomain?: string;
 }
 
 export async function loadSession(): Promise<AmazonSession | null> {
@@ -75,6 +76,9 @@ export async function importFromRecording(
     readFileSync(recordingPath, "utf-8"),
   ) as SessionRecording;
   if (!recording.cookies?.length) {
+    if (recording.targetDomain) {
+      return importFromCredentialStore(recording.targetDomain);
+    }
     throw new Error("Recording contains no cookies");
   }
 
@@ -100,6 +104,46 @@ export async function importFromRecording(
   }
 
   const session: AmazonSession = { cookies: recording.cookies };
+  await saveSession(session);
+  return session;
+}
+
+/**
+ * Import cookies that the daemon saved to the credential store under the
+ * target domain key. Validates Amazon-specific required cookies, then
+ * copies them to the canonical amazon:session:cookies key.
+ */
+export async function importFromCredentialStore(
+  targetDomain: string,
+): Promise<AmazonSession> {
+  const { stdout } = await execFileAsync("assistant", [
+    "credentials",
+    "reveal",
+    `${targetDomain}:session:cookies`,
+  ]);
+  const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
+  if (!cookies.length) {
+    throw new Error("No cookies found in credential store");
+  }
+
+  const cookieNames = new Set(cookies.map((c) => c.name));
+  if (!cookieNames.has("session-id")) {
+    throw new Error(
+      "Credential store cookies are missing required Amazon cookie: session-id.",
+    );
+  }
+  if (!cookieNames.has("ubid-main")) {
+    throw new Error(
+      "Credential store cookies are missing required Amazon cookie: ubid-main.",
+    );
+  }
+  if (!cookieNames.has("at-main") && !cookieNames.has("x-main")) {
+    throw new Error(
+      "Credential store cookies are missing required Amazon auth cookie (at-main or x-main).",
+    );
+  }
+
+  const session: AmazonSession = { cookies };
   await saveSession(session);
   return session;
 }

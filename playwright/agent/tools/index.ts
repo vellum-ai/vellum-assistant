@@ -57,7 +57,24 @@ const toolsByName = new Map<string, ToolModule>(
   TOOLS.map((t) => [t.definition.name, t]),
 );
 
-export const TOOL_DEFINITIONS: Anthropic.Tool[] = TOOLS.map((t) => t.definition);
+const SUMMARY_PROPERTY = {
+  summary: {
+    type: "string",
+    description:
+      "A short, human-readable description of what this tool call does (e.g. 'Click Sign In button', 'Read accessibility tree', 'Wait 3s for response'). Shown in the e2e status overlay.",
+  },
+} as const;
+
+export const TOOL_DEFINITIONS: Anthropic.Tool[] = TOOLS.map((t) => {
+  const schema = t.definition.input_schema as { type: "object"; properties: Record<string, unknown>; required?: string[] };
+  return {
+    ...t.definition,
+    input_schema: {
+      ...schema,
+      properties: { ...schema.properties, ...SUMMARY_PROPERTY },
+    },
+  };
+});
 
 // ── Dispatcher ──────────────────────────────────────────────────────
 

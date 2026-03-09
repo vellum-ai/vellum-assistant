@@ -23,6 +23,7 @@ export interface TwitterSession {
 
 interface SessionRecording {
   cookies?: ExtractedCredential[];
+  targetDomain?: string;
 }
 
 interface ExtractedCredential {
@@ -90,6 +91,9 @@ export async function importFromRecording(
       readFileSync(recordingPath, "utf-8"),
     ) as SessionRecording;
     if (!recording.cookies?.length) {
+      if (recording.targetDomain) {
+        return importFromCredentialStore(recording.targetDomain);
+      }
       throw new ConfigError("Recording contains no cookies");
     }
 
@@ -111,6 +115,37 @@ export async function importFromRecording(
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+/**
+ * Import cookies that the daemon saved to the credential store under the
+ * target domain key. Validates Twitter-specific required cookies, then
+ * copies them to the canonical twitter:session:cookies key.
+ */
+export async function importFromCredentialStore(
+  targetDomain: string,
+): Promise<TwitterSession> {
+  const { stdout } = await execFileAsync("assistant", [
+    "credentials",
+    "reveal",
+    `${targetDomain}:session:cookies`,
+  ]);
+  const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
+  if (!cookies.length) {
+    throw new ConfigError("No cookies found in credential store");
+  }
+
+  const cookieNames = new Set(cookies.map((c) => c.name));
+  if (!cookieNames.has("ct0") || !cookieNames.has(`auth_${"token"}`)) {
+    throw new ConfigError(
+      "Credential store cookies are missing required Twitter session cookies. " +
+        "Make sure you are logged in to x.com before recording.",
+    );
+  }
+
+  const session: TwitterSession = { cookies };
+  await saveSession(session);
+  return session;
 }
 
 /**
