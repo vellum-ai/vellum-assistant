@@ -82,7 +82,7 @@ export function buildAccessRequestIdentityLine(
       : undefined,
   );
 
-  if (sourceChannel === "voice" && callerName) {
+  if (sourceChannel === "phone" && callerName) {
     const safeName = sanitizeIdentityField(callerName);
     const safeId = sanitizeIdentityField(
       str(payload.actorExternalId, requester),
@@ -391,7 +391,7 @@ function applyChannelDefaults(
 ): RenderedChannelCopy {
   const copy: RenderedChannelCopy = { ...baseCopy };
 
-  if (channel === "telegram" || channel === "sms") {
+  if (channel === "telegram") {
     copy.deliveryText = buildChatSurfaceFallbackDeliveryText(baseCopy, signal);
   }
 

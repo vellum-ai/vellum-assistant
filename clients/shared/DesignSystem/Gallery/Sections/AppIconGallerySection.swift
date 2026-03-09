@@ -17,10 +17,9 @@ struct AppIconGallerySection: View {
                     GridItem(.adaptive(minimum: 100), spacing: VSpacing.lg)
                 ], spacing: VSpacing.xl) {
                     ForEach(generatedApps, id: \.self) { app in
-                        let symbol = VAppIconGenerator.generate(from: app)
+                        let icon = VAppIconGenerator.generate(from: app)
                         VStack(spacing: VSpacing.sm) {
-                            Image(systemName: symbol)
-                                .font(.system(size: 28, weight: .medium))
+                            VIconView(icon, size: 28)
                                 .foregroundColor(VColor.textMuted)
                                 .frame(width: 64, height: 64)
                                 .background(Moss._100)

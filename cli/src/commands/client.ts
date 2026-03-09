@@ -1,9 +1,12 @@
+import { hostname } from "os";
+
 import {
   findAssistantByName,
   getActiveAssistant,
   loadLatestAssistant,
 } from "../lib/assistant-config";
 import { GATEWAY_PORT, type Species } from "../lib/constants";
+import { getLocalLanIPv4, getMacLocalHostname } from "../lib/local";
 
 const ANSI = {
   reset: "\x1b[0m",
@@ -46,7 +49,7 @@ function parseArgs(): ParsedArgs {
     }
   }
 
-  let entry: ReturnType<typeof findAssistantByName>;
+  let entry: ReturnType<typeof findAssistantByName> = null;
   if (positionalName) {
     entry = findAssistantByName(positionalName);
     if (!entry) {
@@ -55,15 +58,30 @@ function parseArgs(): ParsedArgs {
       );
       process.exit(1);
     }
-  } else if (process.env.RUNTIME_URL) {
-    // Explicit env var — skip assistant resolution, will use env values below
-    entry = loadLatestAssistant();
   } else {
-    // Respect active assistant when set, otherwise fall back to latest
-    // for backward compatibility with remote-only setups.
+    const hasExplicitUrl =
+      process.env.RUNTIME_URL ||
+      flagArgs.includes("--url") ||
+      flagArgs.includes("-u");
     const active = getActiveAssistant();
-    const activeEntry = active ? findAssistantByName(active) : null;
-    entry = activeEntry ?? loadLatestAssistant();
+    if (active) {
+      entry = findAssistantByName(active);
+      if (!entry && !hasExplicitUrl) {
+        console.error(
+          `Active assistant '${active}' not found in lockfile. Set an active assistant with 'vellum use <name>'.`,
+        );
+        process.exit(1);
+      }
+    }
+    if (!entry && hasExplicitUrl) {
+      // URL provided but active assistant missing or unset — use latest for remaining defaults
+      entry = loadLatestAssistant();
+    } else if (!entry) {
+      console.error(
+        "No active assistant set. Set one with 'vellum use <name>' or specify a name: 'vellum client <name>'.",
+      );
+      process.exit(1);
+    }
   }
 
   let runtimeUrl =
@@ -90,13 +108,57 @@ function parseArgs(): ParsedArgs {
   }
 
   return {
-    runtimeUrl: runtimeUrl.replace(/\/+$/, ""),
+    runtimeUrl: maybeSwapToLocalhost(runtimeUrl.replace(/\/+$/, "")),
     assistantId,
     species,
     bearerToken,
     project: entry?.project,
     zone: entry?.zone,
   };
+}
+
+/**
+ * If the hostname in `url` matches this machine's local DNS name, LAN IP, or
+ * raw hostname, replace it with 127.0.0.1 so the client avoids mDNS round-trips
+ * when talking to an assistant running on the same machine.
+ */
+function maybeSwapToLocalhost(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+
+  const urlHost = parsed.hostname.toLowerCase();
+
+  const localNames: string[] = [];
+
+  const host = hostname();
+  if (host) {
+    localNames.push(host.toLowerCase());
+    // Also consider the bare name without .local suffix
+    if (host.toLowerCase().endsWith(".local")) {
+      localNames.push(host.toLowerCase().slice(0, -".local".length));
+    }
+  }
+
+  const macHost = getMacLocalHostname();
+  if (macHost) {
+    localNames.push(macHost.toLowerCase());
+  }
+
+  const lanIp = getLocalLanIPv4();
+  if (lanIp) {
+    localNames.push(lanIp);
+  }
+
+  if (localNames.includes(urlHost)) {
+    parsed.hostname = "127.0.0.1";
+    return parsed.toString().replace(/\/+$/, "");
+  }
+
+  return url;
 }
 
 function printUsage(): void {
@@ -106,7 +168,7 @@ ${ANSI.bold}USAGE:${ANSI.reset}
     vellum client [name] [options]
 
 ${ANSI.bold}ARGUMENTS:${ANSI.reset}
-    [name]                     Instance name (default: latest)
+    [name]                     Instance name (default: active)
 
 ${ANSI.bold}OPTIONS:${ANSI.reset}
     -u, --url <url>            Runtime URL

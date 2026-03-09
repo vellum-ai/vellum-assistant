@@ -1,8 +1,8 @@
 ---
-name: "Self Upgrade"
-description: "Upgrade vellum to the latest version, restart the assistant, and restart the gateway"
-user-invocable: true
-metadata: { "vellum": { "emoji": "⬆️" } }
+name: self-upgrade
+description: Upgrade vellum to the latest version, restart the assistant, and restart the gateway
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"⬆️","vellum":{"display-name":"Self Upgrade","user-invocable":true}}
 ---
 
 You are performing a self-upgrade of the Vellum assistant. Follow these steps **in order**. Use the `bash` tool to run each command. Confirm each step succeeds before moving to the next.

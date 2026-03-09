@@ -1,5 +1,3 @@
-import * as net from "node:net";
-
 import { v4 as uuid } from "uuid";
 
 import {
@@ -15,7 +13,18 @@ import {
   resolveCanonicalGuardianRequest,
 } from "../../memory/canonical-guardian-store.js";
 import { getAttentionStateByConversationIds } from "../../memory/conversation-attention-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import {
+  batchSetDisplayOrders,
+  clearAll,
+  createConversation,
+  getConversation,
+  getDisplayMetaForConversations,
+  updateConversationTitle,
+} from "../../memory/conversation-crud.js";
+import {
+  countConversations,
+  listConversations,
+} from "../../memory/conversation-queries.js";
 import {
   GENERATING_TITLE,
   queueGenerateConversationTitle,
@@ -38,8 +47,8 @@ import type {
   SessionSwitchRequest,
   UndoRequest,
   UsageRequest,
-} from "../ipc-protocol.js";
-import { normalizeThreadType } from "../ipc-protocol.js";
+} from "../message-protocol.js";
+import { normalizeThreadType } from "../message-protocol.js";
 import type { Session } from "../session.js";
 import {
   buildSessionErrorMessage,
@@ -50,6 +59,7 @@ import {
   handleHistoryRequest,
   handleMessageContentRequest,
 } from "./session-history.js";
+import { handleUserMessage } from "./session-user-message.js";
 import {
   defineHandlers,
   type HandlerContext,
@@ -57,9 +67,6 @@ import {
   pendingStandaloneSecrets,
   wireEscalationHandler,
 } from "./shared.js";
-// Re-export for backward compatibility — tests and other consumers import from sessions.js
-export { handleUserMessage } from "./session-user-message.js";
-import { handleUserMessage } from "./session-user-message.js";
 
 /**
  * Extract a valid ChannelId from a binding's sourceChannel, which may carry a
@@ -101,12 +108,11 @@ export function syncCanonicalStatusFromIpcConfirmationDecision(
 
 export function makeIpcEventSender(params: {
   ctx: HandlerContext;
-  socket: net.Socket;
   session: Session;
   conversationId: string;
   sourceChannel: string;
 }): (event: ServerMessage) => void {
-  const { ctx, socket, session, conversationId, sourceChannel } = params;
+  const { ctx, session, conversationId, sourceChannel } = params;
 
   return (event: ServerMessage) => {
     if (event.type === "confirmation_request") {
@@ -154,17 +160,16 @@ export function makeIpcEventSender(params: {
       });
     }
 
-    ctx.send(socket, event);
+    ctx.send(event);
   };
 }
 
 export function handleConfirmationResponse(
   msg: ConfirmationResponse,
-  _socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   // Route by requestId to the session that originated the prompt, not by
-  // the current socket-session binding which may have changed since the
+  // the current session binding which may have changed since the
   // request was issued (e.g. after a session switch).
   for (const [sessionId, session] of ctx.sessions) {
     if (session.hasPendingConfirmation(msg.requestId)) {
@@ -212,7 +217,6 @@ export function handleConfirmationResponse(
 
 export function handleSecretResponse(
   msg: SecretResponse,
-  _socket: net.Socket,
   ctx: HandlerContext,
 ): void {
   // Check standalone (non-session) prompts first, since they use a dedicated
@@ -230,7 +234,7 @@ export function handleSecretResponse(
   }
 
   // Route by requestId to the session that originated the prompt, not by
-  // the current socket-session binding which may have changed since the
+  // the current session binding which may have changed since the
   // request was issued (e.g. after a session switch).
   for (const [sessionId, session] of ctx.sessions) {
     if (session.hasPendingSecret(msg.requestId)) {
@@ -247,24 +251,18 @@ export function handleSecretResponse(
 }
 
 export function handleSessionList(
-  socket: net.Socket,
   ctx: HandlerContext,
   offset = 0,
   limit = 50,
 ): void {
-  const conversations = conversationStore.listConversations(
-    limit,
-    false,
-    offset,
-  );
-  const totalCount = conversationStore.countConversations();
+  const conversations = listConversations(limit, false, offset);
+  const totalCount = countConversations();
   const conversationIds = conversations.map((c) => c.id);
   const bindings =
     externalConversationStore.getBindingsForConversations(conversationIds);
   const attentionStates = getAttentionStateByConversationIds(conversationIds);
-  const displayMetas =
-    conversationStore.getDisplayMetaForConversations(conversationIds);
-  ctx.send(socket, {
+  const displayMetas = getDisplayMetaForConversations(conversationIds);
+  ctx.send({
     type: "session_list_response",
     sessions: conversations.map((c) => {
       const binding = bindings.get(c.id);
@@ -329,37 +327,43 @@ export function handleSessionList(
   });
 }
 
-export function handleSessionsClear(
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
+/**
+ * Clear all sessions and DB conversations. Returns the number of sessions cleared.
+ */
+export function clearAllSessions(ctx: HandlerContext): number {
   const cleared = ctx.clearAllSessions();
   // Also clear DB conversations. When a new IPC connection triggers
   // sendInitialSession, it auto-creates a conversation if none exist.
   // Without this DB clear, that auto-created row survives, contradicting
   // the "clear all conversations" intent.
-  conversationStore.clearAll();
-  ctx.send(socket, { type: "sessions_clear_response", cleared });
+  clearAll();
+  return cleared;
+}
+
+export function handleSessionsClear(
+  ctx: HandlerContext,
+): void {
+  const cleared = clearAllSessions(ctx);
+  ctx.send({ type: "sessions_clear_response", cleared });
 }
 
 export async function handleSessionCreate(
   msg: SessionCreateRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const threadType = normalizeThreadType(msg.threadType);
   const title =
     msg.title ?? (msg.initialMessage ? GENERATING_TITLE : "New Conversation");
-  const conversation = conversationStore.createConversation({
+  const conversation = createConversation({
     title,
     threadType,
   });
-  const session = await ctx.getOrCreateSession(conversation.id, socket, true, {
+  const session = await ctx.getOrCreateSession(conversation.id, {
     systemPromptOverride: msg.systemPromptOverride,
     maxResponseTokens: msg.maxResponseTokens,
     transport: msg.transport,
   });
-  wireEscalationHandler(session, socket, ctx);
+  wireEscalationHandler(session, ctx);
 
   // Pre-activate skills before sending session_info so they're available
   // for the initial message processing.
@@ -367,7 +371,7 @@ export async function handleSessionCreate(
     session.setPreactivatedSkillIds(msg.preactivatedSkillIds);
   }
 
-  ctx.send(socket, {
+  ctx.send({
     type: "session_info",
     sessionId: conversation.id,
     title: conversation.title ?? "New Conversation",
@@ -388,7 +392,7 @@ export async function handleSessionCreate(
         context: { origin: "ipc" },
         userMessage: msg.initialMessage,
         onTitleUpdated: (newTitle) => {
-          ctx.send(socket, {
+          ctx.send({
             type: "session_title_updated",
             sessionId: conversation.id,
             title: newTitle,
@@ -397,13 +401,11 @@ export async function handleSessionCreate(
       });
     }
 
-    ctx.socketToSession.set(socket, conversation.id);
     const requestId = uuid();
     const transportChannel =
       parseChannelId(msg.transport?.channelId) ?? "vellum";
     const sendEvent = makeIpcEventSender({
       ctx,
-      socket,
       session,
       conversationId: conversation.id,
       sourceChannel: transportChannel,
@@ -427,7 +429,7 @@ export async function handleSessionCreate(
           { err, sessionId: conversation.id },
           "Error processing initial message",
         );
-        ctx.send(socket, {
+        ctx.send({
           type: "error",
           message: `Failed to process initial message: ${message}`,
         });
@@ -435,14 +437,11 @@ export async function handleSessionCreate(
         // Replace stuck loading placeholder with a stable fallback title
         // if title generation hasn't already completed or been renamed.
         try {
-          const current = conversationStore.getConversation(conversation.id);
+          const current = getConversation(conversation.id);
           if (current && current.title === GENERATING_TITLE) {
             const fallback = UNTITLED_FALLBACK;
-            conversationStore.updateConversationTitle(
-              conversation.id,
-              fallback,
-            );
-            ctx.send(socket, {
+            updateConversationTitle(conversation.id, fallback);
+            ctx.send({
               type: "session_title_updated",
               sessionId: conversation.id,
               title: fallback,
@@ -455,130 +454,181 @@ export async function handleSessionCreate(
   }
 }
 
-export async function handleSessionSwitch(
-  msg: SessionSwitchRequest,
-  socket: net.Socket,
+/**
+ * Switch to an existing session/conversation. Returns session info on success,
+ * or throws/returns an error result when the conversation is not found.
+ */
+export async function switchSession(
+  sessionId: string,
   ctx: HandlerContext,
-): Promise<void> {
-  const conversation = conversationStore.getConversation(msg.sessionId);
+): Promise<{
+  sessionId: string;
+  title: string;
+  threadType: ReturnType<typeof normalizeThreadType>;
+} | null> {
+  const conversation = getConversation(sessionId);
   if (!conversation) {
-    ctx.send(socket, {
-      type: "error",
-      message: `Session ${msg.sessionId} not found`,
-    });
-    return;
+    return null;
   }
 
   // If the target session is headless-locked (actively executing a task run),
-  // skip rebinding the socket so tool confirmations stay suppressed.
-  const existingSession = ctx.sessions.get(msg.sessionId);
+  // skip rebinding so tool confirmations stay suppressed.
+  const existingSession = ctx.sessions.get(sessionId);
   const isHeadlessLocked = existingSession?.headlessLock;
-
-  ctx.socketToSession.set(socket, msg.sessionId);
 
   if (isHeadlessLocked) {
     // Load the session without rebinding the client — the session stays headless
-    await ctx.getOrCreateSession(msg.sessionId, socket, false);
+    await ctx.getOrCreateSession(sessionId);
   } else {
-    const session = await ctx.getOrCreateSession(msg.sessionId, socket, true);
+    const session = await ctx.getOrCreateSession(sessionId);
     // Only wire the escalation handler if one isn't already set — handleTaskSubmit
     // sets a handler with the client's actual screen dimensions, and overwriting it
     // here would replace those dimensions with the daemon's defaults.
     if (!session.hasEscalationHandler()) {
-      wireEscalationHandler(session, socket, ctx);
+      wireEscalationHandler(session, ctx);
     }
   }
 
-  ctx.send(socket, {
-    type: "session_info",
+  return {
     sessionId: conversation.id,
     title: conversation.title ?? "Untitled",
     threadType: normalizeThreadType(conversation.threadType),
-  });
+  };
 }
 
-export function handleSessionRename(
-  msg: SessionRenameRequest,
-  socket: net.Socket,
+export async function handleSessionSwitch(
+  msg: SessionSwitchRequest,
   ctx: HandlerContext,
-): void {
-  const conversation = conversationStore.getConversation(msg.sessionId);
-  if (!conversation) {
-    ctx.send(socket, {
+): Promise<void> {
+  const result = await switchSession(msg.sessionId, ctx);
+  if (!result) {
+    ctx.send({
       type: "error",
       message: `Session ${msg.sessionId} not found`,
     });
     return;
   }
-  conversationStore.updateConversationTitle(msg.sessionId, msg.title, 0);
-  ctx.send(socket, {
+
+  ctx.send({
+    type: "session_info",
+    sessionId: result.sessionId,
+    title: result.title,
+    threadType: result.threadType,
+  });
+}
+
+/**
+ * Rename a session/conversation. Returns true on success, false if not found.
+ */
+export function renameSession(
+  sessionId: string,
+  name: string,
+): boolean {
+  const conversation = getConversation(sessionId);
+  if (!conversation) {
+    return false;
+  }
+  updateConversationTitle(sessionId, name, 0);
+  return true;
+}
+
+export function handleSessionRename(
+  msg: SessionRenameRequest,
+  ctx: HandlerContext,
+): void {
+  const success = renameSession(msg.sessionId, msg.title);
+  if (!success) {
+    ctx.send({
+      type: "error",
+      message: `Session ${msg.sessionId} not found`,
+    });
+    return;
+  }
+  ctx.send({
     type: "session_title_updated",
     sessionId: msg.sessionId,
     title: msg.title,
   });
 }
 
+/**
+ * Cancel generation for a session. Returns true if a session was found and cancelled.
+ */
+export function cancelGeneration(
+  sessionId: string,
+  ctx: HandlerContext,
+): boolean {
+  const session = ctx.sessions.get(sessionId);
+  if (!session) {
+    return false;
+  }
+  ctx.touchSession(sessionId);
+  session.abort();
+  // Also abort any child subagents spawned by this session.
+  // Omit sendToClient to suppress parent notifications — the parent is
+  // being cancelled, so enqueuing synthetic messages would trigger
+  // unwanted model activity after the user pressed stop.
+  getSubagentManager().abortAllForParent(sessionId);
+  return true;
+}
+
 export function handleCancel(
   msg: CancelRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const sessionId = msg.sessionId || ctx.socketToSession.get(socket);
+  const sessionId = msg.sessionId;
   if (sessionId) {
-    const session = ctx.sessions.get(sessionId);
-    if (session) {
-      ctx.touchSession(sessionId);
-      session.abort();
-      // Also abort any child subagents spawned by this session.
-      // Omit sendToClient to suppress parent notifications — the parent is
-      // being cancelled, so enqueuing synthetic messages would trigger
-      // unwanted model activity after the user pressed stop.
-      getSubagentManager().abortAllForParent(sessionId);
-    }
+    cancelGeneration(sessionId, ctx);
   }
+}
+
+/**
+ * Undo the last message in a session. Returns the removed count, or null if session not found.
+ */
+export function undoLastMessage(
+  sessionId: string,
+  ctx: HandlerContext,
+): { removedCount: number } | null {
+  const session = ctx.sessions.get(sessionId);
+  if (!session) {
+    return null;
+  }
+  ctx.touchSession(sessionId);
+  const removedCount = session.undo();
+  return { removedCount };
 }
 
 export function handleUndo(
   msg: UndoRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const session = ctx.sessions.get(msg.sessionId);
-  if (!session) {
-    ctx.send(socket, { type: "error", message: "No active session" });
+  const result = undoLastMessage(msg.sessionId, ctx);
+  if (!result) {
+    ctx.send({ type: "error", message: "No active session" });
     return;
   }
-  ctx.touchSession(msg.sessionId);
-  const removedCount = session.undo();
-  ctx.send(socket, {
+  ctx.send({
     type: "undo_complete",
-    removedCount,
+    removedCount: result.removedCount,
     sessionId: msg.sessionId,
   });
 }
 
-export async function handleRegenerate(
-  msg: RegenerateRequest,
-  socket: net.Socket,
+/**
+ * Regenerate the last assistant response for a session. The caller provides
+ * a `sendEvent` callback for delivering streaming events (IPC or HTTP/SSE).
+ * Returns null if the session is not found. Throws on regeneration errors.
+ */
+export async function regenerateResponse(
+  sessionId: string,
   ctx: HandlerContext,
-): Promise<void> {
-  const session = ctx.sessions.get(msg.sessionId);
+  sendEvent: (event: ServerMessage) => void,
+): Promise<{ requestId: string } | null> {
+  const session = ctx.sessions.get(sessionId);
   if (!session) {
-    ctx.send(socket, { type: "error", message: "No active session" });
-    return;
+    return null;
   }
-  ctx.touchSession(msg.sessionId);
-
-  const regenerateChannel =
-    parseChannelId(session.getTurnChannelContext()?.assistantMessageChannel) ??
-    "vellum";
-  const sendEvent = makeIpcEventSender({
-    ctx,
-    socket,
-    session,
-    conversationId: msg.sessionId,
-    sourceChannel: regenerateChannel,
-  });
+  ctx.touchSession(sessionId);
   session.updateClient(sendEvent, false);
   const requestId = uuid();
   session.traceEmitter.emit("request_received", "Regenerate requested", {
@@ -590,7 +640,7 @@ export async function handleRegenerate(
     await session.regenerate(sendEvent, requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, sessionId: msg.sessionId }, "Error regenerating message");
+    log.error({ err, sessionId }, "Error regenerating message");
     session.traceEmitter.emit("request_error", truncate(message, 200, ""), {
       requestId,
       status: "error",
@@ -599,27 +649,55 @@ export async function handleRegenerate(
         message: truncate(message, 500, ""),
       },
     });
-    ctx.send(socket, {
+    throw err;
+  }
+  return { requestId };
+}
+
+export async function handleRegenerate(
+  msg: RegenerateRequest,
+  ctx: HandlerContext,
+): Promise<void> {
+  const session = ctx.sessions.get(msg.sessionId);
+  if (!session) {
+    ctx.send({ type: "error", message: "No active session" });
+    return;
+  }
+
+  const regenerateChannel =
+    parseChannelId(session.getTurnChannelContext()?.assistantMessageChannel) ??
+    "vellum";
+  const sendEvent = makeIpcEventSender({
+    ctx,
+    session,
+    conversationId: msg.sessionId,
+    sourceChannel: regenerateChannel,
+  });
+
+  try {
+    await regenerateResponse(msg.sessionId, ctx, sendEvent);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.send({
       type: "error",
       message: `Failed to regenerate: ${message}`,
     });
     const classified = classifySessionError(err, { phase: "regenerate" });
-    ctx.send(socket, buildSessionErrorMessage(msg.sessionId, classified));
+    ctx.send(buildSessionErrorMessage(msg.sessionId, classified));
   }
 }
 
 export function handleUsageRequest(
   msg: UsageRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  const conversation = conversationStore.getConversation(msg.sessionId);
+  const conversation = getConversation(msg.sessionId);
   if (!conversation) {
-    ctx.send(socket, { type: "error", message: "No active session" });
+    ctx.send({ type: "error", message: "No active session" });
     return;
   }
   const config = getConfig();
-  ctx.send(socket, {
+  ctx.send({
     type: "usage_response",
     totalInputTokens: conversation.totalInputTokens,
     totalOutputTokens: conversation.totalOutputTokens,
@@ -628,43 +706,68 @@ export function handleUsageRequest(
   });
 }
 
-export function handleDeleteQueuedMessage(
-  msg: DeleteQueuedMessage,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const session = ctx.sessions.get(msg.sessionId);
+// ---------------------------------------------------------------------------
+// Shared business logic (transport-agnostic)
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete a queued message from a session.
+ * Returns `{ removed: true }` on success, `{ removed: false, reason }` on failure.
+ */
+export function deleteQueuedMessage(
+  sessionId: string,
+  requestId: string,
+  findSession: (id: string) => { removeQueuedMessage(requestId: string): boolean } | undefined,
+): { removed: true } | { removed: false; reason: "session_not_found" | "message_not_found" } {
+  const session = findSession(sessionId);
   if (!session) {
     log.warn(
-      { sessionId: msg.sessionId, requestId: msg.requestId },
+      { sessionId, requestId },
       "No session found for delete_queued_message",
     );
-    return;
+    return { removed: false, reason: "session_not_found" };
   }
-  const removed = session.removeQueuedMessage(msg.requestId);
+  const removed = session.removeQueuedMessage(requestId);
   if (removed) {
-    ctx.send(socket, {
+    return { removed: true };
+  }
+  log.warn(
+    { sessionId, requestId },
+    "Queued message not found for deletion",
+  );
+  return { removed: false, reason: "message_not_found" };
+}
+
+// ---------------------------------------------------------------------------
+// IPC handler (delegates to shared logic)
+// ---------------------------------------------------------------------------
+
+export function handleDeleteQueuedMessage(
+  msg: DeleteQueuedMessage,
+  ctx: HandlerContext,
+): void {
+  const result = deleteQueuedMessage(
+    msg.sessionId,
+    msg.requestId,
+    (id) => ctx.sessions.get(id),
+  );
+  if (result.removed) {
+    ctx.send({
       type: "message_queued_deleted",
       sessionId: msg.sessionId,
       requestId: msg.requestId,
     });
-  } else {
-    log.warn(
-      { sessionId: msg.sessionId, requestId: msg.requestId },
-      "Queued message not found for deletion",
-    );
   }
 }
 
 export function handleReorderThreads(
   msg: ReorderThreadsRequest,
-  _socket: net.Socket,
   _ctx: HandlerContext,
 ): void {
   if (!Array.isArray(msg.updates)) {
     return;
   }
-  conversationStore.batchSetDisplayOrders(
+  batchSetDisplayOrders(
     msg.updates.map((u) => ({
       id: u.sessionId,
       displayOrder: u.displayOrder ?? null,
@@ -677,10 +780,10 @@ export const sessionHandlers = defineHandlers({
   user_message: handleUserMessage,
   confirmation_response: handleConfirmationResponse,
   secret_response: handleSecretResponse,
-  session_list: (msg, socket, ctx) =>
-    handleSessionList(socket, ctx, msg.offset ?? 0, msg.limit ?? 50),
+  session_list: (msg, ctx) =>
+    handleSessionList(ctx, msg.offset ?? 0, msg.limit ?? 50),
   session_create: handleSessionCreate,
-  sessions_clear: (_msg, socket, ctx) => handleSessionsClear(socket, ctx),
+  sessions_clear: (_msg, ctx) => handleSessionsClear(ctx),
   session_switch: handleSessionSwitch,
   session_rename: handleSessionRename,
   cancel: handleCancel,

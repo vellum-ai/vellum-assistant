@@ -27,7 +27,6 @@ import {
   releaseCallbackClaim,
   updateCallSession,
 } from "./call-store.js";
-import { getTwilioConfig } from "./twilio-config.js";
 import type { CallStatus } from "./types.js";
 import { resolveVoiceQualityProfile } from "./voice-quality.js";
 
@@ -116,22 +115,6 @@ export function buildWelcomeGreeting(
 }
 
 /**
- * Resolve the WebSocket relay URL from Twilio config.
- *
- * Treats wssBaseUrl as present only when it is non-empty after trimming.
- * Falls back to webhookBaseUrl, normalizing the scheme from http(s) to ws(s)
- * and stripping any trailing slash.
- */
-export function resolveRelayUrl(
-  wssBaseUrl: string,
-  webhookBaseUrl: string,
-): string {
-  const base = wssBaseUrl.trim() || webhookBaseUrl;
-  const normalized = base.replace(/\/$/, "").replace(/^http(s?)/, "ws$1");
-  return `${normalized}/v1/calls/relay`;
-}
-
-/**
  * Map Twilio call status strings to our internal CallStatus.
  */
 function mapTwilioStatus(twilioStatus: string): CallStatus | null {
@@ -198,7 +181,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
     return buildVoiceWebhookTwiml(
       session.id,
       session.task,
-      session.guardianVerificationSessionId,
+      session.verificationSessionId,
     );
   }
 
@@ -226,7 +209,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
   return buildVoiceWebhookTwiml(
     callSessionId,
     session.task,
-    session.guardianVerificationSessionId,
+    session.verificationSessionId,
   );
 }
 
@@ -235,7 +218,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
  * Resolves voice quality profile, relay URL, and welcome greeting,
  * then returns a Response with the generated TwiML.
  *
- * When `guardianVerificationSessionId` is provided, it is included as a
+ * When `verificationSessionId` is provided, it is included as a
  * `<Parameter>` in the TwiML for observability and compatibility with
  * the Twilio setup payload. The persisted call session mode is the
  * primary signal for deterministic flow selection in the relay server.
@@ -243,7 +226,7 @@ export async function handleVoiceWebhook(req: Request): Promise<Response> {
 function buildVoiceWebhookTwiml(
   callSessionId: string,
   task: string | null,
-  guardianVerificationSessionId?: string | null,
+  verificationSessionId?: string | null,
 ): Response {
   const profile = resolveVoiceQualityProfile(loadConfig());
 
@@ -252,28 +235,16 @@ function buildVoiceWebhookTwiml(
     "Voice quality profile resolved",
   );
 
-  const twilioConfig = getTwilioConfig();
-  let relayUrl: string;
-  try {
-    relayUrl = getTwilioRelayUrl(loadConfig());
-  } catch {
-    // Fallback to legacy resolution when ingress is not configured
-    relayUrl = resolveRelayUrl(
-      twilioConfig.wssBaseUrl,
-      twilioConfig.webhookBaseUrl,
-    );
-  }
+  const relayUrl = getTwilioRelayUrl(loadConfig());
   const welcomeGreeting = buildWelcomeGreeting(task, getCallWelcomeGreeting());
 
   const relayToken = mintEdgeRelayToken();
 
-  // Propagate guardianVerificationSessionId as a TwiML <Parameter> for
+  // Propagate verificationSessionId as a TwiML <Parameter> for
   // observability. This is not the sole source of truth; the relay
   // server reads the persisted call_mode from the call session first.
   const customParameters: Record<string, string> | undefined =
-    guardianVerificationSessionId
-      ? { guardianVerificationSessionId }
-      : undefined;
+    verificationSessionId ? { verificationSessionId } : undefined;
 
   const twiml = generateTwiML(
     callSessionId,
@@ -348,6 +319,7 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
     return new Response(null, { status: 200 });
   }
 
+  let eventPersisted = false;
   try {
     const wasTerminal = isTerminalState(session.status);
 
@@ -366,9 +338,6 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       updates.endedAt = Date.now();
     }
 
-    updateCallSession(session.id, updates);
-
-    // Record event
     const eventType = isTerminal
       ? mappedStatus === "completed"
         ? "call_ended"
@@ -377,18 +346,32 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
         ? "call_connected"
         : "call_started";
 
-    recordCallEvent(session.id, eventType, {
-      twilioStatus: callStatus,
-      callSid,
+    // Record event after DB update but before lease sync: avoids duplicate
+    // events on retry (if update fails we never record), while ensuring the
+    // lease is only released after persistence so vellum sleep doesn't proceed
+    // before the call is fully recorded.
+    updateCallSession(session.id, updates, {
+      beforeLeaseSync: () => {
+        recordCallEvent(session.id, eventType, {
+          twilioStatus: callStatus,
+          callSid,
+        });
+        eventPersisted = true;
+      },
     });
 
-    // Expire pending questions on terminal status
-    if (isTerminal) {
-      expirePendingQuestions(session.id);
+    // Post-persistence processing is best-effort — failures must not
+    // propagate to the outer catch block, which would incorrectly treat
+    // them as lease-sync failures and finalize the dedupe claim.
+    try {
+      if (isTerminal) {
+        expirePendingQuestions(session.id);
 
-      if (!wasTerminal) {
-        persistCallCompletionMessage(session.conversationId, session.id).catch(
-          (err) => {
+        if (!wasTerminal) {
+          persistCallCompletionMessage(
+            session.conversationId,
+            session.id,
+          ).catch((err) => {
             log.error(
               {
                 err,
@@ -397,10 +380,15 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
               },
               "Failed to persist call completion message",
             );
-          },
-        );
-        fireCallCompletionNotifier(session.conversationId, session.id);
+          });
+          fireCallCompletionNotifier(session.conversationId, session.id);
+        }
       }
+    } catch (postErr) {
+      log.error(
+        { err: postErr, callSid, callStatus, callSessionId: session.id },
+        "Post-persistence processing failed — event and claim are intact, but side effects may be incomplete",
+      );
     }
 
     // Mark the claim as permanently processed so it never expires.
@@ -416,8 +404,33 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
       );
     }
   } catch (err) {
-    // Release claim so Twilio retries can reprocess
-    releaseCallbackClaim(dedupeKey, claimId);
+    if (eventPersisted) {
+      // Event already written — releasing the claim would let Twilio
+      // retries insert a duplicate event. Finalize instead so the
+      // dedupe guard blocks subsequent attempts.
+      try {
+        finalizeCallbackClaim(dedupeKey, claimId);
+        log.warn(
+          { dedupeKey, claimId, callSid, callStatus, err },
+          "Post-persistence error — claim finalized to prevent duplicate events on retry",
+        );
+      } catch (finalizeErr) {
+        log.error(
+          { dedupeKey, claimId, callSid, callStatus, finalizeErr },
+          "Failed to finalize claim after event persistence — original error will still be re-thrown",
+        );
+      }
+    } else {
+      // Nothing persisted yet — safe to release so retries can reprocess
+      try {
+        releaseCallbackClaim(dedupeKey, claimId);
+      } catch (releaseErr) {
+        log.error(
+          { dedupeKey, claimId, callSid, callStatus, releaseErr },
+          "Failed to release claim — original error will still be re-thrown",
+        );
+      }
+    }
     throw err;
   }
 

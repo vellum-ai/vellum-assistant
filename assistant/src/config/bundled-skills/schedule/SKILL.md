@@ -1,7 +1,8 @@
 ---
-name: "Schedule"
-description: "Recurring automation that dispatches messages on a cron or RRULE schedule"
-metadata: { "vellum": { "emoji": "\ud83d\udcc5" } }
+name: schedule
+description: Recurring automation that dispatches messages on a cron or RRULE schedule
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"📅","vellum":{"display-name":"Schedule"}}
 ---
 
 Manage recurring scheduled automations. Each schedule has an expression (cron or RRULE) that defines when it fires, and a message that gets dispatched to the assistant at trigger time.

@@ -4,6 +4,7 @@ import {
   getWhatsAppMediaMetadata,
   downloadWhatsAppMediaBytes,
   WhatsAppNonRetryableError,
+  type WhatsAppApiCaches,
 } from "./api.js";
 
 export interface DownloadedFile {
@@ -52,8 +53,9 @@ export async function downloadWhatsAppFile(
   config: GatewayConfig,
   mediaId: string,
   hint?: { fileName?: string; mimeType?: string },
+  caches?: WhatsAppApiCaches,
 ): Promise<DownloadedFile> {
-  const meta = await getWhatsAppMediaMetadata(config, mediaId);
+  const meta = await getWhatsAppMediaMetadata(mediaId, caches);
 
   if (meta.file_size > config.maxAttachmentBytes) {
     throw new WhatsAppNonRetryableError(
@@ -61,7 +63,7 @@ export async function downloadWhatsAppFile(
     );
   }
 
-  const response = await downloadWhatsAppMediaBytes(config, meta.url);
+  const response = await downloadWhatsAppMediaBytes(meta.url, caches);
   const buffer = await response.arrayBuffer();
 
   const detected = await fileTypeFromBuffer(new Uint8Array(buffer));

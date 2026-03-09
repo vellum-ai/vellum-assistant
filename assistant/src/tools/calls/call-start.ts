@@ -1,6 +1,6 @@
 import { startCall } from "../../calls/call-domain.js";
 import { getConfig } from "../../config/loader.js";
-import { findActiveSession } from "../../runtime/channel-guardian-service.js";
+import { findActiveSession } from "../../runtime/channel-verification-service.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -21,7 +21,7 @@ export async function executeCallStart(
       ? normalizePhoneNumber(input.phone_number)
       : null;
   if (requestedPhone) {
-    const activeVoiceVerification = findActiveSession("voice");
+    const activeVoiceVerification = findActiveSession("phone");
     const verificationDestination =
       activeVoiceVerification?.destinationAddress ??
       activeVoiceVerification?.expectedPhoneE164;
@@ -29,7 +29,7 @@ export async function executeCallStart(
       return {
         content: [
           "Error: A guardian voice verification call is already active for this number.",
-          "Use the guardian outbound verification flow via the gateway API (`/v1/integrations/guardian/outbound/start` or `/resend`) and wait for completion before using `call_start`.",
+          "Use the guardian outbound verification flow via the gateway API (`/v1/channel-verification-sessions` or `/channel-verification-sessions/resend`) and wait for completion before using `call_start`.",
         ].join(" "),
         isError: true,
       };

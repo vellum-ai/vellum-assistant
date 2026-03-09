@@ -1,5 +1,7 @@
 import { buildTelegramTransportMetadata } from "../../channels/transport-hints.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
+import type { CredentialCache } from "../../credential-cache.js";
 import { DedupCache } from "../../dedup-cache.js";
 import { handleInbound } from "../../handlers/handle-inbound.js";
 import { getLogger } from "../../logger.js";
@@ -44,7 +46,10 @@ const rejectionLimiter = new RejectionRateLimiter();
 const START_COMMAND_ACK_TEXT =
   "Starting up... you'll get my first message in a moment.";
 
-export function createTelegramWebhookHandler(config: GatewayConfig) {
+export function createTelegramWebhookHandler(
+  config: GatewayConfig,
+  caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
+) {
   const dedupCache = new DedupCache();
 
   const handler = async (req: Request): Promise<Response> => {
@@ -65,11 +70,32 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
 
-    // Verify webhook secret
-    if (
-      !config.telegramWebhookSecret ||
-      !verifyWebhookSecret(req.headers, config.telegramWebhookSecret)
-    ) {
+    // Verify webhook secret from cache
+    const webhookSecret = caches?.credentials
+      ? await caches.credentials.get("credential:telegram:webhook_secret")
+      : undefined;
+
+    let secretVerified =
+      !!webhookSecret && verifyWebhookSecret(req.headers, webhookSecret);
+
+    // One-shot force retry: if verification failed and caches are available,
+    // force-refresh the webhook secret and retry once.
+    if (!secretVerified && caches?.credentials) {
+      const freshSecret = await caches.credentials.get(
+        "credential:telegram:webhook_secret",
+        { force: true },
+      );
+      if (freshSecret) {
+        secretVerified = verifyWebhookSecret(req.headers, freshSecret);
+        if (secretVerified) {
+          tlog.info(
+            "Telegram webhook secret verified after forced credential refresh",
+          );
+        }
+      }
+    }
+
+    if (!secretVerified) {
       tlog.warn("Telegram webhook request failed secret verification");
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -157,9 +183,13 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       phase: string,
     ): void => {
       if (!callbackQueryId) return;
-      callTelegramApi(config, "answerCallbackQuery", {
-        callback_query_id: callbackQueryId,
-      }).catch((err) => {
+      callTelegramApi(
+        "answerCallbackQuery",
+        {
+          callback_query_id: callbackQueryId,
+        },
+        { credentials: caches?.credentials, configFile: caches?.configFile },
+      ).catch((err) => {
         tlog.error(
           { err, callbackQueryId, phase },
           "Failed to acknowledge callback query",
@@ -205,21 +235,22 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           return;
         }
 
-        callTelegramApi(config, "deleteMessage", basePayload).catch(
-          (deleteErr) => {
-            tlog.error(
-              {
-                primaryErr,
-                fallbackErr,
-                deleteErr,
-                chatId,
-                messageId: parsedMessageId,
-                phase,
-              },
-              "Failed to clear inline approval buttons and delete prompt message",
-            );
-          },
-        );
+        callTelegramApi("deleteMessage", basePayload, {
+          credentials: caches?.credentials,
+          configFile: caches?.configFile,
+        }).catch((deleteErr) => {
+          tlog.error(
+            {
+              primaryErr,
+              fallbackErr,
+              deleteErr,
+              chatId,
+              messageId: parsedMessageId,
+              phase,
+            },
+            "Failed to clear inline approval buttons and delete prompt message",
+          );
+        });
       };
 
       // Bot API behavior differs across wrappers/clients for "remove markup".
@@ -227,16 +258,22 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
       // keyboard payload if needed. If both fail, delete the prompt message
       // so users are not left with stale actionable buttons — unless the error
       // indicates the markup was already removed (no-op).
-      callTelegramApi(config, "editMessageReplyMarkup", {
-        ...basePayload,
-        reply_markup: null,
-      }).catch((primaryErr) =>
-        callTelegramApi(config, "editMessageReplyMarkup", {
+      callTelegramApi(
+        "editMessageReplyMarkup",
+        {
           ...basePayload,
-          reply_markup: { inline_keyboard: [] },
-        }).catch((fallbackErr) =>
-          deleteApprovalPrompt(primaryErr, fallbackErr),
-        ),
+          reply_markup: null,
+        },
+        { credentials: caches?.credentials, configFile: caches?.configFile },
+      ).catch((primaryErr) =>
+        callTelegramApi(
+          "editMessageReplyMarkup",
+          {
+            ...basePayload,
+            reply_markup: { inline_keyboard: [] },
+          },
+          { credentials: caches?.credentials, configFile: caches?.configFile },
+        ).catch((fallbackErr) => deleteApprovalPrompt(primaryErr, fallbackErr)),
       );
     };
 
@@ -296,6 +333,11 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             config,
             normalized.message.conversationExternalId,
             "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
+            undefined,
+            {
+              credentials: caches?.credentials,
+              configFile: caches?.configFile,
+            },
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -317,6 +359,8 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           config,
           normalized.message.conversationExternalId,
           START_COMMAND_ACK_TEXT,
+          undefined,
+          { credentials: caches?.credentials },
         ).catch((err) => {
           tlog.error(
             { err, chatId: normalized.message.conversationExternalId },
@@ -356,6 +400,11 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
               config,
               normalized.message.conversationExternalId,
               "\u26a0\ufe0f This bot is not fully set up yet. Please check the gateway configuration.",
+              undefined,
+              {
+                credentials: caches?.credentials,
+                configFile: caches?.configFile,
+              },
             ).catch((err) => {
               tlog.error(
                 { err, chatId: normalized.message.conversationExternalId },
@@ -372,6 +421,11 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             config,
             normalized.message.conversationExternalId,
             "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
+            undefined,
+            {
+              credentials: caches?.credentials,
+              configFile: caches?.configFile,
+            },
           ).catch((err) => {
             tlog.error({ err }, "Failed to send /start fallback reply");
           });
@@ -401,6 +455,8 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           config,
           normalized.message.conversationExternalId,
           "Welcome! I'm having a brief setup hiccup. Please try again in a moment.",
+          undefined,
+          { credentials: caches?.credentials },
         ).catch((replyErr) => {
           tlog.error({ err: replyErr }, "Failed to send /start error fallback");
         });
@@ -436,6 +492,11 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             config,
             normalized.message.conversationExternalId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
+            undefined,
+            {
+              credentials: caches?.credentials,
+              configFile: caches?.configFile,
+            },
           ).catch((err) => {
             tlog.error(
               { err, chatId: normalized.message.conversationExternalId },
@@ -453,6 +514,11 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
               config,
               normalized.message.conversationExternalId,
               text,
+              undefined,
+              {
+                credentials: caches?.credentials,
+                configFile: caches?.configFile,
+              },
             );
           },
           tlog,
@@ -527,11 +593,14 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
           const results = await Promise.allSettled(
             batch.map(async (att) => {
               const downloaded = await downloadTelegramFile(
-                config,
                 att.fileId,
                 {
                   fileName: att.fileName,
                   mimeType: att.mimeType,
+                },
+                {
+                  credentials: caches?.credentials,
+                  configFile: caches?.configFile,
                 },
               );
               return uploadAttachment(config, downloaded);
@@ -588,6 +657,11 @@ export function createTelegramWebhookHandler(config: GatewayConfig) {
             config,
             chatId,
             `\u26a0\ufe0f ${ROUTING_REJECTION_NOTICE}`,
+            undefined,
+            {
+              credentials: caches?.credentials,
+              configFile: caches?.configFile,
+            },
           ).catch((err) => {
             tlog.error(
               { err, chatId },

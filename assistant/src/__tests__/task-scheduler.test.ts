@@ -15,8 +15,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -190,6 +188,7 @@ describe("scheduler run_task detection", () => {
       name: "Regular Schedule",
       cronExpression: "* * * * *",
       message: "Do something normal",
+      syntax: "cron",
     });
 
     forceScheduleDue(schedule.id);
@@ -220,6 +219,7 @@ describe("scheduler run_task detection", () => {
       name: "Bad Task Schedule",
       cronExpression: "* * * * *",
       message: "run_task:nonexistent-task-id",
+      syntax: "cron",
     });
 
     forceScheduleDue(schedule.id);

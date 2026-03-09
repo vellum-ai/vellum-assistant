@@ -253,7 +253,7 @@ extension AppDelegate {
             let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
             item.target = self
             item.state = .on
-            item.representedObject = skill.name
+            item.representedObject = skill.id
             skillsSubmenu.addItem(item)
         }
 
@@ -262,7 +262,7 @@ extension AppDelegate {
             let item = NSMenuItem(title: "\(emoji) \(skill.name)", action: #selector(toggleSkill(_:)), keyEquivalent: "")
             item.target = self
             item.state = .off
-            item.representedObject = skill.name
+            item.representedObject = skill.id
             skillsSubmenu.addItem(item)
         }
 
@@ -402,7 +402,10 @@ extension AppDelegate {
     @objc func openNewChat() {
         guard !isBootstrapping else { return }
         showMainWindow()
-        mainWindow?.threadManager.enterDraftMode()
+        mainWindow?.threadManager.createThread()
+        if let id = mainWindow?.threadManager.activeThreadId {
+            mainWindow?.windowState.selection = .thread(id)
+        }
         UserDefaults.standard.set(false, forKey: "sidebarExpanded")
     }
 

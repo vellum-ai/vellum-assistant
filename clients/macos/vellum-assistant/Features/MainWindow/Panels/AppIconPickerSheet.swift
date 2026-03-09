@@ -1,27 +1,27 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// A sheet for picking an SF Symbol for an app icon.
+/// A sheet for picking a Lucide icon for an app icon.
 struct AppIconPickerSheet: View {
     let appName: String
-    let currentSymbol: String
-    let onSave: (String) -> Void
+    let currentIcon: VIcon
+    let onSave: (VIcon) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedSymbol: String
+    @State private var selectedIcon: VIcon
 
     init(
         appName: String,
-        currentSymbol: String,
-        onSave: @escaping (String) -> Void
+        currentIcon: VIcon,
+        onSave: @escaping (VIcon) -> Void
     ) {
         self.appName = appName
-        self.currentSymbol = currentSymbol
+        self.currentIcon = currentIcon
         self.onSave = onSave
-        _selectedSymbol = State(initialValue: currentSymbol)
+        _selectedIcon = State(initialValue: currentIcon)
     }
 
-    private let symbolColumns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 6)
+    private let iconColumns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 6)
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
@@ -35,8 +35,7 @@ struct AppIconPickerSheet: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 96 * 0.22, style: .continuous)
                         .fill(Moss._100)
-                    Image(systemName: selectedSymbol)
-                        .font(.system(size: 42, weight: .medium))
+                    VIconView(selectedIcon, size: 42)
                         .foregroundColor(VColor.textMuted)
                 }
                 .frame(width: 96, height: 96)
@@ -49,23 +48,22 @@ struct AppIconPickerSheet: View {
             Divider()
                 .background(VColor.surfaceBorder)
 
-            // Symbol picker
+            // Icon picker
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                Text("SYMBOL")
+                Text("ICON")
                     .font(VFont.caption)
                     .foregroundColor(VColor.textMuted)
                     .tracking(1.2)
 
                 ScrollView {
-                    LazyVGrid(columns: symbolColumns, spacing: VSpacing.sm) {
-                        ForEach(VAppIconGenerator.symbols, id: \.self) { symbol in
+                    LazyVGrid(columns: iconColumns, spacing: VSpacing.sm) {
+                        ForEach(VAppIconGenerator.icons, id: \.self) { icon in
                             Button {
-                                selectedSymbol = symbol
+                                selectedIcon = icon
                             } label: {
-                                Image(systemName: symbol)
-                                    .font(.system(size: 16, weight: .medium))
+                                VIconView(icon, size: 16)
                                     .foregroundColor(
-                                        selectedSymbol == symbol
+                                        selectedIcon == icon
                                             ? VColor.accent
                                             : VColor.textSecondary
                                     )
@@ -73,7 +71,7 @@ struct AppIconPickerSheet: View {
                                     .background(
                                         RoundedRectangle(cornerRadius: VRadius.md)
                                             .fill(
-                                                selectedSymbol == symbol
+                                                selectedIcon == icon
                                                     ? VColor.accent.opacity(0.15)
                                                     : VColor.surface
                                             )
@@ -81,7 +79,7 @@ struct AppIconPickerSheet: View {
                                     .overlay(
                                         RoundedRectangle(cornerRadius: VRadius.md)
                                             .stroke(
-                                                selectedSymbol == symbol
+                                                selectedIcon == icon
                                                     ? VColor.accent
                                                     : Color.clear,
                                                 lineWidth: 2
@@ -89,7 +87,7 @@ struct AppIconPickerSheet: View {
                                     )
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel(symbol)
+                            .accessibilityLabel(icon.rawValue)
                         }
                     }
                 }
@@ -111,7 +109,7 @@ struct AppIconPickerSheet: View {
                 Spacer()
 
                 Button("Save") {
-                    onSave(selectedSymbol)
+                    onSave(selectedIcon)
                     dismiss()
                 }
                 .buttonStyle(.plain)
@@ -133,7 +131,7 @@ struct AppIconPickerSheet_Previews: PreviewProvider {
             VColor.background.ignoresSafeArea()
             AppIconPickerSheet(
                 appName: "Safari",
-                currentSymbol: "globe",
+                currentIcon: .globe,
                 onSave: { _ in }
             )
         }

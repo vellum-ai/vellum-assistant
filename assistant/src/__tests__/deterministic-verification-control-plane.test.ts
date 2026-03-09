@@ -54,7 +54,7 @@ import { initializeDb } from "../memory/db-init.js";
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../runtime/guardian-verification-templates.js";
+} from "../runtime/verification-templates.js";
 
 // ---------------------------------------------------------------------------
 // DB initialization
@@ -131,16 +131,16 @@ describe("TwiML parameter propagation", () => {
     voice: "en-US-Standard-A",
   };
 
-  test("includes guardianVerificationSessionId as Parameter when provided", () => {
+  test("includes verificationSessionId as Parameter when provided", () => {
     const twiml = generateTwiML(
       "session-123",
       "wss://example.com/v1/calls/relay",
       null,
       defaultProfile,
       undefined,
-      { guardianVerificationSessionId: "gv-session-456" },
+      { verificationSessionId: "gv-session-456" },
     );
-    expect(twiml).toContain('name="guardianVerificationSessionId"');
+    expect(twiml).toContain('name="verificationSessionId"');
     expect(twiml).toContain('value="gv-session-456"');
     expect(twiml).toContain("<Parameter");
   });
@@ -173,7 +173,7 @@ describe("TwiML parameter propagation", () => {
 // ---------------------------------------------------------------------------
 
 describe("Call session mode metadata", () => {
-  test("createCallSession persists callMode and guardianVerificationSessionId", async () => {
+  test("createCallSession persists callMode and verificationSessionId", async () => {
     // Dynamic import to avoid circular dependency issues
     const { createCallSession, getCallSession } =
       await import("../calls/call-store.js");
@@ -186,18 +186,18 @@ describe("Call session mode metadata", () => {
       provider: "twilio",
       fromNumber: "+15551234567",
       toNumber: "+15559876543",
-      callMode: "guardian_verification",
-      guardianVerificationSessionId: "gv-session-test",
+      callMode: "verification",
+      verificationSessionId: "gv-session-test",
     });
 
-    expect(session.callMode).toBe("guardian_verification");
-    expect(session.guardianVerificationSessionId).toBe("gv-session-test");
+    expect(session.callMode).toBe("verification");
+    expect(session.verificationSessionId).toBe("gv-session-test");
 
     // Verify it persists to DB
     const loaded = getCallSession(session.id);
     expect(loaded).not.toBeNull();
-    expect(loaded!.callMode).toBe("guardian_verification");
-    expect(loaded!.guardianVerificationSessionId).toBe("gv-session-test");
+    expect(loaded!.callMode).toBe("verification");
+    expect(loaded!.verificationSessionId).toBe("gv-session-test");
   });
 
   test("createCallSession defaults callMode to null when not provided", async () => {
@@ -217,12 +217,12 @@ describe("Call session mode metadata", () => {
     });
 
     expect(session.callMode).toBeNull();
-    expect(session.guardianVerificationSessionId).toBeNull();
+    expect(session.verificationSessionId).toBeNull();
 
     const loaded = getCallSession(session.id);
     expect(loaded).not.toBeNull();
     expect(loaded!.callMode).toBeNull();
-    expect(loaded!.guardianVerificationSessionId).toBeNull();
+    expect(loaded!.verificationSessionId).toBeNull();
   });
 });
 
@@ -235,13 +235,13 @@ describe("Verification control messages are deterministic (guard)", () => {
     const { createHash } = await import("node:crypto");
     const { handleChannelInbound } =
       await import("../runtime/routes/inbound-message-handler.js");
-    const { createChallenge } =
-      await import("../memory/channel-guardian-store.js");
+    const { createInboundSession } =
+      await import("../memory/channel-verification-sessions.js");
 
     // Set up a pending challenge
     const secret = "123456";
     const challengeHash = createHash("sha256").update(secret).digest("hex");
-    createChallenge({
+    createInboundSession({
       id: "challenge-guard-test",
       channel: "telegram",
       challengeHash,
@@ -302,7 +302,7 @@ describe("Verification control messages are deterministic (guard)", () => {
       const body = (await response.json()) as Record<string, unknown>;
 
       // Verification should have been handled
-      expect(body.guardianVerification).toBeDefined();
+      expect(body.verificationOutcome).toBeDefined();
 
       // processMessage must NOT have been called — this is the guard
       expect(processMessageCalled).toBe(false);
@@ -319,7 +319,7 @@ describe("Verification control messages are deterministic (guard)", () => {
     const { handleChannelInbound } =
       await import("../runtime/routes/inbound-message-handler.js");
     const { createOutboundSession } =
-      await import("../runtime/channel-guardian-service.js");
+      await import("../runtime/channel-verification-service.js");
 
     // Generate a bootstrap token and create a pending_bootstrap session
     const bootstrapToken = randomBytes(16).toString("hex");
@@ -391,7 +391,7 @@ describe("Verification control messages are deterministic (guard)", () => {
       const body = (await response.json()) as Record<string, unknown>;
 
       // Bootstrap should have been handled deterministically
-      expect(body.guardianVerification).toBe("bootstrap_bound");
+      expect(body.verificationOutcome).toBe("bootstrap_bound");
       expect(body.accepted).toBe(true);
 
       // processMessage must NOT have been called — deterministic handling

@@ -3,6 +3,7 @@ import {
   mintServiceToken,
 } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
+import type { ConfigFileCache } from "../../config-file-cache.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("twilio-relay-ws");
@@ -12,7 +13,7 @@ const MAX_PENDING_MESSAGES = 100;
 
 type RelaySocketData = {
   callSessionId: string;
-  config: GatewayConfig;
+  assistantRuntimeBaseUrl: string;
   upstream?: WebSocket;
   pendingMessages?: (string | ArrayBuffer | Uint8Array)[];
 };
@@ -21,7 +22,10 @@ type RelaySocketData = {
  * Create a WebSocket upgrade handler that proxies Twilio ConversationRelay
  * frames between Twilio and the runtime's /v1/calls/relay endpoint.
  */
-export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
+export function createTwilioRelayWebsocketHandler(
+  config: GatewayConfig,
+  caches?: { configFile?: ConfigFileCache },
+) {
   return function handleUpgrade(
     req: Request,
     server: import("bun").Server<unknown>,
@@ -37,11 +41,18 @@ export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
     // Authenticate before upgrading. Twilio ConversationRelay passes the
     // token as a query parameter since WebSocket upgrades don't support
     // arbitrary headers.
-    const authResponse = checkRelayAuth(req, url, config);
+    const isBypassed =
+      process.env.APP_VERSION === "0.0.0-dev" &&
+      (caches?.configFile?.getBoolean("telegram", "deliverAuthBypass") ??
+        false);
+    const authResponse = checkRelayAuth(req, url, isBypassed);
     if (authResponse) return authResponse;
 
     const upgraded = server.upgrade(req, {
-      data: { callSessionId, config },
+      data: {
+        callSessionId,
+        assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
+      },
     });
 
     if (!upgraded) {
@@ -60,16 +71,16 @@ export function createTwilioRelayWebsocketHandler(config: GatewayConfig) {
  *   1. `Authorization: Bearer <token>` header (standard clients)
  *   2. `token` query parameter (Twilio ConversationRelay — no custom headers)
  *
- * Fail-closed: rejects all unauthenticated requests unless the SMS deliver
- * auth bypass flag is set (reusing the same local-dev escape hatch).
+ * Fail-closed: rejects all unauthenticated requests unless the deliver auth
+ * bypass flag is set (local-dev only escape hatch).
  */
 function checkRelayAuth(
   req: Request,
   url: URL,
-  config: GatewayConfig,
+  isBypassed: boolean,
 ): Response | null {
-  // Local-dev bypass: allow unauthenticated access when smsDeliverAuthBypass is set
-  if (config.smsDeliverAuthBypass) {
+  // Local-dev bypass: allow unauthenticated access when deliverAuthBypass is set
+  if (isBypassed) {
     return null;
   }
 
@@ -102,13 +113,13 @@ function checkRelayAuth(
 export function getRelayWebsocketHandlers() {
   return {
     open(ws: import("bun").ServerWebSocket<RelaySocketData>) {
-      const { callSessionId, config } = ws.data;
+      const { callSessionId, assistantRuntimeBaseUrl } = ws.data;
 
       // Initialize message buffer for frames arriving before upstream connects
       ws.data.pendingMessages = [];
 
       // Build upstream URL to runtime with JWT service token for auth
-      const runtimeBase = config.assistantRuntimeBaseUrl.replace(/^http/, "ws");
+      const runtimeBase = assistantRuntimeBaseUrl.replace(/^http/, "ws");
       const serviceToken = mintServiceToken();
       const upstreamUrl = `${runtimeBase}/v1/calls/relay?callSessionId=${encodeURIComponent(callSessionId)}&token=${encodeURIComponent(serviceToken)}`;
 

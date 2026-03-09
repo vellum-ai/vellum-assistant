@@ -1,13 +1,18 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import type { AssistantConfig } from "../../config/types.js";
 import { getDb } from "../../memory/db.js";
+import {
+  getMemoryBackendStatus,
+  logMemoryEmbeddingWarning,
+} from "../../memory/embedding-backend.js";
 import { computeMemoryFingerprint } from "../../memory/fingerprint.js";
+import { formatRecallText } from "../../memory/format-recall.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import {
-  formatRelativeTime,
-  searchMemoryItems,
+  collectAndMergeCandidates,
+  embedWithRetry,
 } from "../../memory/retriever.js";
 import { memoryItems } from "../../memory/schema.js";
 import type { ScopePolicyOverride } from "../../memory/search/types.js";
@@ -16,66 +21,6 @@ import { truncate } from "../../util/truncate.js";
 import type { ToolExecutionResult } from "../types.js";
 
 const log = getLogger("memory-tools");
-
-// ── memory_search ────────────────────────────────────────────────────
-
-export async function handleMemorySearch(
-  args: Record<string, unknown>,
-  config: AssistantConfig,
-  scopeId?: string,
-): Promise<ToolExecutionResult> {
-  const query = args.query;
-  if (typeof query !== "string" || query.trim().length === 0) {
-    return {
-      content: "Error: query is required and must be a non-empty string",
-      isError: true,
-    };
-  }
-
-  const limit =
-    typeof args.limit === "number" && args.limit > 0
-      ? Math.min(args.limit, 20)
-      : 5;
-
-  // Private threads should always fall back to default scope for search
-  const scopePolicyOverride: ScopePolicyOverride | undefined =
-    scopeId && scopeId.startsWith("private:")
-      ? { scopeId, fallbackToDefault: true }
-      : undefined;
-
-  try {
-    const results = await searchMemoryItems(
-      query,
-      limit,
-      config,
-      scopeId,
-      scopePolicyOverride,
-    );
-
-    if (results.length === 0) {
-      return { content: "No matching memories found.", isError: false };
-    }
-
-    const lines: string[] = [`Found ${results.length} memory item(s):\n`];
-    for (const result of results) {
-      const timeAgo = formatRelativeTime(result.createdAt);
-      lines.push(`- **[${result.kind}]** ${result.text}`);
-      lines.push(
-        `  _ID: ${result.id} | source: ${
-          result.type
-        } | ${timeAgo} | confidence: ${result.confidence.toFixed(
-          2,
-        )} | importance: ${result.importance.toFixed(2)}_`,
-      );
-    }
-
-    return { content: lines.join("\n"), isError: false };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error({ err, query }, "memory_search failed");
-    return { content: `Error: Memory search failed: ${msg}`, isError: true };
-  }
-}
 
 // ── memory_save ──────────────────────────────────────────────────────
 
@@ -263,12 +208,13 @@ export async function handleMemoryUpdate(
         and(
           eq(memoryItems.fingerprint, fingerprint),
           eq(memoryItems.scopeId, scopeId),
+          ne(memoryItems.status, "deleted"),
         ),
       )
       .get();
     if (collision && collision.id !== existing.id) {
       return {
-        content: `Error: Another memory item (ID: ${collision.id}) already contains this statement. Use memory_search to find it.`,
+        content: `Error: Another memory item (ID: ${collision.id}) already contains this statement. Use memory_recall to find it.`,
         isError: true,
       };
     }
@@ -301,6 +247,217 @@ export async function handleMemoryUpdate(
   }
 }
 
+// ── memory_recall ────────────────────────────────────────────────────
+
+export interface MemoryRecallToolResult {
+  text: string;
+  resultCount: number;
+  degraded: boolean;
+  items: Array<{ id: string; type: string; kind: string }>;
+  sources: {
+    lexical: number;
+    semantic: number;
+    recency: number;
+    entity: number;
+  };
+}
+
+export async function handleMemoryRecall(
+  args: Record<string, unknown>,
+  config: AssistantConfig,
+  scopeId?: string,
+  conversationId?: string,
+): Promise<ToolExecutionResult> {
+  const query = args.query;
+  if (typeof query !== "string" || query.trim().length === 0) {
+    return {
+      content: "Error: query is required and must be a non-empty string",
+      isError: true,
+    };
+  }
+
+  const maxResults =
+    typeof args.max_results === "number" && args.max_results > 0
+      ? Math.min(args.max_results, 50)
+      : 10;
+
+  const scope =
+    typeof args.scope === "string" && args.scope.trim().length > 0
+      ? args.scope.trim()
+      : "default";
+
+  // Scope policy: "conversation" means strict (only that scope),
+  // anything else allows fallback to the default scope.
+  const scopePolicyOverride: ScopePolicyOverride | undefined = scopeId
+    ? {
+        scopeId,
+        fallbackToDefault: scope !== "conversation",
+      }
+    : undefined;
+
+  try {
+    const trimmedQuery = query.trim();
+
+    // Generate embedding vector (graceful degradation if unavailable)
+    let queryVector: number[] | null = null;
+    let provider: string | undefined;
+    let model: string | undefined;
+    let degraded = false;
+
+    const backendStatus = getMemoryBackendStatus(config);
+    if (backendStatus.provider) {
+      try {
+        const embedded = await embedWithRetry(config, [trimmedQuery]);
+        queryVector = embedded.vectors[0] ?? null;
+        provider = embedded.provider;
+        model = embedded.model;
+      } catch (err) {
+        logMemoryEmbeddingWarning(err, "query");
+        degraded = !!config.memory.embeddings.required;
+      }
+    } else {
+      degraded = backendStatus.degraded;
+    }
+
+    // Run the full retrieval pipeline with all sources enabled
+    const collected = await collectAndMergeCandidates(trimmedQuery, config, {
+      queryVector,
+      provider,
+      model,
+      conversationId,
+      scopeId,
+      scopePolicyOverride,
+    });
+
+    if (collected.semanticSearchFailed || collected.semanticUnavailable) {
+      degraded = true;
+    }
+
+    const candidates = collected.merged.slice(0, maxResults);
+
+    if (candidates.length === 0) {
+      const result: MemoryRecallToolResult = {
+        text: "No matching memories found.",
+        resultCount: 0,
+        degraded,
+        items: [],
+        sources: {
+          lexical: 0,
+          semantic: 0,
+          recency: 0,
+          entity: 0,
+        },
+      };
+      return {
+        content: JSON.stringify(result),
+        isError: false,
+      };
+    }
+
+    // Format candidates into readable text using the shared formatter
+    const formatted = formatRecallText(candidates, {
+      format: config.memory.retrieval.injectionFormat,
+      maxTokens: config.memory.retrieval.maxInjectTokens,
+    });
+
+    const items = formatted.selected.map((c) => ({
+      id: c.id,
+      type: c.type,
+      kind: c.kind,
+    }));
+
+    const result: MemoryRecallToolResult = {
+      text: formatted.text,
+      resultCount: formatted.selected.length,
+      degraded,
+      items,
+      sources: {
+        lexical: collected.lexical.length,
+        semantic: collected.semantic.length,
+        recency: collected.recency.length,
+        entity: collected.entity.length,
+      },
+    };
+
+    return {
+      content: JSON.stringify(result),
+      isError: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, query }, "memory_recall failed");
+    return {
+      content: `Error: Memory recall failed: ${msg}`,
+      isError: true,
+    };
+  }
+}
+
+// ── memory_delete ────────────────────────────────────────────────────
+
+export async function handleMemoryDelete(
+  args: Record<string, unknown>,
+  _config: AssistantConfig,
+  scopeId: string = "default",
+): Promise<ToolExecutionResult> {
+  const rawMemoryId = args.memory_id;
+  if (typeof rawMemoryId !== "string" || rawMemoryId.trim().length === 0) {
+    return {
+      content: "Error: memory_id is required and must be a non-empty string",
+      isError: true,
+    };
+  }
+
+  const memoryId = stripTypedIdPrefix(rawMemoryId.trim());
+
+  try {
+    const db = getDb();
+
+    const existing = db
+      .select()
+      .from(memoryItems)
+      .where(
+        and(eq(memoryItems.id, memoryId), eq(memoryItems.scopeId, scopeId)),
+      )
+      .get();
+
+    if (!existing) {
+      return {
+        content: `Error: Memory item with ID "${memoryId}" not found`,
+        isError: true,
+      };
+    }
+
+    if (existing.status === "deleted") {
+      return {
+        content: `Memory item (ID: ${memoryId}) was already deleted.`,
+        isError: false,
+      };
+    }
+
+    db.update(memoryItems)
+      .set({
+        status: "deleted",
+        lastSeenAt: Date.now(),
+      })
+      .where(eq(memoryItems.id, existing.id))
+      .run();
+
+    log.debug(
+      { id: existing.id, kind: existing.kind },
+      "Memory item deleted via tool",
+    );
+    return {
+      content: `Deleted memory (ID: ${existing.id}).\nKind: ${existing.kind}\nSubject: ${existing.subject}\nStatement: ${existing.statement}`,
+      isError: false,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error({ err, memoryId }, "memory_delete failed");
+    return { content: `Error: Failed to delete memory: ${msg}`, isError: true };
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function inferSubjectFromStatement(statement: string): string {
@@ -311,7 +468,7 @@ function inferSubjectFromStatement(statement: string): string {
 
 /**
  * Strip a typed ID prefix (e.g. "item:abc-123" -> "abc-123") so that IDs
- * copied from memory_search output work in memory_update.
+ * copied from memory_recall output work in memory_update.
  */
 function stripTypedIdPrefix(id: string): string {
   const match = id.match(/^(?:item|segment|summary):(.+)$/);

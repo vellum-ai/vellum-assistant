@@ -77,7 +77,7 @@ This means:
   each other's memory.
 
 This mirrors the existing `private:{id}` scoping pattern used by private
-threads (see `conversation-store.ts`), extended to a new `task:` namespace.
+threads (see `conversation-crud.ts`), extended to a new `task:` namespace.
 
 ---
 
@@ -95,12 +95,12 @@ Each task run creates a new conversation thread with `threadType: 'background'`.
    template placeholders, sets up ephemeral permission rules for the approved
    tools, and processes the rendered prompt through a daemon `Session`. Status
    updates are broadcast to all connected clients via `work_item_status_changed`
-   and `tasks_changed` IPC messages.
+   and `tasks_changed` SSE events.
 3. **Completion**: When the session finishes, the work item transitions to
    `awaiting_review` (on success) or `failed` (on error). The daemon broadcasts
    the final status to all clients.
 4. **Visibility**: Background conversations are excluded from the default thread
-   list (existing behavior in `conversation-store.ts`). Clients can query for
+   list (existing behavior in `conversation-crud.ts`). Clients can query for
    them explicitly to surface task results in a dedicated UI.
 
 **Why background conversations:** Reuses the existing `threadType: 'background'`
@@ -130,10 +130,10 @@ tab).
 
 The implementation is complete. Key modules:
 
-| Module | What it delivers |
-|--------|------------------|
-| `task-store.ts` | `tasks` and `task_runs` tables, CRUD functions. |
-| `task-runner.ts` | `runTask()` — creates background conversation, renders template, processes through daemon Session. |
-| `ephemeral-permissions.ts` | Scoped permission rules for the duration of a single task run. |
-| `work-items.ts` (daemon handler) | IPC handlers for preflight, run, cancel, and status queries. |
-| Bundled skill (`tasks/`) | Tool definitions (`task_save`, `task_run`, `task_list`, `task_delete`, `task_list_*`) for the LLM. |
+| Module                           | What it delivers                                                                                   |
+| -------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `task-store.ts`                  | `tasks` and `task_runs` tables, CRUD functions.                                                    |
+| `task-runner.ts`                 | `runTask()` — creates background conversation, renders template, processes through daemon Session. |
+| `ephemeral-permissions.ts`       | Scoped permission rules for the duration of a single task run.                                     |
+| `work-items.ts` (daemon handler) | HTTP handlers for preflight, run, cancel, and status queries.                                      |
+| Bundled skill (`tasks/`)         | Tool definitions (`task_save`, `task_run`, `task_list`, `task_delete`, `task_list_*`) for the LLM. |

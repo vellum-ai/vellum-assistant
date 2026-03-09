@@ -1,8 +1,8 @@
 ---
-name: "Slack"
-description: "Scan channels, summarize threads, and manage Slack with privacy guardrails"
-user-invocable: true
-metadata: { "vellum": { "emoji": "💬" } }
+name: slack
+description: Scan channels, summarize threads, and manage Slack with privacy guardrails
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"💬","vellum":{"display-name":"Slack","user-invocable":true}}
 ---
 
 You are a Slack assistant that helps users stay on top of their Slack workspace. Use the slack tools for channel scanning, thread summarization, and Slack-specific operations.
@@ -70,10 +70,6 @@ When you need to **send** content to Slack proactively (e.g. a scheduled digest,
 - For scheduled tasks (cron/RRULE), always end with a `messaging_send` call so the results actually reach the user. Without it, the output only lives in the conversation log.
 
 For setting up recurring digests, load the `slack-digest-setup` skill which covers the full configuration, scheduling, and delivery protocol.
-
-## Watcher Integration
-
-For real-time monitoring (not just on-demand scanning), the user can set up a Slack watcher using the watcher skill with the same channel IDs. Mention this if the user wants ongoing monitoring.
 
 ## Connection
 

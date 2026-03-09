@@ -141,6 +141,36 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Drop assistant_id columns from all 16 daemon tables after normalization to single-tenant identity",
   },
+  {
+    key: "migration_backfill_usage_cache_accounting_v1",
+    version: 20,
+    description:
+      "Backfill historical Anthropic llm_usage_events rows from llm_request_logs with cache-aware pricing",
+  },
+  {
+    key: "migration_rename_verification_table_v1",
+    version: 21,
+    description:
+      "Rename channel_guardian_verification_challenges table to channel_verification_sessions and update indexes",
+  },
+  {
+    key: "migration_rename_verification_session_id_column_v1",
+    version: 22,
+    description:
+      "Rename guardian_verification_session_id column in call_sessions to verification_session_id",
+  },
+  {
+    key: "migration_rename_guardian_verification_values_v1",
+    version: 23,
+    description:
+      "Rename persisted guardian_verification call_mode and guardian_voice_verification_* event_type values to drop the guardian_ prefix",
+  },
+  {
+    key: "migration_rename_voice_to_phone_v1",
+    version: 24,
+    description:
+      'Rename stored "voice" channel values to "phone" across all tables with channel text columns',
+  },
 ];
 
 export interface MigrationValidationResult {

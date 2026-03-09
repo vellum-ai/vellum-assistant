@@ -10,11 +10,15 @@ const sendMessageMock = mock(async (..._args: unknown[]) => ({
 }));
 
 const provider: MessagingProvider = {
-  id: "sms",
-  displayName: "SMS",
+  id: "phone",
+  displayName: "Phone",
   credentialService: "twilio",
   capabilities: new Set(["send"]),
-  testConnection: async () => ({ connected: true, user: "x", platform: "sms" }),
+  testConnection: async () => ({
+    connected: true,
+    user: "x",
+    platform: "phone",
+  }),
   listConversations: async () => [],
   getHistory: async () => [],
   search: async () => ({ total: 0, messages: [], hasMore: false }),
@@ -46,7 +50,7 @@ describe("messaging-send tool", () => {
   test("passes assistantId from tool context to provider send options", async () => {
     const result = await run(
       {
-        platform: "sms",
+        platform: "phone",
         conversation_id: "+15550004444",
         text: "test message",
       },

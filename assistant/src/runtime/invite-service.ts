@@ -10,11 +10,6 @@
 
 import { isChannelId } from "../channels/types.js";
 import {
-  DECLINED_BY_USER_SENTINEL,
-  DEFAULT_USER_REFERENCE,
-  resolveGuardianName,
-} from "../config/user-reference.js";
-import {
   createInvite,
   findByTokenHash,
   hashToken,
@@ -23,6 +18,11 @@ import {
   listInvites,
   revokeInvite,
 } from "../memory/invite-store.js";
+import {
+  DECLINED_BY_USER_SENTINEL,
+  DEFAULT_USER_REFERENCE,
+  resolveGuardianName,
+} from "../prompts/user-reference.js";
 import { isValidE164 } from "../util/phone.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import {
@@ -167,7 +167,7 @@ export async function createIngressInvite(params: {
   let voiceCode: string | undefined;
   let voiceCodeHash: string | undefined;
   let effectiveGuardianName: string | undefined;
-  const isVoice = params.sourceChannel === "voice";
+  const isVoice = params.sourceChannel === "phone";
 
   // For non-voice invites: generate a 6-digit invite code for guardian-mediated
   // redemption. The plaintext code is returned once in the response; only the
@@ -351,7 +351,7 @@ export function redeemIngressInviteTyped(params: {
 export function redeemVoiceInviteCode(params: {
   assistantId?: string;
   callerExternalUserId: string;
-  sourceChannel: "voice";
+  sourceChannel: "phone";
   code: string;
 }): VoiceRedemptionOutcome {
   return redeemVoiceInviteCodeTyped(params);

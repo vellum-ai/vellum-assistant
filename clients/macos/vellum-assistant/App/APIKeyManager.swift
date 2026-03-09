@@ -21,12 +21,6 @@ extension Notification.Name {
 enum APIKeyManager {
     private static let udPrefix = "vellum_provider_"
 
-    // MARK: - Anthropic (convenience wrappers for backward compatibility)
-
-    static func getKey() -> String? { getKey(for: "anthropic") }
-    static func setKey(_ key: String) { setKey(key, for: "anthropic") }
-    static func deleteKey() { deleteKey(for: "anthropic") }
-
     /// Returns true if any known provider has a key configured.
     static func hasAnyKey() -> Bool {
         for provider in ["anthropic", "openai", "gemini", "fireworks"] {

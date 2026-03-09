@@ -11,6 +11,11 @@ export function exec(
       stdio: ["pipe", "pipe", "pipe"],
     });
 
+    let stdout = "";
+    child.stdout.on("data", (data: Buffer) => {
+      stdout += data.toString();
+    });
+
     let stderr = "";
     child.stderr.on("data", (data: Buffer) => {
       stderr += data.toString();
@@ -21,7 +26,10 @@ export function exec(
         resolve();
       } else {
         const msg = `"${command} ${args.join(" ")}" exited with code ${code}`;
-        reject(new Error(stderr.trim() ? `${msg}\n${stderr.trim()}` : msg));
+        const output = [stderr.trim(), stdout.trim()]
+          .filter(Boolean)
+          .join("\n");
+        reject(new Error(output ? `${msg}\n${output}` : msg));
       }
     });
     child.on("error", reject);

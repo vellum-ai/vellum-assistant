@@ -30,8 +30,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
   normalizeAssistantId: (id: string) =>
     id === "self" || id === "" ? "self" : id,
 }));
@@ -92,19 +90,19 @@ let mockGuardianContact: {
   channel: Record<string, unknown>;
 } | null = null;
 
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: () => null,
   // Re-export stubs for other functions to prevent import errors
   bindSessionIdentity: () => {},
   createOutboundSession: () => ({}),
   findActiveSession: () => null,
   getGuardianBindingForChannel: () => null,
-  getPendingChallenge: () => null,
+  getPendingSession: () => null,
   isGuardian: () => false,
   resolveBootstrapToken: () => null,
   updateSessionDelivery: () => {},
   updateSessionStatus: () => {},
-  validateAndConsumeChallenge: () => ({
+  validateAndConsumeVerification: () => ({
     success: false,
     reason: "no_challenge",
   }),
@@ -137,8 +135,8 @@ mock.module("../config/env.js", () => ({
 
 // ── User reference mock ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const realUserReference = require("../config/user-reference.js");
-mock.module("../config/user-reference.js", () => ({
+const realUserReference = require("../prompts/user-reference.js");
+mock.module("../prompts/user-reference.js", () => ({
   ...realUserReference,
   resolveUserReference: () => "my human",
   resolveGuardianName: (guardianDisplayName?: string | null): string => {
@@ -154,9 +152,9 @@ mock.module("../config/user-reference.js", () => ({
 
 // Import module under test AFTER mocks are set up
 import type { ChannelId } from "../channels/types.js";
-import { resolveGuardianName } from "../config/user-reference.js";
 import { findGuardianForChannel } from "../contacts/contact-store.js";
 import type { TrustContext } from "../daemon/session-runtime-assembly.js";
+import { resolveGuardianName } from "../prompts/user-reference.js";
 
 // We need to test the private functions by importing the module.
 // Since startTrustedContactApprovalNotifier is not exported, we test it

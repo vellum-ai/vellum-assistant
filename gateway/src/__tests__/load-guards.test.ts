@@ -1,12 +1,21 @@
 import { describe, test, expect } from "bun:test";
 import { createTelegramWebhookHandler } from "../http/routes/telegram-webhook.js";
 import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
+
+function makeCaches() {
+  const credentials = {
+    get: async (key: string) => {
+      if (key === "credential:telegram:webhook_secret") return "wh-sec";
+      return undefined;
+    },
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  return { credentials };
+}
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   const merged: GatewayConfig = {
-    telegramBotToken: "tok",
-    telegramWebhookSecret: "wh-sec",
-    telegramApiBaseUrl: "https://api.telegram.org",
     assistantRuntimeBaseUrl: "http://localhost:7821",
     routingEntries: [],
     defaultAssistantId: undefined,
@@ -18,31 +27,11 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
     runtimeTimeoutMs: 30000,
     runtimeMaxRetries: 2,
     runtimeInitialBackoffMs: 500,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 3,
-    telegramTimeoutMs: 15000,
     maxWebhookPayloadBytes: 256, // very small for testing
     logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: 20971520,
     maxAttachmentConcurrency: 3,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    smsDeliverAuthBypass: false,
-    ingressPublicBaseUrl: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
     trustProxy: false,
     ...overrides,
   };
@@ -51,7 +40,10 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
 
 describe("payload size guard", () => {
   test("returns 413 when content-length exceeds limit", async () => {
-    const { handler } = createTelegramWebhookHandler(makeConfig());
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(),
+      makeCaches(),
+    );
     const body = JSON.stringify({ data: "x".repeat(300) });
     const req = new Request("http://localhost:7830/webhooks/telegram", {
       method: "POST",
@@ -69,7 +61,10 @@ describe("payload size guard", () => {
   });
 
   test("returns 413 when body exceeds limit even without content-length", async () => {
-    const { handler } = createTelegramWebhookHandler(makeConfig());
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(),
+      makeCaches(),
+    );
     const body = JSON.stringify({ data: "x".repeat(300) });
     const req = new Request("http://localhost:7830/webhooks/telegram", {
       method: "POST",
@@ -86,6 +81,7 @@ describe("payload size guard", () => {
   test("accepts payload within limit", async () => {
     const { handler } = createTelegramWebhookHandler(
       makeConfig({ maxWebhookPayloadBytes: 10000 }),
+      makeCaches(),
     );
     const body = JSON.stringify({
       update_id: 1,

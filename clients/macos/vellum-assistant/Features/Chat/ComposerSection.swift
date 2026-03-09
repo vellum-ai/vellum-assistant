@@ -41,6 +41,7 @@ struct ComposerSection: View {
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
+    var threadId: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -95,7 +96,8 @@ struct ComposerSection: View {
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceService,
                 onEndVoiceMode: onEndVoiceMode,
-                placeholderText: isSending ? "Working on it..." : "What would you like to do?"
+                placeholderText: isSending ? "Working on it..." : "What would you like to do?",
+                threadId: threadId
             )
         }
         .background(

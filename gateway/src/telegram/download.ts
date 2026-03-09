@@ -1,5 +1,6 @@
 import { fileTypeFromBuffer } from "file-type";
-import type { GatewayConfig } from "../config.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
+import type { CredentialCache } from "../credential-cache.js";
 import { fetchImpl } from "../fetch.js";
 import { callTelegramApi } from "./api.js";
 
@@ -21,21 +22,35 @@ export interface DownloadedFile {
  * Calls the getFile API to resolve the file path, then fetches the binary.
  */
 export async function downloadTelegramFile(
-  config: GatewayConfig,
   fileId: string,
   hint?: { fileName?: string; mimeType?: string },
+  opts?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ): Promise<DownloadedFile> {
-  const file = await callTelegramApi<TelegramFile>(config, "getFile", {
-    file_id: fileId,
-  });
+  const file = await callTelegramApi<TelegramFile>(
+    "getFile",
+    { file_id: fileId },
+    opts?.credentials
+      ? { credentials: opts.credentials, configFile: opts?.configFile }
+      : undefined,
+  );
 
   if (!file.file_path) {
     throw new Error(`Telegram getFile returned no file_path for ${fileId}`);
   }
 
-  const downloadUrl = `${config.telegramApiBaseUrl}/file/bot${config.telegramBotToken}/${file.file_path}`;
+  const botToken = opts?.credentials
+    ? await opts.credentials.get("credential:telegram:bot_token")
+    : undefined;
+
+  const apiBaseUrl =
+    opts?.configFile?.getString("telegram", "apiBaseUrl") ??
+    "https://api.telegram.org";
+  const timeoutMs =
+    opts?.configFile?.getNumber("telegram", "timeoutMs") ?? 15000;
+
+  const downloadUrl = `${apiBaseUrl}/file/bot${botToken}/${file.file_path}`;
   const response = await fetchImpl(downloadUrl, {
-    signal: AbortSignal.timeout(config.telegramTimeoutMs),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {

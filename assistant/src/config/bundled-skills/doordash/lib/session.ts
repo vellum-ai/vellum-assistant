@@ -3,6 +3,7 @@
  * Stores/loads auth cookies from a recording or manual login.
  */
 
+import { execFile } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -11,13 +12,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import { ConfigError } from "./shared/errors.js";
-import { getDataDir } from "./shared/platform.js";
 import type {
   ExtractedCredential,
   SessionRecording,
 } from "./shared/recording-types.js";
+
+const execFileAsync = promisify(execFile);
 
 export interface DoorDashSession {
   cookies: ExtractedCredential[];
@@ -26,7 +29,7 @@ export interface DoorDashSession {
 }
 
 function getSessionDir(): string {
-  return join(getDataDir(), "doordash");
+  return join(process.env.VELLUM_DATA_DIR!, "doordash");
 }
 
 function getSessionPath(): string {
@@ -59,7 +62,9 @@ export function clearSession(): void {
 /**
  * Import cookies from a Ride Shotgun recording file.
  */
-export function importFromRecording(recordingPath: string): DoorDashSession {
+export async function importFromRecording(
+  recordingPath: string,
+): Promise<DoorDashSession> {
   if (!existsSync(recordingPath)) {
     throw new ConfigError(`Recording not found: ${recordingPath}`);
   }
@@ -67,12 +72,40 @@ export function importFromRecording(recordingPath: string): DoorDashSession {
     readFileSync(recordingPath, "utf-8"),
   ) as SessionRecording;
   if (!recording.cookies?.length) {
+    if (recording.targetDomain) {
+      return importFromCredentialStore(recording.targetDomain);
+    }
     throw new ConfigError("Recording contains no cookies");
   }
   const session: DoorDashSession = {
     cookies: recording.cookies,
     importedAt: new Date().toISOString(),
     recordingId: recording.id,
+  };
+  saveSession(session);
+  return session;
+}
+
+/**
+ * Import cookies that the daemon saved to the credential store under the
+ * target domain key. Copies them into the local DoorDash session file.
+ */
+export async function importFromCredentialStore(
+  targetDomain: string,
+): Promise<DoorDashSession> {
+  const { stdout } = await execFileAsync("assistant", [
+    "credentials",
+    "reveal",
+    `${targetDomain}:session:cookies`,
+  ]);
+  const cookies = JSON.parse(stdout.trim()) as ExtractedCredential[];
+  if (!cookies.length) {
+    throw new ConfigError("No cookies found in credential store");
+  }
+
+  const session: DoorDashSession = {
+    cookies,
+    importedAt: new Date().toISOString(),
   };
   saveSession(session);
   return session;

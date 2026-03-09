@@ -193,7 +193,7 @@ describe("tool manifest", () => {
 
   test("explicit tools list includes memory, credential, and watch tools", () => {
     const names = explicitTools.map((t) => t.name);
-    expect(names).toContain("memory_search");
+    expect(names).toContain("memory_recall");
     expect(names).toContain("memory_save");
     expect(names).toContain("memory_update");
     expect(names).toContain("credential_store");

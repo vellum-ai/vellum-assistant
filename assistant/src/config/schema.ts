@@ -4,23 +4,13 @@ import { getDataDir } from "../util/platform.js";
 
 // Re-export all domain schemas
 export type {
-  HeartbeatConfig,
-  SwarmConfig,
-  WorkspaceGitConfig,
-} from "./agent-schema.js";
-export {
-  HeartbeatConfigSchema,
-  SwarmConfigSchema,
-  WorkspaceGitConfigSchema,
-} from "./agent-schema.js";
-export type {
   CallerIdentityConfig,
   CallsConfig,
   CallsDisclosureConfig,
   CallsSafetyConfig,
   CallsVerificationConfig,
   CallsVoiceConfig,
-} from "./calls-schema.js";
+} from "./schemas/calls.js";
 export {
   CallerIdentityConfigSchema,
   CallsConfigSchema,
@@ -29,102 +19,136 @@ export {
   CallsVerificationConfigSchema,
   CallsVoiceConfigSchema,
   VALID_CALLER_IDENTITY_MODES,
-} from "./calls-schema.js";
+} from "./schemas/calls.js";
 export type {
-  AuditLogConfig,
-  AvatarConfig,
-  ContextOverflowRecoveryConfig,
-  ContextWindowConfig,
-  DaemonConfig,
-  Effort,
-  IngressConfig,
-  IngressRateLimitConfig,
-  IngressWebhookConfig,
-  LogFileConfig,
-  ModelPricingOverride,
-  PermissionsConfig,
-  PlatformConfig,
-  RateLimitConfig,
-  SecretDetectionConfig,
-  SmsConfig,
-  ThinkingConfig,
-  TimeoutConfig,
+  SlackConfig,
+  TelegramConfig,
   TwilioConfig,
-  UiConfig,
   WhatsAppConfig,
-} from "./core-schema.js";
+} from "./schemas/channels.js";
 export {
-  AuditLogConfigSchema,
-  AvatarConfigSchema,
-  ContextOverflowRecoveryConfigSchema,
-  ContextWindowConfigSchema,
-  DaemonConfigSchema,
-  EffortSchema,
-  IngressConfigSchema,
-  IngressRateLimitConfigSchema,
-  IngressWebhookConfigSchema,
-  LogFileConfigSchema,
-  ModelPricingOverrideSchema,
-  PermissionsConfigSchema,
-  PlatformConfigSchema,
-  RateLimitConfigSchema,
-  SecretDetectionConfigSchema,
-  SmsConfigSchema,
-  ThinkingConfigSchema,
-  TimeoutConfigSchema,
+  SlackConfigSchema,
+  TelegramConfigSchema,
   TwilioConfigSchema,
-  UiConfigSchema,
   WhatsAppConfigSchema,
-} from "./core-schema.js";
-export type { ElevenLabsConfig } from "./elevenlabs-schema.js";
+} from "./schemas/channels.js";
+export type { ElevenLabsConfig } from "./schemas/elevenlabs.js";
 export {
   DEFAULT_ELEVENLABS_VOICE_ID,
   ElevenLabsConfigSchema,
-} from "./elevenlabs-schema.js";
-export type { McpConfig, McpServerConfig, McpTransport } from "./mcp-schema.js";
+} from "./schemas/elevenlabs.js";
+export type { HeartbeatConfig } from "./schemas/heartbeat.js";
+export { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
+export type {
+  ContextOverflowRecoveryConfig,
+  ContextWindowConfig,
+  Effort,
+  ModelPricingOverride,
+  ThinkingConfig,
+} from "./schemas/inference.js";
+export {
+  ContextOverflowRecoveryConfigSchema,
+  ContextWindowConfigSchema,
+  EffortSchema,
+  ModelPricingOverrideSchema,
+  ThinkingConfigSchema,
+} from "./schemas/inference.js";
+export type {
+  IngressConfig,
+  IngressRateLimitConfig,
+  IngressWebhookConfig,
+} from "./schemas/ingress.js";
+export {
+  IngressConfigSchema,
+  IngressRateLimitConfigSchema,
+  IngressWebhookConfigSchema,
+} from "./schemas/ingress.js";
+export type { AuditLogConfig, LogFileConfig } from "./schemas/logging.js";
+export {
+  AuditLogConfigSchema,
+  LogFileConfigSchema,
+} from "./schemas/logging.js";
+export type {
+  McpConfig,
+  McpServerConfig,
+  McpTransport,
+} from "./schemas/mcp.js";
 export {
   McpConfigSchema,
   McpServerConfigSchema,
   McpTransportSchema,
-} from "./mcp-schema.js";
+} from "./schemas/mcp.js";
+export type { MemoryConfig } from "./schemas/memory.js";
+export { MemoryConfigSchema } from "./schemas/memory.js";
 export type {
   MemoryCleanupConfig,
-  MemoryConfig,
-  MemoryConflictsConfig,
-  MemoryEmbeddingsConfig,
-  MemoryEntityConfig,
-  MemoryExtractionConfig,
   MemoryJobsConfig,
-  MemoryProfileConfig,
-  MemoryRerankingConfig,
   MemoryRetentionConfig,
-  MemoryRetrievalConfig,
-  MemorySegmentationConfig,
-  MemorySummarizationConfig,
-  QdrantConfig,
-} from "./memory-schema.js";
+} from "./schemas/memory-lifecycle.js";
 export {
   MemoryCleanupConfigSchema,
-  MemoryConfigSchema,
+  MemoryJobsConfigSchema,
+  MemoryRetentionConfigSchema,
+} from "./schemas/memory-lifecycle.js";
+export type {
+  MemoryConflictsConfig,
+  MemoryEntityConfig,
+  MemoryExtractionConfig,
+  MemoryProfileConfig,
+  MemorySummarizationConfig,
+} from "./schemas/memory-processing.js";
+export {
   MemoryConflictsConfigSchema,
-  MemoryDynamicBudgetConfigSchema,
-  MemoryEarlyTerminationConfigSchema,
-  MemoryEmbeddingsConfigSchema,
   MemoryEntityConfigSchema,
   MemoryExtractionConfigSchema,
-  MemoryJobsConfigSchema,
   MemoryProfileConfigSchema,
-  MemoryRerankingConfigSchema,
-  MemoryRetentionConfigSchema,
-  MemoryRetrievalConfigSchema,
-  MemorySegmentationConfigSchema,
   MemorySummarizationConfigSchema,
+} from "./schemas/memory-processing.js";
+export type {
+  MemoryRerankingConfig,
+  MemoryRetrievalConfig,
+} from "./schemas/memory-retrieval.js";
+export {
+  MemoryDynamicBudgetConfigSchema,
+  MemoryEarlyTerminationConfigSchema,
+  MemoryRerankingConfigSchema,
+  MemoryRetrievalConfigSchema,
+} from "./schemas/memory-retrieval.js";
+export type {
+  MemoryEmbeddingsConfig,
+  MemorySegmentationConfig,
+  QdrantConfig,
+} from "./schemas/memory-storage.js";
+export {
+  MemoryEmbeddingsConfigSchema,
+  MemorySegmentationConfigSchema,
   QdrantConfigSchema,
-} from "./memory-schema.js";
-export type { NotificationsConfig } from "./notifications-schema.js";
-export { NotificationsConfigSchema } from "./notifications-schema.js";
-export type { SandboxConfig } from "./sandbox-schema.js";
-export { SandboxConfigSchema } from "./sandbox-schema.js";
+} from "./schemas/memory-storage.js";
+export type { NotificationsConfig } from "./schemas/notifications.js";
+export { NotificationsConfigSchema } from "./schemas/notifications.js";
+export type {
+  AvatarConfig,
+  DaemonConfig,
+  PlatformConfig,
+  UiConfig,
+} from "./schemas/platform.js";
+export {
+  AvatarConfigSchema,
+  DaemonConfigSchema,
+  PlatformConfigSchema,
+  UiConfigSchema,
+  VALID_AVATAR_STRATEGIES,
+} from "./schemas/platform.js";
+export type { SandboxConfig } from "./schemas/sandbox.js";
+export { SandboxConfigSchema } from "./schemas/sandbox.js";
+export type {
+  PermissionsConfig,
+  SecretDetectionConfig,
+} from "./schemas/security.js";
+export {
+  PermissionsConfigSchema,
+  SecretDetectionConfigSchema,
+} from "./schemas/security.js";
 export type {
   RemotePolicyConfig,
   RemoteProviderConfig,
@@ -133,7 +157,7 @@ export type {
   SkillsConfig,
   SkillsInstallConfig,
   SkillsLoadConfig,
-} from "./skills-schema.js";
+} from "./schemas/skills.js";
 export {
   RemotePolicyConfigSchema,
   RemoteProviderConfigSchema,
@@ -142,41 +166,59 @@ export {
   SkillsConfigSchema,
   SkillsInstallConfigSchema,
   SkillsLoadConfigSchema,
-} from "./skills-schema.js";
+} from "./schemas/skills.js";
+export type { SwarmConfig } from "./schemas/swarm.js";
+export { SwarmConfigSchema } from "./schemas/swarm.js";
+export type { RateLimitConfig, TimeoutConfig } from "./schemas/timeouts.js";
+export {
+  RateLimitConfigSchema,
+  TimeoutConfigSchema,
+} from "./schemas/timeouts.js";
+export type { WorkspaceGitConfig } from "./schemas/workspace-git.js";
+export { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 // Imports for AssistantConfigSchema composition
+import { CallsConfigSchema } from "./schemas/calls.js";
 import {
-  HeartbeatConfigSchema,
-  SwarmConfigSchema,
-  WorkspaceGitConfigSchema,
-} from "./agent-schema.js";
-import { CallsConfigSchema } from "./calls-schema.js";
+  SlackConfigSchema,
+  TelegramConfigSchema,
+  TwilioConfigSchema,
+  WhatsAppConfigSchema,
+} from "./schemas/channels.js";
+import { ElevenLabsConfigSchema } from "./schemas/elevenlabs.js";
+import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
+import {
+  ContextWindowConfigSchema,
+  EffortSchema,
+  ModelPricingOverrideSchema,
+  ThinkingConfigSchema,
+} from "./schemas/inference.js";
+import { IngressConfigSchema } from "./schemas/ingress.js";
 import {
   AuditLogConfigSchema,
-  AvatarConfigSchema,
-  ContextWindowConfigSchema,
-  DaemonConfigSchema,
-  EffortSchema,
-  IngressConfigSchema,
   LogFileConfigSchema,
-  ModelPricingOverrideSchema,
-  PermissionsConfigSchema,
+} from "./schemas/logging.js";
+import { McpConfigSchema } from "./schemas/mcp.js";
+import { MemoryConfigSchema } from "./schemas/memory.js";
+import { NotificationsConfigSchema } from "./schemas/notifications.js";
+import {
+  AvatarConfigSchema,
+  DaemonConfigSchema,
   PlatformConfigSchema,
-  RateLimitConfigSchema,
-  SecretDetectionConfigSchema,
-  SmsConfigSchema,
-  ThinkingConfigSchema,
-  TimeoutConfigSchema,
-  TwilioConfigSchema,
   UiConfigSchema,
-  WhatsAppConfigSchema,
-} from "./core-schema.js";
-import { ElevenLabsConfigSchema } from "./elevenlabs-schema.js";
-import { McpConfigSchema } from "./mcp-schema.js";
-import { MemoryConfigSchema } from "./memory-schema.js";
-import { NotificationsConfigSchema } from "./notifications-schema.js";
-import { SandboxConfigSchema } from "./sandbox-schema.js";
-import { SkillsConfigSchema } from "./skills-schema.js";
+} from "./schemas/platform.js";
+import { SandboxConfigSchema } from "./schemas/sandbox.js";
+import {
+  PermissionsConfigSchema,
+  SecretDetectionConfigSchema,
+} from "./schemas/security.js";
+import { SkillsConfigSchema } from "./schemas/skills.js";
+import { SwarmConfigSchema } from "./schemas/swarm.js";
+import {
+  RateLimitConfigSchema,
+  TimeoutConfigSchema,
+} from "./schemas/timeouts.js";
+import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 const VALID_PROVIDERS = [
   "anthropic",
@@ -270,8 +312,9 @@ export const AssistantConfigSchema = z
     elevenlabs: ElevenLabsConfigSchema.default(
       ElevenLabsConfigSchema.parse({}),
     ),
-    sms: SmsConfigSchema.default(SmsConfigSchema.parse({})),
     whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
+    telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),
+    slack: SlackConfigSchema.default(SlackConfigSchema.parse({})),
     ingress: IngressConfigSchema,
     platform: PlatformConfigSchema.default(PlatformConfigSchema.parse({})),
     daemon: DaemonConfigSchema.default(DaemonConfigSchema.parse({})),
@@ -280,12 +323,6 @@ export const AssistantConfigSchema = z
     ),
     avatar: AvatarConfigSchema.default(AvatarConfigSchema.parse({})),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
-    featureFlags: z
-      .record(
-        z.string(),
-        z.boolean({ error: "featureFlags values must be booleans" }),
-      )
-      .default({} as Record<string, boolean>),
     assistantFeatureFlagValues: z
       .record(
         z.string(),

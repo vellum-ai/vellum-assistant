@@ -2117,16 +2117,15 @@ public final class ChatViewModel: ObservableObject {
     ///
     /// - Parameters:
     ///   - historyMessages: The message items from the daemon's history response.
-    ///   - hasMore: Whether the daemon has older pages available. Defaults to `false`
-    ///     for backward compatibility with older daemons that don't send this field.
+    ///   - hasMore: Whether the daemon has older pages available.
     ///   - oldestTimestamp: The timestamp of the oldest message in the response (ms since epoch).
     ///     Used as the cursor for the next pagination request.
     ///   - isPaginationLoad: When `true`, messages are prepended to the existing list
     ///     (older page fetched on demand). When `false`, the standard initial-load
     ///     or reconnect-catch-up logic applies.
     public func populateFromHistory(
-        _ historyMessages: [HistoryResponseMessage.HistoryMessageItem],
-        hasMore: Bool = false,
+        _ historyMessages: [IPCHistoryResponseMessage],
+        hasMore: Bool,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
     ) {
@@ -2287,19 +2286,12 @@ public final class ChatViewModel: ObservableObject {
             // Populate inlineSurfaces from history
             chatMsg.inlineSurfaces = inlineSurfaces
 
-            // Use daemon-provided segments/order when available; fall back to legacy.
-            // The daemon always provides contentOrder when there are any content blocks,
-            // so we should use it even when textSegments is empty (e.g., widget-only turns).
-            if let segments = item.textSegments, let orderStrings = item.contentOrder {
+            // Use daemon-provided segments/order.
+            if let segments = item.textSegments {
                 chatMsg.textSegments = segments
+            }
+            if let orderStrings = item.contentOrder {
                 chatMsg.contentOrder = Self.parseContentOrder(orderStrings)
-            } else {
-                chatMsg.contentOrder = ChatMessage.buildDefaultContentOrder(
-                    textSegmentCount: chatMsg.textSegments.count,
-                    toolCallCount: toolCalls.count,
-                    arrivedBeforeText: toolsBeforeText,
-                    surfaceCount: inlineSurfaces.count
-                )
             }
 
             // Log contentOrder for debugging widget restoration

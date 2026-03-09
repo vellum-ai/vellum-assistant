@@ -98,7 +98,7 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(testDir, "logs", "test.log"),
   getHistoryPath: () => join(testDir, "history"),
   getHooksDir: () => join(testDir, "hooks"),
-  getIpcBlobDir: () => join(testDir, "ipc-blobs"),
+
   getSandboxRootDir: () => join(testDir, "sandbox"),
   getSandboxWorkingDir: () => testDir,
   getInterfacesDir: () => join(testDir, "interfaces"),
@@ -115,11 +115,7 @@ mock.module("../util/platform.js", () => ({
   readLockfile: () => null,
   readPlatformToken: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
   writeLockfile: () => {},
-  migratePath: () => {},
-  migrateToWorkspaceLayout: () => {},
-  migrateToDataLayout: () => {},
   ensureDataDir: () => {},
 }));
 
@@ -176,13 +172,11 @@ mock.module("../config/loader.js", () => ({
 
 // Additional mocks required for Session constructor and end-to-end tests
 
-mock.module("../memory/conversation-store.js", () => ({
+mock.module("../memory/conversation-crud.js", () => ({
   addMessage: () => ({ id: "msg-1" }),
-  countConversations: () => 0,
   getMessages: () => [],
-  listConversations: () => [],
+  getMessageById: () => null,
   getConversation: () => null,
-  getLatestConversation: () => null,
   createConversation: () => ({
     id: "bench-conv",
     title: "Bench",
@@ -196,15 +190,31 @@ mock.module("../memory/conversation-store.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationThreadType: () => "standard",
   getConversationMemoryScopeId: () => "default",
-  isLastUserMessageToolResult: () => false,
+  getConversationRecentProvenanceTrustClass: () => null,
   provenanceFromTrustContext: () => ({}),
   relinkAttachments: () => 0,
-  searchConversations: () => [],
   setConversationOriginChannelIfUnset: () => {},
+  setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
   updateConversationTitle: () => {},
   updateConversationUsage: () => {},
   updateMessageContent: () => {},
+  batchSetDisplayOrders: () => {},
+  getDisplayMetaForConversations: () => [],
+  messageMetadataSchema: {
+    parse: (v: unknown) => v,
+    safeParse: (v: unknown) => ({ success: true, data: v }),
+  },
+  parseConversation: () => null,
+  parseMessage: () => null,
+}));
+
+mock.module("../memory/conversation-queries.js", () => ({
+  countConversations: () => 0,
+  listConversations: () => [],
+  getLatestConversation: () => null,
+  isLastUserMessageToolResult: () => false,
+  searchConversations: () => [],
 }));
 
 mock.module("../hooks/manager.js", () => ({
@@ -261,7 +271,6 @@ mock.module("../calls/call-store.js", () => ({
   buildCallbackDedupeKey: () => "",
   isCallbackProcessed: () => false,
   recordProcessedCallback: () => {},
-  tryRecordProcessedCallback: () => true,
   claimCallback: () => true,
   releaseCallbackClaim: () => {},
 }));
@@ -287,7 +296,7 @@ mock.module("../services/published-app-updater.js", () => ({
 
 const { initializeTools, getAllToolDefinitions, __resetRegistryForTesting } =
   await import("../tools/registry.js");
-const { buildSystemPrompt } = await import("../config/system-prompt.js");
+const { buildSystemPrompt } = await import("../prompts/system-prompt.js");
 const { Session } = await import("../daemon/session.js");
 const { projectSkillTools, resetSkillToolProjection } =
   await import("../daemon/session-skill-tools.js");

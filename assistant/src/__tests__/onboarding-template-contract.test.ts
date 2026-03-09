@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-const templatesDir = join(import.meta.dirname, "..", "config", "templates");
+const templatesDir = join(import.meta.dirname, "..", "prompts", "templates");
 const bootstrap = readFileSync(join(templatesDir, "BOOTSTRAP.md"), "utf-8");
 const identity = readFileSync(join(templatesDir, "IDENTITY.md"), "utf-8");
 const user = readFileSync(join(templatesDir, "USER.md"), "utf-8");

@@ -64,9 +64,9 @@ struct UsageDashboardView: View {
                 }
             case .loaded(let totals):
                 LabeledContent("Estimated Cost", value: UsageFormatting.formatCost(totals.totalEstimatedCostUsd))
-                LabeledContent("Input Tokens", value: UsageFormatting.formatCount(totals.totalInputTokens))
+                LabeledContent(UsageFormatting.directInputTokensLabel, value: UsageFormatting.formatCount(totals.totalInputTokens))
                 LabeledContent("Output Tokens", value: UsageFormatting.formatCount(totals.totalOutputTokens))
-                LabeledContent("Cache Creation", value: UsageFormatting.formatCount(totals.totalCacheCreationTokens))
+                LabeledContent("Cache Created", value: UsageFormatting.formatCount(totals.totalCacheCreationTokens))
                 LabeledContent("Cache Read", value: UsageFormatting.formatCount(totals.totalCacheReadTokens))
                 LabeledContent("Events", value: "\(totals.eventCount)")
             case .failed(let message):
@@ -146,14 +146,13 @@ struct UsageDashboardView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(entry.group)
                                 .font(.subheadline.weight(.medium))
+                            Text(UsageFormatting.formatBreakdownSummary(entry))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             HStack {
                                 Text(UsageFormatting.formatCost(entry.totalEstimatedCostUsd))
                                     .font(.footnote)
                                 Text("\(entry.eventCount) events")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                Text("\(UsageFormatting.formatCount(entry.totalInputTokens)) in / \(UsageFormatting.formatCount(entry.totalOutputTokens)) out")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }

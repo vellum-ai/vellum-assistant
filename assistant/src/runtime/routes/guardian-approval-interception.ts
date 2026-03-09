@@ -5,7 +5,6 @@
  * This module is the top-level dispatcher. It delegates to strategy modules:
  * - guardian-callback-strategy.ts   — guardian callback button and text decisions
  * - guardian-text-engine-strategy.ts — conversational engine for plain-text messages
- * - guardian-legacy-fallback-strategy.ts — deterministic parser fallback
  */
 import { applyGuardianDecision } from "../../approvals/guardian-decision-primitive.js";
 import type { ChannelId } from "../../channels/types.js";
@@ -14,7 +13,7 @@ import {
   getPendingApprovalForRequest,
   getUnresolvedApprovalForRequest,
   updateApprovalDecision,
-} from "../../memory/channel-guardian-store.js";
+} from "../../memory/guardian-approvals.js";
 import { getLogger } from "../../util/logger.js";
 import { runApprovalConversationTurn } from "../approval-conversation-turn.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
@@ -32,7 +31,6 @@ import type {
 } from "../http-types.js";
 import { parseApprovalIntent } from "../nl-approval-parser.js";
 import { handleGuardianCallbackDecision } from "./approval-strategies/guardian-callback-strategy.js";
-import { handleGuardianLegacyFallback } from "./approval-strategies/guardian-legacy-fallback-strategy.js";
 import { handleGuardianTextEngineDecision } from "./approval-strategies/guardian-text-engine-strategy.js";
 import {
   buildGuardianDenyContext,
@@ -148,40 +146,39 @@ export async function handleApprovalInterception(
   const pendingPrompt = getChannelApprovalPrompt(conversationId);
   if (!pendingPrompt) return { handled: false };
 
-  // Legacy unverified-channel equivalent:
-  // unknown trust + explicit denial reason (`no_identity` / `no_binding`).
-  // Unknown without a denial reason means identity-known, non-member sender
-  // in a shared channel; that case must not force-reject someone else's request.
-  const isLegacyUnverifiedSender =
-    trustCtx.trustClass === "unknown" && !!trustCtx.denialReason;
+  // Unverified sender: unknown trust where either the sender's identity
+  // could not be established or no guardian binding exists for the channel.
+  // Identity-known non-member senders in shared channels (unknown trust with
+  // both identity and guardian binding present) must not force-reject.
+  const isUnverifiedSender =
+    trustCtx.trustClass === "unknown" &&
+    (!trustCtx.requesterExternalUserId || !trustCtx.guardianExternalUserId);
 
-  // When the sender is from a legacy-unverified channel actor, auto-deny any
-  // pending confirmation and block self-approval.
-  if (isLegacyUnverifiedSender) {
+  // When the sender is unverified, auto-deny any pending confirmation and
+  // block self-approval.
+  if (isUnverifiedSender) {
     const pending = getApprovalInfoByConversation(conversationId);
     if (pending.length > 0) {
+      const reason: "no_identity" | "no_binding" =
+        !trustCtx.requesterExternalUserId ? "no_identity" : "no_binding";
       handleChannelDecision(
         conversationId,
         { action: "reject", source: "plain_text" },
-        buildGuardianDenyContext(
-          pending[0].toolName,
-          trustCtx.denialReason ?? "no_binding",
-          sourceChannel,
-        ),
+        buildGuardianDenyContext(pending[0].toolName, reason, sourceChannel),
       );
       return { handled: true, type: "decision_applied" };
     }
   }
 
-  // When the sender is a non-guardian and there's a pending guardian approval
-  // for this conversation's request, block self-approval. The non-guardian must
-  // wait for the guardian to decide.
-  //
-  // Include identity-known, non-member senders (`unknown` without denialReason)
-  // so shared-channel participants can't approve/deny someone else's pending request.
+  // When the sender is a non-guardian with established identity and a guardian
+  // binding, block self-approval. The non-guardian must wait for the guardian
+  // to decide. This covers trusted contacts and identity-known non-member
+  // senders in shared channels.
   const isIdentityKnownNonGuardian =
     trustCtx.trustClass === "trusted_contact" ||
-    (trustCtx.trustClass === "unknown" && !trustCtx.denialReason);
+    (trustCtx.trustClass === "unknown" &&
+      !!trustCtx.requesterExternalUserId &&
+      !!trustCtx.guardianExternalUserId);
   if (isIdentityKnownNonGuardian) {
     const pending = getApprovalInfoByConversation(conversationId);
     if (pending.length > 0) {
@@ -507,8 +504,8 @@ export async function handleApprovalInterception(
 
   // ── Natural language approval intent parser ──
   // Covers a broad set of colloquial approval/rejection phrases, emoji, and
-  // timed-approval variants. Runs before the legacy parser to provide wider
-  // coverage for channels (like Slack) that rely on plain-text responses.
+  // timed-approval variants for channels (like Slack) that rely on plain-text
+  // responses.
   if (pending.length > 0 && content) {
     const nlIntent = parseApprovalIntent(content);
     if (nlIntent && nlIntent.confidence >= 0.9) {
@@ -528,28 +525,8 @@ export async function handleApprovalInterception(
     }
   }
 
-  // ── Legacy deterministic fallback ──
-  // When no conversational engine is available, use the deterministic parser
-  // as a safety net for backward compatibility.
-  if (content) {
-    const legacyResult = await handleGuardianLegacyFallback({
-      conversationId,
-      conversationExternalId,
-      sourceChannel,
-      replyCallbackUrl,
-      content,
-      assistantId,
-      bearerToken,
-      approvalCopyGenerator,
-      pending,
-    });
-    if (legacyResult) {
-      return legacyResult;
-    }
-  }
-
-  // No decision could be extracted and no conversational engine is available —
-  // deliver a simple status reply rather than a reminder prompt.
+  // No decision could be extracted — deliver a simple status reply rather
+  // than a reminder prompt.
   await deliverStaleApprovalReply({
     scenario: "reminder_prompt",
     sourceChannel,

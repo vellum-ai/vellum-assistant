@@ -1166,7 +1166,7 @@ describe("isSideEffectTool", () => {
   describe("returns false for non-side-effect tools", () => {
     const readOnlyTools = [
       "file_read",
-      "memory_search",
+      "memory_recall",
       "memory_save",
       "web_search",
       "browser_snapshot",
@@ -2248,7 +2248,7 @@ describe("buildSanitizedEnv — baseline: credential exclusion", () => {
       "GPG_TTY",
       "GNUPGHOME",
       "INTERNAL_GATEWAY_BASE_URL",
-      "GATEWAY_BASE_URL",
+      "VELLUM_DATA_DIR",
     ];
 
     const env = buildSanitizedEnv();

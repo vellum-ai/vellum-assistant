@@ -10,13 +10,13 @@
 
 import {
   getGuardianBinding,
-  validateAndConsumeChallenge,
-} from "../runtime/channel-guardian-service.js";
+  validateAndConsumeVerification,
+} from "../runtime/channel-verification-service.js";
+import { redeemVoiceInviteCode } from "../runtime/invite-service.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../runtime/guardian-verification-templates.js";
-import { redeemVoiceInviteCode } from "../runtime/invite-service.js";
+} from "../runtime/verification-templates.js";
 import type { CallEventType } from "./types.js";
 
 // ── parseDigitsFromSpeech ──────────────────────────────────────────────
@@ -68,9 +68,9 @@ export function parseDigitsFromSpeech(transcript: string): string {
 
 // ── Guardian code verification ─────────────────────────────────────────
 
-export interface GuardianVerificationParams {
-  guardianChallengeAssistantId: string;
-  guardianVerificationFromNumber: string;
+export interface VerificationCallParams {
+  verificationAssistantId: string;
+  verificationFromNumber: string;
   enteredCode: string;
   isOutbound: boolean;
   codeDigits: number;
@@ -78,7 +78,7 @@ export interface GuardianVerificationParams {
   verificationMaxAttempts: number;
 }
 
-export type GuardianVerificationResult =
+export type VerificationCallResult =
   | {
       outcome: "success";
       verificationType: "guardian" | "trusted_contact";
@@ -112,12 +112,12 @@ export type GuardianVerificationResult =
  * so the caller can apply side-effects (state mutations, TTS, session
  * updates) without this function needing access to the relay connection.
  */
-export function attemptGuardianCodeVerification(
-  params: GuardianVerificationParams,
-): GuardianVerificationResult {
+export function attemptVerificationCode(
+  params: VerificationCallParams,
+): VerificationCallResult {
   const {
-    guardianChallengeAssistantId,
-    guardianVerificationFromNumber,
+    verificationAssistantId,
+    verificationFromNumber,
     enteredCode,
     isOutbound,
     codeDigits,
@@ -125,17 +125,17 @@ export function attemptGuardianCodeVerification(
     verificationMaxAttempts,
   } = params;
 
-  const result = validateAndConsumeChallenge(
-    "voice",
+  const result = validateAndConsumeVerification(
+    "phone",
     enteredCode,
-    guardianVerificationFromNumber,
-    guardianVerificationFromNumber,
+    verificationFromNumber,
+    verificationFromNumber,
   );
 
   if (result.success) {
     const eventName = isOutbound
-      ? "outbound_guardian_voice_verification_succeeded"
-      : "guardian_voice_verification_succeeded";
+      ? "outbound_voice_verification_succeeded"
+      : "voice_verification_succeeded";
 
     // Resolve binding conflict and canonical principal for guardian type
     let bindingConflict: { existingGuardian: string } | undefined;
@@ -143,13 +143,12 @@ export function attemptGuardianCodeVerification(
 
     if (result.verificationType === "guardian") {
       const existingBinding = getGuardianBinding(
-        guardianChallengeAssistantId,
-        "voice",
+        verificationAssistantId,
+        "phone",
       );
       if (
         existingBinding &&
-        existingBinding.guardianExternalUserId !==
-          guardianVerificationFromNumber
+        existingBinding.guardianExternalUserId !== verificationFromNumber
       ) {
         bindingConflict = {
           existingGuardian: existingBinding.guardianExternalUserId,
@@ -157,11 +156,11 @@ export function attemptGuardianCodeVerification(
       } else {
         // Resolve canonical principal from the vellum channel binding
         const vellumBinding = getGuardianBinding(
-          guardianChallengeAssistantId,
+          verificationAssistantId,
           "vellum",
         );
         canonicalPrincipal =
-          vellumBinding?.guardianPrincipalId ?? guardianVerificationFromNumber;
+          vellumBinding?.guardianPrincipalId ?? verificationFromNumber;
       }
     }
 
@@ -188,8 +187,8 @@ export function attemptGuardianCodeVerification(
 
   if (newAttempts >= verificationMaxAttempts) {
     const failEventName = isOutbound
-      ? "outbound_guardian_voice_verification_failed"
-      : "guardian_voice_verification_failed";
+      ? "outbound_voice_verification_failed"
+      : "voice_verification_failed";
 
     const failureText = isOutbound
       ? composeVerificationVoice(GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_FAILURE, {
@@ -258,7 +257,7 @@ export function attemptInviteCodeRedemption(
   const result = redeemVoiceInviteCode({
     assistantId: inviteRedemptionAssistantId,
     callerExternalUserId: inviteRedemptionFromNumber,
-    sourceChannel: "voice",
+    sourceChannel: "phone",
     code: enteredCode,
   });
 

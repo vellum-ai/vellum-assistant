@@ -1,5 +1,6 @@
 import { describe, test, expect, mock, afterEach } from "bun:test";
-import type { GatewayConfig } from "../config.js";
+import type { CredentialCache } from "../credential-cache.js";
+import type { ConfigFileCache } from "../config-file-cache.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -16,53 +17,6 @@ mock.module("../fetch.js", () => ({
 const { reconcileTelegramWebhook } =
   await import("../telegram/webhook-manager.js");
 
-function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
-  const merged: GatewayConfig = {
-    telegramBotToken: "test-bot-token",
-    telegramWebhookSecret: "test-webhook-secret",
-    telegramApiBaseUrl: "https://api.telegram.org",
-    assistantRuntimeBaseUrl: "http://localhost:7821",
-    routingEntries: [],
-    defaultAssistantId: undefined,
-    unmappedPolicy: "reject",
-    port: 7830,
-    runtimeProxyEnabled: false,
-    runtimeProxyRequireAuth: false,
-    shutdownDrainMs: 5000,
-    runtimeTimeoutMs: 30000,
-    runtimeMaxRetries: 2,
-    runtimeInitialBackoffMs: 500,
-    telegramDeliverAuthBypass: false,
-    telegramInitialBackoffMs: 1000,
-    telegramMaxRetries: 0,
-    telegramTimeoutMs: 15000,
-    maxWebhookPayloadBytes: 1048576,
-    logFile: { dir: undefined, retentionDays: 30 },
-    maxAttachmentBytes: 20971520,
-    maxAttachmentConcurrency: 3,
-    twilioAuthToken: undefined,
-    twilioAccountSid: undefined,
-    twilioPhoneNumber: undefined,
-    smsDeliverAuthBypass: false,
-    ingressPublicBaseUrl: "https://example.ngrok.io",
-    gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    whatsappPhoneNumberId: undefined,
-    whatsappAccessToken: undefined,
-    whatsappAppSecret: undefined,
-    whatsappWebhookVerifyToken: undefined,
-    whatsappDeliverAuthBypass: false,
-    whatsappTimeoutMs: 15000,
-    whatsappMaxRetries: 3,
-    whatsappInitialBackoffMs: 1000,
-    slackChannelBotToken: undefined,
-    slackChannelAppToken: undefined,
-    slackDeliverAuthBypass: false,
-    trustProxy: false,
-    ...overrides,
-  };
-  return merged;
-}
-
 afterEach(() => {
   fetchMock = mock(async () => new Response());
 });
@@ -74,7 +28,49 @@ function makeTelegramResponse(result: unknown) {
   });
 }
 
+/** Create mock caches for webhook manager tests.
+ * Pass `null` for a credential to simulate "not configured". */
+function makeCaches(
+  opts: {
+    botToken?: string | null;
+    webhookSecret?: string | null;
+    ingressUrl?: string | null;
+  } = {},
+) {
+  const botToken =
+    "botToken" in opts ? (opts.botToken ?? undefined) : "test-bot-token";
+  const webhookSecret =
+    "webhookSecret" in opts
+      ? (opts.webhookSecret ?? undefined)
+      : "test-webhook-secret";
+  const ingressUrl =
+    "ingressUrl" in opts
+      ? (opts.ingressUrl ?? undefined)
+      : "https://example.ngrok.io";
+  const credentialMap: Record<string, string | undefined> = {
+    "credential:telegram:bot_token": botToken,
+    "credential:telegram:webhook_secret": webhookSecret,
+  };
+  const credentials = {
+    get: async (key: string) => credentialMap[key],
+    invalidate: () => {},
+  } as unknown as CredentialCache;
+  const configFile = {
+    getString: (section: string, key: string) => {
+      if (section === "ingress" && key === "publicBaseUrl") return ingressUrl;
+      return undefined;
+    },
+    getNumber: () => undefined,
+    getBoolean: () => undefined,
+    getRecord: () => undefined,
+    refreshNow: () => {},
+  } as unknown as ConfigFileCache;
+  return { credentials, configFile };
+}
+
 describe("reconcileTelegramWebhook", () => {
+  const caches = makeCaches();
+
   test("calls setWebhook when URL does not match", async () => {
     const calls: { method: string; body: unknown }[] = [];
 
@@ -103,8 +99,7 @@ describe("reconcileTelegramWebhook", () => {
       },
     );
 
-    const config = makeConfig();
-    await reconcileTelegramWebhook(config);
+    await reconcileTelegramWebhook(caches);
 
     expect(calls).toHaveLength(2);
     expect(calls[0].method).toBe("getWebhookInfo");
@@ -145,8 +140,7 @@ describe("reconcileTelegramWebhook", () => {
       return new Response("Not found", { status: 404 });
     });
 
-    const config = makeConfig();
-    await reconcileTelegramWebhook(config);
+    await reconcileTelegramWebhook(caches);
 
     expect(calls).toEqual(["getWebhookInfo", "setWebhook"]);
   });
@@ -179,10 +173,7 @@ describe("reconcileTelegramWebhook", () => {
       },
     );
 
-    const config = makeConfig({
-      ingressPublicBaseUrl: "https://example.ngrok.io/",
-    });
-    await reconcileTelegramWebhook(config);
+    await reconcileTelegramWebhook(caches);
 
     expect(calls).toHaveLength(2);
     expect((calls[1].body as any).url).toBe(
@@ -193,8 +184,8 @@ describe("reconcileTelegramWebhook", () => {
   test("skips reconciliation when bot token is not configured", async () => {
     fetchMock = mock(async () => new Response("", { status: 200 }));
 
-    const config = makeConfig({ telegramBotToken: undefined });
-    await reconcileTelegramWebhook(config);
+    const noBotCaches = makeCaches({ botToken: undefined });
+    await reconcileTelegramWebhook(noBotCaches);
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -202,8 +193,8 @@ describe("reconcileTelegramWebhook", () => {
   test("skips reconciliation when webhook secret is not configured", async () => {
     fetchMock = mock(async () => new Response("", { status: 200 }));
 
-    const config = makeConfig({ telegramWebhookSecret: undefined });
-    await reconcileTelegramWebhook(config);
+    const noSecretCaches = makeCaches({ webhookSecret: undefined });
+    await reconcileTelegramWebhook(noSecretCaches);
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -211,8 +202,8 @@ describe("reconcileTelegramWebhook", () => {
   test("skips reconciliation when ingress URL is not configured", async () => {
     fetchMock = mock(async () => new Response("", { status: 200 }));
 
-    const config = makeConfig({ ingressPublicBaseUrl: undefined });
-    await reconcileTelegramWebhook(config);
+    const noIngressCaches = makeCaches({ ingressUrl: undefined });
+    await reconcileTelegramWebhook(noIngressCaches);
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -242,8 +233,7 @@ describe("reconcileTelegramWebhook", () => {
       return new Response("Not found", { status: 404 });
     });
 
-    const config = makeConfig();
-    await reconcileTelegramWebhook(config);
+    await reconcileTelegramWebhook(caches);
 
     expect(calls).toEqual(["getWebhookInfo", "setWebhook"]);
   });

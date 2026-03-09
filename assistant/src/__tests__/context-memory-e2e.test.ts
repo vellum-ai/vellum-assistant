@@ -424,13 +424,17 @@ describe("Context + Memory E2E regression", () => {
     const provider = makeSummaryProvider(summaryCounter);
     const systemPrompt = "System prompt for context + memory e2e";
     const history = makeLongHistory(60, currentUserText);
-    const manager = new ContextWindowManager(provider, systemPrompt, {
-      ...DEFAULT_CONFIG.contextWindow,
-      maxInputTokens: 5200,
-      targetInputTokens: 2600,
-      compactThreshold: 0.55,
-      preserveRecentUserTurns: 6,
-      chunkTokens: 900,
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt,
+      config: {
+        ...DEFAULT_CONFIG.contextWindow,
+        maxInputTokens: 5200,
+        targetInputTokens: 2600,
+        compactThreshold: 0.55,
+        preserveRecentUserTurns: 6,
+        chunkTokens: 900,
+      },
     });
 
     const compacted = await manager.maybeCompact(history);

@@ -1,13 +1,20 @@
 import { v4 as uuid } from "uuid";
 
 import { getSummaryFromContextMessage } from "../context/window-manager.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import {
+  deleteLastExchange,
+  deleteMessageById,
+  getMessages,
+  relinkAttachments,
+  updateMessageContent,
+} from "../memory/conversation-crud.js";
+import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../memory/qdrant-client.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
-import type { ServerMessage } from "./ipc-protocol.js";
+import type { ServerMessage } from "./message-protocol.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("session-history");
@@ -117,7 +124,7 @@ export function consolidateAssistantMessages(
   conversationId: string,
   userMessageId: string,
 ): void {
-  const allMessages = conversationStore.getMessages(conversationId);
+  const allMessages = getMessages(conversationId);
   const userMsgIndex = allMessages.findIndex((m) => m.id === userMessageId);
   if (userMsgIndex === -1) return;
 
@@ -159,7 +166,7 @@ export function consolidateAssistantMessages(
     const allSegmentIds: string[] = [];
     const allOrphanedItemIds: string[] = [];
     for (const id of messagesToDelete) {
-      const deleted = conversationStore.deleteMessageById(id);
+      const deleted = deleteMessageById(id);
       allSegmentIds.push(...deleted.segmentIds);
       allOrphanedItemIds.push(...deleted.orphanedItemIds);
     }
@@ -260,7 +267,7 @@ export function consolidateAssistantMessages(
 
   // Update the first assistant message with all content
   const firstAssistantMsg = messagesToConsolidate[0];
-  conversationStore.updateMessageContent(
+  updateMessageContent(
     firstAssistantMsg.id,
     JSON.stringify(consolidatedContent),
   );
@@ -273,7 +280,7 @@ export function consolidateAssistantMessages(
     ...messagesToDelete,
   ];
   if (messageIdsToDelete.length > 0) {
-    const relinked = conversationStore.relinkAttachments(
+    const relinked = relinkAttachments(
       messageIdsToDelete,
       firstAssistantMsg.id,
     );
@@ -290,14 +297,12 @@ export function consolidateAssistantMessages(
   const allSegmentIds: string[] = [];
   const allOrphanedItemIds: string[] = [];
   for (let i = 1; i < messagesToConsolidate.length; i++) {
-    const deleted = conversationStore.deleteMessageById(
-      messagesToConsolidate[i].id,
-    );
+    const deleted = deleteMessageById(messagesToConsolidate[i].id);
     allSegmentIds.push(...deleted.segmentIds);
     allOrphanedItemIds.push(...deleted.orphanedItemIds);
   }
   for (const id of messagesToDelete) {
-    const deleted = conversationStore.deleteMessageById(id);
+    const deleted = deleteMessageById(id);
     allSegmentIds.push(...deleted.segmentIds);
     allOrphanedItemIds.push(...deleted.orphanedItemIds);
   }
@@ -376,15 +381,15 @@ export function undo(session: HistorySessionContext): number {
   // deleteLastExchange when the loop peeled back tool_result messages.
   let hadToolResult = false;
   do {
-    conversationStore.deleteLastExchange(session.conversationId);
-    if (conversationStore.isLastUserMessageToolResult(session.conversationId)) {
+    deleteLastExchange(session.conversationId);
+    if (isLastUserMessageToolResult(session.conversationId)) {
       hadToolResult = true;
     } else {
       break;
     }
   } while (true);
   if (hadToolResult) {
-    conversationStore.deleteLastExchange(session.conversationId);
+    deleteLastExchange(session.conversationId);
   }
 
   return removed;
@@ -455,7 +460,7 @@ export async function regenerate(
 
   // Find DB message IDs to delete: get all messages from the DB, then
   // identify the ones that come after the last user message.
-  const dbMessages = conversationStore.getMessages(session.conversationId);
+  const dbMessages = getMessages(session.conversationId);
 
   // Walk backwards to find the last real (non-tool_result) user message in the DB.
   let dbUserMsgIdx = -1;
@@ -504,7 +509,7 @@ export async function regenerate(
   const allSegmentIds: string[] = [];
   const allOrphanedItemIds: string[] = [];
   for (const msg of messagesToDelete) {
-    const deleted = conversationStore.deleteMessageById(msg.id);
+    const deleted = deleteMessageById(msg.id);
     allSegmentIds.push(...deleted.segmentIds);
     allOrphanedItemIds.push(...deleted.orphanedItemIds);
   }

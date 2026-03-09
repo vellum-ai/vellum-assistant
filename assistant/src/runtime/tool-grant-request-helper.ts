@@ -20,7 +20,7 @@ import {
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { NotificationSourceChannel } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
-import { getGuardianBinding } from "./channel-guardian-service.js";
+import { getGuardianBinding } from "./channel-verification-service.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("tool-grant-request-helper");
@@ -178,7 +178,6 @@ export function createOrReuseToolGrantRequest(
   void signalPromise.then((signalResult) => {
     for (const result of signalResult.deliveryResults) {
       if (result.channel === "vellum") continue; // handled in onThreadCreated
-      if (result.channel !== "telegram" && result.channel !== "sms") continue;
       createCanonicalGuardianDelivery({
         requestId: canonicalRequest.id,
         destinationChannel: result.channel,

@@ -1,37 +1,37 @@
-import * as net from "node:net";
-
 import {
   getAttachmentsForMessage,
   getFilePathForAttachment,
   setAttachmentThumbnail,
 } from "../../memory/attachments-store.js";
-import * as conversationStore from "../../memory/conversation-store.js";
+import { getMessageById } from "../../memory/conversation-crud.js";
+import {
+  getMessagesPaginated,
+  listConversations,
+  searchConversations,
+} from "../../memory/conversation-queries.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { truncate } from "../../util/truncate.js";
-import type { UserMessageAttachment } from "../ipc-contract.js";
 import type {
   ConversationSearchRequest,
   HistoryRequest,
   MessageContentRequest,
-} from "../ipc-protocol.js";
+  UserMessageAttachment,
+} from "../message-protocol.js";
 import { generateVideoThumbnail } from "../video-thumbnail.js";
 import {
   type HandlerContext,
   type HistorySurface,
   type HistoryToolCall,
   log,
-  mergeToolResults,
   type ParsedHistoryMessage,
   renderHistoryContent,
 } from "./shared.js";
 
 export function handleHistoryRequest(
   msg: HistoryRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): void {
-  // Default to unlimited when callers don't specify a limit, preserving
-  // backward-compatible behavior of returning full conversation history.
+  // No limit means return all messages.
   const limit = msg.limit;
 
   // Resolve include flags: explicit flags override mode, mode provides defaults.
@@ -41,13 +41,12 @@ export function handleHistoryRequest(
   const includeToolImages = msg.includeToolImages ?? isFullMode;
   const includeSurfaceData = msg.includeSurfaceData ?? isFullMode;
 
-  const { messages: dbMessages, hasMore } =
-    conversationStore.getMessagesPaginated(
-      msg.sessionId,
-      limit,
-      msg.beforeTimestamp,
-      msg.beforeMessageId,
-    );
+  const { messages: dbMessages, hasMore } = getMessagesPaginated(
+    msg.sessionId,
+    limit,
+    msg.beforeTimestamp,
+    msg.beforeMessageId,
+  );
 
   const parsed: ParsedHistoryMessage[] = dbMessages.map((m) => {
     let text = "";
@@ -114,12 +113,7 @@ export function handleHistoryRequest(
     };
   });
 
-  // Merge tool_result data from user messages into the preceding assistant
-  // message's toolCalls, and suppress user messages that only contain
-  // tool_result blocks (internal agent-loop turns).
-  const merged = mergeToolResults(parsed);
-
-  const historyMessages = merged.map((m) => {
+  const historyMessages = parsed.map((m) => {
     let attachments: UserMessageAttachment[] | undefined;
     if (m.role === "assistant" && m.id) {
       const linked = getAttachmentsForMessage(m.id);
@@ -281,7 +275,7 @@ export function handleHistoryRequest(
   const oldestMessageId =
     historyMessages.length > 0 ? historyMessages[0].id : undefined;
 
-  ctx.send(socket, {
+  ctx.send({
     type: "history_response",
     sessionId: msg.sessionId,
     messages: historyMessages,
@@ -294,38 +288,55 @@ export function handleHistoryRequest(
   // so we no longer emit separate ui_surface_show messages during history loading.
 }
 
-export function handleConversationSearch(
-  msg: ConversationSearchRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const results = conversationStore.searchConversations(msg.query, {
-    limit: msg.limit,
-    maxMessagesPerConversation: msg.maxMessagesPerConversation,
-  });
-  ctx.send(socket, {
-    type: "conversation_search_response",
-    query: msg.query,
-    results,
+// ---------------------------------------------------------------------------
+// Shared business logic (transport-agnostic)
+// ---------------------------------------------------------------------------
+
+export interface ConversationSearchParams {
+  query: string;
+  limit?: number;
+  maxMessagesPerConversation?: number;
+}
+
+/** Search conversations and return results (no transport dependency). */
+export function performConversationSearch(params: ConversationSearchParams) {
+  // Treat "*" as a list-all wildcard — FTS treats it as a literal character.
+  if (params.query.trim() === "*") {
+    const rows = listConversations(params.limit);
+    return rows.map((r) => ({
+      conversationId: r.id,
+      conversationTitle: r.title,
+      conversationUpdatedAt: r.updatedAt,
+      matchingMessages: [],
+    }));
+  }
+  return searchConversations(params.query, {
+    limit: params.limit,
+    maxMessagesPerConversation: params.maxMessagesPerConversation,
   });
 }
 
-export function handleMessageContentRequest(
-  msg: MessageContentRequest,
-  socket: net.Socket,
-  ctx: HandlerContext,
-): void {
-  const dbMessage = conversationStore.getMessageById(
-    msg.messageId,
-    msg.sessionId,
-  );
-  if (!dbMessage) {
-    ctx.send(socket, {
-      type: "error",
-      message: `Message ${msg.messageId} not found in session ${msg.sessionId}`,
-    });
-    return;
-  }
+export interface MessageContentResult {
+  sessionId?: string;
+  messageId: string;
+  text?: string;
+  toolCalls?: Array<{
+    name: string;
+    result?: string;
+    input?: Record<string, unknown>;
+  }>;
+}
+
+/**
+ * Get the full content of a single message by ID.
+ * Returns null if the message is not found.
+ */
+export function getMessageContent(
+  messageId: string,
+  sessionId?: string,
+): MessageContentResult | null {
+  const dbMessage = getMessageById(messageId, sessionId);
+  if (!dbMessage) return null;
 
   let text: string | undefined;
   let toolCalls:
@@ -336,48 +347,10 @@ export function handleMessageContentRequest(
     const content = JSON.parse(dbMessage.content);
     const rendered = renderHistoryContent(content);
     text = rendered.text || undefined;
-    const mergedToolCalls = rendered.toolCalls;
+    const parsedToolCalls = rendered.toolCalls;
 
-    // Handle legacy conversations where tool_result blocks are stored in the
-    // following user message rather than inline with the assistant message.
-    // This mirrors the mergeToolResults logic used by handleHistoryRequest.
-    if (
-      dbMessage.role === "assistant" &&
-      mergedToolCalls.some((tc) => tc.result === undefined)
-    ) {
-      const nextMsg = conversationStore.getNextMessage(
-        msg.sessionId,
-        dbMessage.createdAt,
-        dbMessage.id,
-      );
-      if (nextMsg && nextMsg.role === "user") {
-        try {
-          const nextContent = JSON.parse(nextMsg.content);
-          const nextRendered = renderHistoryContent(nextContent);
-          if (
-            nextRendered.text.trim() === "" &&
-            nextRendered.toolCalls.length > 0
-          ) {
-            for (const resultEntry of nextRendered.toolCalls) {
-              const unresolved = mergedToolCalls.find(
-                (tc) => tc.result === undefined,
-              );
-              if (unresolved) {
-                unresolved.result = resultEntry.result;
-                unresolved.isError = resultEntry.isError;
-                if (resultEntry.imageData)
-                  unresolved.imageData = resultEntry.imageData;
-              }
-            }
-          }
-        } catch {
-          // Next message isn't valid JSON — skip merging
-        }
-      }
-    }
-
-    if (mergedToolCalls.length > 0) {
-      toolCalls = mergedToolCalls.map((tc) => ({
+    if (parsedToolCalls.length > 0) {
+      toolCalls = parsedToolCalls.map((tc) => ({
         name: tc.name,
         input: tc.input,
         ...(tc.result !== undefined ? { result: tc.result } : {}),
@@ -388,11 +361,52 @@ export function handleMessageContentRequest(
     text = dbMessage.content || undefined;
   }
 
-  ctx.send(socket, {
+  return {
+    sessionId,
+    messageId,
+    ...(text !== undefined ? { text } : {}),
+    ...(toolCalls ? { toolCalls } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// IPC handlers (delegate to shared logic)
+// ---------------------------------------------------------------------------
+
+export function handleConversationSearch(
+  msg: ConversationSearchRequest,
+  ctx: HandlerContext,
+): void {
+  const results = performConversationSearch({
+    query: msg.query,
+    limit: msg.limit,
+    maxMessagesPerConversation: msg.maxMessagesPerConversation,
+  });
+  ctx.send({
+    type: "conversation_search_response",
+    query: msg.query,
+    results,
+  });
+}
+
+export function handleMessageContentRequest(
+  msg: MessageContentRequest,
+  ctx: HandlerContext,
+): void {
+  const result = getMessageContent(msg.messageId, msg.sessionId);
+  if (!result) {
+    ctx.send({
+      type: "error",
+      message: `Message ${msg.messageId} not found in session ${msg.sessionId}`,
+    });
+    return;
+  }
+
+  ctx.send({
     type: "message_content_response",
     sessionId: msg.sessionId,
     messageId: msg.messageId,
-    ...(text !== undefined ? { text } : {}),
-    ...(toolCalls ? { toolCalls } : {}),
+    ...(result.text !== undefined ? { text: result.text } : {}),
+    ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}),
   });
 }

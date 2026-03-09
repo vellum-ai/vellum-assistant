@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 // Point lockfile operations at a temp directory
 const testDir = mkdtempSync(join(tmpdir(), "cli-assistant-config-test-"));
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_LOCKFILE_DIR = testDir;
 
 import {
   loadLatestAssistant,
@@ -13,12 +13,13 @@ import {
   removeAssistantEntry,
   loadAllAssistants,
   saveAssistantEntry,
+  getActiveAssistant,
   type AssistantEntry,
 } from "../lib/assistant-config.js";
 
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });
-  delete process.env.BASE_DATA_DIR;
+  delete process.env.VELLUM_LOCKFILE_DIR;
 });
 
 function writeLockfile(data: unknown): void {
@@ -98,6 +99,36 @@ describe("assistant-config", () => {
     const all = loadAllAssistants();
     expect(all).toHaveLength(2);
     expect(all.map((e) => e.assistantId)).toEqual(["a", "c"]);
+  });
+
+  test("removeAssistantEntry reassigns activeAssistant to remaining entry", () => {
+    writeLockfile({
+      assistants: [makeEntry("a"), makeEntry("b")],
+      activeAssistant: "a",
+    });
+    removeAssistantEntry("a");
+    expect(getActiveAssistant()).toBe("b");
+    expect(loadAllAssistants()).toHaveLength(1);
+  });
+
+  test("removeAssistantEntry clears activeAssistant when no entries remain", () => {
+    writeLockfile({
+      assistants: [makeEntry("only")],
+      activeAssistant: "only",
+    });
+    removeAssistantEntry("only");
+    expect(getActiveAssistant()).toBeNull();
+    expect(loadAllAssistants()).toHaveLength(0);
+  });
+
+  test("removeAssistantEntry preserves activeAssistant when removing a different entry", () => {
+    writeLockfile({
+      assistants: [makeEntry("a"), makeEntry("b"), makeEntry("c")],
+      activeAssistant: "a",
+    });
+    removeAssistantEntry("b");
+    expect(getActiveAssistant()).toBe("a");
+    expect(loadAllAssistants()).toHaveLength(2);
   });
 
   test("loadLatestAssistant returns null when empty", () => {

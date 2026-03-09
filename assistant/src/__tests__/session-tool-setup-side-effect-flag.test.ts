@@ -5,7 +5,7 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-import type { SurfaceData, SurfaceType } from "../daemon/ipc-protocol.js";
+import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import type { ToolSetupContext } from "../daemon/session-tool-setup.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";

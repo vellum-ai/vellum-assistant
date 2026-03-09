@@ -1,5 +1,5 @@
 /**
- * POST /v1/integrations/guardian/vellum/bootstrap
+ * POST /v1/guardian/init
  *
  * Idempotent bootstrap endpoint for the vellum guardian channel.
  * Creates or confirms a guardianPrincipalId and channel='vellum'
@@ -76,7 +76,7 @@ function ensureGuardianPrincipal(assistantId: string): {
 const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
 /**
- * Handle POST /v1/integrations/guardian/vellum/bootstrap
+ * Handle POST /v1/guardian/init
  *
  * Body: { platform: 'macos', deviceId: string }
  * Returns: { guardianPrincipalId, accessToken, isNew }
@@ -167,7 +167,7 @@ export async function handleGuardianBootstrap(
 export function guardianBootstrapRouteDefinitions(): RouteDefinition[] {
   return [
     {
-      endpoint: "integrations/guardian/vellum/bootstrap",
+      endpoint: "guardian/init",
       method: "POST",
       handler: async ({ req, server }) => handleGuardianBootstrap(req, server),
     },

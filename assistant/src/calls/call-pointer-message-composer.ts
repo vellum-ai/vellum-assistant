@@ -14,8 +14,8 @@ export type CallPointerMessageScenario =
   | "started"
   | "completed"
   | "failed"
-  | "guardian_verification_succeeded"
-  | "guardian_verification_failed";
+  | "verification_succeeded"
+  | "verification_failed";
 
 export interface CallPointerMessageContext {
   scenario: CallPointerMessageScenario;
@@ -83,12 +83,12 @@ export function getPointerFallbackMessage(
       return context.reason
         ? `\u{1F4DE} Call to ${context.phoneNumber} failed: ${context.reason}.`
         : `\u{1F4DE} Call to ${context.phoneNumber} failed.`;
-    case "guardian_verification_succeeded": {
-      const ch = context.channel ?? "voice";
+    case "verification_succeeded": {
+      const ch = context.channel ?? "phone";
       return `\u{2705} Guardian verification (${ch}) for ${context.phoneNumber} succeeded.`;
     }
-    case "guardian_verification_failed": {
-      const ch = context.channel ?? "voice";
+    case "verification_failed": {
+      const ch = context.channel ?? "phone";
       return context.reason
         ? `\u{274C} Guardian verification (${ch}) for ${context.phoneNumber} failed: ${context.reason}.`
         : `\u{274C} Guardian verification (${ch}) for ${context.phoneNumber} failed.`;

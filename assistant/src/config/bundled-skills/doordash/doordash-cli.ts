@@ -5,7 +5,8 @@
  * All commands output JSON to stdout. Use --json for machine-readable output.
  */
 
-import * as net from "node:net";
+import { statSync } from "node:fs";
+import { join } from "node:path";
 
 import { Command } from "commander";
 
@@ -32,12 +33,17 @@ import {
 import { extractQueries, saveQueries } from "./lib/query-extractor.js";
 import {
   clearSession,
+  importFromCredentialStore,
   importFromRecording,
   loadSession,
 } from "./lib/session.js";
-import { createMessageParser, serialize } from "./lib/shared/ipc.js";
 import { NetworkRecorder } from "./lib/shared/network-recorder.js";
-import { getSocketPath, readSessionToken } from "./lib/shared/platform.js";
+import {
+  buildDaemonUrl,
+  getDataDir,
+  getHttpPort,
+  readHttpToken,
+} from "./lib/shared/platform.js";
 import { loadRecording, saveRecording } from "./lib/shared/recording-store.js";
 import type { SessionRecording } from "./lib/shared/recording-types.js";
 
@@ -106,7 +112,7 @@ export function registerDoordashCommand(program: Command): void {
     .requiredOption("--recording <path>", "Path to the recording JSON file")
     .action(async (opts: { recording: string }, cmd: Command) => {
       await run(cmd, async () => {
-        const session = importFromRecording(opts.recording);
+        const session = await importFromRecording(opts.recording);
         return {
           message: "Session imported successfully",
           cookieCount: session.cookies.length,
@@ -148,13 +154,13 @@ export function registerDoordashCommand(program: Command): void {
         }
 
         const result = await startLearnSession(duration);
-        if (result.recordingPath) {
-          const session = importFromRecording(result.recordingPath);
+        if (result.recordingId) {
+          const session = await importFromCredentialStore("doordash.com");
 
           // Also extract and save captured queries for self-healing
           let queriesCaptured = 0;
           try {
-            const recording = loadRecording(result.recordingId ?? "");
+            const recording = loadRecording(result.recordingId);
             if (recording) {
               const queries = extractQueries(recording);
               if (queries.length > 0) {
@@ -188,7 +194,7 @@ export function registerDoordashCommand(program: Command): void {
           output(
             {
               ok: false,
-              error: "Recording completed but no recording path returned",
+              error: "Recording completed but no recording ID returned",
               recordingId: result.recordingId,
             },
             json,
@@ -958,101 +964,136 @@ async function startLearnSession(
     startUrl: "https://www.doordash.com/consumer/login/",
   });
 
-  // Step 2: Connect to daemon and start recording
-  return new Promise((resolve, reject) => {
-    const socketPath = getSocketPath();
-    const sessionToken = readSessionToken();
-    const socket = net.createConnection(socketPath);
-    const parser = createMessageParser();
+  // Step 2: Start ride-shotgun learn session via HTTP
+  const port = getHttpPort();
+  const baseUrl = buildDaemonUrl(port);
+  const token = readHttpToken();
 
-    socket.on("error", (err) => {
-      reject(
-        new Error(
-          `Cannot connect to assistant: ${err.message}. Is the assistant running?`,
-        ),
-      );
-    });
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
 
-    // Timeout safety — unref so it doesn't keep process alive
-    const timeoutHandle = setTimeout(
-      () => {
-        socket.destroy();
+  const startResponse = await fetch(
+    `${baseUrl}/v1/computer-use/ride-shotgun/start`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        durationSeconds,
+        intervalSeconds: 5,
+        mode: "learn",
+        targetDomain: "doordash.com",
+      }),
+    },
+  );
+
+  if (!startResponse.ok) {
+    const errorBody = await startResponse.text();
+    throw new Error(
+      `Failed to start ride-shotgun session (HTTP ${startResponse.status}): ${errorBody}`,
+    );
+  }
+
+  const startResult = (await startResponse.json()) as {
+    watchId: string;
+    sessionId: string;
+  };
+
+  if (!startResult.watchId) {
+    throw new Error("Ride-shotgun start response missing watchId");
+  }
+
+  // Step 3: Poll session status endpoint for completion or failure, then
+  // look for the correlated recording file using the recordingId from the session.
+  const { watchId } = startResult;
+  const statusUrl = `${baseUrl}/v1/computer-use/ride-shotgun/status/${watchId}`;
+  const timeoutMs = (durationSeconds + 30) * 1000;
+  const pollIntervalMs = 2000;
+  const startTime = Date.now();
+
+  return new Promise<LearnResult>((resolve, reject) => {
+    const pollOnce = async () => {
+      if (Date.now() - startTime > timeoutMs) {
         reject(
           new Error(`Learn session timed out after ${durationSeconds + 30}s`),
         );
-      },
-      (durationSeconds + 30) * 1000,
-    );
-    timeoutHandle.unref();
+        return;
+      }
 
-    let authenticated = !sessionToken; // If no token needed, consider already authenticated
+      // Poll session status to detect failures early
+      try {
+        const fetchAbort = AbortSignal.timeout(10_000);
+        const statusRes = await fetch(statusUrl, {
+          headers,
+          signal: fetchAbort,
+        });
+        if (statusRes.ok) {
+          const status = (await statusRes.json()) as {
+            status: string;
+            recordingId?: string;
+            savedRecordingPath?: string;
+            bootstrapFailureReason?: string;
+          };
 
-    const sendStartCommand = () => {
-      socket.write(
-        serialize({
-          type: "ride_shotgun_start",
-          durationSeconds,
-          intervalSeconds: 5,
-          mode: "learn",
-          targetDomain: "doordash.com",
-        } as Record<string, unknown>),
-      );
+          // Session failed without producing a recording
+          if (status.bootstrapFailureReason) {
+            reject(
+              new Error(
+                `Learn session failed: ${status.bootstrapFailureReason}`,
+              ),
+            );
+            return;
+          }
+
+          // Session completed — check for the correlated recording file
+          if (status.status === "completed") {
+            if (status.savedRecordingPath && status.recordingId) {
+              resolve({
+                recordingId: status.recordingId,
+                recordingPath: status.savedRecordingPath,
+              });
+              return;
+            }
+
+            // Recording path not in status — fall back to filesystem lookup
+            // using the recordingId for correlation
+            if (status.recordingId) {
+              const recordingsDir = join(getDataDir(), "recordings");
+              const expectedPath = join(
+                recordingsDir,
+                `${status.recordingId}.json`,
+              );
+              try {
+                statSync(expectedPath);
+                resolve({
+                  recordingId: status.recordingId,
+                  recordingPath: expectedPath,
+                });
+                return;
+              } catch {
+                // Recording file not yet written — continue polling
+                setTimeout(pollOnce, pollIntervalMs);
+                return;
+              }
+            }
+
+            // Completed but no recordingId — cannot correlate
+            reject(
+              new Error("Learn session completed but no recording was saved."),
+            );
+            return;
+          }
+        }
+      } catch {
+        // Status endpoint not reachable — continue polling
+      }
+
+      setTimeout(pollOnce, pollIntervalMs);
     };
 
-    socket.on("data", (chunk) => {
-      const messages = parser.feed(chunk.toString("utf-8"));
-      for (const msg of messages) {
-        const m = msg as unknown as Record<string, unknown>;
-
-        // Handle auth handshake
-        if (!authenticated && m.type === "auth_result") {
-          if ((m as { success: boolean }).success) {
-            authenticated = true;
-            sendStartCommand();
-          } else {
-            clearTimeout(timeoutHandle);
-            socket.destroy();
-            reject(new Error("Authentication failed"));
-          }
-          continue;
-        }
-
-        // Skip duplicate auth_result after already authenticated
-        if (m.type === "auth_result") {
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_error") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          reject(new Error((m as { message: string }).message));
-          continue;
-        }
-
-        if (m.type === "ride_shotgun_result") {
-          clearTimeout(timeoutHandle);
-          socket.destroy();
-          resolve({
-            recordingId: m.recordingId as string | undefined,
-            recordingPath: m.recordingPath as string | undefined,
-          });
-        }
-      }
-    });
-
-    socket.on("connect", () => {
-      if (sessionToken) {
-        // Send auth and wait for auth_result before sending the command
-        socket.write(
-          serialize({
-            type: "auth",
-            token: sessionToken,
-          } as Record<string, unknown>),
-        );
-      } else {
-        // No auth needed, send command immediately
-        sendStartCommand();
-      }
-    });
+    setTimeout(pollOnce, pollIntervalMs);
   });
 }

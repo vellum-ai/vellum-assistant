@@ -37,4 +37,4 @@ RUN printf '#!/usr/bin/env sh\nexec bun run /app/node_modules/@vellumai/cli/src/
 
 USER root
 
-CMD ["vellum", "hatch"]
+CMD ["vellum", "hatch", "--keep-alive"]

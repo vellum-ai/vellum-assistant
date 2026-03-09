@@ -33,9 +33,23 @@ export interface MemoryRecallCandiateDebug {
   recency: number;
 }
 
+export type DegradationReason =
+  | "embedding_provider_down"
+  | "qdrant_unavailable"
+  | "embedding_generation_failed";
+
+export type FallbackSource = "lexical" | "recency" | "direct_item" | "entity";
+
+export interface DegradationStatus {
+  semanticUnavailable: boolean;
+  reason: DegradationReason;
+  fallbackSources: FallbackSource[];
+}
+
 export interface MemoryRecallResult {
   enabled: boolean;
   degraded: boolean;
+  degradation?: DegradationStatus;
   reason?: string;
   provider?: string;
   model?: string;
@@ -96,6 +110,10 @@ export interface CollectedCandidates {
   earlyTerminated: boolean;
   /** True when semantic search was attempted but threw an error. */
   semanticSearchFailed: boolean;
+  /** True when semantic search was known to be unavailable before retrieval (no vector or breaker open). */
+  semanticUnavailable: boolean;
+  /** The error that caused semantic search to fail, if any. */
+  semanticSearchError?: unknown;
   merged: Candidate[];
 }
 
@@ -120,23 +138,6 @@ export interface ItemMetadata {
   accessCount: number;
   lastUsedAt: number | null;
   verificationState: string;
-}
-
-export interface MemorySearchResult {
-  id: string;
-  type: CandidateType;
-  kind: string;
-  text: string;
-  confidence: number;
-  importance: number;
-  createdAt: number;
-  finalScore: number;
-  /** Per-source scores for provenance/debugging */
-  scores: {
-    lexical: number;
-    semantic: number;
-    recency: number;
-  };
 }
 
 import type { EntityRelationType, EntityType } from "../entity-extractor.js";

@@ -37,7 +37,17 @@ export async function recover(): Promise<void> {
     process.exit(1);
   }
 
-  // 2. Check ~/.vellum doesn't already exist
+  // 2. Read and validate metadata before any side effects
+  const entry: AssistantEntry = JSON.parse(readFileSync(metadataPath, "utf-8"));
+  if (!entry.resources) {
+    throw new Error(
+      `Retired assistant '${name}' is missing resource configuration. ` +
+        `Fix the archive metadata at ${metadataPath} and retry, ` +
+        `or run 'vellum hatch' to re-provision with proper resource allocation.`,
+    );
+  }
+
+  // 3. Check ~/.vellum doesn't already exist
   const vellumDir = join(homedir(), ".vellum");
   if (existsSync(vellumDir)) {
     console.error(
@@ -46,21 +56,20 @@ export async function recover(): Promise<void> {
     process.exit(1);
   }
 
-  // 3. Extract archive
+  // 4. Extract archive
   await exec("tar", ["xzf", archivePath, "-C", homedir()]);
 
-  // 4. Restore lockfile entry
-  const entry: AssistantEntry = JSON.parse(readFileSync(metadataPath, "utf-8"));
+  // 5. Restore lockfile entry
   saveAssistantEntry(entry);
 
-  // 5. Clean up archive
+  // 6. Clean up archive
   unlinkSync(archivePath);
   unlinkSync(metadataPath);
 
-  // 6. Start daemon + gateway (same as wake)
-  await startLocalDaemon();
+  // 7. Start daemon + gateway (same as wake)
+  await startLocalDaemon(false, entry.resources);
   if (!process.env.VELLUM_DESKTOP_APP) {
-    await startGateway();
+    await startGateway(undefined, false, entry.resources);
   }
 
   console.log(`✅ Recovered assistant '${name}'.`);

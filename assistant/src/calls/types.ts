@@ -19,12 +19,12 @@ export type CallEventType =
   | "callee_verification_started"
   | "callee_verification_succeeded"
   | "callee_verification_failed"
-  | "guardian_voice_verification_started"
-  | "guardian_voice_verification_succeeded"
-  | "guardian_voice_verification_failed"
-  | "outbound_guardian_voice_verification_started"
-  | "outbound_guardian_voice_verification_succeeded"
-  | "outbound_guardian_voice_verification_failed"
+  | "voice_verification_started"
+  | "voice_verification_succeeded"
+  | "voice_verification_failed"
+  | "outbound_voice_verification_started"
+  | "outbound_voice_verification_succeeded"
+  | "outbound_voice_verification_failed"
   | "guardian_consultation_timed_out"
   | "guardian_unavailable_skipped"
   | "guardian_consult_deferred"
@@ -58,7 +58,7 @@ export type PendingQuestionStatus =
  * uses this as the primary signal for deterministic flow selection,
  * with Twilio setup custom parameters as a secondary/observability signal.
  */
-export type CallMode = "normal" | "guardian_verification";
+export type CallMode = "normal" | "verification";
 
 export interface CallSession {
   id: string;
@@ -70,7 +70,7 @@ export interface CallSession {
   task: string | null;
   status: CallStatus;
   callMode: CallMode | null;
-  guardianVerificationSessionId: string | null;
+  verificationSessionId: string | null;
   callerIdentityMode: string | null;
   callerIdentitySource: string | null;
   initiatedFromConversationId?: string | null;

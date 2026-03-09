@@ -81,6 +81,11 @@ export { migrateBackfillContactInteractionStats } from "./135-backfill-contact-i
 export { migrateDropAssistantIdColumns } from "./136-drop-assistant-id-columns.js";
 export { migrateUsageDashboardIndexes } from "./137-usage-dashboard-indexes.js";
 export { migrateDropUsageCompositeIndexes } from "./139-drop-usage-composite-indexes.js";
+export { migrateBackfillUsageCacheAccounting } from "./140-backfill-usage-cache-accounting.js";
+export { migrateRenameVerificationTable } from "./141-rename-verification-table.js";
+export { migrateRenameVerificationSessionIdColumn } from "./142-rename-verification-session-id-column.js";
+export { migrateRenameGuardianVerificationValues } from "./143-rename-guardian-verification-values.js";
+export { migrateRenameVoiceToPhone } from "./144-rename-voice-to-phone.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -6,6 +6,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 const testDir = mkdtempSync(join(tmpdir(), "call-recovery-test-"));
 
 mock.module("../util/platform.js", () => ({
+  getRootDir: () => testDir,
   getDataDir: () => testDir,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -24,6 +25,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import {
+  clearActiveCallLeases,
+  listActiveCallLeases,
+  upsertActiveCallLease,
+} from "../calls/active-call-lease.js";
 import {
   logDeadLetterEvent,
   NO_SID_GRACE_PERIOD_MS,
@@ -213,6 +219,7 @@ describe("listRecoverableCalls", () => {
 describe("reconcileCallsOnStartup", () => {
   beforeEach(() => {
     resetTables();
+    clearActiveCallLeases();
   });
 
   test("does nothing when no recoverable calls exist", async () => {
@@ -228,6 +235,7 @@ describe("reconcileCallsOnStartup", () => {
       fromNumber: "+15551111111",
       toNumber: "+15552222222",
     });
+    upsertActiveCallLease({ callSessionId: session.id });
     // Backdate session so it exceeds the grace period
     backdateSession(session.id, NO_SID_GRACE_PERIOD_MS + 10_000);
 
@@ -240,6 +248,45 @@ describe("reconcileCallsOnStartup", () => {
     expect(updated!.status).toBe("failed");
     expect(updated!.endedAt).not.toBeNull();
     expect(updated!.lastError).toContain("grace period expired");
+    expect(listActiveCallLeases()).toHaveLength(0);
+  });
+
+  test("clears orphaned leases when startup finds no recoverable calls", async () => {
+    upsertActiveCallLease({
+      callSessionId: "call-orphaned-lease",
+      providerCallSid: "CA_orphaned_lease",
+    });
+
+    expect(listActiveCallLeases()).toHaveLength(1);
+
+    const provider = createMockProvider();
+    await reconcileCallsOnStartup(provider, silentLog);
+
+    expect(listActiveCallLeases()).toHaveLength(0);
+  });
+
+  test("rebuilds leases for calls that are still active on the provider", async () => {
+    const session = createTestCallSession({
+      conversationId: "conv-active-recovery",
+      provider: "twilio",
+      fromNumber: "+15551111111",
+      toNumber: "+15552222222",
+    });
+    updateCallSession(session.id, { providerCallSid: "CA_active_1" });
+    clearActiveCallLeases();
+
+    const provider = createMockProvider({
+      CA_active_1: "in-progress",
+    });
+    await reconcileCallsOnStartup(provider, silentLog);
+
+    expect(listActiveCallLeases()).toEqual([
+      {
+        callSessionId: session.id,
+        providerCallSid: "CA_active_1",
+        updatedAt: expect.any(Number),
+      },
+    ]);
   });
 
   test("expires pending questions when stale no-SID session is failed", async () => {

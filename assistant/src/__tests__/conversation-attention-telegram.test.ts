@@ -22,8 +22,6 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  migrateToDataLayout: () => {},
-  migrateToWorkspaceLayout: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -41,7 +39,7 @@ mock.module("../security/secret-ingress.js", () => ({
 }));
 
 // Mock render to return the raw content as text
-mock.module("../daemon/handlers.js", () => ({
+mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: (content: unknown) => ({
     text: typeof content === "string" ? content : JSON.stringify(content),
   }),
@@ -50,8 +48,8 @@ mock.module("../daemon/handlers.js", () => ({
 import { eq } from "drizzle-orm";
 
 import { upsertContact } from "../contacts/contact-store.js";
-import * as channelDeliveryStore from "../memory/channel-delivery-store.js";
 import { getDb, initializeDb, resetDb, resetTestTables } from "../memory/db.js";
+import * as deliveryChannels from "../memory/delivery-channels.js";
 import { attachments, conversationAttentionEvents } from "../memory/schema.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
@@ -76,7 +74,7 @@ function resetTables(): void {
     "conversation_attention_events",
     "conversation_assistant_attention_state",
     "channel_guardian_approval_requests",
-    "channel_guardian_verification_challenges",
+    "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
     "channel_inbound_events",
@@ -85,7 +83,7 @@ function resetTables(): void {
     "contact_channels",
     "contacts",
   );
-  channelDeliveryStore.resetAllRunDeliveryClaims();
+  deliveryChannels.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }
 
@@ -384,12 +382,11 @@ describe("duplicate event deduplication", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("non-Telegram channel filtering", () => {
-  test("SMS inbound message does not record a Telegram seen signal", async () => {
-    // Override contact store for SMS channel
+  test("email inbound message does not record a Telegram seen signal", async () => {
     const req = makeInboundRequest({
-      sourceChannel: "sms",
-      interface: "sms",
-      content: "sms message",
+      sourceChannel: "email",
+      interface: "email",
+      content: "email message",
     });
 
     const res = await handleChannelInbound(

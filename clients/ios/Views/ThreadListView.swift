@@ -3,6 +3,32 @@ import SwiftUI
 import UIKit
 import VellumAssistantShared
 
+func sortThreadsForDisplay(
+    _ threads: [IOSThread],
+    isConnectedMode: Bool
+) -> [IOSThread] {
+    guard isConnectedMode else { return threads }
+
+    return threads.sorted { a, b in
+        if a.isPinned && b.isPinned {
+            if a.displayOrder == nil && b.displayOrder == nil {
+                return a.lastActivityAt > b.lastActivityAt
+            }
+            if a.displayOrder == nil { return false }
+            if b.displayOrder == nil { return true }
+            return a.displayOrder! < b.displayOrder!
+        }
+        if a.isPinned { return true }
+        if b.isPinned { return false }
+        if a.displayOrder == nil && b.displayOrder == nil {
+            return a.lastActivityAt > b.lastActivityAt
+        }
+        if a.displayOrder == nil { return true }
+        if b.displayOrder == nil { return false }
+        return a.displayOrder! < b.displayOrder!
+    }
+}
+
 // MARK: - Tab Entry Point
 
 /// The tab-level Chats entry point. Switches between connected and disconnected
@@ -70,7 +96,10 @@ struct ThreadListView: View {
     private var activeThreads: [IOSThread] {
         // Exclude private threads — they are managed separately via the Private Threads
         // settings panel and must not appear in the main chat list.
-        store.threads.filter { !$0.isArchived && !$0.isPrivate }
+        sortThreadsForDisplay(
+            store.threads.filter { !$0.isArchived && !$0.isPrivate },
+            isConnectedMode: store.isConnectedMode
+        )
     }
 
     /// Active threads that are NOT from a schedule.
@@ -112,7 +141,10 @@ struct ThreadListView: View {
     }
 
     private var archivedThreads: [IOSThread] {
-        store.threads.filter { $0.isArchived && !$0.isPrivate }
+        sortThreadsForDisplay(
+            store.threads.filter { $0.isArchived && !$0.isPrivate },
+            isConnectedMode: store.isConnectedMode
+        )
     }
 
     private var filteredActiveThreads: [IOSThread] {
@@ -176,7 +208,14 @@ struct ThreadListView: View {
             )
             .onAppear {
                 store.loadHistoryIfNeeded(for: threadId)
+                store.markConversationSeenIfNeeded(threadId: threadId, isExplicitOpen: true)
                 store.viewModel(for: threadId).consumeDeepLinkIfNeeded()
+            }
+            .onChange(of: thread.hasUnseenLatestAssistantMessage) { _, hasUnseen in
+                guard hasUnseen else { return }
+                // The detail view can stay mounted across reconnects, so re-run
+                // the explicit seen path when the visible thread flips unread.
+                store.markConversationSeenIfNeeded(threadId: threadId)
             }
             .onOpenURL { _ in
                 DispatchQueue.main.async {
@@ -201,40 +240,154 @@ struct ThreadListView: View {
 
     // MARK: - Thread List
 
+    private func archiveActiveThread(_ thread: IOSThread) {
+        store.archiveThread(thread)
+        if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+            selectedThreadId = activeThreads.first?.id
+        }
+    }
+
+    private func beginRenaming(_ thread: IOSThread) {
+        renamingThreadId = thread.id
+        renameText = thread.title
+    }
+
+    private func canToggleThreadPin(_ thread: IOSThread) -> Bool {
+        store.isConnectedMode && thread.sessionId != nil
+    }
+
+    private func canMarkThreadUnread(_ thread: IOSThread) -> Bool {
+        store.isConnectedMode &&
+            thread.sessionId != nil &&
+            !thread.hasUnseenLatestAssistantMessage &&
+            thread.latestAssistantMessageAt != nil
+    }
+
+    private func scheduleGroupHasUnread(_ group: (key: String, label: String, threads: [IOSThread])) -> Bool {
+        store.isConnectedMode && group.threads.contains(where: \.hasUnseenLatestAssistantMessage)
+    }
+
+    private func scheduleGroupHasPinned(_ group: (key: String, label: String, threads: [IOSThread])) -> Bool {
+        store.isConnectedMode && group.threads.contains(where: \.isPinned)
+    }
+
+    @ViewBuilder
+    private func connectedThreadContextMenu(_ thread: IOSThread) -> some View {
+        if canToggleThreadPin(thread) {
+            Button {
+                if thread.isPinned {
+                    store.unpinThread(thread)
+                } else {
+                    store.pinThread(thread)
+                }
+            } label: {
+                Label {
+                    Text(thread.isPinned ? "Unpin thread" : "Pin thread")
+                } icon: {
+                    VIconView(thread.isPinned ? .pinOff : .pin, size: 14)
+                }
+            }
+        }
+
+        Button {
+            beginRenaming(thread)
+        } label: {
+            Label { Text("Rename thread") } icon: { VIconView(.pencil, size: 14) }
+        }
+
+        Button {
+            archiveActiveThread(thread)
+        } label: {
+            Label { Text("Archive thread") } icon: { VIconView(.archive, size: 14) }
+        }
+
+        Button {
+            store.markThreadUnread(thread)
+        } label: {
+            Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
+        }
+        .disabled(!canMarkThreadUnread(thread))
+    }
+
+    @ViewBuilder
+    private func maybeConnectedContextMenu<Content: View>(
+        thread: IOSThread,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if store.isConnectedMode {
+            content()
+                .contextMenu {
+                    connectedThreadContextMenu(thread)
+                }
+        } else {
+            content()
+        }
+    }
+
+    @ViewBuilder
+    private func connectedScheduleGroupContextMenu(
+        _ group: (key: String, label: String, threads: [IOSThread])
+    ) -> some View {
+        ForEach(group.threads) { thread in
+            Menu {
+                connectedThreadContextMenu(thread)
+            } label: {
+                Label {
+                    Text(thread.title)
+                } icon: {
+                    VIconView(.messageCircle, size: 14)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func maybeConnectedScheduleGroupContextMenu<Content: View>(
+        group: (key: String, label: String, threads: [IOSThread]),
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        if store.isConnectedMode {
+            content()
+                .contextMenu {
+                    connectedScheduleGroupContextMenu(group)
+                }
+        } else {
+            content()
+        }
+    }
+
     private var threadList: some View {
         List(selection: horizontalSizeClass == .regular ? $selectedThreadId : nil) {
             // Regular (non-schedule) threads
             ForEach(filteredRegularThreads) { thread in
-                NavigationLink(value: thread.id) {
-                    threadRow(thread)
-                }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        store.deleteThread(thread)
-                        if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                            selectedThreadId = activeThreads.first?.id
+                maybeConnectedContextMenu(thread: thread) {
+                    NavigationLink(value: thread.id) {
+                        threadRow(thread)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            store.deleteThread(thread)
+                            if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                                selectedThreadId = activeThreads.first?.id
+                            }
+                        } label: {
+                            Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                         }
-                    } label: {
-                        Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
-                    }
-                    Button {
-                        store.archiveThread(thread)
-                        if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                            selectedThreadId = activeThreads.first?.id
+                        Button {
+                            archiveActiveThread(thread)
+                        } label: {
+                            Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                         }
-                    } label: {
-                        Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                        .tint(VColor.warning)
                     }
-                    .tint(VColor.warning)
-                }
-                .swipeActions(edge: .leading) {
-                    Button {
-                        renamingThreadId = thread.id
-                        renameText = thread.title
-                    } label: {
-                        Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+                    .swipeActions(edge: .leading) {
+                        Button {
+                            beginRenaming(thread)
+                        } label: {
+                            Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+                        }
+                        .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                     }
-                    .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                 }
             }
 
@@ -337,91 +490,101 @@ struct ThreadListView: View {
     private func scheduleGroupRow(_ group: (key: String, label: String, threads: [IOSThread])) -> some View {
         if group.threads.count == 1, let thread = group.threads.first {
             // Single-thread group: render inline
-            NavigationLink(value: thread.id) {
-                threadRow(thread)
-            }
-            .swipeActions(edge: .trailing) {
-                Button(role: .destructive) {
-                    store.deleteThread(thread)
-                    if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                        selectedThreadId = activeThreads.first?.id
+            maybeConnectedContextMenu(thread: thread) {
+                NavigationLink(value: thread.id) {
+                    threadRow(thread)
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        store.deleteThread(thread)
+                        if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                            selectedThreadId = activeThreads.first?.id
+                        }
+                    } label: {
+                        Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                     }
-                } label: {
-                    Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
-                }
-                Button {
-                    store.archiveThread(thread)
-                    if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                        selectedThreadId = activeThreads.first?.id
+                    Button {
+                        archiveActiveThread(thread)
+                    } label: {
+                        Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                     }
-                } label: {
-                    Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                    .tint(VColor.warning)
                 }
-                .tint(VColor.warning)
-            }
-            .swipeActions(edge: .leading) {
-                Button {
-                    renamingThreadId = thread.id
-                    renameText = thread.title
-                } label: {
-                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+                .swipeActions(edge: .leading) {
+                    Button {
+                        beginRenaming(thread)
+                    } label: {
+                        Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+                    }
+                    .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                 }
-                .tint(.blue) // Intentional: system blue for non-destructive swipe actions
             }
         } else {
-            // Multi-thread group: DisclosureGroup with fully-tappable label
+            // Multi-thread group: DisclosureGroup with fully-tappable label.
+            // Context menu is on the label only so tap-to-expand (on the disclosure chevron)
+            // and long-press-for-menu remain distinct gestures.
             DisclosureGroup {
                 ForEach(group.threads) { thread in
-                    NavigationLink(value: thread.id) {
-                        threadRow(thread)
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            store.deleteThread(thread)
-                            if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                                selectedThreadId = activeThreads.first?.id
+                    maybeConnectedContextMenu(thread: thread) {
+                        NavigationLink(value: thread.id) {
+                            threadRow(thread)
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                store.deleteThread(thread)
+                                if horizontalSizeClass == .regular && selectedThreadId == thread.id {
+                                    selectedThreadId = activeThreads.first?.id
+                                }
+                            } label: {
+                                Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                             }
-                        } label: {
-                            Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
-                        }
-                        Button {
-                            store.archiveThread(thread)
-                            if horizontalSizeClass == .regular && selectedThreadId == thread.id {
-                                selectedThreadId = activeThreads.first?.id
+                            Button {
+                                archiveActiveThread(thread)
+                            } label: {
+                                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
                             }
-                        } label: {
-                            Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                            .tint(VColor.warning)
                         }
-                        .tint(VColor.warning)
-                    }
-                    .swipeActions(edge: .leading) {
-                        Button {
-                            renamingThreadId = thread.id
-                            renameText = thread.title
-                        } label: {
-                            Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+                        .swipeActions(edge: .leading) {
+                            Button {
+                                beginRenaming(thread)
+                            } label: {
+                                Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+                            }
+                            .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                         }
-                        .tint(.blue) // Intentional: system blue for non-destructive swipe actions
                     }
                 }
             } label: {
-                HStack(spacing: 8) {
-                    VIconView(.messageCircle, size: 12)
-                        .foregroundStyle(.secondary)
-                    Text(group.label)
-                        .lineLimit(1)
-                    Text("\(group.threads.count)")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Color.secondary.opacity(0.12))
-                        )
-                    Spacer()
+                maybeConnectedScheduleGroupContextMenu(group: group) {
+                    HStack(spacing: 8) {
+                        VIconView(.messageCircle, size: 12)
+                            .foregroundStyle(.secondary)
+                        Text(group.label)
+                            .fontWeight(scheduleGroupHasUnread(group) ? .semibold : .regular)
+                            .lineLimit(1)
+                        if scheduleGroupHasPinned(group) {
+                            VIconView(.pin, size: 10)
+                                .foregroundColor(VColor.accent)
+                                .accessibilityLabel("Pinned")
+                        }
+                        if scheduleGroupHasUnread(group) {
+                            VBadge(style: .dot, color: VColor.warning)
+                                .accessibilityLabel("Unread")
+                        }
+                        Text("\(group.threads.count)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color.secondary.opacity(0.12))
+                            )
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
             }
         }
     }
@@ -434,7 +597,21 @@ struct ThreadListView: View {
                 VIconView(.messageCircle, size: 12)
                     .foregroundStyle(.secondary)
                 Text(thread.title)
+                    .fontWeight(
+                        store.isConnectedMode && thread.hasUnseenLatestAssistantMessage
+                            ? .semibold
+                            : .regular
+                    )
                     .lineLimit(1)
+                if store.isConnectedMode && thread.isPinned {
+                    VIconView(.pin, size: 10)
+                        .foregroundColor(VColor.accent)
+                        .accessibilityLabel("Pinned")
+                }
+                if store.isConnectedMode && thread.hasUnseenLatestAssistantMessage {
+                    VBadge(style: .dot, color: VColor.warning)
+                        .accessibilityLabel("Unread")
+                }
                 Spacer()
                 Text(relativeDate(thread.lastActivityAt))
                     .font(.caption2)

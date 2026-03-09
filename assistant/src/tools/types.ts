@@ -155,7 +155,7 @@ export interface ToolContext {
    * See {@link TrustClass} in actor-trust-resolver.ts for value semantics.
    */
   trustClass: TrustClass;
-  /** Channel through which the tool invocation originates (e.g. 'telegram', 'voice'). Used for scoped grant consumption. */
+  /** Channel through which the tool invocation originates (e.g. 'telegram', 'phone'). Used for scoped grant consumption. */
   executionChannel?: string;
   /** Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption. */
   callSessionId?: string;

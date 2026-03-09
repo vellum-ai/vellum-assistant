@@ -112,10 +112,10 @@ const TASK_DEFINITIONS: readonly TaskDefinition[] = [
     id: "rebind-channels",
     title: "Re-bind communication channels",
     description:
-      "Communication channel bindings (Slack, Telegram, SMS, etc.) are instance-specific. Re-configure each channel to point to the new instance.",
+      "Communication channel bindings (Slack, Telegram, etc.) are instance-specific. Re-configure each channel to point to the new instance.",
     required: true,
     helpText:
-      "For Slack: re-install the Slack app in your workspace. For Telegram: update the bot webhook URL. For SMS: update the webhook URL in your Twilio/provider dashboard.",
+      "For Slack: re-install the Slack app in your workspace. For Telegram: update the bot webhook URL.",
   },
   {
     id: "reconfigure-auth",

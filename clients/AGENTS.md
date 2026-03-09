@@ -99,7 +99,7 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
 | Auto-growing height | `ScrollView` + `GeometryReader` on inner content + `.frame(height: clamp(measured, min, max))` | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
 | Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
-| Newline in chat input | Shift+Return via AppKit bridge (intercepts before `.onSubmit`); Option+Return also works natively | Relying solely on `.onSubmit` modifier detection (SwiftUI's `.onSubmit` cannot distinguish Shift+Return from plain Return) |
+| Newline in chat input | Shift+Return via AppKit bridge (intercepts before `.onSubmit`); treat default-mode Option+Return as send, not newline | Relying solely on `.onSubmit` modifier detection (SwiftUI's `.onSubmit` cannot distinguish Shift+Return from plain Return) |
 | Keyboard shortcuts | `.onKeyPress()` modifiers | `keyDown(with:)` / `performKeyEquivalent` overrides |
 | Attributed/colored text display | `AttributedString` + `Text` overlay | `layoutManager.addTemporaryAttributes` |
 | File drag-drop | `.onDrop(of: [.fileURL])` | `performDragOperation` override |
@@ -110,8 +110,7 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 
 **When AppKit bridges are still needed** (keep them minimal — only AppKit-specific logic, no business logic or layout):
 - Intercepting `Cmd+V` for image paste detection (pasteboard inspection not available in SwiftUI)
-- Intercepting `Cmd+Enter` as a key equivalent before the field editor consumes it
-- Intercepting `Shift+Return` to insert a newline before `.onSubmit` fires (SwiftUI cannot distinguish modifier+Return combos)
+- Intercepting return-key shortcuts that SwiftUI cannot route precisely before `.onSubmit` fires, including `Cmd+Enter` send, `Shift+Return` newline, and default-mode `Option+Return` send
 - Registering window-level event monitors (`NSEvent.addLocalMonitorForEvents`)
 - Accessing `NSWindow` properties (e.g., typing redirect handlers, container view registration)
 
@@ -208,7 +207,7 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 **How to use icons:**
 - **Direct rendering:** `VIconView(.search, size: 14)` — drop-in replacement for `Image(systemName:)`.
 - **In components that take icon strings:** Pass `VIcon.xxx.rawValue` (e.g., `VButton(label: "Save", leftIcon: VIcon.check.rawValue)`). Components use `VIcon.resolve()` internally, which handles both Lucide raw values and legacy SF Symbol names via `SFSymbolMapping`.
-- **Dynamic icons from IPC/daemon:** Use `SFSymbolMapping.icon(forSFSymbol: name, fallback: .puzzle)` at the render boundary.
+- **Dynamic icons from the assistant:** Use `SFSymbolMapping.icon(forSFSymbol: name, fallback: .puzzle)` at the render boundary.
 - **AppKit contexts:** Use `VIcon.xxx.nsImage` or `VIcon.xxx.nsImage(size: 16)`.
 - **Resolving unknown icon strings:** `VIcon.resolve("some-icon")` tries Lucide raw value first, then `SFSymbolMapping`, then falls back to `.puzzle`.
 

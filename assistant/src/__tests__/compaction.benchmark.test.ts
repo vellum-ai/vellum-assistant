@@ -85,7 +85,11 @@ describe("Compaction benchmark", () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
-    const manager = new ContextWindowManager(provider, "system prompt", config);
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
 
     // 90 turns = 180 messages, well above 60% of 6000 = 3600 threshold
     const messages = makeLongMessages(90);
@@ -108,7 +112,11 @@ describe("Compaction benchmark", () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
-    const manager = new ContextWindowManager(provider, "system prompt", config);
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
 
     // 3 turns = 6 messages, well below threshold
     const messages = makeLongMessages(3);
@@ -127,7 +135,11 @@ describe("Compaction benchmark", () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
-    const manager = new ContextWindowManager(provider, "system prompt", config);
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
 
     const messages = makeLongMessages(90);
     const result = await manager.maybeCompact(messages);
@@ -143,7 +155,11 @@ describe("Compaction benchmark", () => {
     const counter = { calls: 0 };
     const provider = makeSummaryProvider(counter);
     const config = makeConfig();
-    const manager = new ContextWindowManager(provider, "system prompt", config);
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
 
     const messages = makeLongMessages(90);
     const result = await manager.maybeCompact(messages);
@@ -163,7 +179,11 @@ describe("Compaction benchmark", () => {
       maxInputTokens: 4000,
       targetInputTokens: 2000,
     };
-    const manager = new ContextWindowManager(provider, "system prompt", config);
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
 
     const messages = makeLongMessages(90);
     const estimated = estimatePromptTokens(messages, "system prompt", {

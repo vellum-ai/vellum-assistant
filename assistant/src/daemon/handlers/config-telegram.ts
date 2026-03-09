@@ -1,6 +1,9 @@
-import * as net from "node:net";
-
-import { getIngressPublicBaseUrl } from "../../config/env.js";
+import {
+  invalidateConfigCache,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../config/loader.js";
 import {
   registerCallbackRoute,
   shouldUsePlatformCallbacks,
@@ -10,16 +13,15 @@ import {
   getSecureKey,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
+import { getTelegramBotUsername } from "../../telegram/bot-username.js";
 import {
   deleteCredentialMetadata,
-  getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import type {
   TelegramConfigRequest,
   TelegramConfigResponse,
-} from "../ipc-protocol.js";
-import { triggerGatewayReconcile } from "./config-ingress.js";
+} from "../message-protocol.js";
 import { defineHandlers, type HandlerContext, log } from "./shared.js";
 
 const TELEGRAM_BOT_TOKEN_IN_URL_PATTERN =
@@ -60,8 +62,7 @@ export type TelegramConfigResult = Omit<TelegramConfigResponse, "type">;
 export function getTelegramConfig(): TelegramConfigResult {
   const hasBotToken = !!getSecureKey("credential:telegram:bot_token");
   const hasWebhookSecret = !!getSecureKey("credential:telegram:webhook_secret");
-  const meta = getCredentialMetadata("telegram", "bot_token");
-  const botUsername = meta?.accountInfo ?? undefined;
+  const botUsername = getTelegramBotUsername();
   return {
     success: true,
     hasBotToken,
@@ -145,10 +146,14 @@ export async function setTelegramConfig(
     };
   }
 
-  // Store metadata with bot username
-  upsertCredentialMetadata("telegram", "bot_token", {
-    accountInfo: botUsername,
-  });
+  // Store credential metadata record for policy checks
+  upsertCredentialMetadata("telegram", "bot_token", {});
+
+  // Persist bot username to config for the config-based path
+  const raw = loadRawConfig();
+  setNestedValue(raw, "telegram.botUsername", botUsername);
+  saveRawConfig(raw);
+  invalidateConfigCache();
 
   // Ensure webhook secret exists (generate if missing)
   let hasWebhookSecret = !!getSecureKey("credential:telegram:webhook_secret");
@@ -170,6 +175,12 @@ export async function setTelegramConfig(
         await deleteSecureKeyAsync("credential:telegram:bot_token");
         deleteCredentialMetadata("telegram", "bot_token");
       }
+      // Always revert the config write — the botUsername was written
+      // optimistically before webhook secret provisioning.
+      const rawRollback = loadRawConfig();
+      setNestedValue(rawRollback, "telegram.botUsername", "");
+      saveRawConfig(rawRollback);
+      invalidateConfigCache();
       return {
         success: false,
         hasBotToken: !isNewToken,
@@ -203,12 +214,6 @@ export async function setTelegramConfig(
     });
   }
 
-  // Trigger gateway reconcile so the webhook registration updates immediately
-  const effectiveUrl = getIngressPublicBaseUrl();
-  if (effectiveUrl) {
-    triggerGatewayReconcile(effectiveUrl);
-  }
-
   return result;
 }
 
@@ -232,12 +237,6 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
   const r1 = await deleteSecureKeyAsync("credential:telegram:bot_token");
   const r2 = await deleteSecureKeyAsync("credential:telegram:webhook_secret");
 
-  // Trigger reconcile to deregister webhook
-  const effectiveUrl = getIngressPublicBaseUrl();
-  if (effectiveUrl) {
-    triggerGatewayReconcile(effectiveUrl);
-  }
-
   if (r1 === "error" || r2 === "error") {
     const hasBotToken = !!getSecureKey("credential:telegram:bot_token");
     const hasWebhookSecret = !!getSecureKey(
@@ -254,6 +253,13 @@ export async function clearTelegramConfig(): Promise<TelegramConfigResult> {
 
   deleteCredentialMetadata("telegram", "bot_token");
   deleteCredentialMetadata("telegram", "webhook_secret");
+
+  // Clear bot username from config so getTelegramBotUsername() doesn't
+  // return a stale value after disconnect.
+  const raw = loadRawConfig();
+  setNestedValue(raw, "telegram.botUsername", "");
+  saveRawConfig(raw);
+  invalidateConfigCache();
 
   return {
     success: true,
@@ -357,7 +363,6 @@ export async function setupTelegram(
 
 export async function handleTelegramConfig(
   msg: TelegramConfigRequest,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   try {
@@ -383,11 +388,11 @@ export async function handleTelegramConfig(
       };
     }
 
-    ctx.send(socket, { type: "telegram_config_response", ...result });
+    ctx.send({ type: "telegram_config_response", ...result });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to handle Telegram config");
-    ctx.send(socket, {
+    ctx.send({
       type: "telegram_config_response",
       success: false,
       hasBotToken: false,

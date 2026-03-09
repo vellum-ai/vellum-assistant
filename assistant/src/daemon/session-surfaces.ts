@@ -20,8 +20,8 @@ import type {
   TableRow,
   TableSurfaceData,
   UiSurfaceShow,
-} from "./ipc-protocol.js";
-import { INTERACTIVE_SURFACE_TYPES } from "./ipc-protocol.js";
+} from "./message-protocol.js";
+import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import { buildSessionErrorMessage } from "./session-error.js";
 
 const log = getLogger("session-surfaces");

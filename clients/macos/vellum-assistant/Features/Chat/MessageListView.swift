@@ -317,7 +317,7 @@ struct MessageListView: View {
                 showIcon: false
             )
         }
-        .frame(maxWidth: 520, alignment: .leading)
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
@@ -455,7 +455,7 @@ struct MessageListView: View {
                             onAbort: { onAbortSubagent?(subagent.id) },
                             onTap: { onSubagentTap?(subagent.id) }
                         )
-                            .frame(maxWidth: 520, alignment: .leading)
+                            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                             .padding(.leading, 36)
                             .id("subagent-\(subagent.id)")
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -489,7 +489,7 @@ struct MessageListView: View {
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
-                .frame(maxWidth: 700)
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
@@ -961,7 +961,7 @@ private struct MessageCellView: View {
                 showIcon: false
             )
         }
-        .frame(maxWidth: 520, alignment: .leading)
+        .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
         .id("thinking-indicator")
     }
 
@@ -1016,9 +1016,6 @@ private struct MessageCellView: View {
             )
             .id(message.id)
         } else {
-            let nextIsPendingConfirmation = index + 1 < displayMessages.count
-                && displayMessages[index + 1].confirmation?.state == .pending
-
             let nextDecidedConfirmation: ToolConfirmationData? = {
                 guard index + 1 < displayMessages.count,
                       let conf = displayMessages[index + 1].confirmation,
@@ -1030,7 +1027,6 @@ private struct MessageCellView: View {
 
             ChatBubble(
                 message: message,
-                hideToolCalls: nextIsPendingConfirmation,
                 decidedConfirmation: nextDecidedConfirmation,
                 onSurfaceAction: onSurfaceAction,
                 onDismissDocumentWidget: { surfaceId in
@@ -1058,7 +1054,7 @@ private struct MessageCellView: View {
                 onAbort: { onAbortSubagent?(subagent.id) },
                 onTap: { onSubagentTap?(subagent.id) }
             )
-                .frame(maxWidth: 520, alignment: .leading)
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
                 .padding(.leading, 36)
                 .id("subagent-\(subagent.id)")
         }

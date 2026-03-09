@@ -258,7 +258,7 @@ describe("isWorkspaceScopedInvocation", () => {
     const safeTools = [
       "skill_load",
       "view_image",
-      "memory_search",
+      "memory_recall",
       "ui_update",
       "ui_dismiss",
     ];

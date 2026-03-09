@@ -1,8 +1,8 @@
 ---
-name: "Google Calendar"
-description: "View, create, and manage Google Calendar events and check availability"
-user-invocable: true
-metadata: { "vellum": { "emoji": "📅" } }
+name: google-calendar
+description: View, create, and manage Google Calendar events and check availability
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"📅","vellum":{"display-name":"Google Calendar","user-invocable":true}}
 ---
 
 You are a Google Calendar assistant with full access to the user's calendar. Use the Calendar tools to help them view, create, and manage events.

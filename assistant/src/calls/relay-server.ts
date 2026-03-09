@@ -10,7 +10,6 @@ import { randomInt } from "node:crypto";
 
 import type { ServerWebSocket } from "bun";
 
-import { resolveGuardianName } from "../config/user-reference.js";
 import {
   findGuardianForChannel,
   listGuardianChannels,
@@ -23,8 +22,9 @@ import {
 } from "../contacts/contacts-write.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { getCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import { addMessage } from "../memory/conversation-crud.js";
 import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
+import { resolveGuardianName } from "../prompts/user-reference.js";
 import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import {
   resolveActorTrust,
@@ -33,7 +33,7 @@ import {
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
-} from "../runtime/guardian-verification-templates.js";
+} from "../runtime/verification-templates.js";
 import { parseJsonSafe } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -58,8 +58,8 @@ import {
 } from "./relay-access-wait.js";
 import { routeSetup } from "./relay-setup-router.js";
 import {
-  attemptGuardianCodeVerification,
   attemptInviteCodeRedemption,
+  attemptVerificationCode,
   parseDigitsFromSpeech,
 } from "./relay-verification.js";
 import {
@@ -152,12 +152,12 @@ export const activeRelayConnections = new Map<string, RelayConnection>();
 
 /** Module-level broadcast function, set by the HTTP server during startup. */
 let globalBroadcast:
-  | ((msg: import("../daemon/ipc-contract.js").ServerMessage) => void)
+  | ((msg: import("../daemon/message-protocol.js").ServerMessage) => void)
   | undefined;
 
 /** Register a broadcast function so RelayConnection can forward IPC events. */
 export function setRelayBroadcast(
-  fn: (msg: import("../daemon/ipc-contract.js").ServerMessage) => void,
+  fn: (msg: import("../daemon/message-protocol.js").ServerMessage) => void,
 ): void {
   globalBroadcast = fn;
 }
@@ -196,12 +196,12 @@ export class RelayConnection {
   private dtmfBuffer = "";
 
   // Inbound voice guardian verification state
-  private guardianVerificationActive = false;
-  private guardianChallengeAssistantId: string | null = null;
-  private guardianVerificationFromNumber: string | null = null;
+  private verificationSessionActive = false;
+  private verificationAssistantId: string | null = null;
+  private verificationFromNumber: string | null = null;
 
   // Outbound guardian verification state (system calls the guardian)
-  private outboundGuardianVerificationSessionId: string | null = null;
+  private outboundVerificationSessionId: string | null = null;
 
   // Inbound voice invite redemption state
   private inviteRedemptionActive = false;
@@ -257,8 +257,8 @@ export class RelayConnection {
   /**
    * Whether inbound guardian voice verification is currently active.
    */
-  isGuardianVerificationActive(): boolean {
-    return this.guardianVerificationActive;
+  isVerificationSessionActive(): boolean {
+    return this.verificationSessionActive;
   }
 
   /**
@@ -556,8 +556,8 @@ export class RelayConnection {
     this.setController(controller);
 
     switch (outcome.action) {
-      case "outbound_guardian_verification":
-        this.startOutboundGuardianVerification(
+      case "outbound_verification":
+        this.startOutboundVerification(
           outcome.assistantId,
           outcome.sessionId,
           outcome.toNumber,
@@ -588,7 +588,7 @@ export class RelayConnection {
         );
         this.startNameCapture(outcome.assistantId, outcome.fromNumber);
         return;
-      case "guardian_verification":
+      case "verification":
         if (
           resolved.actorTrust.memberRecord &&
           (resolved.actorTrust.trustClass === "guardian" ||
@@ -601,10 +601,7 @@ export class RelayConnection {
             toTrustContext(resolved.actorTrust, msg.from),
           );
         }
-        this.startInboundGuardianVerification(
-          outcome.assistantId,
-          outcome.fromNumber,
-        );
+        this.startInboundVerification(outcome.assistantId, outcome.fromNumber);
         return;
       case "normal_call":
         if (outcome.isInbound) {
@@ -673,7 +670,6 @@ export class RelayConnection {
     recordCallEvent(this.callSessionId, "inbound_acl_denied", {
       from,
       trustClass: resolved.actorTrust.trustClass,
-      denialReason: resolved.actorTrust.denialReason,
       channelId: resolved.actorTrust.memberRecord?.channel.id,
       memberPolicy: resolved.actorTrust.memberRecord?.channel.policy,
     });
@@ -725,15 +721,15 @@ export class RelayConnection {
     // guardian (user) can share it with the callee.
     if (session?.initiatedFromConversationId) {
       const codeMsg = `\u{1F510} Verification code for call to ${session.toNumber}: ${code}`;
-      await conversationStore.addMessage(
+      await addMessage(
         session.initiatedFromConversationId,
         "assistant",
         JSON.stringify([{ type: "text", text: codeMsg }]),
         {
-          userMessageChannel: "voice",
-          assistantMessageChannel: "voice",
-          userMessageInterface: "voice",
-          assistantMessageInterface: "voice",
+          userMessageChannel: "phone",
+          assistantMessageChannel: "phone",
+          userMessageInterface: "phone",
+          assistantMessageInterface: "phone",
         },
       );
     }
@@ -786,7 +782,7 @@ export class RelayConnection {
     if (!params.skipMemberActivation) {
       try {
         upsertContactChannel({
-          sourceChannel: "voice",
+          sourceChannel: "phone",
           externalUserId: fromNumber,
           externalChatId: fromNumber,
           displayName: callerName,
@@ -803,7 +799,7 @@ export class RelayConnection {
 
     const updatedTrust = resolveActorTrust({
       assistantId,
-      sourceChannel: "voice",
+      sourceChannel: "phone",
       conversationExternalId: fromNumber,
       actorExternalId: fromNumber,
     });
@@ -842,20 +838,20 @@ export class RelayConnection {
    * voice guardian challenge. Prompts the caller to enter their six-digit
    * verification code via DTMF or by speaking it.
    */
-  private startInboundGuardianVerification(
+  private startInboundVerification(
     assistantId: string,
     fromNumber: string,
   ): void {
-    this.guardianVerificationActive = true;
-    this.guardianChallengeAssistantId = assistantId;
-    this.guardianVerificationFromNumber = fromNumber;
+    this.verificationSessionActive = true;
+    this.verificationAssistantId = assistantId;
+    this.verificationFromNumber = fromNumber;
     this.connectionState = "verification_pending";
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = 3;
     this.verificationCodeLength = 6;
     this.dtmfBuffer = "";
 
-    recordCallEvent(this.callSessionId, "guardian_voice_verification_started", {
+    recordCallEvent(this.callSessionId, "voice_verification_started", {
       assistantId,
       maxAttempts: this.verificationMaxAttempts,
     });
@@ -876,31 +872,27 @@ export class RelayConnection {
    * call. The system called the guardian's phone; prompt them to enter the
    * verification code via DTMF or speech.
    */
-  private startOutboundGuardianVerification(
+  private startOutboundVerification(
     assistantId: string,
-    guardianVerificationSessionId: string,
+    verificationSessionId: string,
     toNumber: string,
   ): void {
-    this.guardianVerificationActive = true;
-    this.outboundGuardianVerificationSessionId = guardianVerificationSessionId;
-    this.guardianChallengeAssistantId = assistantId;
+    this.verificationSessionActive = true;
+    this.outboundVerificationSessionId = verificationSessionId;
+    this.verificationAssistantId = assistantId;
     // For outbound guardian calls, the "to" number is the guardian's phone
-    this.guardianVerificationFromNumber = toNumber;
+    this.verificationFromNumber = toNumber;
     this.connectionState = "verification_pending";
     this.verificationAttempts = 0;
     this.verificationMaxAttempts = 3;
     this.verificationCodeLength = 6;
     this.dtmfBuffer = "";
 
-    recordCallEvent(
-      this.callSessionId,
-      "outbound_guardian_voice_verification_started",
-      {
-        assistantId,
-        guardianVerificationSessionId,
-        maxAttempts: this.verificationMaxAttempts,
-      },
-    );
+    recordCallEvent(this.callSessionId, "outbound_voice_verification_started", {
+      assistantId,
+      verificationSessionId,
+      maxAttempts: this.verificationMaxAttempts,
+    });
 
     const introText = composeVerificationVoice(
       GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO,
@@ -912,7 +904,7 @@ export class RelayConnection {
       {
         callSessionId: this.callSessionId,
         assistantId,
-        guardianVerificationSessionId,
+        verificationSessionId,
       },
       "Outbound guardian voice verification started",
     );
@@ -920,24 +912,21 @@ export class RelayConnection {
 
   /**
    * Validate an entered code against the pending voice guardian challenge.
-   * Delegates to the extracted attemptGuardianCodeVerification() and
+   * Delegates to the extracted attemptVerificationCode() and
    * interprets the structured result to drive side-effects.
    */
-  private handleGuardianCodeVerificationResult(enteredCode: string): void {
-    if (
-      !this.guardianChallengeAssistantId ||
-      !this.guardianVerificationFromNumber
-    ) {
+  private handleVerificationCodeResult(enteredCode: string): void {
+    if (!this.verificationAssistantId || !this.verificationFromNumber) {
       return;
     }
 
-    const isOutbound = this.outboundGuardianVerificationSessionId != null;
-    const assistantId = this.guardianChallengeAssistantId;
-    const fromNumber = this.guardianVerificationFromNumber;
+    const isOutbound = this.outboundVerificationSessionId != null;
+    const assistantId = this.verificationAssistantId;
+    const fromNumber = this.verificationFromNumber;
 
-    const result = attemptGuardianCodeVerification({
-      guardianChallengeAssistantId: assistantId,
-      guardianVerificationFromNumber: fromNumber,
+    const result = attemptVerificationCode({
+      verificationAssistantId: assistantId,
+      verificationFromNumber: fromNumber,
       enteredCode,
       isOutbound,
       codeDigits: this.verificationCodeLength,
@@ -947,7 +936,7 @@ export class RelayConnection {
 
     if (result.outcome === "success") {
       this.connectionState = "connected";
-      this.guardianVerificationActive = false;
+      this.verificationSessionActive = false;
       this.verificationAttempts = 0;
       this.dtmfBuffer = "";
 
@@ -970,9 +959,9 @@ export class RelayConnection {
             "Guardian binding conflict: another user already holds the voice binding",
           );
         } else {
-          revokeGuardianBinding("voice");
+          revokeGuardianBinding("phone");
           createGuardianBinding({
-            channel: "voice",
+            channel: "phone",
             guardianExternalUserId: fromNumber,
             guardianDeliveryChatId: fromNumber,
             guardianPrincipalId: result.canonicalPrincipal!,
@@ -994,9 +983,9 @@ export class RelayConnection {
         if (successSession?.initiatedFromConversationId) {
           addPointerMessage(
             successSession.initiatedFromConversationId,
-            "guardian_verification_succeeded",
+            "verification_succeeded",
             successSession.toNumber,
-            { channel: "voice" },
+            { channel: "phone" },
           ).catch((err) => {
             log.warn(
               {
@@ -1022,7 +1011,7 @@ export class RelayConnection {
         if (this.controller) {
           const verifiedActorTrust = resolveActorTrust({
             assistantId,
-            sourceChannel: "voice",
+            sourceChannel: "phone",
             conversationExternalId: fromNumber,
             actorExternalId: fromNumber,
           });
@@ -1033,7 +1022,7 @@ export class RelayConnection {
         }
       }
     } else if (result.outcome === "failure") {
-      this.guardianVerificationActive = false;
+      this.verificationSessionActive = false;
       this.verificationAttempts = result.attempts;
 
       recordCallEvent(this.callSessionId, result.eventName, {
@@ -1063,10 +1052,10 @@ export class RelayConnection {
         if (isOutbound && failSession.initiatedFromConversationId) {
           addPointerMessage(
             failSession.initiatedFromConversationId,
-            "guardian_verification_failed",
+            "verification_failed",
             failSession.toNumber,
             {
-              channel: "voice",
+              channel: "phone",
               reason: "Max verification attempts exceeded",
             },
           ).catch((err) => {
@@ -1208,7 +1197,7 @@ export class RelayConnection {
     try {
       const accessResult = notifyGuardianOfAccessRequest({
         canonicalAssistantId: this.accessRequestAssistantId,
-        sourceChannel: "voice",
+        sourceChannel: "phone",
         conversationExternalId: this.accessRequestFromNumber,
         actorExternalId: this.accessRequestFromNumber,
         actorDisplayName: callerName,
@@ -1598,7 +1587,7 @@ export class RelayConnection {
    */
   private resolveGuardianLabel(): string {
     // Look up the guardian contact for a displayName fallback
-    const voiceGuardian = findGuardianForChannel("voice");
+    const voiceGuardian = findGuardianForChannel("phone");
     const guardianChannels = voiceGuardian ? null : listGuardianChannels();
     const guardianContact = voiceGuardian?.contact ?? guardianChannels?.contact;
 
@@ -1809,7 +1798,7 @@ export class RelayConnection {
     // spoken digits from the transcript and validate them.
     if (
       this.connectionState === "verification_pending" &&
-      this.guardianVerificationActive
+      this.verificationSessionActive
     ) {
       const spokenDigits = parseDigitsFromSpeech(msg.voicePrompt);
       log.info(
@@ -1822,7 +1811,7 @@ export class RelayConnection {
       );
       if (spokenDigits.length >= this.verificationCodeLength) {
         const enteredCode = spokenDigits.slice(0, this.verificationCodeLength);
-        this.handleGuardianCodeVerificationResult(enteredCode);
+        this.handleVerificationCodeResult(enteredCode);
       } else if (spokenDigits.length > 0) {
         this.sendTextToken(
           `I heard ${spokenDigits.length} digits. Please enter all ${this.verificationCodeLength} digits of your code.`,
@@ -1928,15 +1917,15 @@ export class RelayConnection {
       // this early-utterance path bypasses it entirely.
       if (session) {
         try {
-          await conversationStore.addMessage(
+          await addMessage(
             session.conversationId,
             "user",
             JSON.stringify([{ type: "text", text: msg.voicePrompt }]),
             {
-              userMessageChannel: "voice",
-              assistantMessageChannel: "voice",
-              userMessageInterface: "voice",
-              assistantMessageInterface: "voice",
+              userMessageChannel: "phone",
+              assistantMessageChannel: "phone",
+              userMessageInterface: "phone",
+              assistantMessageInterface: "phone",
             },
           );
         } catch (err) {
@@ -1997,7 +1986,7 @@ export class RelayConnection {
     // digits and validate against the challenge via the guardian service.
     if (
       this.connectionState === "verification_pending" &&
-      this.guardianVerificationActive
+      this.verificationSessionActive
     ) {
       this.dtmfBuffer += msg.digit;
 
@@ -2007,7 +1996,7 @@ export class RelayConnection {
           this.verificationCodeLength,
         );
         this.dtmfBuffer = "";
-        this.handleGuardianCodeVerificationResult(enteredCode);
+        this.handleVerificationCodeResult(enteredCode);
       }
       return;
     }

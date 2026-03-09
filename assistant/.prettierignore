@@ -1,0 +1,3 @@
+# SKILL.md files use YAML frontmatter with inline JSON metadata that prettier
+# reformats into multi-line format, breaking the linter's YAML parser.
+**/SKILL.md

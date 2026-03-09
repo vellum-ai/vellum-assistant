@@ -1,3 +1,4 @@
+import AppKit
 import Carbon.HIToolbox
 import Combine
 import Foundation
@@ -83,11 +84,41 @@ public final class SettingsStore: ObservableObject {
 
     @Published var twitterMode: String = "local_byo"
     @Published var twitterManagedAvailable: Bool = false
+    @Published var twitterManagedPrerequisites: IPCManagedPrerequisites?
     @Published var twitterLocalClientConfigured: Bool = false
     @Published var twitterConnected: Bool = false
     @Published var twitterAccountInfo: String?
     @Published var twitterAuthInProgress: Bool = false
+    @Published var twitterAuthErrorCode: String?
     @Published var twitterAuthError: String?
+
+    // Managed Twitter connection state (populated via PlatformTwitterOAuthService)
+    @Published var managedTwitterConnected: Bool = false
+    @Published var managedTwitterAccountInfo: String?
+    @Published var managedTwitterConnectInProgress: Bool = false
+    @Published var managedTwitterError: String?
+
+    /// Whether all managed Twitter prerequisites are met.
+    var isManagedTwitterEligible: Bool {
+        twitterManagedAvailable
+    }
+
+    /// Human-readable reason why managed Twitter is not available, or nil if eligible.
+    var managedTwitterBlockReason: String? {
+        guard let prereqs = twitterManagedPrerequisites else {
+            return "Managed Twitter status is unavailable."
+        }
+        if !prereqs.integrationModeManaged {
+            return "Switch to Managed mode to use platform-managed Twitter."
+        }
+        if !prereqs.assistantApiKeyPresent {
+            return "Assistant API key is not configured. Set up your API key in settings."
+        }
+        if !prereqs.platformAssistantIdResolvable {
+            return "Platform connection is not configured. Set up your platform URL."
+        }
+        return nil
+    }
 
     // MARK: - Telegram Integration State
 
@@ -108,40 +139,40 @@ public final class SettingsStore: ObservableObject {
     @Published var twilioWarning: String?
     @Published var twilioError: String?
 
-    // MARK: - Channel Guardian State (Telegram)
+    // MARK: - Channel Verification State (Telegram)
 
-    @Published var telegramGuardianIdentity: String?
-    @Published var telegramGuardianUsername: String?
-    @Published var telegramGuardianDisplayName: String?
-    @Published var telegramGuardianVerified: Bool = false
-    @Published var telegramGuardianVerificationInProgress: Bool = false
-    @Published var telegramGuardianInstruction: String?
-    @Published var telegramGuardianError: String?
-    @Published var telegramGuardianAlreadyBound: Bool = false
+    @Published var telegramVerificationIdentity: String?
+    @Published var telegramVerificationUsername: String?
+    @Published var telegramVerificationDisplayName: String?
+    @Published var telegramVerificationVerified: Bool = false
+    @Published var telegramVerificationInProgress: Bool = false
+    @Published var telegramVerificationInstruction: String?
+    @Published var telegramVerificationError: String?
+    @Published var telegramVerificationAlreadyBound: Bool = false
 
-    // MARK: - Channel Guardian State (SMS)
+    // MARK: - Channel Verification State (SMS)
 
-    @Published var smsGuardianIdentity: String?
-    @Published var smsGuardianUsername: String?
-    @Published var smsGuardianDisplayName: String?
-    @Published var smsGuardianVerified: Bool = false
-    @Published var smsGuardianVerificationInProgress: Bool = false
-    @Published var smsGuardianInstruction: String?
-    @Published var smsGuardianError: String?
-    @Published var smsGuardianAlreadyBound: Bool = false
+    @Published var smsVerificationIdentity: String?
+    @Published var smsVerificationUsername: String?
+    @Published var smsVerificationDisplayName: String?
+    @Published var smsVerificationVerified: Bool = false
+    @Published var smsVerificationInProgress: Bool = false
+    @Published var smsVerificationInstruction: String?
+    @Published var smsVerificationError: String?
+    @Published var smsVerificationAlreadyBound: Bool = false
 
-    // MARK: - Channel Guardian State (Voice)
+    // MARK: - Channel Verification State (Voice)
 
-    @Published var voiceGuardianIdentity: String?
-    @Published var voiceGuardianUsername: String?
-    @Published var voiceGuardianDisplayName: String?
-    @Published var voiceGuardianVerified: Bool = false
-    @Published var voiceGuardianVerificationInProgress: Bool = false
-    @Published var voiceGuardianInstruction: String?
-    @Published var voiceGuardianError: String?
-    @Published var voiceGuardianAlreadyBound: Bool = false
+    @Published var voiceVerificationIdentity: String?
+    @Published var voiceVerificationUsername: String?
+    @Published var voiceVerificationDisplayName: String?
+    @Published var voiceVerificationVerified: Bool = false
+    @Published var voiceVerificationInProgress: Bool = false
+    @Published var voiceVerificationInstruction: String?
+    @Published var voiceVerificationError: String?
+    @Published var voiceVerificationAlreadyBound: Bool = false
 
-    // MARK: - Outbound Guardian Session State (Telegram)
+    // MARK: - Outbound Verification Session State (Telegram)
 
     @Published var telegramOutboundSessionId: String?
     @Published var telegramOutboundExpiresAt: Date?
@@ -150,7 +181,7 @@ public final class SettingsStore: ObservableObject {
     @Published var telegramBootstrapUrl: String?
     @Published var telegramOutboundCode: String?
 
-    // MARK: - Outbound Guardian Session State (SMS)
+    // MARK: - Outbound Verification Session State (SMS)
 
     @Published var smsOutboundSessionId: String?
     @Published var smsOutboundExpiresAt: Date?
@@ -158,7 +189,7 @@ public final class SettingsStore: ObservableObject {
     @Published var smsOutboundSendCount: Int = 0
     @Published var smsOutboundCode: String?
 
-    // MARK: - Outbound Guardian Session State (Voice)
+    // MARK: - Outbound Verification Session State (Voice)
 
     @Published var voiceOutboundSessionId: String?
     @Published var voiceOutboundExpiresAt: Date?
@@ -190,16 +221,16 @@ public final class SettingsStore: ObservableObject {
     @Published var slackChannelSaveInProgress: Bool = false
     @Published var slackChannelError: String?
 
-    // MARK: - Channel Guardian State (Slack)
+    // MARK: - Channel Verification State (Slack)
 
-    @Published var slackGuardianIdentity: String?
-    @Published var slackGuardianUsername: String?
-    @Published var slackGuardianDisplayName: String?
-    @Published var slackGuardianVerified: Bool = false
-    @Published var slackGuardianVerificationInProgress: Bool = false
-    @Published var slackGuardianInstruction: String?
-    @Published var slackGuardianError: String?
-    @Published var slackGuardianAlreadyBound: Bool = false
+    @Published var slackVerificationIdentity: String?
+    @Published var slackVerificationUsername: String?
+    @Published var slackVerificationDisplayName: String?
+    @Published var slackVerificationVerified: Bool = false
+    @Published var slackVerificationInProgress: Bool = false
+    @Published var slackVerificationInstruction: String?
+    @Published var slackVerificationError: String?
+    @Published var slackVerificationAlreadyBound: Bool = false
 
     // MARK: - Approved Ingress Contacts (Slack)
 
@@ -208,7 +239,7 @@ public final class SettingsStore: ObservableObject {
     @Published var slackApprovedMembersError: String?
     @Published var slackRevokingMemberIds: Set<String> = []
 
-    // MARK: - Outbound Guardian Session State (Slack)
+    // MARK: - Outbound Verification Session State (Slack)
 
     @Published var slackOutboundSessionId: String?
     @Published var slackOutboundExpiresAt: Date?
@@ -230,8 +261,10 @@ public final class SettingsStore: ObservableObject {
     @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
     /// Read-only gateway target derived from daemon config.
-    /// Initial value reads env var > lockfile > default 7830; updated by IPC.
-    @Published var localGatewayTarget: String = "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort())"
+    /// Initial value reads env var > lockfile runtimeUrl > default 7830; updated by IPC.
+    @Published var localGatewayTarget: String = LockfilePaths.resolveGatewayUrl(
+        connectedAssistantId: UserDefaults.standard.string(forKey: "connectedAssistantId")
+    )
 
     /// Set to `true` once the first ingress config IPC response arrives, so the
     /// view layer can defer diagnostics until the real config values are available.
@@ -279,13 +312,13 @@ public final class SettingsStore: ObservableObject {
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle sessions.
     private var lastDaemonModel: String?
-    private var pendingGuardianChallengeChannel: String?
-    private var guardianChallengeTimeoutWorkItem: DispatchWorkItem?
-    private var guardianStatusPollingWorkItems: [String: DispatchWorkItem] = [:]
-    private var guardianStatusPollingDeadlines: [String: Date] = [:]
-    private let guardianChallengeTimeoutDuration: TimeInterval
-    private let guardianStatusPollInterval: TimeInterval
-    private let guardianStatusPollWindow: TimeInterval
+    private var pendingVerificationSessionChannel: String?
+    private var verificationSessionTimeoutWorkItem: DispatchWorkItem?
+    private var verificationStatusPollingWorkItems: [String: DispatchWorkItem] = [:]
+    private var verificationStatusPollingDeadlines: [String: Date] = [:]
+    private let verificationSessionTimeoutDuration: TimeInterval
+    private let verificationStatusPollInterval: TimeInterval
+    private let verificationStatusPollWindow: TimeInterval
     private static func reflectedString(_ value: Any, key: String) -> String? {
         for child in Mirror(reflecting: value).children {
             guard child.label == key else { continue }
@@ -305,18 +338,18 @@ public final class SettingsStore: ObservableObject {
     init(
         daemonClient: DaemonClient? = nil,
         configPath: String? = nil,
-        guardianChallengeTimeoutDuration: TimeInterval = 12,
-        guardianStatusPollInterval: TimeInterval = 2,
-        guardianStatusPollWindow: TimeInterval = 600
+        verificationSessionTimeoutDuration: TimeInterval = 12,
+        verificationStatusPollInterval: TimeInterval = 2,
+        verificationStatusPollWindow: TimeInterval = 600
     ) {
         self.daemonClient = daemonClient
         self.configPath = configPath
-        self.guardianChallengeTimeoutDuration = max(0.05, guardianChallengeTimeoutDuration)
-        self.guardianStatusPollInterval = max(0.05, guardianStatusPollInterval)
-        self.guardianStatusPollWindow = max(self.guardianStatusPollInterval, guardianStatusPollWindow)
+        self.verificationSessionTimeoutDuration = max(0.05, verificationSessionTimeoutDuration)
+        self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
+        self.verificationStatusPollWindow = max(self.verificationStatusPollInterval, verificationStatusPollWindow)
 
         // Seed from UserDefaults / Keychain
-        let anthropicKey = APIKeyManager.getKey()
+        let anthropicKey = APIKeyManager.getKey(for: "anthropic")
         self.hasKey = anthropicKey != nil
         self.maskedKey = Self.maskKey(anthropicKey)
         let braveKey = APIKeyManager.getKey(for: "brave")
@@ -469,6 +502,7 @@ public final class SettingsStore: ObservableObject {
             if response.success {
                 self.twitterMode = response.mode ?? "local_byo"
                 self.twitterManagedAvailable = response.managedAvailable
+                self.twitterManagedPrerequisites = response.managedPrerequisites
                 self.twitterLocalClientConfigured = response.localClientConfigured
                 self.twitterConnected = response.connected
                 self.twitterAccountInfo = response.accountInfo
@@ -478,7 +512,20 @@ public final class SettingsStore: ObservableObject {
         // Wire up ingress config IPC response
         daemonClient?.onIngressConfigResponse = { [weak self] response in
             guard let self else { return }
-            self.localGatewayTarget = response.localGatewayTarget
+            // For remote assistants, prefer the lockfile's runtimeUrl because the
+            // daemon reports its own loopback address which is not reachable from
+            // the client. For local assistants, use the daemon's authoritative value
+            // since it reflects the daemon's actual runtime environment.
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+                ?? LockfileAssistant.loadLatest()
+            if let assistant, assistant.isRemote {
+                self.localGatewayTarget = LockfilePaths.resolveGatewayUrl(
+                    connectedAssistantId: assistant.assistantId
+                )
+            } else {
+                self.localGatewayTarget = response.localGatewayTarget
+            }
             if response.success {
                 if let pending = self.pendingIngressEnabled, response.enabled != pending {
                     // A set operation is in-flight and this response disagrees
@@ -529,8 +576,10 @@ public final class SettingsStore: ObservableObject {
             if response.success {
                 self.twitterConnected = true
                 self.twitterAccountInfo = response.accountInfo
+                self.twitterAuthErrorCode = nil
                 self.twitterAuthError = nil
             } else {
+                self.twitterAuthErrorCode = response.errorCode
                 self.twitterAuthError = response.error
             }
             self.refreshTwitterStatus()
@@ -553,101 +602,101 @@ public final class SettingsStore: ObservableObject {
 
         // Twilio config is now handled via HTTP — no IPC callback wiring needed.
 
-        // Wire up guardian verification IPC response
-        daemonClient?.onGuardianVerificationResponse = { [weak self] response in
+        // Wire up channel verification IPC response
+        daemonClient?.onChannelVerificationSessionResponse = { [weak self] response in
             guard let self else { return }
-            guard let channel = self.resolveGuardianResponseChannel(response.channel) else { return }
+            guard let channel = self.resolveVerificationResponseChannel(response.channel) else { return }
             let isStatusPoll = response.success && response.secret == nil && response.instruction == nil && response.bound != true
             if !isStatusPoll {
-                self.clearGuardianChallengePending(for: channel)
+                self.clearVerificationSessionPending(for: channel)
             }
 
             switch channel {
             case "telegram":
-                self.telegramGuardianVerificationInProgress = false
+                self.telegramVerificationInProgress = false
                 if response.success {
-                    self.telegramGuardianIdentity = response.guardianExternalUserId
-                    self.telegramGuardianUsername = Self.reflectedString(response, key: "guardianUsername")
-                    self.telegramGuardianDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
+                    self.telegramVerificationIdentity = response.guardianExternalUserId
+                    self.telegramVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
+                    self.telegramVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
                     let isVerified = response.bound ?? false
-                    self.telegramGuardianVerified = isVerified
+                    self.telegramVerificationVerified = isVerified
                     if isVerified {
-                        self.telegramGuardianInstruction = nil
+                        self.telegramVerificationInstruction = nil
                     } else if let instruction = response.instruction {
-                        self.telegramGuardianInstruction = instruction
+                        self.telegramVerificationInstruction = instruction
                     }
-                    self.telegramGuardianError = nil
-                    self.telegramGuardianAlreadyBound = false
+                    self.telegramVerificationError = nil
+                    self.telegramVerificationAlreadyBound = false
                 } else {
                     let isAlreadyBound = response.error == "already_bound"
-                    self.telegramGuardianAlreadyBound = isAlreadyBound
-                    self.telegramGuardianError = isAlreadyBound
+                    self.telegramVerificationAlreadyBound = isAlreadyBound
+                    self.telegramVerificationError = isAlreadyBound
                         ? "A guardian is already bound. Revoke it first or replace it."
                         : response.error
                 }
             case "sms":
-                self.smsGuardianVerificationInProgress = false
+                self.smsVerificationInProgress = false
                 if response.success {
-                    self.smsGuardianIdentity = response.guardianExternalUserId
-                    self.smsGuardianUsername = Self.reflectedString(response, key: "guardianUsername")
-                    self.smsGuardianDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
+                    self.smsVerificationIdentity = response.guardianExternalUserId
+                    self.smsVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
+                    self.smsVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
                     let isVerified = response.bound ?? false
-                    self.smsGuardianVerified = isVerified
+                    self.smsVerificationVerified = isVerified
                     if isVerified {
-                        self.smsGuardianInstruction = nil
+                        self.smsVerificationInstruction = nil
                     } else if let instruction = response.instruction {
-                        self.smsGuardianInstruction = instruction
+                        self.smsVerificationInstruction = instruction
                     }
-                    self.smsGuardianError = nil
-                    self.smsGuardianAlreadyBound = false
+                    self.smsVerificationError = nil
+                    self.smsVerificationAlreadyBound = false
                 } else {
                     let isAlreadyBound = response.error == "already_bound"
-                    self.smsGuardianAlreadyBound = isAlreadyBound
-                    self.smsGuardianError = isAlreadyBound
+                    self.smsVerificationAlreadyBound = isAlreadyBound
+                    self.smsVerificationError = isAlreadyBound
                         ? "A guardian is already bound. Revoke it first or replace it."
                         : response.error
                 }
-            case "voice":
-                self.voiceGuardianVerificationInProgress = false
+            case "phone":
+                self.voiceVerificationInProgress = false
                 if response.success {
-                    self.voiceGuardianIdentity = response.guardianExternalUserId
-                    self.voiceGuardianUsername = Self.reflectedString(response, key: "guardianUsername")
-                    self.voiceGuardianDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
+                    self.voiceVerificationIdentity = response.guardianExternalUserId
+                    self.voiceVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
+                    self.voiceVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
                     let isVerified = response.bound ?? false
-                    self.voiceGuardianVerified = isVerified
+                    self.voiceVerificationVerified = isVerified
                     if isVerified {
-                        self.voiceGuardianInstruction = nil
+                        self.voiceVerificationInstruction = nil
                     } else if let instruction = response.instruction {
-                        self.voiceGuardianInstruction = instruction
+                        self.voiceVerificationInstruction = instruction
                     }
-                    self.voiceGuardianError = nil
-                    self.voiceGuardianAlreadyBound = false
+                    self.voiceVerificationError = nil
+                    self.voiceVerificationAlreadyBound = false
                 } else {
                     let isAlreadyBound = response.error == "already_bound"
-                    self.voiceGuardianAlreadyBound = isAlreadyBound
-                    self.voiceGuardianError = isAlreadyBound
+                    self.voiceVerificationAlreadyBound = isAlreadyBound
+                    self.voiceVerificationError = isAlreadyBound
                         ? "A guardian is already bound. Revoke it first or replace it."
                         : response.error
                 }
             case "slack":
-                self.slackGuardianVerificationInProgress = false
+                self.slackVerificationInProgress = false
                 if response.success {
-                    self.slackGuardianIdentity = response.guardianExternalUserId
-                    self.slackGuardianUsername = Self.reflectedString(response, key: "guardianUsername")
-                    self.slackGuardianDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
+                    self.slackVerificationIdentity = response.guardianExternalUserId
+                    self.slackVerificationUsername = Self.reflectedString(response, key: "guardianUsername")
+                    self.slackVerificationDisplayName = Self.reflectedString(response, key: "guardianDisplayName")
                     let isVerified = response.bound ?? false
-                    self.slackGuardianVerified = isVerified
+                    self.slackVerificationVerified = isVerified
                     if isVerified {
-                        self.slackGuardianInstruction = nil
+                        self.slackVerificationInstruction = nil
                     } else if let instruction = response.instruction {
-                        self.slackGuardianInstruction = instruction
+                        self.slackVerificationInstruction = instruction
                     }
-                    self.slackGuardianError = nil
-                    self.slackGuardianAlreadyBound = false
+                    self.slackVerificationError = nil
+                    self.slackVerificationAlreadyBound = false
                 } else {
                     let isAlreadyBound = response.error == "already_bound"
-                    self.slackGuardianAlreadyBound = isAlreadyBound
-                    self.slackGuardianError = isAlreadyBound
+                    self.slackVerificationAlreadyBound = isAlreadyBound
+                    self.slackVerificationError = isAlreadyBound
                         ? "A guardian is already bound. Revoke it first or replace it."
                         : response.error
                 }
@@ -659,12 +708,12 @@ public final class SettingsStore: ObservableObject {
             if response.success {
                 if response.verificationSessionId != nil {
                     self.applyOutboundResponseState(channel: channel, response: response)
-                    self.startGuardianStatusPolling(for: channel)
+                    self.startVerificationStatusPolling(for: channel)
                 } else if response.secret != nil || response.instruction != nil {
-                    self.startGuardianStatusPolling(for: channel)
+                    self.startVerificationStatusPolling(for: channel)
                 } else if response.bound == true {
                     self.clearOutboundState(for: channel)
-                    self.stopGuardianStatusPolling(for: channel)
+                    self.stopVerificationStatusPolling(for: channel)
                 }
             } else {
                 // Errors that indicate the outbound session is no longer valid
@@ -674,7 +723,7 @@ public final class SettingsStore: ObservableObject {
                 if let error = response.error, terminalErrors.contains(error) {
                     self.clearOutboundState(for: channel)
                 }
-                self.stopGuardianStatusPolling(for: channel)
+                self.stopVerificationStatusPolling(for: channel)
             }
         }
 
@@ -697,11 +746,11 @@ public final class SettingsStore: ObservableObject {
         // Refresh Twilio integration status on init
         refreshTwilioStatus()
 
-        // Refresh channel guardian status on init
-        refreshChannelGuardianStatus(channel: "telegram")
-        refreshChannelGuardianStatus(channel: "sms")
-        refreshChannelGuardianStatus(channel: "voice")
-        refreshChannelGuardianStatus(channel: "slack")
+        // Refresh channel verification status on init
+        refreshChannelVerificationStatus(channel: "telegram")
+        refreshChannelVerificationStatus(channel: "sms")
+        refreshChannelVerificationStatus(channel: "phone")
+        refreshChannelVerificationStatus(channel: "slack")
 
         // Ingress config is refreshed by onAppear in SettingsPanel,
         // not here, to avoid duplicate get requests whose
@@ -713,7 +762,7 @@ public final class SettingsStore: ObservableObject {
     func saveAPIKey(_ raw: String) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        APIKeyManager.setKey(trimmed)
+        APIKeyManager.setKey(trimmed, for: "anthropic")
         removeDeletionTombstone(type: "api_key", name: "anthropic")
         syncKeyToDaemon(provider: "anthropic", value: trimmed)
         hasKey = true
@@ -721,7 +770,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func clearAPIKey() {
-        APIKeyManager.deleteKey()
+        APIKeyManager.deleteKey(for: "anthropic")
         addDeletionTombstone(type: "api_key", name: "anthropic")
         deleteKeyFromDaemon(provider: "anthropic")
         hasKey = false
@@ -811,7 +860,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     func refreshAPIKeyState() {
-        let anthropicKey = APIKeyManager.getKey()
+        let anthropicKey = APIKeyManager.getKey(for: "anthropic")
         hasKey = anthropicKey != nil
         maskedKey = Self.maskKey(anthropicKey)
 
@@ -916,6 +965,7 @@ public final class SettingsStore: ObservableObject {
 
     func connectTwitter() {
         twitterAuthInProgress = true
+        twitterAuthErrorCode = nil
         twitterAuthError = nil
         do {
             guard let daemonClient else {
@@ -934,6 +984,130 @@ public final class SettingsStore: ObservableObject {
             try daemonClient?.send(TwitterIntegrationConfigRequestMessage(action: "disconnect"))
         } catch {
             log.error("Failed to send Twitter disconnect: \(error)")
+        }
+    }
+
+    // MARK: - Managed Twitter Actions
+
+    /// Resolves the platform assistant ID and organization ID for managed Twitter calls.
+    /// Returns nil if the required context is unavailable.
+    private func resolveManagedTwitterContext() async -> (platformAssistantId: String, organizationId: String, baseURL: String)? {
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
+            ?? LockfileAssistant.loadLatest()
+        guard let assistant else { return nil }
+
+        guard let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+              !orgId.isEmpty else { return nil }
+
+        // Resolve the current user ID from the auth session so self-hosted local
+        // assistants can look up their persisted platform assistant ID.
+        let userId: String? = try? await AuthService.shared.getSession().data?.user?.id
+
+        let platformId = PlatformAssistantIdResolver.resolve(
+            lockfileAssistantId: assistant.assistantId,
+            isManaged: assistant.isManaged,
+            organizationId: orgId,
+            userId: userId,
+            credentialStorage: KeychainCredentialStorage()
+        )
+        guard let platformId else { return nil }
+
+        // Always use the platform base URL for managed Twitter OAuth API calls.
+        // The assistant's runtimeUrl points to the local daemon endpoint for
+        // self-hosted assistants, which is not the platform API.
+        let baseURL = AuthService.shared.baseURL
+        return (platformAssistantId: platformId, organizationId: orgId, baseURL: baseURL)
+    }
+
+    /// Fetches managed Twitter connection status from the platform.
+    func refreshManagedTwitterStatus() {
+        Task { @MainActor in
+            guard let ctx = await resolveManagedTwitterContext() else {
+                managedTwitterConnected = false
+                managedTwitterAccountInfo = nil
+                return
+            }
+
+            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
+            do {
+                let connections = try await service.listConnections(
+                    platformAssistantId: ctx.platformAssistantId,
+                    organizationId: ctx.organizationId
+                )
+                if let connection = connections.first(where: { $0.provider == "twitter" && $0.connected }) {
+                    managedTwitterConnected = true
+                    managedTwitterAccountInfo = connection.accountLabel
+                } else {
+                    managedTwitterConnected = false
+                    managedTwitterAccountInfo = nil
+                }
+                managedTwitterError = nil
+            } catch {
+                log.error("Failed to fetch managed Twitter status: \(error)")
+                managedTwitterError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Starts the managed Twitter OAuth connect flow: calls the platform to get
+    /// an authorization URL and opens it in the default browser.
+    func connectManagedTwitter() {
+        managedTwitterConnectInProgress = true
+        managedTwitterError = nil
+        Task { @MainActor in
+            defer { managedTwitterConnectInProgress = false }
+
+            guard let ctx = await resolveManagedTwitterContext() else {
+                managedTwitterError = "Unable to resolve platform assistant. Check your account settings."
+                return
+            }
+
+            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
+            do {
+                let response = try await service.startTwitterConnect(
+                    platformAssistantId: ctx.platformAssistantId,
+                    organizationId: ctx.organizationId
+                )
+                if let url = URL(string: response.connectUrl) {
+                    NSWorkspace.shared.open(url)
+                } else {
+                    managedTwitterError = "Invalid authorization URL received."
+                }
+            } catch {
+                log.error("Failed to start managed Twitter connect: \(error)")
+                managedTwitterError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Disconnects the managed Twitter connection via the platform API.
+    func disconnectManagedTwitter() {
+        managedTwitterConnectInProgress = true
+        managedTwitterError = nil
+        Task { @MainActor in
+            defer { managedTwitterConnectInProgress = false }
+
+            guard let ctx = await resolveManagedTwitterContext() else {
+                managedTwitterError = "Unable to resolve platform assistant. Check your account settings."
+                return
+            }
+
+            let service = PlatformTwitterOAuthService(baseURL: ctx.baseURL)
+            do {
+                _ = try await service.disconnectTwitter(
+                    platformAssistantId: ctx.platformAssistantId,
+                    organizationId: ctx.organizationId
+                )
+                managedTwitterConnected = false
+                managedTwitterAccountInfo = nil
+                managedTwitterError = nil
+                // Refresh to confirm
+                refreshManagedTwitterStatus()
+            } catch {
+                log.error("Failed to disconnect managed Twitter: \(error)")
+                managedTwitterError = error.localizedDescription
+            }
         }
     }
 
@@ -1157,7 +1331,7 @@ public final class SettingsStore: ObservableObject {
             }
 
             let apiKeyProviders: [(String, String?)] = [
-                ("anthropic", APIKeyManager.getKey()),
+                ("anthropic", APIKeyManager.getKey(for: "anthropic")),
                 ("brave", APIKeyManager.getKey(for: "brave")),
                 ("perplexity", APIKeyManager.getKey(for: "perplexity")),
                 ("gemini", APIKeyManager.getKey(for: "gemini")),
@@ -1484,140 +1658,140 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Channel Guardian Actions
+    // MARK: - Channel Verification Actions
 
-    func refreshChannelGuardianStatus(channel: String) {
+    func refreshChannelVerificationStatus(channel: String) {
         do {
-            try daemonClient?.sendGuardianVerification(action: "status", channel: channel)
+            try daemonClient?.sendChannelVerificationSession(action: "status", channel: channel)
         } catch {
-            log.error("Failed to refresh \(channel) guardian status: \(error)")
+            log.error("Failed to refresh \(channel) verification status: \(error)")
         }
     }
 
-    func startChannelGuardianVerification(channel: String, rebind: Bool = false) {
-        stopGuardianStatusPolling(for: channel)
+    func startChannelVerification(channel: String, rebind: Bool = false) {
+        stopVerificationStatusPolling(for: channel)
         switch channel {
         case "telegram":
-            telegramGuardianVerificationInProgress = true
-            telegramGuardianError = nil
-            telegramGuardianAlreadyBound = false
-            telegramGuardianInstruction = nil
+            telegramVerificationInProgress = true
+            telegramVerificationError = nil
+            telegramVerificationAlreadyBound = false
+            telegramVerificationInstruction = nil
         case "sms":
-            smsGuardianVerificationInProgress = true
-            smsGuardianError = nil
-            smsGuardianAlreadyBound = false
-            smsGuardianInstruction = nil
-        case "voice":
-            voiceGuardianVerificationInProgress = true
-            voiceGuardianError = nil
-            voiceGuardianAlreadyBound = false
-            voiceGuardianInstruction = nil
+            smsVerificationInProgress = true
+            smsVerificationError = nil
+            smsVerificationAlreadyBound = false
+            smsVerificationInstruction = nil
+        case "phone":
+            voiceVerificationInProgress = true
+            voiceVerificationError = nil
+            voiceVerificationAlreadyBound = false
+            voiceVerificationInstruction = nil
         case "slack":
-            slackGuardianVerificationInProgress = true
-            slackGuardianError = nil
-            slackGuardianAlreadyBound = false
-            slackGuardianInstruction = nil
+            slackVerificationInProgress = true
+            slackVerificationError = nil
+            slackVerificationAlreadyBound = false
+            slackVerificationInstruction = nil
         default:
             return
         }
         do {
             guard let daemonClient else {
-                clearGuardianChallengePending(for: channel)
+                clearVerificationSessionPending(for: channel)
                 switch channel {
                 case "telegram":
-                    telegramGuardianVerificationInProgress = false
-                    telegramGuardianError = "Daemon is not connected. Reconnect and try again."
+                    telegramVerificationInProgress = false
+                    telegramVerificationError = "Daemon is not connected. Reconnect and try again."
                 case "sms":
-                    smsGuardianVerificationInProgress = false
-                    smsGuardianError = "Daemon is not connected. Reconnect and try again."
-                case "voice":
-                    voiceGuardianVerificationInProgress = false
-                    voiceGuardianError = "Daemon is not connected. Reconnect and try again."
+                    smsVerificationInProgress = false
+                    smsVerificationError = "Daemon is not connected. Reconnect and try again."
+                case "phone":
+                    voiceVerificationInProgress = false
+                    voiceVerificationError = "Daemon is not connected. Reconnect and try again."
                 case "slack":
-                    slackGuardianVerificationInProgress = false
-                    slackGuardianError = "Daemon is not connected. Reconnect and try again."
+                    slackVerificationInProgress = false
+                    slackVerificationError = "Daemon is not connected. Reconnect and try again."
                 default:
                     break
                 }
                 return
             }
-            pendingGuardianChallengeChannel = channel
-            armGuardianChallengeTimeout(for: channel)
-            try daemonClient.sendGuardianVerification(
-                action: "create_challenge",
+            pendingVerificationSessionChannel = channel
+            armVerificationSessionTimeout(for: channel)
+            try daemonClient.sendChannelVerificationSession(
+                action: "create_session",
                 channel: channel,
                 rebind: rebind ? true : nil
             )
         } catch {
-            log.error("Failed to start \(channel) guardian verification: \(error)")
-            clearGuardianChallengePending(for: channel)
+            log.error("Failed to start \(channel) channel verification: \(error)")
+            clearVerificationSessionPending(for: channel)
             switch channel {
             case "telegram":
-                telegramGuardianVerificationInProgress = false
-                telegramGuardianError = "Failed to start verification. Try again."
+                telegramVerificationInProgress = false
+                telegramVerificationError = "Failed to start verification. Try again."
             case "sms":
-                smsGuardianVerificationInProgress = false
-                smsGuardianError = "Failed to start verification. Try again."
-            case "voice":
-                voiceGuardianVerificationInProgress = false
-                voiceGuardianError = "Failed to start verification. Try again."
+                smsVerificationInProgress = false
+                smsVerificationError = "Failed to start verification. Try again."
+            case "phone":
+                voiceVerificationInProgress = false
+                voiceVerificationError = "Failed to start verification. Try again."
             case "slack":
-                slackGuardianVerificationInProgress = false
-                slackGuardianError = "Failed to start verification. Try again."
+                slackVerificationInProgress = false
+                slackVerificationError = "Failed to start verification. Try again."
             default:
                 break
             }
         }
     }
 
-    func cancelGuardianChallenge(channel: String) {
-        stopGuardianStatusPolling(for: channel)
-        clearGuardianChallengePending(for: channel)
+    func cancelVerificationSession(channel: String) {
+        stopVerificationStatusPolling(for: channel)
+        clearVerificationSessionPending(for: channel)
         switch channel {
         case "telegram":
-            telegramGuardianVerificationInProgress = false
-            telegramGuardianInstruction = nil
+            telegramVerificationInProgress = false
+            telegramVerificationInstruction = nil
         case "sms":
-            smsGuardianVerificationInProgress = false
-            smsGuardianInstruction = nil
-        case "voice":
-            voiceGuardianVerificationInProgress = false
-            voiceGuardianInstruction = nil
+            smsVerificationInProgress = false
+            smsVerificationInstruction = nil
+        case "phone":
+            voiceVerificationInProgress = false
+            voiceVerificationInstruction = nil
         case "slack":
-            slackGuardianVerificationInProgress = false
-            slackGuardianInstruction = nil
+            slackVerificationInProgress = false
+            slackVerificationInstruction = nil
         default:
             break
         }
-        // Invalidate the pending challenge token on the backend so it can't be used after cancellation
+        // Invalidate the pending session on the backend so it can't be used after cancellation
         do {
-            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel)
+            try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
         } catch {
-            log.error("Failed to revoke \(channel) guardian challenge on cancel: \(error)")
+            log.error("Failed to revoke \(channel) verification session on cancel: \(error)")
         }
     }
 
-    func revokeChannelGuardian(channel: String) {
-        stopGuardianStatusPolling(for: channel)
-        // Eagerly clear instruction so the "Verify Guardian" button reappears
+    func revokeChannelVerification(channel: String) {
+        stopVerificationStatusPolling(for: channel)
+        // Eagerly clear instruction so the "Verify" button reappears
         // immediately instead of waiting for the daemon's response (which
         // looks identical to a status poll and won't clear it).
         switch channel {
         case "telegram":
-            telegramGuardianInstruction = nil
+            telegramVerificationInstruction = nil
         case "sms":
-            smsGuardianInstruction = nil
-        case "voice":
-            voiceGuardianInstruction = nil
+            smsVerificationInstruction = nil
+        case "phone":
+            voiceVerificationInstruction = nil
         case "slack":
-            slackGuardianInstruction = nil
+            slackVerificationInstruction = nil
         default:
             break
         }
         do {
-            try daemonClient?.sendGuardianVerification(action: "revoke", channel: channel)
+            try daemonClient?.sendChannelVerificationSession(action: "revoke", channel: channel)
         } catch {
-            log.error("Failed to revoke \(channel) guardian: \(error)")
+            log.error("Failed to revoke \(channel) verification: \(error)")
         }
     }
 
@@ -1643,7 +1817,7 @@ public final class SettingsStore: ObservableObject {
                 if httpResp.statusCode == 200 {
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let contactsList = json["contacts"] as? [[String: Any]] {
-                        let guardianId = self.telegramGuardianIdentity
+                        let verifiedIdentityId = self.telegramVerificationIdentity
                         var approvedMembers: [ApprovedMember] = []
                         for contact in contactsList {
                             let displayName = contact["displayName"] as? String
@@ -1655,8 +1829,8 @@ public final class SettingsStore: ObservableObject {
                                       status == "active",
                                       let channelId = channel["id"] as? String else { continue }
                                 let externalUserId = channel["externalUserId"] as? String
-                                // Skip the guardian — they're already shown in the Guardian Verification row
-                                if let guardianId, let externalUserId, externalUserId == guardianId {
+                                // Skip the verified identity — they're already shown in the Channel Verification row
+                                if let verifiedIdentityId, let externalUserId, externalUserId == verifiedIdentityId {
                                     continue
                                 }
                                 approvedMembers.append(ApprovedMember(
@@ -1725,7 +1899,7 @@ public final class SettingsStore: ObservableObject {
                 if httpResp.statusCode == 200 {
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                        let contactsList = json["contacts"] as? [[String: Any]] {
-                        let guardianId = self.slackGuardianIdentity
+                        let verifiedIdentityId = self.slackVerificationIdentity
                         var approvedMembers: [ApprovedMember] = []
                         for contact in contactsList {
                             let displayName = contact["displayName"] as? String
@@ -1737,8 +1911,8 @@ public final class SettingsStore: ObservableObject {
                                       status == "active",
                                       let channelId = channel["id"] as? String else { continue }
                                 let externalUserId = channel["externalUserId"] as? String
-                                // Skip the guardian — they're already shown in the Guardian Verification row
-                                if let guardianId, let externalUserId, externalUserId == guardianId {
+                                // Skip the verified identity — they're already shown in the Channel Verification row
+                                if let verifiedIdentityId, let externalUserId, externalUserId == verifiedIdentityId {
                                     continue
                                 }
                                 approvedMembers.append(ApprovedMember(
@@ -1787,28 +1961,28 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    // MARK: - Outbound Guardian Actions
+    // MARK: - Outbound Verification Actions
 
-    func startOutboundGuardianVerification(channel: String, destination: String) {
+    func startOutboundVerification(channel: String, destination: String) {
         clearOutboundState(for: channel)
-        stopGuardianStatusPolling(for: channel)
+        stopVerificationStatusPolling(for: channel)
         switch channel {
         case "telegram":
-            telegramGuardianVerificationInProgress = true
-            telegramGuardianError = nil
-            telegramGuardianAlreadyBound = false
+            telegramVerificationInProgress = true
+            telegramVerificationError = nil
+            telegramVerificationAlreadyBound = false
         case "sms":
-            smsGuardianVerificationInProgress = true
-            smsGuardianError = nil
-            smsGuardianAlreadyBound = false
-        case "voice":
-            voiceGuardianVerificationInProgress = true
-            voiceGuardianError = nil
-            voiceGuardianAlreadyBound = false
+            smsVerificationInProgress = true
+            smsVerificationError = nil
+            smsVerificationAlreadyBound = false
+        case "phone":
+            voiceVerificationInProgress = true
+            voiceVerificationError = nil
+            voiceVerificationAlreadyBound = false
         case "slack":
-            slackGuardianVerificationInProgress = true
-            slackGuardianError = nil
-            slackGuardianAlreadyBound = false
+            slackVerificationInProgress = true
+            slackVerificationError = nil
+            slackVerificationAlreadyBound = false
         default:
             return
         }
@@ -1816,81 +1990,81 @@ public final class SettingsStore: ObservableObject {
             guard let daemonClient else {
                 switch channel {
                 case "telegram":
-                    telegramGuardianVerificationInProgress = false
-                    telegramGuardianError = "Daemon is not connected. Reconnect and try again."
+                    telegramVerificationInProgress = false
+                    telegramVerificationError = "Daemon is not connected. Reconnect and try again."
                 case "sms":
-                    smsGuardianVerificationInProgress = false
-                    smsGuardianError = "Daemon is not connected. Reconnect and try again."
-                case "voice":
-                    voiceGuardianVerificationInProgress = false
-                    voiceGuardianError = "Daemon is not connected. Reconnect and try again."
+                    smsVerificationInProgress = false
+                    smsVerificationError = "Daemon is not connected. Reconnect and try again."
+                case "phone":
+                    voiceVerificationInProgress = false
+                    voiceVerificationError = "Daemon is not connected. Reconnect and try again."
                 case "slack":
-                    slackGuardianVerificationInProgress = false
-                    slackGuardianError = "Daemon is not connected. Reconnect and try again."
+                    slackVerificationInProgress = false
+                    slackVerificationError = "Daemon is not connected. Reconnect and try again."
                 default:
                     break
                 }
                 return
             }
-            try daemonClient.sendGuardianVerification(
-                action: "start_outbound",
+            try daemonClient.sendChannelVerificationSession(
+                action: "create_session",
                 channel: channel,
                 destination: destination
             )
         } catch {
-            log.error("Failed to start outbound \(channel) guardian verification: \(error)")
+            log.error("Failed to start outbound \(channel) channel verification: \(error)")
             switch channel {
             case "telegram":
-                telegramGuardianVerificationInProgress = false
-                telegramGuardianError = "Failed to start verification. Try again."
+                telegramVerificationInProgress = false
+                telegramVerificationError = "Failed to start verification. Try again."
             case "sms":
-                smsGuardianVerificationInProgress = false
-                smsGuardianError = "Failed to start verification. Try again."
-            case "voice":
-                voiceGuardianVerificationInProgress = false
-                voiceGuardianError = "Failed to start verification. Try again."
+                smsVerificationInProgress = false
+                smsVerificationError = "Failed to start verification. Try again."
+            case "phone":
+                voiceVerificationInProgress = false
+                voiceVerificationError = "Failed to start verification. Try again."
             case "slack":
-                slackGuardianVerificationInProgress = false
-                slackGuardianError = "Failed to start verification. Try again."
+                slackVerificationInProgress = false
+                slackVerificationError = "Failed to start verification. Try again."
             default:
                 break
             }
         }
     }
 
-    func resendOutboundGuardian(channel: String) {
+    func resendOutboundVerification(channel: String) {
         do {
-            try daemonClient?.sendGuardianVerification(
-                action: "resend_outbound",
+            try daemonClient?.sendChannelVerificationSession(
+                action: "resend_session",
                 channel: channel
             )
         } catch {
-            log.error("Failed to resend outbound \(channel) guardian verification: \(error)")
+            log.error("Failed to resend outbound \(channel) channel verification: \(error)")
         }
     }
 
-    func cancelOutboundGuardian(channel: String) {
-        stopGuardianStatusPolling(for: channel)
+    func cancelOutboundVerification(channel: String) {
+        stopVerificationStatusPolling(for: channel)
         clearOutboundState(for: channel)
         switch channel {
         case "telegram":
-            telegramGuardianVerificationInProgress = false
+            telegramVerificationInProgress = false
         case "sms":
-            smsGuardianVerificationInProgress = false
-        case "voice":
-            voiceGuardianVerificationInProgress = false
+            smsVerificationInProgress = false
+        case "phone":
+            voiceVerificationInProgress = false
         case "slack":
-            slackGuardianVerificationInProgress = false
+            slackVerificationInProgress = false
         default:
             break
         }
         do {
-            try daemonClient?.sendGuardianVerification(
-                action: "cancel_outbound",
+            try daemonClient?.sendChannelVerificationSession(
+                action: "cancel_session",
                 channel: channel
             )
         } catch {
-            log.error("Failed to cancel outbound \(channel) guardian verification: \(error)")
+            log.error("Failed to cancel outbound \(channel) channel verification: \(error)")
         }
     }
 
@@ -1909,7 +2083,7 @@ public final class SettingsStore: ObservableObject {
             smsOutboundNextResendAt = nil
             smsOutboundSendCount = 0
             smsOutboundCode = nil
-        case "voice":
+        case "phone":
             voiceOutboundSessionId = nil
             voiceOutboundExpiresAt = nil
             voiceOutboundNextResendAt = nil
@@ -1926,7 +2100,7 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    private func applyOutboundResponseState(channel: String, response: GuardianVerificationResponseMessage) {
+    private func applyOutboundResponseState(channel: String, response: ChannelVerificationSessionResponseMessage) {
         let sessionId = response.verificationSessionId
         // Only update fields when the response includes them; partial payloads (e.g. resend
         // success) omit fields like expiresAt, sendCount, and nextResendAt. Overwriting with
@@ -1975,7 +2149,7 @@ public final class SettingsStore: ObservableObject {
             if let nextResendAt { smsOutboundNextResendAt = nextResendAt }
             if let sendCount { smsOutboundSendCount = sendCount }
             if let secret { smsOutboundCode = secret }
-        case "voice":
+        case "phone":
             if sessionId != voiceOutboundSessionId {
                 voiceOutboundNextResendAt = nil
                 voiceOutboundSendCount = 0
@@ -2002,19 +2176,19 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    private func resolveGuardianResponseChannel(_ channel: String?) -> String? {
+    private func resolveVerificationResponseChannel(_ channel: String?) -> String? {
         if let channel {
             return channel
         }
-        if let pendingGuardianChallengeChannel {
-            return pendingGuardianChallengeChannel
+        if let pendingVerificationSessionChannel {
+            return pendingVerificationSessionChannel
         }
         // Disambiguate when exactly one channel has verification in progress
         let inProgressChannels = [
-            ("telegram", telegramGuardianVerificationInProgress),
-            ("sms", smsGuardianVerificationInProgress),
-            ("voice", voiceGuardianVerificationInProgress),
-            ("slack", slackGuardianVerificationInProgress),
+            ("telegram", telegramVerificationInProgress),
+            ("sms", smsVerificationInProgress),
+            ("phone", voiceVerificationInProgress),
+            ("slack", slackVerificationInProgress),
         ].filter(\.1)
         if inProgressChannels.count == 1 {
             return inProgressChannels.first?.0
@@ -2022,93 +2196,93 @@ public final class SettingsStore: ObservableObject {
         return nil
     }
 
-    private func clearGuardianChallengePending(for channel: String) {
-        if pendingGuardianChallengeChannel == channel {
-            pendingGuardianChallengeChannel = nil
-            guardianChallengeTimeoutWorkItem?.cancel()
-            guardianChallengeTimeoutWorkItem = nil
+    private func clearVerificationSessionPending(for channel: String) {
+        if pendingVerificationSessionChannel == channel {
+            pendingVerificationSessionChannel = nil
+            verificationSessionTimeoutWorkItem?.cancel()
+            verificationSessionTimeoutWorkItem = nil
         }
-        // Clear stale instruction so the "Verify Guardian" button reappears
-        // when a challenge is no longer active (timeout, revoke, or error).
+        // Clear stale instruction so the "Verify" button reappears
+        // when a session is no longer active (timeout, revoke, or error).
         switch channel {
         case "telegram":
-            telegramGuardianInstruction = nil
+            telegramVerificationInstruction = nil
         case "sms":
-            smsGuardianInstruction = nil
-        case "voice":
-            voiceGuardianInstruction = nil
+            smsVerificationInstruction = nil
+        case "phone":
+            voiceVerificationInstruction = nil
         case "slack":
-            slackGuardianInstruction = nil
+            slackVerificationInstruction = nil
         default:
             break
         }
     }
 
-    private func armGuardianChallengeTimeout(for channel: String) {
-        guardianChallengeTimeoutWorkItem?.cancel()
+    private func armVerificationSessionTimeout(for channel: String) {
+        verificationSessionTimeoutWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard self.pendingGuardianChallengeChannel == channel else { return }
-            self.pendingGuardianChallengeChannel = nil
+            guard self.pendingVerificationSessionChannel == channel else { return }
+            self.pendingVerificationSessionChannel = nil
             switch channel {
             case "telegram":
-                self.telegramGuardianVerificationInProgress = false
-                self.telegramGuardianInstruction = nil
-                if self.telegramGuardianError == nil {
-                    self.telegramGuardianError = "Timed out waiting for verification instructions. Try again."
+                self.telegramVerificationInProgress = false
+                self.telegramVerificationInstruction = nil
+                if self.telegramVerificationError == nil {
+                    self.telegramVerificationError = "Timed out waiting for verification instructions. Try again."
                 }
             case "sms":
-                self.smsGuardianVerificationInProgress = false
-                self.smsGuardianInstruction = nil
-                if self.smsGuardianError == nil {
-                    self.smsGuardianError = "Timed out waiting for verification instructions. Try again."
+                self.smsVerificationInProgress = false
+                self.smsVerificationInstruction = nil
+                if self.smsVerificationError == nil {
+                    self.smsVerificationError = "Timed out waiting for verification instructions. Try again."
                 }
-            case "voice":
-                self.voiceGuardianVerificationInProgress = false
-                self.voiceGuardianInstruction = nil
-                if self.voiceGuardianError == nil {
-                    self.voiceGuardianError = "Timed out waiting for verification instructions. Try again."
+            case "phone":
+                self.voiceVerificationInProgress = false
+                self.voiceVerificationInstruction = nil
+                if self.voiceVerificationError == nil {
+                    self.voiceVerificationError = "Timed out waiting for verification instructions. Try again."
                 }
             case "slack":
-                self.slackGuardianVerificationInProgress = false
-                self.slackGuardianInstruction = nil
-                if self.slackGuardianError == nil {
-                    self.slackGuardianError = "Timed out waiting for verification instructions. Try again."
+                self.slackVerificationInProgress = false
+                self.slackVerificationInstruction = nil
+                if self.slackVerificationError == nil {
+                    self.slackVerificationError = "Timed out waiting for verification instructions. Try again."
                 }
             default:
                 break
             }
         }
-        guardianChallengeTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + guardianChallengeTimeoutDuration, execute: workItem)
+        verificationSessionTimeoutWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + verificationSessionTimeoutDuration, execute: workItem)
     }
 
-    private func startGuardianStatusPolling(for channel: String) {
-        guard channel == "telegram" || channel == "sms" || channel == "voice" || channel == "slack" else { return }
-        stopGuardianStatusPolling(for: channel)
-        guardianStatusPollingDeadlines[channel] = Date().addingTimeInterval(guardianStatusPollWindow)
-        scheduleGuardianStatusPoll(for: channel, delay: guardianStatusPollInterval)
+    private func startVerificationStatusPolling(for channel: String) {
+        guard channel == "telegram" || channel == "sms" || channel == "phone" || channel == "slack" else { return }
+        stopVerificationStatusPolling(for: channel)
+        verificationStatusPollingDeadlines[channel] = Date().addingTimeInterval(verificationStatusPollWindow)
+        scheduleVerificationStatusPoll(for: channel, delay: verificationStatusPollInterval)
     }
 
-    private func stopGuardianStatusPolling(for channel: String) {
-        guardianStatusPollingWorkItems[channel]?.cancel()
-        guardianStatusPollingWorkItems[channel] = nil
-        guardianStatusPollingDeadlines[channel] = nil
+    private func stopVerificationStatusPolling(for channel: String) {
+        verificationStatusPollingWorkItems[channel]?.cancel()
+        verificationStatusPollingWorkItems[channel] = nil
+        verificationStatusPollingDeadlines[channel] = nil
     }
 
-    private func scheduleGuardianStatusPoll(for channel: String, delay: TimeInterval) {
+    private func scheduleVerificationStatusPoll(for channel: String, delay: TimeInterval) {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard let deadline = self.guardianStatusPollingDeadlines[channel] else { return }
+            guard let deadline = self.verificationStatusPollingDeadlines[channel] else { return }
             if Date() >= deadline {
-                self.stopGuardianStatusPolling(for: channel)
+                self.stopVerificationStatusPolling(for: channel)
                 return
             }
-            self.refreshChannelGuardianStatus(channel: channel)
-            self.scheduleGuardianStatusPoll(for: channel, delay: self.guardianStatusPollInterval)
+            self.refreshChannelVerificationStatus(channel: channel)
+            self.scheduleVerificationStatusPoll(for: channel, delay: self.verificationStatusPollInterval)
         }
-        guardianStatusPollingWorkItems[channel]?.cancel()
-        guardianStatusPollingWorkItems[channel] = workItem
+        verificationStatusPollingWorkItems[channel]?.cancel()
+        verificationStatusPollingWorkItems[channel] = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 

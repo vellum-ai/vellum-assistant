@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import type * as net from "node:net";
 
 import { autoNavigate } from "../tools/browser/auto-navigate.js";
 import {
@@ -20,8 +19,8 @@ import {
   watchSessions,
 } from "../tools/watch/watch-state.js";
 import { getLogger } from "../util/logger.js";
-import type { HandlerContext } from "./handlers.js";
-import type { RideShotgunStart, RideShotgunStop } from "./ipc-protocol.js";
+import type { HandlerContext } from "./handlers/shared.js";
+import type { RideShotgunStart, RideShotgunStop } from "./message-protocol.js";
 import { generateSummary, lastSummaryBySession } from "./watch-handler.js";
 
 const log = getLogger("ride-shotgun-handler");
@@ -134,7 +133,6 @@ async function completeSession(session: WatchSession): Promise<void> {
 
 export async function handleRideShotgunStart(
   msg: RideShotgunStart,
-  socket: net.Socket,
   ctx: HandlerContext,
 ): Promise<void> {
   const watchId = randomUUID();
@@ -224,7 +222,7 @@ export async function handleRideShotgunStart(
           { err, watchId },
           "Failed to ensure Chrome with CDP — cannot start recording",
         );
-        ctx.send(socket, {
+        ctx.send({
           type: "ride_shotgun_error",
           watchId,
           sessionId,
@@ -291,7 +289,7 @@ export async function handleRideShotgunStart(
                   { watchId, currentCount },
                   "Activity resumed — clearing idleHint",
                 );
-                ctx.send(socket, {
+                ctx.send({
                   type: "ride_shotgun_progress",
                   watchId,
                   message: `Recording network traffic...`,
@@ -315,7 +313,7 @@ export async function handleRideShotgunStart(
               );
             }
 
-            ctx.send(socket, {
+            ctx.send({
               type: "ride_shotgun_progress",
               watchId,
               message: `Recording network traffic...`,
@@ -374,7 +372,7 @@ export async function handleRideShotgunStart(
                 // Send progress to connected client
                 if (progress.type === "visiting" && progress.url) {
                   const shortUrl = progress.url.replace(/^https?:\/\//, "");
-                  ctx.send(socket, {
+                  ctx.send({
                     type: "ride_shotgun_progress",
                     watchId,
                     message: `[${progress.pageNumber || "?"}] ${shortUrl}`,
@@ -423,7 +421,7 @@ export async function handleRideShotgunStart(
               { err, watchId },
               "Failed to start network recording after 10 attempts",
             );
-            ctx.send(socket, {
+            ctx.send({
               type: "ride_shotgun_error",
               watchId,
               sessionId,
@@ -466,12 +464,11 @@ export async function handleRideShotgunStart(
           sessionId,
           observationCount,
           summaryLength: summary.length,
-          socketDestroyed: socket.destroyed,
         },
         "Completion notifier firing — sending ride_shotgun_result to client",
       );
 
-      ctx.send(socket, {
+      ctx.send({
         type: "ride_shotgun_result",
         sessionId,
         watchId,
@@ -494,7 +491,7 @@ export async function handleRideShotgunStart(
   fireWatchStartNotifier(sessionId, session);
 
   // Send watch_started so the Swift client knows the watchId/sessionId
-  ctx.send(socket, {
+  ctx.send({
     type: "watch_started",
     sessionId,
     watchId,
@@ -510,7 +507,6 @@ export async function handleRideShotgunStart(
 
 export async function handleRideShotgunStop(
   msg: RideShotgunStop,
-  _socket: net.Socket,
   _ctx: HandlerContext,
 ): Promise<void> {
   const { watchId } = msg;
@@ -542,13 +538,47 @@ async function finalizeLearnRecording(
     const networkEntries = recorder ? await recorder.stop() : [];
     activeRecorders.delete(watchId);
 
+    // Save cookies to the encrypted credential store (keyed by target domain)
+    // so they don't need to be persisted in the plaintext recording file.
+    let cookiesStoredToCredStore = false;
+    if (session.targetDomain && cookies.length > 0) {
+      const { setSecureKeyAsync } = await import("../security/secure-keys.js");
+      const { upsertCredentialMetadata } =
+        await import("../tools/credentials/metadata-store.js");
+
+      const service = session.targetDomain;
+      const field = "session:cookies";
+      const storageKey = `credential:${service}:${field}`;
+      const stored = await setSecureKeyAsync(
+        storageKey,
+        JSON.stringify(cookies),
+      );
+      if (stored) {
+        cookiesStoredToCredStore = true;
+        try {
+          upsertCredentialMetadata(service, field, {});
+        } catch {
+          // Non-critical: metadata upsert is best-effort
+        }
+        log.info(
+          { targetDomain: service, cookieCount: cookies.length },
+          "Cookies saved to credential store",
+        );
+      } else {
+        log.warn(
+          { targetDomain: service },
+          "Failed to save cookies to credential store — preserving in recording",
+        );
+      }
+    }
+
     const recording: SessionRecording = {
       id: recordingId,
       startedAt: session.startedAt,
       endedAt: Date.now(),
       targetDomain: session.targetDomain,
       networkEntries,
-      cookies,
+      cookies: cookiesStoredToCredStore ? [] : cookies, // Only strip cookies if credential store write succeeded
       observations: session.observations.map((obs) => ({
         ocrText: obs.ocrText,
         appName: obs.appName,

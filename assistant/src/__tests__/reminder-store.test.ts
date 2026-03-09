@@ -66,15 +66,15 @@ describe("reminder-store", () => {
       fireAt: Date.now() + 60_000,
       mode: "notify",
       routingIntent: "all_channels",
-      routingHints: { preferred: ["telegram", "sms"] },
+      routingHints: { preferred: ["telegram", "slack"] },
     });
 
     expect(r.routingIntent).toBe("all_channels");
-    expect(r.routingHints).toEqual({ preferred: ["telegram", "sms"] });
+    expect(r.routingHints).toEqual({ preferred: ["telegram", "slack"] });
 
     const fetched = getReminder(r.id);
     expect(fetched!.routingIntent).toBe("all_channels");
-    expect(fetched!.routingHints).toEqual({ preferred: ["telegram", "sms"] });
+    expect(fetched!.routingHints).toEqual({ preferred: ["telegram", "slack"] });
   });
 
   test("insertReminder defaults routingIntent to all_channels when omitted", () => {

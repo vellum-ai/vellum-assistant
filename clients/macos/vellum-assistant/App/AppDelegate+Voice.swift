@@ -110,10 +110,9 @@ extension AppDelegate {
                 )
                 let quickInputActive = self?.quickInputWindow?.isVisible ?? false
                 let isDictation = self?.voiceInput?.currentMode == .dictation
-                if !mainWindowActive && !hasActiveConvo && !quickInputActive && !isDictation {
-                    let window = VoiceTranscriptionWindow(
-                        voiceModeManager: self?.mainWindow?.voiceModeManager
-                    )
+                if !mainWindowActive && !hasActiveConvo && !quickInputActive && !isDictation,
+                   let manager = self?.mainWindow?.voiceModeManager {
+                    let window = VoiceTranscriptionWindow(voiceModeManager: manager)
                     window.show()
                     self?.voiceTranscriptionWindow = window
                 }

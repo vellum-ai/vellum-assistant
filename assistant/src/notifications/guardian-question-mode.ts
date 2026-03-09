@@ -143,7 +143,6 @@ export type GuardianQuestionPayload =
 export interface GuardianQuestionModeResolution {
   mode: GuardianQuestionInstructionMode;
   requestKind: GuardianQuestionRequestKind | null;
-  legacyFallbackUsed: boolean;
 }
 
 function nonEmptyString(value: unknown): string | null {
@@ -427,8 +426,10 @@ export function stripConflictingGuardianRequestInstructions(
 /**
  * Resolve guardian reply instruction mode from request kind.
  *
- * Backward compatibility: if requestKind is missing/unknown, fall back to
- * toolName presence so previously persisted payloads keep working.
+ * Requires a valid requestKind in the payload. When the payload cannot be
+ * fully parsed as a typed guardian question, falls back to field-level
+ * requestKind resolution. If requestKind is missing or unknown, defaults
+ * to "approval" mode.
  */
 export function resolveGuardianQuestionInstructionMode(
   payload: Record<string, unknown>,
@@ -444,7 +445,6 @@ export function resolveGuardianQuestionInstructionMode(
         parsedToolName,
       ),
       requestKind: parsed.requestKind,
-      legacyFallbackUsed: false,
     };
   }
 
@@ -456,14 +456,11 @@ export function resolveGuardianQuestionInstructionMode(
     return {
       mode: requestKindResolution.mode,
       requestKind: requestKindResolution.requestKind,
-      legacyFallbackUsed: true,
     };
   }
 
-  const toolName = nonEmptyString(payload.toolName);
   return {
-    mode: toolName ? "approval" : "answer",
+    mode: "approval",
     requestKind: null,
-    legacyFallbackUsed: true,
   };
 }

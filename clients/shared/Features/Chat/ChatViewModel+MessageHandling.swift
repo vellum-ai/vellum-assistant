@@ -484,15 +484,12 @@ extension ChatViewModel {
         case .sessionInfo(let info):
             // Only claim this session_info if:
             // 1. We don't have a session yet, AND
-            // 2. The correlation ID matches our bootstrap request (if we sent one).
-            //    Session info without a correlation ID is accepted when we have no
-            //    bootstrap correlation (backwards compatibility with older daemons).
+            // 2. The correlation ID matches our bootstrap request.
             if sessionId == nil {
-                if let expected = bootstrapCorrelationId {
-                    guard info.correlationId == expected else {
-                        // This session_info belongs to a different ChatViewModel's request.
-                        break
-                    }
+                guard let expected = bootstrapCorrelationId,
+                      info.correlationId == expected else {
+                    // No pending bootstrap or correlation mismatch — not ours.
+                    break
                 }
 
                 sessionId = info.sessionId
@@ -1394,16 +1391,7 @@ extension ChatViewModel {
                 surfaceRef: SurfaceRef(from: msg, surface: surface)
             )
 
-            // If messageId is provided, attach to that specific message (rarely used now that
-            // surfaces come directly in history_response, but kept for backwards compatibility)
-            if let messageId = msg.messageId,
-               let messageUUID = UUID(uuidString: messageId),
-               let index = messages.firstIndex(where: { $0.id == messageUUID }) {
-                log.info("Attaching surface to message by messageId: \(messageId)")
-                let surfIdx = messages[index].inlineSurfaces.count
-                messages[index].inlineSurfaces.append(inlineSurface)
-                messages[index].contentOrder.append(.surface(surfIdx))
-            } else if let existingId = currentAssistantMessageId,
+            if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 log.info("Attaching surface to currentAssistantMessage: \(existingId)")
                 let surfIdx = messages[index].inlineSurfaces.count

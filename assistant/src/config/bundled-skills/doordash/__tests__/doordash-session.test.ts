@@ -10,14 +10,10 @@ import {
   importFromRecording,
 } from "../lib/session.js";
 
-// Override getDataDir to use a temp directory during tests
+// Override VELLUM_DATA_DIR to use a temp directory during tests.
+// session.ts reads process.env.VELLUM_DATA_DIR directly.
 const TEST_DIR = join(tmpdir(), `vellum-dd-test-${process.pid}`);
 let originalDataDir: string | undefined;
-
-// We mock getDataDir by patching the module at the fs level:
-// session.ts calls getSessionDir() -> join(getDataDir(), 'doordash')
-// We'll test session.ts helpers that don't depend on getDataDir directly,
-// and test the persistence functions via the actual file system with a known path.
 
 function makeCookie(
   name: string,
@@ -88,38 +84,34 @@ describe("DoorDash session helpers", () => {
 
 describe("DoorDash session persistence", () => {
   // These tests exercise the real loadSession/saveSession/clearSession
-  // by writing to the actual session path. We need to mock getDataDir.
-  // Since the module uses a private function we can't easily mock,
-  // we test via importFromRecording which exercises save+load.
+  // by pointing VELLUM_DATA_DIR at a temp directory and testing via
+  // importFromRecording which exercises save+load.
 
   beforeEach(() => {
-    originalDataDir = process.env.BASE_DATA_DIR;
-    process.env.BASE_DATA_DIR = TEST_DIR;
-    // Ensure test dir exists
+    originalDataDir = process.env.VELLUM_DATA_DIR;
+    process.env.VELLUM_DATA_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
   afterEach(() => {
-    // Restore original BASE_DATA_DIR
     if (originalDataDir === undefined) {
-      delete process.env.BASE_DATA_DIR;
+      delete process.env.VELLUM_DATA_DIR;
     } else {
-      process.env.BASE_DATA_DIR = originalDataDir;
+      process.env.VELLUM_DATA_DIR = originalDataDir;
     }
-    // Clean up test dir
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
     }
   });
 
   describe("importFromRecording", () => {
-    it("throws when the recording file does not exist", () => {
-      expect(() => importFromRecording("/nonexistent/recording.json")).toThrow(
-        "Recording not found",
-      );
+    it("throws when the recording file does not exist", async () => {
+      await expect(
+        importFromRecording("/nonexistent/recording.json"),
+      ).rejects.toThrow("Recording not found");
     });
 
-    it("throws when the recording contains no cookies", () => {
+    it("throws when the recording contains no cookies and no targetDomain", async () => {
       const recordingPath = join(TEST_DIR, "empty-recording.json");
       writeFileSync(
         recordingPath,
@@ -127,18 +119,17 @@ describe("DoorDash session persistence", () => {
           id: "rec-empty",
           startedAt: 0,
           endedAt: 1,
-          targetDomain: "doordash.com",
           networkEntries: [],
           cookies: [],
           observations: [],
         }),
       );
-      expect(() => importFromRecording(recordingPath)).toThrow(
+      await expect(importFromRecording(recordingPath)).rejects.toThrow(
         "Recording contains no cookies",
       );
     });
 
-    it("successfully imports a recording with cookies", () => {
+    it("successfully imports a recording with cookies", async () => {
       const recordingPath = join(TEST_DIR, "valid-recording.json");
       writeFileSync(
         recordingPath,
@@ -152,7 +143,7 @@ describe("DoorDash session persistence", () => {
           observations: [],
         }),
       );
-      const session = importFromRecording(recordingPath);
+      const session = await importFromRecording(recordingPath);
       expect(session.cookies).toHaveLength(1);
       expect(session.cookies[0].name).toBe("session_id");
       expect(session.cookies[0].value).toBe("xyz");

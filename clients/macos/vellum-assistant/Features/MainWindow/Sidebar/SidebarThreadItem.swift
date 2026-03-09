@@ -31,6 +31,11 @@ struct SidebarThreadItem: View {
     private var interactionState: ThreadInteractionState { threadManager.interactionState(for: thread.id) }
     // Reserve trailing space when hovered for archive button overlay.
     private var hasTrailingIcon: Bool { isHovered || sidebar.threadPendingDeletion == thread.id }
+    private var canMarkUnread: Bool {
+        !thread.hasUnseenLatestAssistantMessage &&
+            thread.sessionId != nil &&
+            thread.latestAssistantMessageAt != nil
+    }
 
     var body: some View {
         // Always reserve 20pt leading slot so text never shifts.
@@ -75,9 +80,8 @@ struct SidebarThreadItem: View {
                             .transition(.opacity)
                     case .idle:
                         if thread.hasUnseenLatestAssistantMessage {
-                            Circle()
-                                .fill(Color(hex: 0xE86B40))
-                                .frame(width: 6, height: 6)
+                            VBadge(style: .dot, color: VColor.warning)
+                                .accessibilityLabel("Unread")
                                 .frame(width: 20, height: 20)
                                 .transition(.opacity)
                         } else if thread.isPinned {
@@ -165,21 +169,25 @@ struct SidebarThreadItem: View {
                     }
                 }
             } label: {
-                Label { Text(thread.isPinned ? "Unpin" : "Pin to Top") } icon: { VIconView(thread.isPinned ? .pinOff : .pin, size: 14) }
+                Label { Text(thread.isPinned ? "Unpin thread" : "Pin thread") } icon: { VIconView(thread.isPinned ? .pinOff : .pin, size: 14) }
             }
-            if thread.sessionId != nil {
-                Button {
-                    sidebar.renamingThreadId = thread.id
-                    sidebar.renameText = thread.title
-                } label: {
-                    Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-                }
+            Button {
+                sidebar.renamingThreadId = thread.id
+                sidebar.renameText = thread.title
+            } label: {
+                Label { Text("Rename thread") } icon: { VIconView(.pencil, size: 14) }
             }
             Button {
                 threadManager.archiveThread(id: thread.id)
             } label: {
-                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                Label { Text("Archive thread") } icon: { VIconView(.archive, size: 14) }
             }
+            Button {
+                threadManager.markConversationUnread(threadId: thread.id)
+            } label: {
+                Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
+            }
+            .disabled(!canMarkUnread)
         }
         .pointerCursor()
         .onHover { hovering in

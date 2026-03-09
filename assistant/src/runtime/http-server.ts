@@ -33,20 +33,25 @@ import {
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
-import type { ServerMessage } from "../daemon/ipc-contract.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
+  markConversationUnread,
   recordConversationSeenSignal,
   type SignalType,
 } from "../memory/conversation-attention-store.js";
-import * as conversationStore from "../memory/conversation-store.js";
+import {
+  countConversations,
+  listConversations,
+} from "../memory/conversation-queries.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
 import {
   consumeCallback,
   consumeCallbackError,
 } from "../security/oauth-callback-registry.js";
+import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
@@ -86,6 +91,7 @@ import {
   TWILIO_WEBHOOK_RE,
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
+import { appManagementRouteDefinitions } from "./routes/app-management-routes.js";
 import { handleServePage } from "./routes/app-routes.js";
 import { appRouteDefinitions } from "./routes/app-routes.js";
 import { approvalRouteDefinitions } from "./routes/approval-routes.js";
@@ -102,6 +108,8 @@ import {
   startGuardianExpirySweep,
   stopGuardianExpirySweep,
 } from "./routes/channel-routes.js";
+import { channelVerificationRouteDefinitions } from "./routes/channel-verification-routes.js";
+import { computerUseRouteDefinitions } from "./routes/computer-use-routes.js";
 import {
   contactCatchAllRouteDefinitions,
   contactRouteDefinitions,
@@ -109,6 +117,8 @@ import {
 import { conversationAttentionRouteDefinitions } from "./routes/conversation-attention-routes.js";
 import { conversationRouteDefinitions } from "./routes/conversation-routes.js";
 import { debugRouteDefinitions } from "./routes/debug-routes.js";
+import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
+import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
@@ -116,7 +126,10 @@ import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
 import { handleHealth } from "./routes/identity-routes.js";
 import { identityRouteDefinitions } from "./routes/identity-routes.js";
-import { integrationRouteDefinitions } from "./routes/integration-routes.js";
+import { slackChannelRouteDefinitions } from "./routes/integrations/slack/channel.js";
+import { slackShareRouteDefinitions } from "./routes/integrations/slack/share.js";
+import { telegramRouteDefinitions } from "./routes/integrations/telegram.js";
+import { twilioRouteDefinitions } from "./routes/integrations/twilio.js";
 import { inviteRouteDefinitions } from "./routes/invite-routes.js";
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
@@ -125,13 +138,20 @@ import {
   handlePairingStatus,
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
+import { recordingRouteDefinitions } from "./routes/recording-routes.js";
+import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
-import { slackShareRouteDefinitions } from "./routes/slack-share-routes.js";
+import { sessionManagementRouteDefinitions } from "./routes/session-management-routes.js";
+import { sessionQueryRouteDefinitions } from "./routes/session-query-routes.js";
+import { settingsRouteDefinitions } from "./routes/settings-routes.js";
+import { skillRouteDefinitions } from "./routes/skills-routes.js";
+import { subagentRouteDefinitions } from "./routes/subagents-routes.js";
 import { surfaceActionRouteDefinitions } from "./routes/surface-action-routes.js";
 import { surfaceContentRouteDefinitions } from "./routes/surface-content-routes.js";
 import { trustRulesRouteDefinitions } from "./routes/trust-rules-routes.js";
-import { twilioRouteDefinitions } from "./routes/twilio-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
+import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
+import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
 
 // Re-export for consumers
 export { isPrivateAddress } from "./middleware/auth.js";
@@ -187,6 +207,12 @@ export class RuntimeHttpServer {
   private pairingBroadcast?: (msg: ServerMessage) => void;
   private sendMessageDeps?: SendMessageDeps;
   private findSession?: RuntimeHttpServerOptions["findSession"];
+  private findSessionBySurfaceId?: RuntimeHttpServerOptions["findSessionBySurfaceId"];
+  private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
+  private sessionManagementDeps?: RuntimeHttpServerOptions["sessionManagementDeps"];
+  private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
+  private getComputerUseDeps?: RuntimeHttpServerOptions["getComputerUseDeps"];
+  private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -202,6 +228,12 @@ export class RuntimeHttpServer {
     this.interfacesDir = options.interfacesDir ?? null;
     this.sendMessageDeps = options.sendMessageDeps;
     this.findSession = options.findSession;
+    this.findSessionBySurfaceId = options.findSessionBySurfaceId;
+    this.getSkillContext = options.getSkillContext;
+    this.sessionManagementDeps = options.sessionManagementDeps;
+    this.getModelSetContext = options.getModelSetContext;
+    this.getComputerUseDeps = options.getComputerUseDeps;
+    this.getRecordingDeps = options.getRecordingDeps;
     this.router = new HttpRouter(this.buildRouteTable());
   }
 
@@ -240,10 +272,9 @@ export class RuntimeHttpServer {
       featureFlagToken: this.readFeatureFlagToken(),
       pairingBroadcast: ipcBroadcast
         ? (msg) => {
-            // Broadcast to IPC socket clients (local Unix socket)
+            // Broadcast to all clients via the event hub so HTTP/SSE clients
+            // (e.g. macOS app) receive pairing approval requests.
             ipcBroadcast(msg);
-            // Also publish to the event hub so HTTP/SSE clients (e.g. macOS
-            // app with localHttpEnabled) receive pairing approval requests.
             void assistantEventHub.publish(
               buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
             );
@@ -458,16 +489,10 @@ export class RuntimeHttpServer {
     // needs to work when the access token is expired. Bootstrap has its
     // own loopback IP validation; refresh is secured by the refresh token
     // in the request body (32 random bytes, hash-only storage).
-    if (
-      path === "/v1/integrations/guardian/vellum/bootstrap" &&
-      req.method === "POST"
-    ) {
+    if (path === "/v1/guardian/init" && req.method === "POST") {
       return await handleGuardianBootstrap(req, server);
     }
-    if (
-      path === "/v1/integrations/guardian/vellum/refresh" &&
-      req.method === "POST"
-    ) {
+    if (path === "/v1/guardian/refresh" && req.method === "POST") {
       return await handleGuardianRefresh(req);
     }
 
@@ -683,10 +708,44 @@ export class RuntimeHttpServer {
         getPairingContext: () => this.pairingContext,
       }),
       ...appRouteDefinitions(),
+      ...appManagementRouteDefinitions(),
       ...secretRouteDefinitions(),
       ...identityRouteDefinitions(),
       ...debugRouteDefinitions(),
       ...usageRouteDefinitions(),
+      ...workspaceRouteDefinitions(),
+      ...settingsRouteDefinitions(),
+      ...scheduleRouteDefinitions({
+        sendMessageDeps: this.sendMessageDeps,
+      }),
+      ...diagnosticsRouteDefinitions(),
+      ...documentRouteDefinitions(),
+      ...workItemRouteDefinitions(
+        this.sendMessageDeps
+          ? {
+              getOrCreateSession: (conversationId) =>
+                this.sendMessageDeps!.getOrCreateSession(conversationId),
+              findSession: this.findSession
+                ? (conversationId) => {
+                    const s = this.findSession!(conversationId);
+                    if (!s || !("abort" in s)) return undefined;
+                    return s as import("../daemon/session.js").Session;
+                  }
+                : undefined,
+            }
+          : undefined,
+      ),
+      ...subagentRouteDefinitions(),
+      ...sessionQueryRouteDefinitions({
+        getModelSetContext: this.getModelSetContext,
+        findSessionForQueue: this.findSession
+          ? (id) => {
+              const s = this.findSession!(id);
+              if (!s?.removeQueuedMessage) return undefined;
+              return { removeQueuedMessage: s.removeQueuedMessage.bind(s) };
+            }
+          : undefined,
+      }),
 
       // Browser relay — not extracted into a domain module because
       // these two routes depend on the in-process extensionRelayServer
@@ -720,12 +779,8 @@ export class RuntimeHttpServer {
         handler: ({ url }) => {
           const limit = Number(url.searchParams.get("limit") ?? 50);
           const offset = Number(url.searchParams.get("offset") ?? 0);
-          const conversations = conversationStore.listConversations(
-            limit,
-            false,
-            offset,
-          );
-          const totalCount = conversationStore.countConversations();
+          const conversations = listConversations(limit, false, offset);
+          const totalCount = countConversations();
           const conversationIds = conversations.map((c) => c.id);
           const bindings =
             externalConversationStore.getBindingsForConversations(
@@ -772,6 +827,7 @@ export class RuntimeHttpServer {
                 updatedAt: c.updatedAt,
                 threadType: c.threadType === "private" ? "private" : "standard",
                 source: c.source ?? "user",
+                ...(c.scheduleJobId ? { scheduleJobId: c.scheduleJobId } : {}),
                 ...(binding
                   ? {
                       channelBinding: {
@@ -795,6 +851,10 @@ export class RuntimeHttpServer {
       },
 
       ...conversationAttentionRouteDefinitions(),
+
+      ...(this.sessionManagementDeps
+        ? sessionManagementRouteDefinitions(this.sessionManagementDeps)
+        : []),
 
       {
         endpoint: "conversations/seen",
@@ -832,6 +892,34 @@ export class RuntimeHttpServer {
         },
       },
 
+      {
+        endpoint: "conversations/unread",
+        method: "POST",
+        handler: async ({ req }) => {
+          const body = (await req.json()) as Record<string, unknown>;
+          const conversationId = body.conversationId as string | undefined;
+          if (!conversationId)
+            return httpError("BAD_REQUEST", "Missing conversationId", 400);
+          try {
+            markConversationUnread(conversationId);
+            return Response.json({ ok: true });
+          } catch (err) {
+            if (err instanceof UserError) {
+              return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
+            }
+            log.error(
+              { err, conversationId },
+              "POST /v1/conversations/unread: failed",
+            );
+            return httpError(
+              "INTERNAL_ERROR",
+              "Failed to mark conversation unread",
+              500,
+            );
+          }
+        },
+      },
+
       ...conversationRouteDefinitions({
         interfacesDir: this.interfacesDir,
         sendMessageDeps: this.sendMessageDeps,
@@ -841,8 +929,16 @@ export class RuntimeHttpServer {
       }),
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
+      ...(this.getSkillContext
+        ? skillRouteDefinitions({
+            getSkillContext: this.getSkillContext,
+          })
+        : []),
       ...trustRulesRouteDefinitions(),
-      ...surfaceActionRouteDefinitions({ findSession: this.findSession }),
+      ...surfaceActionRouteDefinitions({
+        findSession: this.findSession,
+        findSessionBySurfaceId: this.findSessionBySurfaceId,
+      }),
       ...surfaceContentRouteDefinitions({ findSession: this.findSession }),
       ...guardianActionRouteDefinitions(),
 
@@ -851,11 +947,24 @@ export class RuntimeHttpServer {
       // contacts/:id catch-all must follow invite routes to avoid shadowing
       ...contactCatchAllRouteDefinitions(),
 
-      ...integrationRouteDefinitions(),
+      ...telegramRouteDefinitions(),
+      ...channelVerificationRouteDefinitions(),
+      ...slackChannelRouteDefinitions(),
       ...slackShareRouteDefinitions(),
       ...twilioRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
       ...attachmentRouteDefinitions(),
+
+      ...(this.getComputerUseDeps
+        ? computerUseRouteDefinitions({
+            getComputerUseDeps: this.getComputerUseDeps,
+          })
+        : []),
+      ...(this.getRecordingDeps
+        ? recordingRouteDefinitions({
+            getRecordingDeps: this.getRecordingDeps,
+          })
+        : []),
 
       {
         endpoint: "interfaces/:path*",

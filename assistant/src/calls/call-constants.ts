@@ -75,10 +75,3 @@ export function getGuardianWaitUpdateSteadyMaxIntervalMs(): number {
 export function getSilenceTimeoutMs(): number {
   return 30 * 1000; // 30 seconds
 }
-
-/** @deprecated Use getSilenceTimeoutMs() for mockability in tests. */
-export const SILENCE_TIMEOUT_MS = 30 * 1000; // 30 seconds
-
-// Legacy named exports for backward compatibility (use functions above for config-backed values)
-export const MAX_CALL_DURATION_MS = 3600 * 1000; // fallback default; prefer getMaxCallDurationMs()
-export const USER_CONSULTATION_TIMEOUT_MS = 120 * 1000; // fallback default; prefer getUserConsultationTimeoutMs()

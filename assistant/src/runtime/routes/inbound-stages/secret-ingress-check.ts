@@ -13,8 +13,8 @@
  */
 import type { ChannelId } from "../../../channels/types.js";
 import type { TrustContext } from "../../../daemon/session-runtime-assembly.js";
-import * as channelDeliveryStore from "../../../memory/channel-delivery-store.js";
 import { recordConversationSeenSignal } from "../../../memory/conversation-attention-store.js";
+import * as deliveryCrud from "../../../memory/delivery-crud.js";
 import { checkIngressForSecrets } from "../../../security/secret-ingress.js";
 import { IngressBlockedError } from "../../../util/errors.js";
 import { getLogger } from "../../../util/logger.js";
@@ -71,7 +71,7 @@ export function runSecretIngressCheck(params: SecretIngressCheckParams): void {
   // Persist the raw payload first so dead-lettered events can always be
   // replayed. If the ingress check later detects secrets we clear it
   // before throwing, so secret-bearing content is never left on disk.
-  channelDeliveryStore.storePayload(eventId, {
+  deliveryCrud.storePayload(eventId, {
     sourceChannel,
     externalChatId: conversationExternalId,
     externalMessageId,
@@ -91,11 +91,11 @@ export function runSecretIngressCheck(params: SecretIngressCheckParams): void {
   try {
     ingressCheck = checkIngressForSecrets(contentToCheck);
   } catch (checkErr) {
-    channelDeliveryStore.clearPayload(eventId);
+    deliveryCrud.clearPayload(eventId);
     throw checkErr;
   }
   if (ingressCheck.blocked) {
-    channelDeliveryStore.clearPayload(eventId);
+    deliveryCrud.clearPayload(eventId);
     throw new IngressBlockedError(
       ingressCheck.userNotice!,
       ingressCheck.detectedTypes,

@@ -35,6 +35,7 @@ import {
   migrateAssistantContactMetadata,
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
+  migrateBackfillUsageCacheAccounting,
   migrateCallSessionMode,
   migrateCanonicalGuardianDeliveriesDestinationIndex,
   migrateCanonicalGuardianRequesterChatId,
@@ -63,6 +64,10 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateReminderRoutingIntent,
+  migrateRenameGuardianVerificationValues,
+  migrateRenameVerificationSessionIdColumn,
+  migrateRenameVerificationTable,
+  migrateRenameVoiceToPhone,
   migrateSchemaIndexesAndColumns,
   migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
@@ -303,6 +308,21 @@ export function initializeDb(): void {
 
   // 43. Drop all composite usage indexes — they don't eliminate temp B-trees for GROUP BY
   migrateDropUsageCompositeIndexes(database);
+
+  // 44. Backfill historical Anthropic usage rows from request-log truth before dashboard reads
+  migrateBackfillUsageCacheAccounting(database);
+
+  // 45. Rename channel_guardian_verification_challenges → channel_verification_sessions
+  migrateRenameVerificationTable(database);
+
+  // 46. Rename guardian_verification_session_id → verification_session_id in call_sessions
+  migrateRenameVerificationSessionIdColumn(database);
+
+  // 47. Rename persisted guardian_verification call_mode and event_type values
+  migrateRenameGuardianVerificationValues(database);
+
+  // 48. Rename stored "voice" channel values to "phone" across all channel text columns
+  migrateRenameVoiceToPhone(database);
 
   validateMigrationState(database);
 

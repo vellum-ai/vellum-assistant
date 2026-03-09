@@ -1,25 +1,25 @@
 import type { ToolDefinition } from "../../providers/types.js";
 
-export const memorySearchDefinition: ToolDefinition = {
-  name: "memory_search",
+export const memoryRecallDefinition: ToolDefinition = {
+  name: "memory_recall",
   description:
-    "Search your memory for previously saved facts, preferences, decisions, and other information. Use this when you need to recall something from past conversations.",
+    "Deep search across all memory sources (semantic, lexical, entity graph, recency) for specific information. Use this when you need to recall details about past conversations, decisions, preferences, project context, or any prior knowledge. Returns formatted memory context with item IDs for use with memory_update/memory_delete.",
   input_schema: {
     type: "object",
     properties: {
       query: {
         type: "string",
-        description:
-          "Natural language search query describing what you want to recall",
+        description: "The search query — be specific and descriptive",
       },
-      limit: {
+      max_results: {
         type: "number",
-        description: "Maximum number of results to return (default: 5)",
+        description: "Maximum number of memory items to return (default: 10)",
       },
-      reason: {
+      scope: {
         type: "string",
+        enum: ["default", "conversation"],
         description:
-          "Brief non-technical explanation of what you are looking up and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
+          'Scope to search — "default" searches all memory, "conversation" restricts to current thread',
       },
     },
     required: ["query"],
@@ -78,7 +78,7 @@ export const memoryUpdateDefinition: ToolDefinition = {
       memory_id: {
         type: "string",
         description:
-          "ID of the memory item to update (from memory_search results)",
+          "ID of the memory item to update (from memory_recall results)",
       },
       statement: {
         type: "string",
@@ -91,5 +91,27 @@ export const memoryUpdateDefinition: ToolDefinition = {
       },
     },
     required: ["memory_id", "statement"],
+  },
+};
+
+export const memoryDeleteDefinition: ToolDefinition = {
+  name: "memory_delete",
+  description:
+    "Delete a previously saved memory item. Use this when information is no longer relevant, was saved in error, or the user asks to forget something.",
+  input_schema: {
+    type: "object",
+    properties: {
+      memory_id: {
+        type: "string",
+        description:
+          "ID of the memory item to delete (from memory_recall results)",
+      },
+      reason: {
+        type: "string",
+        description:
+          "Brief non-technical explanation of what you are deleting and why, shown to the user as a status update. Use simple language a non-technical person would understand.",
+      },
+    },
+    required: ["memory_id"],
   },
 };

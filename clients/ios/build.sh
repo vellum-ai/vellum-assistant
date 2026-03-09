@@ -78,6 +78,11 @@ esac
 # ── Generate xcodeproj ────────────────────────────────────────────────
 # Always regenerate from project.yml so the xcodeproj is never stale.
 if command -v xcodegen >/dev/null 2>&1; then
+    # If a custom provisioning profile name was provided, update project.yml
+    # before generating the xcodeproj so it only applies to the app target.
+    if [ "$PROVISIONING_PROFILE_NAME" != "Vellum Assistant iOS Distribution" ]; then
+        sed -i.bak "s/PROVISIONING_PROFILE_SPECIFIER: .*/PROVISIONING_PROFILE_SPECIFIER: \"$PROVISIONING_PROFILE_NAME\"/" "$SCRIPT_DIR/project.yml"
+    fi
     echo "Regenerating xcodeproj from project.yml..."
     (cd "$SCRIPT_DIR" && xcodegen --quiet)
 else
@@ -162,6 +167,9 @@ rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH" "$DIST_DIR/DerivedData"
 
 # Archive using the native .xcodeproj (Application target produces a proper
 # .app bundle in Products/Applications/ without build setting workarounds).
+# Signing settings (CODE_SIGN_STYLE, CODE_SIGN_IDENTITY, PROVISIONING_PROFILE_SPECIFIER)
+# are set per-target in project.yml so they only apply to the app target and not to
+# Swift Package library targets that don't support provisioning profiles.
 xcodebuild archive \
     -project "$PROJECT" \
     -scheme "$SCHEME" \
@@ -170,9 +178,6 @@ xcodebuild archive \
     -derivedDataPath "$DIST_DIR/DerivedData" \
     -configuration Release \
     DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-    CODE_SIGN_STYLE=Manual \
-    CODE_SIGN_IDENTITY="Apple Distribution" \
-    PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_NAME" \
     MARKETING_VERSION="$DISPLAY_VERSION" \
     CURRENT_PROJECT_VERSION="$BUILD_VERSION"
 

@@ -9,12 +9,12 @@ import { createHash } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 
 import archiver from "archiver";
 import JSZip from "jszip";
 
-import { getApp, getAppsDir, isMultifileApp } from "../memory/app-store.js";
+import { getApp, getAppsDir } from "../memory/app-store.js";
 import { computeContentId } from "../util/content-id.js";
 import { getLogger } from "../util/logger.js";
 import { compileApp } from "./app-compiler.js";
@@ -28,147 +28,7 @@ const bundlerLog = getLogger("app-bundler");
 import { APP_VERSION } from "../version.js";
 const PACKAGE_VERSION = APP_VERSION;
 
-const HASH_DISPLAY_LENGTH = 12;
 const MAX_BUNDLE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
-const ASSET_FETCH_TIMEOUT_MS = 10_000;
-
-interface FetchedAsset {
-  archivePath: string; // e.g. "assets/a1b2c3d4.png"
-  data: Buffer;
-}
-
-/**
- * Extract all remote (http/https) URLs from HTML content.
- * Looks in src=, href= on all elements except <a> tags, and CSS url() references.
- */
-export function extractRemoteUrls(html: string): string[] {
-  const urls = new Set<string>();
-
-  // Match src="..." attributes on any element
-  const srcRe = /\bsrc\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))/gi;
-  let m: RegExpExecArray | null;
-  while ((m = srcRe.exec(html)) != null) {
-    const url = m[1] ?? m[2] ?? m[3];
-    if (url && /^https?:\/\//i.test(url)) {
-      urls.add(url);
-    }
-  }
-
-  // Match href="..." on any element except navigation/resolution tags (not assets).
-  // Captures the tag name and href value so we can skip them.
-  const hrefRe =
-    /<(\w+)\b[^>]*?\bhref\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s>]+))[^>]*?\/?>/gi;
-  while ((m = hrefRe.exec(html)) != null) {
-    const tagName = m[1];
-    if (["a", "base", "area"].includes(tagName.toLowerCase())) continue;
-    const url = m[2] ?? m[3] ?? m[4];
-    if (url && /^https?:\/\//i.test(url)) {
-      urls.add(url);
-    }
-  }
-
-  // Match CSS url() references (inline styles and <style> blocks)
-  const urlRe = /url\(\s*(?:"([^"]*?)"|'([^']*?)'|([^)"'\s]+))\s*\)/gi;
-  while ((m = urlRe.exec(html)) != null) {
-    const url = m[1] ?? m[2] ?? m[3];
-    if (url && /^https?:\/\//i.test(url)) {
-      urls.add(url);
-    }
-  }
-
-  return [...urls];
-}
-
-/**
- * Derive a deterministic filename for a remote asset URL.
- * Uses a hash of the URL to avoid collisions, preserving the original extension.
- */
-function assetFilename(url: string): string {
-  const hash = createHash("sha256")
-    .update(url)
-    .digest("hex")
-    .slice(0, HASH_DISPLAY_LENGTH);
-  let ext = "";
-  try {
-    const parsed = new URL(url);
-    ext = extname(parsed.pathname);
-  } catch {
-    // no extension
-  }
-  // Fallback: if no extension or it's too long/weird, drop it
-  if (!ext || ext.length > 10 || !/^\.\w+$/.test(ext)) {
-    ext = "";
-  }
-  return `${hash}${ext}`;
-}
-
-/**
- * Fetch remote assets referenced in HTML, returning the fetched buffers
- * and the rewritten HTML with local asset paths. Assets that fail to fetch
- * are left with their original URLs.
- */
-export async function materializeAssets(
-  html: string,
-): Promise<{ rewrittenHtml: string; assets: FetchedAsset[] }> {
-  const urls = extractRemoteUrls(html);
-  if (urls.length === 0) {
-    return { rewrittenHtml: html, assets: [] };
-  }
-
-  const assets: FetchedAsset[] = [];
-  // Map from original URL to its local archive path
-  const urlMap = new Map<string, string>();
-
-  await Promise.all(
-    urls.map(async (url) => {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(
-          () => controller.abort(),
-          ASSET_FETCH_TIMEOUT_MS,
-        );
-        let buf: Buffer;
-        try {
-          const resp = await fetch(url, { signal: controller.signal });
-          if (!resp.ok) {
-            bundlerLog.warn(
-              { url, status: resp.status },
-              "Failed to fetch asset, keeping original URL",
-            );
-            return;
-          }
-          buf = Buffer.from(await resp.arrayBuffer());
-        } finally {
-          clearTimeout(timeout);
-        }
-        const filename = assetFilename(url);
-        const archivePath = `assets/${filename}`;
-        assets.push({ archivePath, data: buf });
-        urlMap.set(url, archivePath);
-      } catch (err) {
-        bundlerLog.warn(
-          { url, err },
-          "Failed to fetch asset, keeping original URL",
-        );
-      }
-    }),
-  );
-
-  // Rewrite URLs in HTML — replace each occurrence of the original URL with the local path.
-  // Sort by length descending so longer URLs are replaced first, preventing prefix collisions
-  // (e.g. "https://cdn/x" replacing part of "https://cdn/x/y.png").
-  const sortedEntries = [...urlMap.entries()].sort(
-    (a, b) => b[0].length - a[0].length,
-  );
-  let rewrittenHtml = html;
-  for (const [originalUrl, localPath] of sortedEntries) {
-    // Escape regex special chars in the URL
-    const escaped = originalUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    rewrittenHtml = rewrittenHtml.replace(new RegExp(escaped, "g"), localPath);
-  }
-
-  return { rewrittenHtml, assets };
-}
 
 export interface BundleResult {
   bundlePath: string;
@@ -195,15 +55,13 @@ export async function packageApp(
     throw new Error(`App not found: ${appId}`);
   }
 
-  const multifile = isMultifileApp(app);
-
   // Build manifest
   const createdBy = `vellum-assistant/${PACKAGE_VERSION}`;
   const version = app.version ?? "1.0.0";
   const contentId = computeContentId(app.name);
 
   const manifest: AppManifest = {
-    format_version: multifile ? 2 : 1,
+    format_version: 2,
     name: app.name,
     ...(app.description ? { description: app.description } : {}),
     ...(app.icon ? { icon: app.icon } : {}),
@@ -216,62 +74,34 @@ export async function packageApp(
     content_id: contentId,
   };
 
-  // For multifile apps, compile first then bundle the dist/ output.
-  // For legacy apps, materialize remote assets and bundle the HTML directly.
-  let rewrittenHtml = "";
-  let allAssets: FetchedAsset[] = [];
-  const rewrittenPages: Record<string, string> = {};
+  // Compile the app and bundle the dist/ output.
   const compiledFiles: { name: string; data: Buffer }[] = [];
 
-  if (multifile) {
-    const appDir = join(getAppsDir(), appId);
-    const compileResult = await compileApp(appDir);
-    if (!compileResult.ok) {
-      const messages = compileResult.errors
-        .map((e) => {
-          const loc = e.location
-            ? ` (${e.location.file}:${e.location.line}:${e.location.column})`
-            : "";
-          return `${e.text}${loc}`;
-        })
-        .join("\n");
-      throw new Error(`Compilation failed for app "${app.name}":\n${messages}`);
-    }
+  const appDir = join(getAppsDir(), appId);
+  const compileResult = await compileApp(appDir);
+  if (!compileResult.ok) {
+    const messages = compileResult.errors
+      .map((e) => {
+        const loc = e.location
+          ? ` (${e.location.file}:${e.location.line}:${e.location.column})`
+          : "";
+        return `${e.text}${loc}`;
+      })
+      .join("\n");
+    throw new Error(`Compilation failed for app "${app.name}":\n${messages}`);
+  }
 
-    const distDir = join(appDir, "dist");
-    const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
-    const mainJs = await readFile(join(distDir, "main.js"));
+  const distDir = join(appDir, "dist");
+  const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
+  const mainJs = await readFile(join(distDir, "main.js"));
 
-    compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
-    compiledFiles.push({ name: "main.js", data: mainJs });
+  compiledFiles.push({ name: "index.html", data: Buffer.from(indexHtml) });
+  compiledFiles.push({ name: "main.js", data: mainJs });
 
-    // main.css is optional — only produced when the app imports CSS
-    const cssPath = join(distDir, "main.css");
-    if (existsSync(cssPath)) {
-      compiledFiles.push({ name: "main.css", data: await readFile(cssPath) });
-    }
-  } else {
-    // Legacy path: fetch remote assets and rewrite HTML
-    const materialized = await materializeAssets(app.htmlDefinition);
-    rewrittenHtml = materialized.rewrittenHtml;
-    const fetchedAssets = materialized.assets;
-
-    // Also materialize assets in additional pages
-    const pageAssets: FetchedAsset[] = [];
-    if (app.pages) {
-      for (const [filename, content] of Object.entries(app.pages)) {
-        const result = await materializeAssets(content);
-        rewrittenPages[filename] = result.rewrittenHtml;
-        pageAssets.push(...result.assets);
-      }
-    }
-
-    // Deduplicate assets by archive path
-    const allAssetsMap = new Map<string, FetchedAsset>();
-    for (const asset of [...fetchedAssets, ...pageAssets]) {
-      allAssetsMap.set(asset.archivePath, asset);
-    }
-    allAssets = [...allAssetsMap.values()];
+  // main.css is optional — only produced when the app imports CSS
+  const cssPath = join(distDir, "main.css");
+  if (existsSync(cssPath)) {
+    compiledFiles.push({ name: "main.css", data: await readFile(cssPath) });
   }
 
   // Create the zip archive
@@ -302,27 +132,9 @@ export async function packageApp(
     // Add manifest.json at root level
     archive.append(serializeManifest(manifest), { name: "manifest.json" });
 
-    if (multifile) {
-      // Add compiled dist/ files
-      for (const file of compiledFiles) {
-        archive.append(file.data, { name: file.name });
-      }
-    } else {
-      // Add index.html at root level
-      archive.append(rewrittenHtml, { name: "index.html" });
-
-      // Add additional pages alongside index.html (with rewritten asset URLs)
-      if (app.pages) {
-        for (const filename of Object.keys(app.pages)) {
-          const content = rewrittenPages[filename] ?? app.pages[filename];
-          archive.append(content, { name: filename });
-        }
-      }
-
-      // Add fetched remote assets
-      for (const asset of allAssets) {
-        archive.append(asset.data, { name: asset.archivePath });
-      }
+    // Add compiled dist/ files
+    for (const file of compiledFiles) {
+      archive.append(file.data, { name: file.name });
     }
 
     // Include app icon if one was generated

@@ -120,28 +120,53 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     private var pendingSeenSessionIds: [String] = []
     /// Task that auto-commits deferred seen signals after the undo window.
     private var pendingSeenSignalTask: Task<Void, Never>?
+    /// Local seen/unread toggles should survive a stale daemon session-list
+    /// replay until the daemon either acknowledges them or reports a newer reply.
+    private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
+
+    private enum PendingAttentionOverride {
+        case seen(latestAssistantMessageAt: Date?)
+        case unread(latestAssistantMessageAt: Date?)
+    }
+
+    /// Per-thread attention state captured before mark-all-seen,
+    /// so the undo path can restore exact prior values.
+    private struct MarkAllSeenPriorState {
+        let lastSeenAssistantMessageAt: Date?
+        let sessionId: String?
+        let override: PendingAttentionOverride?
+    }
+
+    /// Snapshots captured by the most recent `markAllThreadsSeen()` call,
+    /// keyed by thread ID. Consumed by `restoreUnseen(threadIds:)`.
+    private var markAllSeenPriorStates: [UUID: MarkAllSeenPriorState] = [:]
 
     /// Threads that are not archived — used by the UI to populate the sidebar.
     /// Sorted: pinned first (by pinnedOrder ascending), then threads with explicit
     /// displayOrder ascending, then remaining threads by lastInteractedAt descending.
     /// Threads move to the top when messages are sent or received, but NOT when clicked/selected.
     var visibleThreads: [ThreadModel] {
-        threads.filter { !$0.isArchived && $0.kind != .private }.sorted { a, b in
-            if a.isPinned && b.isPinned {
-                return (a.pinnedOrder ?? 0) < (b.pinnedOrder ?? 0)
-            }
-            if a.isPinned { return true }
-            if b.isPinned { return false }
-            // Threads without explicit displayOrder (nil) sort by recency and
-            // appear ABOVE explicitly-ordered threads so new/active threads are
-            // never buried below stale manual ordering.
-            if a.displayOrder == nil && b.displayOrder == nil {
-                return a.lastInteractedAt > b.lastInteractedAt
-            }
-            if a.displayOrder == nil { return true }
-            if b.displayOrder == nil { return false }
-            return a.displayOrder! < b.displayOrder!
+        threads.filter { !$0.isArchived && $0.kind != .private }
+            .sorted { visibleThreadSortOrder($0, $1) }
+    }
+
+    /// Shared sort predicate for visible threads: pinned first (by pinnedOrder),
+    /// then threads with explicit displayOrder, then remaining by recency.
+    private func visibleThreadSortOrder(_ a: ThreadModel, _ b: ThreadModel) -> Bool {
+        if a.isPinned && b.isPinned {
+            return (a.pinnedOrder ?? 0) < (b.pinnedOrder ?? 0)
         }
+        if a.isPinned { return true }
+        if b.isPinned { return false }
+        // Threads without explicit displayOrder (nil) sort by recency and
+        // appear ABOVE explicitly-ordered threads so new/active threads are
+        // never buried below stale manual ordering.
+        if a.displayOrder == nil && b.displayOrder == nil {
+            return a.lastInteractedAt > b.lastInteractedAt
+        }
+        if a.displayOrder == nil { return true }
+        if b.displayOrder == nil { return false }
+        return a.displayOrder! < b.displayOrder!
     }
 
     /// Count of visible (non-archived, non-private) threads with unseen assistant messages.
@@ -203,13 +228,18 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             }
         }
 
+        removeAbandonedEmptyThread()
+
         let thread = ThreadModel()
         let viewModel = makeViewModel()
         viewModel.isHistoryLoaded = true  // No session yet — nothing to load
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] _ in
             self?.completedConversationCount += 1
-            self?.updateThreadTitle(id: threadId, title: "Untitled")
+            // Only set "Untitled" if the user hasn't already renamed this thread.
+            if self?.pendingRenames[threadId] == nil {
+                self?.updateThreadTitle(id: threadId, title: "Untitled")
+            }
             self?.updateLastInteracted(threadId: threadId)
         }
         threads.insert(thread, at: 0)
@@ -295,7 +325,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         if !fromUserSend {
             viewModel.onFirstUserMessage = { [weak self] _ in
                 self?.completedConversationCount += 1
-                self?.updateThreadTitle(id: threadId, title: "Untitled")
+                // Only set "Untitled" if the user hasn't already renamed this thread.
+                if self?.pendingRenames[threadId] == nil {
+                    self?.updateThreadTitle(id: threadId, title: "Untitled")
+                }
                 self?.updateLastInteracted(threadId: threadId)
             }
         }
@@ -315,7 +348,10 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         let threadId = thread.id
         viewModel.onFirstUserMessage = { [weak self] _ in
             self?.completedConversationCount += 1
-            self?.updateThreadTitle(id: threadId, title: "Untitled")
+            // Only set "Untitled" if the user hasn't already renamed this thread.
+            if self?.pendingRenames[threadId] == nil {
+                self?.updateThreadTitle(id: threadId, title: "Untitled")
+            }
             self?.updateLastInteracted(threadId: threadId)
         }
         threads.insert(thread, at: 0)
@@ -472,16 +508,23 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // only serializes visibleThreads (non-archived).
         let wasPinned = threads[index].isPinned
         let hadOrder = threads[index].displayOrder != nil
-        threads[index].isPinned = false
-        threads[index].pinnedOrder = nil
-        threads[index].displayOrder = nil
+
+        // Batch mutations into a single array write to avoid multiple
+        // @Published objectWillChange emissions that can cause SwiftUI
+        // ForEach re-entrancy crashes.
+        var thread = threads[index]
+        thread.isPinned = false
+        thread.pinnedOrder = nil
+        thread.displayOrder = nil
+        thread.isArchived = true
+        threads[index] = thread
+
         if wasPinned {
             recompactPinnedOrders()
         }
         if wasPinned || hadOrder {
             sendReorderThreads()
         }
-        threads[index].isArchived = true
 
         if let sessionId = threads[index].sessionId {
             chatViewModels[id]?.stopGenerating()
@@ -599,9 +642,12 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             // If a local thread already exists, merge server pin/order metadata.
             if let existingIdx = threads.firstIndex(where: { $0.sessionId == session.id }) {
                 let isPinned = session.isPinned ?? false
-                threads[existingIdx].isPinned = isPinned
-                threads[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil
-                threads[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
+                var thread = threads[existingIdx]
+                thread.isPinned = isPinned
+                thread.pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? nextPinnedOrder) : nil
+                thread.displayOrder = session.displayOrder.map { Int($0) }
+                threads[existingIdx] = thread
+                mergeAssistantAttention(from: session, intoThreadAt: existingIdx)
                 if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }
                 continue
             }
@@ -620,7 +666,13 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 kind: session.threadType == "private" ? .private : .standard,
                 source: session.source,
                 scheduleJobId: session.scheduleJobId,
-                hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+                hasUnseenLatestAssistantMessage: session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false,
+                latestAssistantMessageAt: session.assistantAttention?.latestAssistantMessageAt.map {
+                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+                },
+                lastSeenAssistantMessageAt: session.assistantAttention?.lastSeenAssistantMessageAt.map {
+                    Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+                }
             )
             if isPinned && session.displayOrder == nil { nextPinnedOrder += 1 }
             // VM creation is lazy — getOrCreateViewModel() will instantiate
@@ -643,6 +695,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
     func selectThread(id: UUID) {
         guard let thread = threads.first(where: { $0.id == id }) else { return }
+
+        removeAbandonedEmptyThread(switching: id)
 
         let previousActiveId = activeThreadId
         trimPreviousThreadIfNeeded(nextThreadId: id)
@@ -668,11 +722,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         // Skip if this thread was already active to avoid duplicate signals
         // (e.g. when openConversationThread sets activeThreadId directly and
         // SwiftUI's onChange cycle calls selectThread with the same id).
-        if id != previousActiveId, let sessionId = thread.sessionId {
-            emitConversationSeenSignal(conversationId: sessionId)
-            if let idx = threads.firstIndex(where: { $0.id == id }) {
-                threads[idx].hasUnseenLatestAssistantMessage = false
-            }
+        if id != previousActiveId {
+            markConversationSeen(threadId: id)
         }
     }
 
@@ -726,16 +777,20 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func pinThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
         let nextOrder = (threads.compactMap(\.pinnedOrder).max() ?? -1) + 1
-        threads[index].isPinned = true
-        threads[index].pinnedOrder = nextOrder
+        var thread = threads[index]
+        thread.isPinned = true
+        thread.pinnedOrder = nextOrder
+        threads[index] = thread
         sendReorderThreads()
     }
 
     func unpinThread(id: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == id }) else { return }
-        threads[index].isPinned = false
-        threads[index].pinnedOrder = nil
-        threads[index].displayOrder = nil
+        var thread = threads[index]
+        thread.isPinned = false
+        thread.pinnedOrder = nil
+        thread.displayOrder = nil
+        threads[index] = thread
         recompactPinnedOrders()
         sendReorderThreads()
     }
@@ -743,22 +798,29 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     func reorderPinnedThreads(from source: IndexSet, to destination: Int) {
         var pinned = visibleThreads.filter(\.isPinned)
         pinned.move(fromOffsets: source, toOffset: destination)
+        var draft = threads
         for (order, item) in pinned.enumerated() {
-            if let idx = threads.firstIndex(where: { $0.id == item.id }) {
-                threads[idx].pinnedOrder = order
+            if let idx = draft.firstIndex(where: { $0.id == item.id }) {
+                draft[idx].pinnedOrder = order
             }
         }
+        threads = draft
         sendReorderThreads()
     }
 
     func updateLastInteracted(threadId: UUID) {
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
-        threads[index].lastInteractedAt = Date()
+        var thread = threads[index]
+        thread.lastInteractedAt = Date()
         // Clear explicit displayOrder so the thread reverts to recency-based sorting.
         // This ensures actively-used threads float to the top naturally and new threads
         // aren't permanently stuck below explicitly-ordered threads.
-        if threads[index].displayOrder != nil {
-            threads[index].displayOrder = nil
+        let hadOrder = thread.displayOrder != nil
+        if hadOrder {
+            thread.displayOrder = nil
+        }
+        threads[index] = thread
+        if hadOrder {
             sendReorderThreads()
         }
     }
@@ -779,43 +841,49 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
               let targetIdx = threads.firstIndex(where: { $0.id == targetId }) else { return false }
         let targetThread = threads[targetIdx]
 
+        // Work on a local copy to batch all mutations into a single
+        // @Published write, preventing SwiftUI ForEach re-entrancy crashes.
+        var draft = threads
+
         if targetThread.isPinned {
             // Dropping onto a pinned thread — pin the source if needed and reorder
-            let sourceWasPinned = threads[sourceIdx].isPinned
+            let sourceWasPinned = draft[sourceIdx].isPinned
             if !sourceWasPinned {
-                threads[sourceIdx].isPinned = true
+                draft[sourceIdx].isPinned = true
             }
             let targetOrder = targetThread.pinnedOrder ?? 0
-            let sourceOrder = sourceWasPinned ? (threads[sourceIdx].pinnedOrder ?? Int.max) : Int.max
+            let sourceOrder = sourceWasPinned ? (draft[sourceIdx].pinnedOrder ?? Int.max) : Int.max
 
             // Direction-aware: if source is above target (lower order), insert after target
             let insertOrder = sourceOrder < targetOrder ? targetOrder + 1 : targetOrder
 
-            threads[sourceIdx].pinnedOrder = insertOrder
-            for i in threads.indices where threads[i].isPinned && threads[i].id != sourceId {
-                if let order = threads[i].pinnedOrder, order >= insertOrder {
-                    threads[i].pinnedOrder = order + 1
+            draft[sourceIdx].pinnedOrder = insertOrder
+            for i in draft.indices where draft[i].isPinned && draft[i].id != sourceId {
+                if let order = draft[i].pinnedOrder, order >= insertOrder {
+                    draft[i].pinnedOrder = order + 1
                 }
             }
-            recompactPinnedOrders()
+            recompactPinnedOrders(in: &draft)
         } else {
             // Dropping onto an unpinned thread — reorder using displayOrder.
             // Capture pinned state BEFORE modifications so direction detection
             // isn't affected by the unpin changing the source's list position.
-            let sourceWasPinned = threads[sourceIdx].isPinned
+            let sourceWasPinned = draft[sourceIdx].isPinned
 
             if sourceWasPinned {
-                threads[sourceIdx].isPinned = false
-                threads[sourceIdx].pinnedOrder = nil
-                threads[sourceIdx].displayOrder = nil
-                recompactPinnedOrders()
+                draft[sourceIdx].isPinned = false
+                draft[sourceIdx].pinnedOrder = nil
+                draft[sourceIdx].displayOrder = nil
+                recompactPinnedOrders(in: &draft)
             }
 
             // Build the unpinned list in sidebar display order: regular threads first,
             // then schedule threads. This matches the UI sections and prevents dropping
             // onto a schedule thread from inserting the source among regular threads
             // at the wrong position.
-            let allUnpinned = visibleThreads.filter { !$0.isPinned }
+            let visible = draft.filter { !$0.isArchived && $0.kind != .private }
+                .sorted { visibleThreadSortOrder($0, $1) }
+            let allUnpinned = visible.filter { !$0.isPinned }
             let regularUnpinned = allUnpinned.filter { !$0.isScheduleThread }
             let scheduleUnpinned = allUnpinned.filter { $0.isScheduleThread }
             let unpinned = regularUnpinned + scheduleUnpinned
@@ -823,7 +891,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             var reordered = unpinned.filter { $0.id != sourceId }
 
             let insertPos: Int
-            let sourceThread = threads[sourceIdx]
+            let sourceThread = draft[sourceIdx]
             if targetThread.isScheduleThread && !sourceThread.isScheduleThread {
                 // Cross-section drag: insert at section boundary
                 insertPos = reordered.firstIndex(where: { $0.isScheduleThread }) ?? reordered.endIndex
@@ -849,7 +917,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 }
             }
 
-            if let movedThread = unpinned.first(where: { $0.id == sourceId }) ?? [threads[sourceIdx]].first {
+            if let movedThread = unpinned.first(where: { $0.id == sourceId }) ?? [draft[sourceIdx]].first {
                 reordered.insert(movedThread, at: insertPos)
             }
 
@@ -860,23 +928,32 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
             // only assign an order to the source, causing it to jump to the top of
             // the list since visibleThreads sorts non-nil displayOrder above nil.
             for (order, item) in reordered.enumerated() {
-                if let idx = threads.firstIndex(where: { $0.id == item.id }) {
-                    threads[idx].displayOrder = order
+                if let idx = draft.firstIndex(where: { $0.id == item.id }) {
+                    draft[idx].displayOrder = order
                 }
             }
         }
 
+        // Single write — triggers objectWillChange exactly once.
+        threads = draft
         sendReorderThreads()
         return true
     }
 
-    private func recompactPinnedOrders() {
-        let pinned = threads.enumerated()
+    /// Recompact pinned orders in the given draft array (no @Published writes).
+    private func recompactPinnedOrders(in draft: inout [ThreadModel]) {
+        let pinned = draft.enumerated()
             .filter { $0.element.isPinned }
             .sorted { ($0.element.pinnedOrder ?? 0) < ($1.element.pinnedOrder ?? 0) }
         for (order, item) in pinned.enumerated() {
-            threads[item.offset].pinnedOrder = order
+            draft[item.offset].pinnedOrder = order
         }
+    }
+
+    private func recompactPinnedOrders() {
+        var draft = threads
+        recompactPinnedOrders(in: &draft)
+        threads = draft
     }
 
     /// Send the current thread ordering to the daemon so it persists across restarts.
@@ -1072,14 +1149,8 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
 
         // Emit explicit seen signal for user-initiated thread activation.
         // Skip during session restoration to avoid false "seen" signals on bootstrap.
-        if !isRestoringThreads,
-           id != previousActiveId,
-           let thread = threads.first(where: { $0.id == id }),
-           let sessionId = thread.sessionId {
-            emitConversationSeenSignal(conversationId: sessionId)
-            if let idx = threads.firstIndex(where: { $0.id == id }) {
-                threads[idx].hasUnseenLatestAssistantMessage = false
-            }
+        if !isRestoringThreads, id != previousActiveId {
+            markConversationSeen(threadId: id)
         }
     }
 
@@ -1102,9 +1173,60 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     /// guard would skip the signal.
     internal func markConversationSeen(threadId: UUID) {
         guard let idx = threads.firstIndex(where: { $0.id == threadId }) else { return }
-        threads[idx].hasUnseenLatestAssistantMessage = false
-        if let sessionId = threads[idx].sessionId {
+        // If the thread has a pending .unread override, opening the thread clears it
+        // so the normal seen flow proceeds rather than leaving the thread stuck as unread.
+        if let sessionId = threads[idx].sessionId,
+           case .unread = pendingAttentionOverrides[sessionId] {
+            pendingAttentionOverrides.removeValue(forKey: sessionId)
+        }
+        var thread = threads[idx]
+        thread.hasUnseenLatestAssistantMessage = false
+        if let sessionId = thread.sessionId {
+            pendingAttentionOverrides[sessionId] = .seen(
+                latestAssistantMessageAt: thread.latestAssistantMessageAt
+            )
+            thread.lastSeenAssistantMessageAt = thread.latestAssistantMessageAt
+            threads[idx] = thread
             emitConversationSeenSignal(conversationId: sessionId)
+        } else {
+            threads[idx] = thread
+        }
+    }
+
+    internal func markConversationUnread(threadId: UUID) {
+        guard let idx = threads.firstIndex(where: { $0.id == threadId }),
+              let sessionId = threads[idx].sessionId,
+              canMarkConversationUnread(threadId: threadId, at: idx) else { return }
+
+        let latestAssistantMessageAt = threads[idx].latestAssistantMessageAt
+
+        let previousLastSeenAssistantMessageAt = threads[idx].lastSeenAssistantMessageAt
+        let previousOverride = pendingAttentionOverrides[sessionId]
+        let wasPendingSeen = pendingSeenSessionIds.contains(sessionId)
+
+        pendingSeenSessionIds.removeAll { $0 == sessionId }
+        pendingAttentionOverrides[sessionId] = .unread(
+            latestAssistantMessageAt: latestAssistantMessageAt
+        )
+        var thread = threads[idx]
+        thread.hasUnseenLatestAssistantMessage = true
+        thread.lastSeenAssistantMessageAt = nil
+        threads[idx] = thread
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.emitConversationUnreadSignal(conversationId: sessionId)
+            } catch {
+                self.rollbackUnreadMutationIfNeeded(
+                    threadId: threadId,
+                    sessionId: sessionId,
+                    latestAssistantMessageAt: latestAssistantMessageAt,
+                    previousLastSeenAssistantMessageAt: previousLastSeenAssistantMessageAt,
+                    previousOverride: previousOverride,
+                    wasPendingSeen: wasPendingSeen
+                )
+                log.warning("Failed to send conversation_unread_signal for \(sessionId): \(error.localizedDescription)")
+            }
         }
     }
 
@@ -1127,16 +1249,30 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         commitPendingSeenSignals()
         var markedIds: [UUID] = []
         var sessionIds: [String] = []
+        var priorStates: [UUID: MarkAllSeenPriorState] = [:]
         for idx in threads.indices {
             guard !threads[idx].isArchived,
                   threads[idx].kind != .private,
                   threads[idx].hasUnseenLatestAssistantMessage else { continue }
+            let threadId = threads[idx].id
+            let sessionId = threads[idx].sessionId
+            // Capture prior state before overwriting
+            priorStates[threadId] = MarkAllSeenPriorState(
+                lastSeenAssistantMessageAt: threads[idx].lastSeenAssistantMessageAt,
+                sessionId: sessionId,
+                override: sessionId.flatMap { pendingAttentionOverrides[$0] }
+            )
             threads[idx].hasUnseenLatestAssistantMessage = false
-            markedIds.append(threads[idx].id)
-            if let sessionId = threads[idx].sessionId {
+            markedIds.append(threadId)
+            if let sessionId {
                 sessionIds.append(sessionId)
+                pendingAttentionOverrides[sessionId] = .seen(
+                    latestAssistantMessageAt: threads[idx].latestAssistantMessageAt
+                )
+                threads[idx].lastSeenAssistantMessageAt = threads[idx].latestAssistantMessageAt
             }
         }
+        markAllSeenPriorStates = priorStates
         if !sessionIds.isEmpty {
             pendingSeenSessionIds = sessionIds
         }
@@ -1149,6 +1285,7 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     internal func commitPendingSeenSignals() {
         let sessionIds = pendingSeenSessionIds
         pendingSeenSessionIds = []
+        markAllSeenPriorStates = [:]
         pendingSeenSignalTask?.cancel()
         pendingSeenSignalTask = nil
         for sessionId in sessionIds {
@@ -1179,12 +1316,41 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
     }
 
     /// Restore the unseen flag for the given thread IDs and cancel any
-    /// pending IPC seen signals (used by undo).
+    /// pending IPC seen signals (used by undo). Restores prior
+    /// `lastSeenAssistantMessageAt` and `pendingAttentionOverrides`
+    /// values captured by `markAllThreadsSeen()` instead of blindly
+    /// clearing them.
     internal func restoreUnseen(threadIds: [UUID]) {
         cancelPendingSeenSignals()
+        let priorStates = markAllSeenPriorStates
+        markAllSeenPriorStates = [:]
         for id in threadIds {
             if let idx = threads.firstIndex(where: { $0.id == id }) {
                 threads[idx].hasUnseenLatestAssistantMessage = true
+                if let prior = priorStates[id] {
+                    threads[idx].lastSeenAssistantMessageAt = prior.lastSeenAssistantMessageAt
+                    if let sessionId = prior.sessionId {
+                        // Only restore the override if the current override is
+                        // still the .seen that markAllThreadsSeen() installed.
+                        // If the user changed it (e.g. marked unread during
+                        // the undo window), keep the newer override.
+                        if let currentOverride = pendingAttentionOverrides[sessionId],
+                           case .seen = currentOverride {
+                            if let previousOverride = prior.override {
+                                pendingAttentionOverrides[sessionId] = previousOverride
+                            } else {
+                                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                            }
+                        }
+                    }
+                } else {
+                    // Fallback: no prior state captured (shouldn't happen in
+                    // normal flow), clear conservatively.
+                    threads[idx].lastSeenAssistantMessageAt = nil
+                    if let sessionId = threads[idx].sessionId {
+                        pendingAttentionOverrides.removeValue(forKey: sessionId)
+                    }
+                }
             }
         }
     }
@@ -1206,6 +1372,67 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         } catch {
             log.warning("Failed to send conversation_seen_signal for \(conversationId): \(error.localizedDescription)")
         }
+    }
+
+    private func emitConversationUnreadSignal(conversationId: String) async throws {
+        let signal = IPCConversationUnreadSignal(
+            conversationId: conversationId,
+            sourceChannel: "vellum",
+            signalType: "macos_conversation_opened",
+            confidence: "explicit",
+            source: "ui-navigation",
+            evidenceText: "User selected Mark as unread"
+        )
+        try await daemonClient.sendConversationUnread(signal)
+    }
+
+    private func rollbackUnreadMutationIfNeeded(
+        threadId: UUID,
+        sessionId: String,
+        latestAssistantMessageAt: Date?,
+        previousLastSeenAssistantMessageAt: Date?,
+        previousOverride: PendingAttentionOverride?,
+        wasPendingSeen: Bool = false
+    ) {
+        guard let idx = threads.firstIndex(where: { $0.id == threadId }),
+              threads[idx].sessionId == sessionId,
+              case .unread(let pendingLatestAssistantMessageAt) = pendingAttentionOverrides[sessionId],
+              pendingLatestAssistantMessageAt == latestAssistantMessageAt else { return }
+
+        if let previousOverride {
+            pendingAttentionOverrides[sessionId] = previousOverride
+        } else {
+            pendingAttentionOverrides.removeValue(forKey: sessionId)
+        }
+        threads[idx].hasUnseenLatestAssistantMessage = false
+        threads[idx].lastSeenAssistantMessageAt = previousLastSeenAssistantMessageAt
+
+        if wasPendingSeen && !pendingSeenSessionIds.contains(sessionId) {
+            pendingSeenSessionIds.append(sessionId)
+            if pendingSeenSignalTask == nil {
+                schedulePendingSeenSignals()
+            }
+        }
+    }
+
+    /// Remove the currently active thread if it was never used (no messages,
+    /// no persisted session, not private). Prevents abandoned empty threads
+    /// from accumulating in the sidebar.
+    /// - Parameter switching: The thread ID being switched to. Pass `nil`
+    ///   when called from `createThread()` (the active thread is checked
+    ///   separately by the reuse guard above).
+    private func removeAbandonedEmptyThread(switching nextId: UUID? = nil) {
+        guard let previousId = activeThreadId,
+              previousId != nextId,
+              let vm = chatViewModels[previousId],
+              vm.messages.isEmpty else { return }
+        let thread = threads.first(where: { $0.id == previousId })
+        guard thread?.kind != .private, thread?.sessionId == nil else { return }
+        threads.removeAll { $0.id == previousId }
+        chatViewModels.removeValue(forKey: previousId)
+        unsubscribeAllForThread(id: previousId)
+        vmAccessOrder.removeAll { $0 == previousId }
+        log.info("Removed abandoned empty thread \(previousId)")
     }
 
     /// Trim the previously active thread's view model to shed memory before
@@ -1248,6 +1475,72 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
                 sessionId: sessionId,
                 title: pendingTitle
             ))
+        }
+    }
+
+    func mergeAssistantAttention(
+        from session: IPCSessionListResponseSession,
+        intoThreadAt index: Int
+    ) {
+        threads[index].hasUnseenLatestAssistantMessage =
+            session.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
+        threads[index].latestAssistantMessageAt =
+            session.assistantAttention?.latestAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+        threads[index].lastSeenAssistantMessageAt =
+            session.assistantAttention?.lastSeenAssistantMessageAt.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
+            }
+
+        guard let sessionId = threads[index].sessionId,
+              let override = pendingAttentionOverrides[sessionId] else { return }
+
+        switch override {
+        case .seen(let targetLatestAssistantMessageAt):
+            if !threads[index].hasUnseenLatestAssistantMessage {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+            // When target is nil (e.g. notification-created thread before history loads),
+            // drop the override if the server reports unseen — the server has newer info.
+            if targetLatestAssistantMessageAt == nil {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+            if let targetLatestAssistantMessageAt,
+               let serverLatestAssistantMessageAt = threads[index].latestAssistantMessageAt,
+               serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+
+            if let targetLatestAssistantMessageAt,
+               threads[index].latestAssistantMessageAt == nil {
+                threads[index].latestAssistantMessageAt = targetLatestAssistantMessageAt
+            }
+            threads[index].hasUnseenLatestAssistantMessage = false
+            threads[index].lastSeenAssistantMessageAt =
+                threads[index].latestAssistantMessageAt
+
+        case .unread(let targetLatestAssistantMessageAt):
+            if threads[index].hasUnseenLatestAssistantMessage {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+            if let targetLatestAssistantMessageAt,
+               let serverLatestAssistantMessageAt = threads[index].latestAssistantMessageAt,
+               serverLatestAssistantMessageAt > targetLatestAssistantMessageAt {
+                pendingAttentionOverrides.removeValue(forKey: sessionId)
+                return
+            }
+
+            if let targetLatestAssistantMessageAt,
+               threads[index].latestAssistantMessageAt == nil {
+                threads[index].latestAssistantMessageAt = targetLatestAssistantMessageAt
+            }
+            threads[index].hasUnseenLatestAssistantMessage = true
+            threads[index].lastSeenAssistantMessageAt = nil
         }
     }
 
@@ -1561,12 +1854,17 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         }
         guard let index = threads.firstIndex(where: { $0.id == threadId }) else { return }
         updateLastInteracted(threadId: threadId)
+        let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
+        // Keep the local attention timestamp current for live assistant replies
+        // so unread eligibility survives until the next session-list refresh.
+        if threads[index].latestAssistantMessageAt == nil || isNewMessage {
+            threads[index].latestAssistantMessageAt = Date()
+        }
         if threadId == activeThreadId {
             threads[index].hasUnseenLatestAssistantMessage = false
             // Only emit the IPC seen signal on meaningful transitions:
             // 1. A new assistant message appeared (different messageId)
             // 2. Streaming just completed (isStreaming went true -> false)
-            let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
             let streamingJustCompleted = previousSnapshot?.isStreaming == true && !currentSnapshot.isStreaming
             if isNewMessage || streamingJustCompleted {
                 if let sessionId = threads[index].sessionId {
@@ -1576,5 +1874,14 @@ final class ThreadManager: ObservableObject, ThreadRestorerDelegate {
         } else {
             threads[index].hasUnseenLatestAssistantMessage = true
         }
+    }
+
+    private func canMarkConversationUnread(threadId: UUID, at threadIndex: Int) -> Bool {
+        guard threads[threadIndex].sessionId != nil,
+              !threads[threadIndex].hasUnseenLatestAssistantMessage else { return false }
+        // Live assistant replies update the in-memory activity snapshot before
+        // session-list hydration backfills latestAssistantMessageAt.
+        return threads[threadIndex].latestAssistantMessageAt != nil
+            || latestAssistantActivitySnapshots[threadId] != nil
     }
 }

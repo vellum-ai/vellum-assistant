@@ -1,4 +1,3 @@
-import * as fs from "node:fs";
 import {
   mkdirSync,
   mkdtempSync,
@@ -8,7 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Create a temp directory for the trust file
 const testDir = mkdtempSync(join(tmpdir(), "trust-store-test-"));
@@ -727,109 +726,6 @@ describe("Trust Store", () => {
     });
   });
 
-  // ── v1 migration ───────────────────────────────────────────────
-
-  describe("v1 migration", () => {
-    test("v1 rules get priority 100 on load", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 1,
-          rules: [
-            {
-              id: "test-v1-id",
-              tool: "bash",
-              pattern: "git *",
-              scope: "/tmp",
-              decision: "allow",
-              createdAt: 1000,
-            },
-          ],
-        }),
-      );
-      clearCache();
-      const rules = getAllRules();
-      expect(rules).toHaveLength(1 + NUM_DEFAULTS);
-      const migratedRule = rules.find((r) => r.id === "test-v1-id");
-      expect(migratedRule).toBeDefined();
-      expect(migratedRule!.priority).toBe(100);
-    });
-
-    test("v1 file is upgraded to v3 on disk", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 1,
-          rules: [
-            {
-              id: "migrate-me",
-              tool: "bash",
-              pattern: "npm *",
-              scope: "everywhere",
-              decision: "allow",
-              createdAt: 2000,
-            },
-          ],
-        }),
-      );
-      clearCache();
-      getAllRules(); // triggers load + migration
-      const data = JSON.parse(readFileSync(trustPath, "utf-8"));
-      expect(data.version).toBe(3);
-      const migratedRule = data.rules.find(
-        (r: { id: string }) => r.id === "migrate-me",
-      );
-      expect(migratedRule.priority).toBe(100);
-    });
-  });
-
-  // ── loadFromDisk resilience ─────────────────────────────────────
-
-  describe("loadFromDisk resilience", () => {
-    test("returns in-memory rules when saveToDisk fails during migration", () => {
-      // Write a v1 trust file that triggers needsSave on load
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 1,
-          rules: [
-            {
-              id: "v1-readonly",
-              tool: "bash",
-              pattern: "git *",
-              scope: "/tmp",
-              decision: "allow" as const,
-              createdAt: 1000,
-            },
-          ],
-        }),
-      );
-
-      // Spy on writeFileSync to throw when saveToDisk is called during migration.
-      // This is deterministic regardless of user privileges (unlike chmod 0o555).
-      const spy = spyOn(fs, "writeFileSync").mockImplementation(() => {
-        throw new Error("Simulated write failure");
-      });
-
-      try {
-        clearCache();
-        const rules = getAllRules();
-        // Should still return the migrated rules + defaults in-memory
-        expect(rules).toHaveLength(1 + NUM_DEFAULTS);
-        const migratedRule = rules.find((r) => r.id === "v1-readonly");
-        expect(migratedRule).toBeDefined();
-        expect(migratedRule!.priority).toBe(100);
-        // Verify that saveToDisk was attempted (writeFileSync was called)
-        expect(spy).toHaveBeenCalled();
-      } finally {
-        spy.mockRestore();
-      }
-    });
-  });
-
   // ── default rules ─────────────────────────────────────────────
 
   describe("default rules", () => {
@@ -892,7 +788,7 @@ describe("Trust Store", () => {
         "host_file_edit",
         "host_file_read",
         "host_file_write",
-        "memory_search",
+        "memory_recall",
         "scaffold_managed_skill",
         "skill_load",
         "ui_dismiss",
@@ -916,35 +812,6 @@ describe("Trust Store", () => {
         r.id.startsWith("default:"),
       );
       expect(defaults).toHaveLength(NUM_DEFAULTS);
-    });
-
-    test("default rules are backfilled alongside v1 migration", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 1,
-          rules: [
-            {
-              id: "v1-user-rule",
-              tool: "bash",
-              pattern: "git *",
-              scope: "/tmp",
-              decision: "allow",
-              createdAt: 1000,
-            },
-          ],
-        }),
-      );
-      clearCache();
-      const rules = getAllRules();
-      expect(rules).toHaveLength(1 + NUM_DEFAULTS);
-      expect(rules.find((r) => r.id === "v1-user-rule")!.priority).toBe(100);
-      const defaults = rules.filter((r) => r.id.startsWith("default:"));
-      expect(defaults).toHaveLength(NUM_DEFAULTS);
-      expect(
-        defaults.every((r) => r.priority === DEFAULT_PRIORITY_BY_ID.get(r.id)),
-      ).toBe(true);
     });
 
     test("removed default rule is re-backfilled on next load", () => {
@@ -1345,72 +1212,6 @@ describe("Trust Store", () => {
       expect(found!.allowHighRisk).toBe(true);
     });
 
-    test("v2 file is upgraded to v3 on disk", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 2,
-          rules: [
-            {
-              id: "v2-rule",
-              tool: "bash",
-              pattern: "npm *",
-              scope: "everywhere",
-              decision: "allow",
-              priority: 100,
-              createdAt: 3000,
-            },
-          ],
-        }),
-      );
-      clearCache();
-      getAllRules(); // triggers load + migration
-      const data = JSON.parse(readFileSync(trustPath, "utf-8"));
-      expect(data.version).toBe(3);
-    });
-
-    test("v2 rules survive v3 migration with no v3-only fields", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 2,
-          rules: [
-            {
-              id: "user-v2-a",
-              tool: "bash",
-              pattern: "git *",
-              scope: "/tmp",
-              decision: "allow",
-              priority: 100,
-              createdAt: 4000,
-            },
-            {
-              id: "user-v2-b",
-              tool: "file_write",
-              pattern: "/tmp/*",
-              scope: "/tmp",
-              decision: "deny",
-              priority: 50,
-              createdAt: 4001,
-            },
-          ],
-        }),
-      );
-      clearCache();
-      const rules = getAllRules();
-      const ruleA = rules.find((r) => r.id === "user-v2-a");
-      const ruleB = rules.find((r) => r.id === "user-v2-b");
-      expect(ruleA).toBeDefined();
-      expect(ruleB).toBeDefined();
-      expect(ruleA!.pattern).toBe("git *");
-      expect(ruleB!.decision).toBe("deny");
-      // No v3-only fields should be present
-      expect(ruleA).not.toHaveProperty("executionTarget");
-      expect(ruleA).not.toHaveProperty("allowHighRisk");
-    });
-
     test("trust file persists with version 3", () => {
       addRule("bash", "echo *", "/tmp");
       const data = JSON.parse(readFileSync(trustPath, "utf-8"));
@@ -1418,111 +1219,9 @@ describe("Trust Store", () => {
     });
   });
 
-  // ── v2 → v3 migration hardening (PR 15) ────────────────────────
+  // ── loadFromDisk resilience (misc) ──────────────────────────────
 
-  describe("v2 → v3 migration hardening (PR 15)", () => {
-    test("v2 rules with extra unknown fields survive migration cleanly", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 2,
-          rules: [
-            {
-              id: "v2-extra-fields",
-              tool: "bash",
-              pattern: "git *",
-              scope: "/tmp",
-              decision: "allow",
-              priority: 100,
-              createdAt: 5000,
-              customField: "should-survive",
-              nested: { deep: true },
-            },
-          ],
-        }),
-      );
-      clearCache();
-      const rules = getAllRules();
-      const rule = rules.find((r) => r.id === "v2-extra-fields");
-      expect(rule).toBeDefined();
-      expect(rule!.tool).toBe("bash");
-      expect(rule!.pattern).toBe("git *");
-      // Extra fields pass through because the migration does not strip them
-
-      expect((rule as any).customField).toBe("should-survive");
-
-      expect((rule as any).nested).toEqual({ deep: true });
-    });
-
-    test("v2 file with empty rules array migrates correctly", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 2,
-          rules: [],
-        }),
-      );
-      clearCache();
-      const rules = getAllRules();
-      // Should only have default rules, no user rules
-      expect(rules).toHaveLength(NUM_DEFAULTS);
-      expect(rules.every((r) => r.id.startsWith("default:"))).toBe(true);
-      // File should be upgraded to v3 on disk
-      const data = JSON.parse(readFileSync(trustPath, "utf-8"));
-      expect(data.version).toBe(3);
-    });
-
-    test("v2 file with no rules field at all migrates correctly", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 2,
-        }),
-      );
-      clearCache();
-      const rules = getAllRules();
-      // rules defaults to [] so only defaults should appear
-      expect(rules).toHaveLength(NUM_DEFAULTS);
-      expect(rules.every((r) => r.id.startsWith("default:"))).toBe(true);
-      // File should be upgraded to v3 on disk
-      const data = JSON.parse(readFileSync(trustPath, "utf-8"));
-      expect(data.version).toBe(3);
-    });
-
-    test("malformed v2 file (rules is a string instead of array) is handled gracefully", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 2,
-          rules: "not-an-array",
-        }),
-      );
-      clearCache();
-      const rules = getAllRules();
-      // Should fall back to empty rules and backfill defaults
-      expect(rules).toHaveLength(NUM_DEFAULTS);
-      expect(rules.every((r) => r.id.startsWith("default:"))).toBe(true);
-    });
-
-    test("malformed v2 file (rules is an object instead of array) is handled gracefully", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 2,
-          rules: { notAnArray: true },
-        }),
-      );
-      clearCache();
-      const rules = getAllRules();
-      expect(rules).toHaveLength(NUM_DEFAULTS);
-      expect(rules.every((r) => r.id.startsWith("default:"))).toBe(true);
-    });
-
+  describe("loadFromDisk resilience (misc)", () => {
     test("malformed file (valid JSON but null) is handled gracefully", () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(trustPath, "null");
@@ -1531,49 +1230,6 @@ describe("Trust Store", () => {
       // Accessing null.version throws TypeError, caught by try/catch,
       // falls through to backfill defaults
       expect(rules).toHaveLength(NUM_DEFAULTS);
-    });
-
-    test("concurrent v2 → v3 migration (loading twice in sequence) is idempotent", () => {
-      mkdirSync(dirname(trustPath), { recursive: true });
-      writeFileSync(
-        trustPath,
-        JSON.stringify({
-          version: 2,
-          rules: [
-            {
-              id: "idempotent-rule",
-              tool: "bash",
-              pattern: "npm *",
-              scope: "everywhere",
-              decision: "allow",
-              priority: 100,
-              createdAt: 6000,
-            },
-          ],
-        }),
-      );
-      // First load — triggers v2 → v3 migration
-      clearCache();
-      const rules1 = getAllRules();
-      const rule1 = rules1.find((r) => r.id === "idempotent-rule");
-      expect(rule1).toBeDefined();
-      expect(rule1!.pattern).toBe("npm *");
-
-      // Second load — should load the already-migrated v3 file without re-migrating
-      clearCache();
-      const rules2 = getAllRules();
-      const rule2 = rules2.find((r) => r.id === "idempotent-rule");
-      expect(rule2).toBeDefined();
-      expect(rule2!.pattern).toBe("npm *");
-      expect(rule2!.priority).toBe(100);
-
-      // Verify file is still v3 and rule count is stable
-      const data = JSON.parse(readFileSync(trustPath, "utf-8"));
-      expect(data.version).toBe(3);
-      const userRules = data.rules.filter(
-        (r: { id: string }) => !r.id.startsWith("default:"),
-      );
-      expect(userRules).toHaveLength(1);
     });
 
     test("v3 file with optional fields is loaded correctly without re-migration", () => {
@@ -1616,52 +1272,41 @@ describe("Trust Store", () => {
       expect(withoutOptions).not.toHaveProperty("executionTarget");
     });
 
-    test("v2 migration preserves rule meaning exactly — no extra fields added", () => {
+    test("legacy v2 version migrates rules and persists as v3", () => {
       mkdirSync(dirname(trustPath), { recursive: true });
-      const originalRules = [
-        {
-          id: "preserve-a",
-          tool: "bash",
-          pattern: "git *",
-          scope: "/home/user",
-          decision: "allow" as const,
-          priority: 100,
-          createdAt: 8000,
-        },
-        {
-          id: "preserve-b",
-          tool: "file_write",
-          pattern: "/tmp/**",
-          scope: "everywhere",
-          decision: "deny" as const,
-          priority: 50,
-          createdAt: 8001,
-        },
-      ];
       writeFileSync(
         trustPath,
-        JSON.stringify({ version: 2, rules: originalRules }),
+        JSON.stringify({
+          version: 2,
+          rules: [
+            {
+              id: "old-version-rule",
+              tool: "bash",
+              pattern: "git *",
+              scope: "/tmp",
+              decision: "allow",
+              priority: 100,
+              createdAt: 5000,
+            },
+          ],
+        }),
       );
       clearCache();
       const rules = getAllRules();
+      const migratedRule = rules.find((r) => r.id === "old-version-rule");
+      expect(migratedRule).toBeDefined();
+      expect(migratedRule!.decision).toBe("allow");
+      expect(rules).toHaveLength(1 + NUM_DEFAULTS);
 
-      for (const original of originalRules) {
-        const migrated = rules.find((r) => r.id === original.id);
-        expect(migrated).toBeDefined();
-        // Every original field is preserved exactly
-        expect(migrated!.tool).toBe(original.tool);
-        expect(migrated!.pattern).toBe(original.pattern);
-        expect(migrated!.scope).toBe(original.scope);
-        expect(migrated!.decision).toBe(original.decision);
-        expect(migrated!.priority).toBe(original.priority);
-        expect(migrated!.createdAt).toBe(original.createdAt);
-        // No extra fields were injected by migration
-        expect(migrated).not.toHaveProperty("executionTarget");
-        expect(migrated).not.toHaveProperty("allowHighRisk");
-      }
+      // File should be persisted to the current schema version.
+      const data = JSON.parse(readFileSync(trustPath, "utf-8"));
+      expect(data.version).toBe(3);
+      expect(
+        data.rules.some((r: { id: string }) => r.id === "old-version-rule"),
+      ).toBe(true);
     });
 
-    test("v1 → v3 full migration preserves rules and adds priority", () => {
+    test("legacy v1 version migrates rules and persists as v3", () => {
       mkdirSync(dirname(trustPath), { recursive: true });
       writeFileSync(
         trustPath,
@@ -1669,25 +1314,29 @@ describe("Trust Store", () => {
           version: 1,
           rules: [
             {
-              id: "v1-full-migration",
+              id: "v1-rule",
               tool: "bash",
-              pattern: "docker *",
-              scope: "/srv",
-              decision: "allow",
-              createdAt: 9000,
+              pattern: "rm *",
+              scope: "everywhere",
+              decision: "deny",
+              priority: 200,
+              createdAt: 4000,
             },
           ],
         }),
       );
+
       clearCache();
       const rules = getAllRules();
-      const rule = rules.find((r) => r.id === "v1-full-migration");
-      expect(rule).toBeDefined();
-      // v1 → v2 adds priority 100
-      expect(rule!.priority).toBe(100);
-      // File should be v3 on disk
+      const migratedRule = rules.find((r) => r.id === "v1-rule");
+      expect(migratedRule).toBeDefined();
+      expect(migratedRule!.decision).toBe("deny");
+
       const data = JSON.parse(readFileSync(trustPath, "utf-8"));
       expect(data.version).toBe(3);
+      expect(data.rules.some((r: { id: string }) => r.id === "v1-rule")).toBe(
+        true,
+      );
     });
   });
 

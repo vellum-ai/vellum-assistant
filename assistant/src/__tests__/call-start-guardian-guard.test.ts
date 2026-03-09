@@ -33,7 +33,7 @@ mock.module("../calls/call-domain.js", () => ({
   },
 }));
 
-mock.module("../runtime/channel-guardian-service.js", () => ({
+mock.module("../runtime/channel-verification-service.js", () => ({
   findActiveSession: () => activeVoiceSession,
 }));
 

@@ -1,9 +1,9 @@
 import Foundation
 
-// MARK: - Manual IPC Type Allowlist
+// MARK: - Manual Type Allowlist
 //
-// Most IPC message types are auto-generated from the TS contract into
-// IPCContractGenerated.swift and referenced here via typealiases.
+// Most message types are auto-generated from the TS contract into
+// GeneratedAPITypes.swift and referenced here via typealiases.
 // The following structs are **intentionally** hand-maintained because
 // the code generator cannot express their requirements:
 //
@@ -380,12 +380,20 @@ extension IPCPingMessage {
 }
 
 /// Sent when user interacts with a surface.
-/// Backed by generated `IPCUiSurfaceAction`.
-public typealias UiSurfaceActionMessage = IPCUiSurfaceAction
+/// Hand-written to allow optional `sessionId` (the generated `IPCUiSurfaceAction` requires non-nil).
+public struct UiSurfaceActionMessage: Codable, Sendable {
+    public let type: String
+    public let sessionId: String?
+    public let surfaceId: String
+    public let actionId: String
+    public let data: [String: AnyCodable]?
 
-extension IPCUiSurfaceAction {
-    public init(sessionId: String, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
-        self.init(type: "ui_surface_action", sessionId: sessionId, surfaceId: surfaceId, actionId: actionId, data: data)
+    public init(sessionId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) {
+        self.type = "ui_surface_action"
+        self.sessionId = sessionId
+        self.surfaceId = surfaceId
+        self.actionId = actionId
+        self.data = data
     }
 }
 
@@ -740,8 +748,8 @@ extension IPCGetSigningIdentityResponse {
 
 // MARK: - Server → Client Messages (Decodable)
 //
-// These typealiases point to the auto-generated IPC types in
-// IPCContractGenerated.swift. Convenience inits preserve backward
+// These typealiases point to the auto-generated types in
+// GeneratedAPITypes.swift. Convenience inits preserve backward
 // compatibility with existing call sites (the generated structs
 // include a `type` field that the old hand-maintained types omitted).
 
@@ -913,7 +921,7 @@ public typealias DaemonStatusMessage = IPCDaemonStatusMessage
 /// Surface show command from daemon.
 /// Wire type: `"ui_surface_show"`
 public struct UiSurfaceShowMessage: Decodable, Sendable {
-    public let sessionId: String
+    public let sessionId: String?
     public let surfaceId: String
     public let surfaceType: String
     public let title: String?
@@ -924,7 +932,7 @@ public struct UiSurfaceShowMessage: Decodable, Sendable {
     /// The message ID that this surface belongs to (for history loading).
     public let messageId: String?
 
-    public init(sessionId: String, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
+    public init(sessionId: String?, surfaceId: String, surfaceType: String, title: String?, data: AnyCodable, actions: [SurfaceActionData]?, display: String?, messageId: String?) {
         self.sessionId = sessionId
         self.surfaceId = surfaceId
         self.surfaceType = surfaceType
@@ -943,7 +951,7 @@ public typealias SurfaceActionData = IPCSurfaceAction
 /// Surface update command from daemon.
 /// Wire type: `"ui_surface_update"`
 public struct UiSurfaceUpdateMessage: Decodable, Sendable {
-    public let sessionId: String
+    public let sessionId: String?
     public let surfaceId: String
     public let data: AnyCodable
 }
@@ -954,7 +962,7 @@ public typealias UiSurfaceDismissMessage = IPCUiSurfaceDismiss
 
 /// Surface completion message from daemon, sent when user interaction completes a surface.
 public struct UiSurfaceCompleteMessage: Decodable, Sendable {
-    public let sessionId: String
+    public let sessionId: String?
     public let surfaceId: String
     public let summary: String
     public let submittedData: [String: AnyCodable]?
@@ -1079,19 +1087,11 @@ public typealias SkillInfo = IPCSkillsListResponseSkill
 extension IPCSkillsListResponseSkill: Identifiable {}
 
 extension IPCSkillsListResponseSkill {
-    /// Backward-compatible init that defaults `id` to `name`.
-    public init(name: String, description: String, emoji: String?, homepage: String?, source: String, state: String, degraded: Bool, missingRequirements: IPCSkillsListResponseSkillMissingRequirements?, installedVersion: String?, latestVersion: String?, updateAvailable: Bool, userInvocable: Bool, clawhub: IPCSkillsListResponseSkillClawhub?) {
-        self.init(id: name, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: state, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: nil)
-    }
-
     /// Returns a copy with a different `state`, preserving all other fields including `id`.
     public func withState(_ newState: String) -> Self {
         Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, degraded: degraded, missingRequirements: missingRequirements, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, userInvocable: userInvocable, clawhub: clawhub, provenance: provenance)
     }
 }
-
-/// Backward-compatible alias for code referencing the old name.
-public typealias SkillSummaryItem = SkillInfo
 
 /// Response containing the list of available skills.
 /// Backed by generated `IPCSkillsListResponse`.
@@ -1287,19 +1287,6 @@ public typealias SessionListResponseMessage = IPCSessionListResponse
 /// Backed by generated `IPCHistoryResponse`.
 public typealias HistoryResponseMessage = IPCHistoryResponse
 
-extension IPCHistoryResponse {
-    /// Backward-compatible alias for the nested message item type.
-    public typealias HistoryMessageItem = IPCHistoryResponseMessage
-    /// Backward-compatible alias for the nested tool call type.
-    public typealias HistoryToolCallItem = IPCHistoryResponseToolCall
-}
-
-extension IPCHistoryResponseMessage {
-    /// Backward-compatible init without textSegments/contentOrder/surfaces/subagentNotification (added in later IPC versions).
-    public init(role: String, text: String, timestamp: Double, toolCalls: [IPCHistoryResponseToolCall]?, toolCallsBeforeText: Bool?, attachments: [IPCUserMessageAttachment]?) {
-        self.init(id: nil, role: role, text: text, timestamp: timestamp, toolCalls: toolCalls, toolCallsBeforeText: toolCallsBeforeText, attachments: attachments, textSegments: nil, contentOrder: nil, surfaces: nil, subagentNotification: nil)
-    }
-}
 
 /// A single scheduled task item returned from the daemon.
 /// Backed by generated `IPCSchedulesListResponseSchedule`.
@@ -1433,20 +1420,6 @@ public typealias BundleAppResponseMessage = IPCBundleAppResponse
 /// Backed by generated `IPCSignBundlePayloadRequest`.
 public typealias SignBundlePayloadMessage = IPCSignBundlePayloadRequest
 
-/// Blob probe request sent after connecting to verify filesystem reachability.
-/// Backed by generated `IPCIpcBlobProbe`.
-public typealias IpcBlobProbeMessage = IPCIpcBlobProbe
-
-extension IPCIpcBlobProbe {
-    public init(probeId: String, nonceSha256: String) {
-        self.init(type: "ipc_blob_probe", probeId: probeId, nonceSha256: nonceSha256)
-    }
-}
-
-/// Result from a blob probe verification.
-/// Backed by generated `IPCIpcBlobProbeResult`.
-public typealias IpcBlobProbeResultMessage = IPCIpcBlobProbeResult
-
 /// Real-time execution trace event from the daemon.
 /// Wire type: `"trace_event"`
 public struct TraceEventMessage: Decodable, Sendable {
@@ -1542,13 +1515,6 @@ public typealias SecretRequestMessage = IPCSecretRequest
 /// Backed by generated `IPCConfirmationRequest`.
 public typealias ConfirmationRequestMessage = IPCConfirmationRequest
 
-// Backward-compatible nested type aliases so call sites like
-// `ConfirmationRequestMessage.ConfirmationAllowlistOption` keep compiling.
-extension IPCConfirmationRequest {
-    public typealias ConfirmationAllowlistOption = IPCConfirmationRequestAllowlistOption
-    public typealias ConfirmationScopeOption = IPCConfirmationRequestScopeOption
-    public typealias ConfirmationDiffInfo = IPCConfirmationRequestDiff
-}
 
 // Equatable conformance for generated types used in SwiftUI previews and tests.
 // Explicit `==` implementations because auto-synthesis requires conformance in the declaring file.
@@ -1694,22 +1660,6 @@ public typealias ToolNamesListResponseMessage = IPCToolNamesListResponse
 /// Backed by generated `IPCOpenBundleResponse`.
 public typealias OpenBundleResponseMessage = IPCOpenBundleResponse
 
-// Backward-compatible nested type aliases so call sites like
-// `OpenBundleResponseMessage.Manifest` keep compiling.
-extension IPCOpenBundleResponse {
-    public typealias Manifest = IPCOpenBundleResponseManifest
-    public typealias ScanResult = IPCOpenBundleResponseScanResult
-    public typealias SignatureResult = IPCOpenBundleResponseSignatureResult
-}
-
-// camelCase computed properties on the generated Manifest type so existing
-// call sites (e.g. `manifest.formatVersion`, `manifest.createdAt`) keep working.
-// The generated struct uses snake_case property names that match the wire format.
-extension IPCOpenBundleResponseManifest {
-    public var formatVersion: Int { format_version }
-    public var createdAt: String { created_at }
-    public var createdBy: String { created_by }
-}
 
 
 // MARK: - Publish / Unpublish Page Messages
@@ -1961,36 +1911,40 @@ public struct TwilioNumberInfo: Codable, Sendable {
     }
 }
 
-// MARK: - Guardian Verification Messages
+// MARK: - Channel Verification Session Messages
 
-/// Guardian verification request (create challenge, check status, revoke).
-/// Backed by generated `IPCGuardianVerificationRequest`.
-public typealias GuardianVerificationRequestMessage = IPCGuardianVerificationRequest
+/// Channel verification session request (create_session, status, cancel_session, revoke, resend_session).
+/// Backed by generated `IPCChannelVerificationSessionRequest`.
+public typealias ChannelVerificationSessionRequestMessage = IPCChannelVerificationSessionRequest
 
-extension IPCGuardianVerificationRequest {
+extension IPCChannelVerificationSessionRequest {
     public init(
         action: String,
         channel: String? = nil,
         sessionId: String? = nil,
         rebind: Bool? = nil,
         destination: String? = nil,
-        originConversationId: String? = nil
+        originConversationId: String? = nil,
+        purpose: String? = nil,
+        contactChannelId: String? = nil
     ) {
         self.init(
-            type: "guardian_verification",
+            type: "channel_verification_session",
             action: action,
             channel: channel,
             sessionId: sessionId,
             rebind: rebind,
             destination: destination,
-            originConversationId: originConversationId
+            originConversationId: originConversationId,
+            purpose: purpose,
+            contactChannelId: contactChannelId
         )
     }
 }
 
-/// Guardian verification response.
-/// Backed by generated `IPCGuardianVerificationResponse`.
-public typealias GuardianVerificationResponseMessage = IPCGuardianVerificationResponse
+/// Channel verification session response.
+/// Backed by generated `IPCChannelVerificationSessionResponse`.
+public typealias ChannelVerificationSessionResponseMessage = IPCChannelVerificationSessionResponse
 
 // MARK: - Twitter Integration Config Messages
 
@@ -2096,6 +2050,31 @@ extension IPCConversationSeenSignal {
     ) {
         self.init(
             type: "conversation_seen_signal",
+            conversationId: conversationId,
+            sourceChannel: sourceChannel,
+            signalType: signalType,
+            confidence: confidence,
+            source: source,
+            evidenceText: evidenceText,
+            observedAt: observedAt,
+            metadata: metadata
+        )
+    }
+}
+
+extension IPCConversationUnreadSignal {
+    public init(
+        conversationId: String,
+        sourceChannel: String,
+        signalType: String,
+        confidence: String,
+        source: String,
+        evidenceText: String? = nil,
+        observedAt: Int? = nil,
+        metadata: [String: AnyCodable]? = nil
+    ) {
+        self.init(
+            type: "conversation_unread_signal",
             conversationId: conversationId,
             sourceChannel: sourceChannel,
             signalType: signalType,
@@ -2220,7 +2199,7 @@ public enum ServerMessage: Decodable, Sendable {
     case ingressConfigResponse(IngressConfigResponseMessage)
     case platformConfigResponse(PlatformConfigResponseMessage)
     case vercelApiConfigResponse(VercelApiConfigResponseMessage)
-    case guardianVerificationResponse(GuardianVerificationResponseMessage)
+    case channelVerificationSessionResponse(ChannelVerificationSessionResponseMessage)
     case telegramConfigResponse(TelegramConfigResponseMessage)
     case twitterIntegrationConfigResponse(TwitterIntegrationConfigResponseMessage)
     case twitterAuthResult(TwitterAuthResultMessage)
@@ -2234,7 +2213,6 @@ public enum ServerMessage: Decodable, Sendable {
     case documentSaveResponse(DocumentSaveResponseMessage)
     case documentLoadResponse(DocumentLoadResponseMessage)
     case documentListResponse(DocumentListResponseMessage)
-    case ipcBlobProbeResult(IpcBlobProbeResultMessage)
     case daemonStatus(DaemonStatusMessage)
     case openUrl(OpenUrlMessage)
     case navigateSettings(IPCNavigateSettings)
@@ -2548,9 +2526,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "vercel_api_config_response":
             let message = try VercelApiConfigResponseMessage(from: decoder)
             self = .vercelApiConfigResponse(message)
-        case "guardian_verification_response":
-            let message = try GuardianVerificationResponseMessage(from: decoder)
-            self = .guardianVerificationResponse(message)
+        case "channel_verification_session_response":
+            let message = try ChannelVerificationSessionResponseMessage(from: decoder)
+            self = .channelVerificationSessionResponse(message)
         case "telegram_config_response":
             let message = try TelegramConfigResponseMessage(from: decoder)
             self = .telegramConfigResponse(message)
@@ -2572,9 +2550,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "ui_surface_undo_result":
             let message = try UiSurfaceUndoResultMessage(from: decoder)
             self = .uiSurfaceUndoResult(message)
-        case "ipc_blob_probe_result":
-            let message = try IpcBlobProbeResultMessage(from: decoder)
-            self = .ipcBlobProbeResult(message)
         case "open_url":
             let message = try OpenUrlMessage(from: decoder)
             self = .openUrl(message)

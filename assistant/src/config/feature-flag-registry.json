@@ -2,14 +2,6 @@
   "version": 1,
   "flags": [
     {
-      "id": "sms",
-      "scope": "assistant",
-      "key": "feature_flags.sms.enabled",
-      "label": "SMS",
-      "description": "Show SMS setup in Settings > Connect and enable the SMS setup skill",
-      "defaultEnabled": false
-    },
-    {
       "id": "hatch-new-assistant",
       "scope": "assistant",
       "key": "feature_flags.hatch-new-assistant.enabled",
@@ -79,14 +71,6 @@
       "key": "user_hosted_enabled",
       "label": "User Hosted Enabled",
       "description": "Enable user-hosted onboarding flow",
-      "defaultEnabled": false
-    },
-    {
-      "id": "local-http-enabled",
-      "scope": "macos",
-      "key": "local_http_enabled",
-      "label": "Local HTTP Enabled",
-      "description": "Enable local HTTP transport mode in macOS app",
       "defaultEnabled": false
     },
     {

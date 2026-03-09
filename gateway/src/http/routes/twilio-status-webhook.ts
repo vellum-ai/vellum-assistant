@@ -4,13 +4,19 @@ import {
   CircuitBreakerOpenError,
   forwardTwilioStatusWebhook,
 } from "../../runtime/client.js";
-import { validateTwilioWebhookRequest } from "../../twilio/validate-webhook.js";
+import {
+  validateTwilioWebhookRequest,
+  type TwilioValidationCaches,
+} from "../../twilio/validate-webhook.js";
 
 const log = getLogger("twilio-status-webhook");
 
-export function createTwilioStatusWebhookHandler(config: GatewayConfig) {
+export function createTwilioStatusWebhookHandler(
+  config: GatewayConfig,
+  caches?: TwilioValidationCaches,
+) {
   return async (req: Request): Promise<Response> => {
-    const validation = await validateTwilioWebhookRequest(req, config);
+    const validation = await validateTwilioWebhookRequest(req, config, caches);
     if (validation instanceof Response) return validation;
 
     const { params } = validation;

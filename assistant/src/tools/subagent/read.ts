@@ -1,4 +1,4 @@
-import { getMessages } from "../../memory/conversation-store.js";
+import { getMessages } from "../../memory/conversation-crud.js";
 import { getSubagentManager, TERMINAL_STATUSES } from "../../subagent/index.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 

@@ -1,7 +1,8 @@
 ---
-name: "Media Processing"
+name: media-processing
 description: "Ingest and process media files (video, audio, image) through a 3-phase pipeline: preprocess, map (Gemini), and reduce (Claude)"
-metadata: { "vellum": { "emoji": "🎬" } }
+compatibility: "Designed for Vellum personal assistants"
+metadata: {"emoji":"🎬","vellum":{"display-name":"Media Processing"}}
 ---
 
 Ingest and track processing of media files (video, audio, images) through a configurable 3-phase pipeline.

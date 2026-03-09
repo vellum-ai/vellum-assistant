@@ -264,7 +264,7 @@ This builds the app (if needed), generates the background image, creates a style
 
 ## Local Assistant (Daemon)
 
-The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to it via a Unix domain socket at `~/.vellum/vellum.sock` by default (the path is resolved dynamically via `resolveSocketPath()`, which honors `BASE_DATA_DIR` and the lockfile for multi-instance setups).
+The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a Node/Bun process that manages Claude API calls, conversation state, and tool execution. The app connects to it via HTTP+SSE (the runtime HTTP server port is resolved dynamically from the lockfile, honoring `BASE_DATA_DIR` for multi-instance setups).
 
 **Local mode: You must start the assistant before using the app.** Without it, the app will connect but get no responses. (In managed mode, the assistant runs on the Vellum platform — no local process needed.)
 
@@ -456,7 +456,7 @@ Inference/            AI action selection
   ToolDefinitions     Tool schemas for function calling
 Services/             Singleton service containers
 Ambient/              Background screen-watching agent
-  AmbientAgent        Periodic capture → OCR → analyze via daemon IPC
+  AmbientAgent        Periodic capture → OCR → analyze via HTTP
   AmbientAnalyzer     Type definitions (AmbientDecision, AmbientAnalysisResult)
   KnowledgeStore      Persists observations as JSON
   ScreenOCR           Vision framework OCR
@@ -466,7 +466,7 @@ Features/
   Chat/               Chat interface (ChatView, ChatViewModel, ChatMessage)
   CommandPalette/     Command palette (search, actions)
   Contacts/           Contact management
-  GuardianVerification/ Guardian verification flow
+  ChannelVerification/ Channel verification flow
   MainWindow/         Main window shell, ThreadTabBar, PanelCoordinator, side panels
   Onboarding/         First-launch setup flow (permissions, naming, Fn key)
   QuickInput/         Quick task input popover and screen selection
@@ -489,11 +489,7 @@ Logging/
 
 ## Remote Assistant
 
-The app supports connecting to a remote assistant process via SSH socket forwarding. Set `VELLUM_DAEMON_SOCKET` to the forwarded socket path. See the [Remote Access](../../README.md#remote-access) section in the root README.
-
-### Zero-Copy Blob Transport
-
-On local macOS connections, large CU observation payloads (screenshots, AX trees) are offloaded to file-based blobs at `~/.vellum/workspace/data/ipc-blobs/` instead of inline base64/text. On every macOS socket connect, the client runs a blob probe: writes a random nonce to the blob directory and sends its SHA-256 to the daemon. If the daemon reads the file and the hashes match, `isBlobTransportAvailable` is set to `true` and subsequent observations use blob references. Over SSH-forwarded sockets, the probe fails automatically (no shared filesystem) and the client falls back to inline payloads. On iOS, the probe is compiled out via `#if os(macOS)`.
+The app supports connecting to a remote assistant process over HTTP. Configure a remote assistant entry in the lockfile with its `runtimeUrl` and optional `bearerToken`, or use managed mode to connect through the Vellum platform. See the [Remote Access](../../README.md#remote-access) section in the root README.
 
 ---
 

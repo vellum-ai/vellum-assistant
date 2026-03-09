@@ -59,7 +59,13 @@ describe("twilio-config", () => {
   });
 
   test("throws ConfigError when auth token is missing", () => {
-    mockSecureKeys["credential:twilio:auth_token"] = null;
+    mockSecureKeys = {};
+    mockLoadConfigResult = {
+      twilio: {
+        accountSid: "AC_test_sid",
+        phoneNumber: "+15551234567",
+      },
+    };
     expect(() => getTwilioConfig()).toThrow(
       /Twilio credentials not configured/,
     );
@@ -67,7 +73,10 @@ describe("twilio-config", () => {
 
   test("throws ConfigError when phone number is missing", () => {
     mockLoadConfigResult = {
-      twilio: { accountSid: "AC_test_sid", phoneNumber: "" },
+      twilio: {
+        accountSid: "AC_test_sid",
+        phoneNumber: "",
+      },
     };
     expect(() => getTwilioConfig()).toThrow(
       /Twilio phone number not configured/,

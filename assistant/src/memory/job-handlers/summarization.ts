@@ -10,7 +10,7 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
-import { getConversationMemoryScopeId } from "../conversation-store.js";
+import { getConversationMemoryScopeId } from "../conversation-crud.js";
 import { getDb } from "../db.js";
 import {
   asString,

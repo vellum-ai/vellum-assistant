@@ -4,13 +4,13 @@ import { homedir } from "os";
 import { basename, dirname, join } from "path";
 
 import {
-  defaultLocalResources,
   findAssistantByName,
   loadAllAssistants,
   removeAssistantEntry,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { retireInstance as retireAwsInstance } from "../lib/aws";
+import { retireDocker } from "../lib/docker";
 import { retireInstance as retireGcpInstance } from "../lib/gcp";
 import {
   stopOrphanedDaemonProcesses,
@@ -45,22 +45,20 @@ function extractHostFromUrl(url: string): string {
 async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
 
-  // Use entry resources when available; for legacy entries, derive paths
-  // from baseDataDir (which may differ from homedir if BASE_DATA_DIR was set).
-  const resources = entry.resources ?? defaultLocalResources();
-  const legacyDir = entry.baseDataDir;
-  const vellumDir = legacyDir ?? join(resources.instanceDir, ".vellum");
+  if (!entry.resources) {
+    throw new Error(
+      `Local assistant '${name}' is missing resource configuration. Re-hatch to fix.`,
+    );
+  }
+  const resources = entry.resources;
+  const vellumDir = join(resources.instanceDir, ".vellum");
 
   // Check whether another local assistant shares the same data directory.
-  // Legacy entries without `resources` all resolve to ~/.vellum/ — if we
-  // blindly kill processes and archive the directory, we'd destroy the
-  // other assistant's running daemon and data.
   const otherSharesDir = loadAllAssistants().some((other) => {
     if (other.cloud !== "local") return false;
     if (other.assistantId === name) return false;
-    const otherVellumDir =
-      other.baseDataDir ??
-      join((other.resources ?? defaultLocalResources()).instanceDir, ".vellum");
+    if (!other.resources) return false;
+    const otherVellumDir = join(other.resources.instanceDir, ".vellum");
     return otherVellumDir === vellumDir;
   });
 
@@ -72,17 +70,8 @@ async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
     return;
   }
 
-  // Stop daemon via PID file — prefer resources paths, but for legacy entries
-  // with a custom baseDataDir, derive from that directory instead.
-  const daemonPidFile = legacyDir
-    ? join(legacyDir, "vellum.pid")
-    : resources.pidFile;
-  const socketFile = legacyDir
-    ? join(legacyDir, "vellum.sock")
-    : resources.socketPath;
-  const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon", [
-    socketFile,
-  ]);
+  const daemonPidFile = resources.pidFile;
+  const daemonStopped = await stopProcessByPidFile(daemonPidFile, "daemon");
 
   // Stop gateway via PID file — use a longer timeout because the gateway has a
   // configurable drain window (GATEWAY_SHUTDOWN_DRAIN_MS, default 5s) before it exits.
@@ -286,6 +275,8 @@ async function retireInner(): Promise<void> {
       process.exit(1);
     }
     await retireAwsInstance(name, region, source);
+  } else if (cloud === "docker") {
+    await retireDocker(name);
   } else if (cloud === "local") {
     await retireLocal(name, entry);
   } else if (cloud === "custom") {
