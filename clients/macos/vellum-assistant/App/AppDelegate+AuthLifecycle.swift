@@ -174,18 +174,28 @@ extension AppDelegate {
     /// 5s, so that assistant switches (which clear then re-bootstrap actor
     /// credentials) don't race with this method.
     func ensureLocalAssistantApiKey() {
-        guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else { return }
-        guard authManager.isAuthenticated else { return }
+        guard !isCurrentAssistantManaged, !isCurrentAssistantRemote else {
+            log.debug("Skipping local assistant API key provisioning because current assistant is managed=\(self.isCurrentAssistantManaged, privacy: .public) remote=\(self.isCurrentAssistantRemote, privacy: .public)")
+            return
+        }
+        guard authManager.isAuthenticated else {
+            log.debug("Skipping local assistant API key provisioning because user is not authenticated")
+            return
+        }
 
         let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
         guard let assistantId = storedId,
-              let assistant = LockfileAssistant.loadByName(assistantId) else { return }
+              let assistant = LockfileAssistant.loadByName(assistantId) else {
+            log.warning("Skipping local assistant API key provisioning because connectedAssistantId is missing from lockfile")
+            return
+        }
 
         // Resolve daemon HTTP endpoint from lockfile, with env override and fallback
         let daemonPort = assistant.daemonPort
             ?? Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "")
             ?? 7821
         let daemonBaseURL = "http://localhost:\(daemonPort)"
+        log.info("Starting local assistant API key provisioning for \(assistant.assistantId, privacy: .public) at \(daemonBaseURL, privacy: .public)")
 
         Task {
             // Wait for actor token with retries — initial bootstrap may take

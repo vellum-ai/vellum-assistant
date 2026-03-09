@@ -1,5 +1,8 @@
 import SwiftUI
 import VellumAssistantShared
+import os
+
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "OnboardingFlowView")
 
 @MainActor
 struct OnboardingFlowView: View {
@@ -13,8 +16,6 @@ struct OnboardingFlowView: View {
     @State private var isAdvancingFromWakeUp = false
     @State private var isBootstrappingManaged = false
     @State private var managedBootstrapError: String?
-    @State private var isBootstrappingLocal = false
-    @State private var localBootstrapError: String?
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -66,8 +67,6 @@ struct OnboardingFlowView: View {
                     Group {
                         if isBootstrappingManaged {
                             managedBootstrapView
-                        } else if isBootstrappingLocal {
-                            localBootstrapView
                         } else {
                             switch state.currentStep {
                             case 0:
@@ -104,7 +103,7 @@ struct OnboardingFlowView: View {
                             removal: .opacity.combined(with: .offset(y: -8))
                         )
                     )
-                    .id(isBootstrappingManaged ? -1 : isBootstrappingLocal ? -2 : state.currentStep)
+                    .id(isBootstrappingManaged ? -1 : state.currentStep)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
@@ -140,10 +139,10 @@ struct OnboardingFlowView: View {
                             await performManagedBootstrap()
                         }
                     } else if !assistant.isRemote {
-                        Task {
-                            await performLocalBootstrap(assistant: assistant)
-                        }
+                        log.info("Auth completed for local assistant \(assistant.assistantId, privacy: .public) — deferring local registration until app startup")
+                        onComplete()
                     } else {
+                        log.info("Auth completed for remote assistant \(assistant.assistantId, privacy: .public) — proceeding to app")
                         onComplete()
                     }
                 } else if managedBootstrapEnabled {
@@ -151,6 +150,7 @@ struct OnboardingFlowView: View {
                         await performManagedBootstrap()
                     }
                 } else {
+                    log.info("Auth completed with no lockfile assistant — proceeding to app")
                     onComplete()
                 }
             }
@@ -240,81 +240,6 @@ struct OnboardingFlowView: View {
             managedBootstrapError = error.localizedDescription
         }
     }
-
-    // MARK: - Local Bootstrap
-
-    @ViewBuilder
-    private var localBootstrapView: some View {
-        VStack(spacing: VSpacing.lg) {
-            if localBootstrapError == nil {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .progressViewStyle(.circular)
-                    Text("Registering your assistant...")
-                        .font(VFont.monoMedium)
-                        .foregroundColor(VColor.textSecondary)
-                }
-            } else {
-                Text("Registration failed")
-                    .font(VFont.title)
-                    .foregroundColor(VColor.textPrimary)
-
-                if let error = localBootstrapError {
-                    Text(error)
-                        .font(VFont.caption)
-                        .foregroundColor(VColor.error)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 280)
-                }
-
-                OnboardingButton(title: "Try again", style: .primary) {
-                    Task {
-                        if let assistant = LockfileAssistant.loadLatest(), !assistant.isRemote {
-                            await performLocalBootstrap(assistant: assistant)
-                        }
-                    }
-                }
-                .frame(maxWidth: 280)
-            }
-        }
-
-        Spacer()
-    }
-
-    private func performLocalBootstrap(assistant: LockfileAssistant) async {
-        isBootstrappingLocal = true
-        localBootstrapError = nil
-
-        // Resolve the daemon's HTTP base URL and bearer token
-        let daemonBaseURL = assistant.localRuntimeBaseURL
-
-        guard let daemonToken = ActorTokenManager.getToken(), !daemonToken.isEmpty else {
-            localBootstrapError = "No assistant credentials available. Please restart the assistant and try again."
-            return
-        }
-
-        do {
-            let bootstrapService = LocalAssistantBootstrapService(credentialStorage: KeychainCredentialStorage())
-            let outcome = try await bootstrapService.bootstrap(
-                runtimeAssistantId: assistant.assistantId,
-                clientPlatform: "macos",
-                daemonBaseURL: daemonBaseURL,
-                daemonToken: daemonToken
-            )
-
-            switch outcome {
-            case .registeredWithExistingKey, .registeredAndProvisioned:
-                UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
-            }
-
-            isBootstrappingLocal = false
-            onComplete()
-        } catch {
-            localBootstrapError = error.localizedDescription
-        }
-    }
-
 }
 
 #Preview {
