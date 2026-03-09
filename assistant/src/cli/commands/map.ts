@@ -5,8 +5,6 @@
  * the given domain, then analyzes captured network traffic into a deduplicated API map.
  */
 
-import { statSync } from "node:fs";
-
 import { Command } from "commander";
 import { parse as parseTld } from "tldts";
 
@@ -16,10 +14,7 @@ import {
   saveApiMap,
 } from "../../tools/browser/api-map.js";
 import { ensureChromeWithCdp } from "../../tools/browser/chrome-cdp.js";
-import {
-  listRecordingFiles,
-  loadRecording,
-} from "../../tools/browser/recording-store.js";
+import { loadRecording } from "../../tools/browser/recording-store.js";
 import { httpSend } from "../http-client.js";
 import { getCliLogger } from "../logger.js";
 
@@ -166,9 +161,6 @@ async function startLearnSession(
     process.stderr.write(`Chrome is ready — using tab at ${tabUrl}\n`);
   }
 
-  // Snapshot existing recordings so we can detect new ones after the session
-  const existingRecordings = new Set(listRecordingFiles());
-
   // Start ride shotgun via HTTP
   const response = await httpSend("/v1/computer-use/ride-shotgun/start", {
     method: "POST",
@@ -198,13 +190,14 @@ async function startLearnSession(
     throw new Error("Ride-shotgun start response missing watchId");
   }
 
-  // Poll for a new recording file to appear after the session completes
+  // Poll the status endpoint using watchId to correlate completion
+  const { watchId } = startResult;
   const timeoutMs = (durationSeconds + 30) * 1000;
   const pollIntervalMs = 2000;
   const startTime = Date.now();
 
   return new Promise<LearnResult>((resolve, reject) => {
-    const poll = setInterval(() => {
+    const poll = setInterval(async () => {
       if (Date.now() - startTime > timeoutMs) {
         clearInterval(poll);
         reject(
@@ -213,22 +206,48 @@ async function startLearnSession(
         return;
       }
 
-      const currentRecordings = listRecordingFiles();
-      for (const filePath of currentRecordings) {
-        if (existingRecordings.has(filePath)) continue;
+      try {
+        const statusRes = await httpSend(
+          `/v1/computer-use/ride-shotgun/status/${watchId}`,
+          { method: "GET" },
+        );
+        if (!statusRes.ok) return;
 
-        try {
-          const stat = statSync(filePath);
-          if (stat.mtimeMs >= startTime - 1000) {
-            clearInterval(poll);
-            const filename = filePath.split("/").pop() ?? "";
-            const recordingId = filename.replace(/\.json$/, "");
-            resolve({ recordingId, recordingPath: filePath });
-            return;
-          }
-        } catch {
-          // File may have been deleted between readdir and stat
+        const status = (await statusRes.json()) as {
+          status: string;
+          recordingId?: string;
+          savedRecordingPath?: string;
+          bootstrapFailureReason?: string;
+        };
+
+        if (status.bootstrapFailureReason) {
+          clearInterval(poll);
+          reject(
+            new Error(
+              `Learn session failed: ${status.bootstrapFailureReason}`,
+            ),
+          );
+          return;
         }
+
+        if (status.status === "completed") {
+          clearInterval(poll);
+          if (status.recordingId) {
+            resolve({
+              recordingId: status.recordingId,
+              recordingPath: status.savedRecordingPath,
+            });
+          } else {
+            reject(
+              new Error(
+                "Learn session completed but no recording was saved.",
+              ),
+            );
+          }
+          return;
+        }
+      } catch {
+        // Status endpoint not reachable — continue polling
       }
     }, pollIntervalMs);
   });
