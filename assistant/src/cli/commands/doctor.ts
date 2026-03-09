@@ -6,7 +6,6 @@ import type { Command } from "commander";
 import { loadRawConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import {
-  getDataDir,
   getDbPath,
   getLogPath,
   getRootDir,
@@ -114,7 +113,10 @@ Examples:
           );
         }
       } catch {
-        fail("Assistant reachable", "could not connect to assistant HTTP server");
+        fail(
+          "Assistant reachable",
+          "could not connect to assistant HTTP server",
+        );
       }
 
       // 4. DB exists and readable
@@ -138,7 +140,7 @@ Examples:
 
       // 5. ~/.vellum/ directory structure (workspace layout)
       const rootDir = getRootDir();
-      const dataDir = getDataDir();
+      const dataDir = process.env.VELLUM_DATA_DIR!;
       const workspaceDir = getWorkspaceDir();
       const requiredDirs = [
         rootDir,
@@ -236,7 +238,9 @@ Examples:
           const tokenStat = statSync(tokenPath);
           const mode = tokenStat.mode & 0o777;
           if (mode === 0o600 || mode === 0o700) {
-            pass(`HTTP token permissions (${mode.toString(8).padStart(4, "0")})`);
+            pass(
+              `HTTP token permissions (${mode.toString(8).padStart(4, "0")})`,
+            );
           } else {
             fail(
               "HTTP token permissions",

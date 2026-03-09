@@ -9,8 +9,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getDataDir } from "../../../util/platform.js";
-
 interface NetworkRecordedRequest {
   method: string;
   url: string;
@@ -68,7 +66,7 @@ export interface CapturedRequest {
 }
 
 function getCapturedRequestsPath(): string {
-  return join(getDataDir(), "amazon", "captured-requests.json");
+  return join(process.env.VELLUM_DATA_DIR!, "amazon", "captured-requests.json");
 }
 
 /**
