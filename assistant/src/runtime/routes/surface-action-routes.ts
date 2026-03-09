@@ -57,10 +57,9 @@ export async function handleSurfaceAction(
     return httpError("BAD_REQUEST", "sessionId must be a string", 400);
   }
 
-  const session =
-    sessionId && typeof sessionId === "string"
-      ? findSession(sessionId)
-      : findSessionBySurfaceId?.(surfaceId);
+  const session = sessionId
+    ? findSession(sessionId)
+    : findSessionBySurfaceId?.(surfaceId);
 
   if (!session) {
     return httpError(
@@ -111,10 +110,9 @@ export async function handleSurfaceUndo(
     return httpError("BAD_REQUEST", "sessionId must be a string", 400);
   }
 
-  const session =
-    sessionId && typeof sessionId === "string"
-      ? findSession(sessionId)
-      : findSessionBySurfaceId?.(surfaceId);
+  const session = sessionId
+    ? findSession(sessionId)
+    : findSessionBySurfaceId?.(surfaceId);
 
   if (!session) {
     return httpError(
