@@ -787,7 +787,7 @@ async function main() {
         url.pathname === "/v1/browser-relay/token" &&
         req.method === "GET"
       ) {
-        if (!isLoopbackPeer(svr, req)) {
+        if (!isLoopbackPeer(svr, req, { trustProxy: config.trustProxy })) {
           return Response.json(
             { error: "Browser relay token only available from localhost" },
             { status: 403 },

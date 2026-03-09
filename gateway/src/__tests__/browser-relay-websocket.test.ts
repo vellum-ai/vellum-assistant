@@ -5,6 +5,7 @@ import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import {
   createBrowserRelayWebsocketHandler,
   getBrowserRelayWebsocketHandlers,
+  isLoopbackPeer,
 } from "../http/routes/browser-relay-websocket.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
@@ -268,5 +269,39 @@ describe("getBrowserRelayWebsocketHandlers", () => {
 
     fakeUpstream.emit("message", { data: "runtime-message" });
     expect(ws.sent).toEqual(["runtime-message"]);
+  });
+});
+
+describe("isLoopbackPeer", () => {
+  test("uses x-forwarded-for first hop when trustProxy is enabled", () => {
+    const req = new Request("http://localhost:7830/v1/browser-relay/token", {
+      headers: { "x-forwarded-for": "203.0.113.5, 127.0.0.1" },
+    });
+
+    const fakeServer = {
+      requestIP: mock(() => ({
+        address: "127.0.0.1",
+        family: "IPv4",
+        port: 54000,
+      })),
+    } as unknown as import("bun").Server<any>;
+
+    expect(isLoopbackPeer(fakeServer, req, { trustProxy: true })).toBe(false);
+  });
+
+  test("falls back to peer IP when trustProxy is disabled", () => {
+    const req = new Request("http://localhost:7830/v1/browser-relay/token", {
+      headers: { "x-forwarded-for": "203.0.113.5, 127.0.0.1" },
+    });
+
+    const fakeServer = {
+      requestIP: mock(() => ({
+        address: "127.0.0.1",
+        family: "IPv4",
+        port: 54000,
+      })),
+    } as unknown as import("bun").Server<any>;
+
+    expect(isLoopbackPeer(fakeServer, req, { trustProxy: false })).toBe(true);
   });
 });
