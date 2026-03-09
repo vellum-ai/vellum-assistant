@@ -1135,7 +1135,14 @@ public final class SettingsStore: ObservableObject {
             session.prefersEphemeralWebBrowserSession = false
             session.presentationContextProvider = WebAuthPresentationContext.shared
             self.twitterWebAuthSession = session
-            session.start()
+            if !session.start() {
+                self.twitterWebAuthSession = nil
+                continuation.resume(throwing: NSError(
+                    domain: "ManagedTwitterOAuth",
+                    code: -2,
+                    userInfo: [NSLocalizedDescriptionKey: "Failed to start the authentication session."]
+                ))
+            }
         }
     }
 
