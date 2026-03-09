@@ -24,7 +24,7 @@ import {
   getUserMedia,
   SessionExpiredError,
 } from "./client.js";
-import type { TwitterStrategy } from "./router.js";
+import type { TwitterMode } from "./router.js";
 import {
   routedGetTweetDetail,
   routedGetUserByScreenName,
@@ -430,19 +430,14 @@ Examples:
         cmd: Command,
       ) => {
         await run(cmd, async () => {
-          const strategy = opts.strategy as TwitterStrategy;
-          if (
-            strategy !== "oauth" &&
-            strategy !== "browser" &&
-            strategy !== "auto" &&
-            strategy !== "managed"
-          ) {
+          const mode = opts.strategy as TwitterMode;
+          if (mode !== "oauth" && mode !== "managed") {
             throw new Error(
-              `Invalid strategy "${opts.strategy}". Must be oauth, browser, auto, or managed.`,
+              `Invalid mode "${opts.strategy}". Must be oauth or managed.`,
             );
           }
           const { result, pathUsed } = await routedPostTweet(text, {
-            strategy,
+            mode,
             oauthToken: opts.oauthToken,
           });
           return {
@@ -464,11 +459,11 @@ Examples:
     .argument("<text>", "Reply text")
     .requiredOption(
       "--strategy <strategy>",
-      "Operation strategy: oauth, browser, auto, or managed",
+      "Operation strategy: oauth or managed",
     )
     .option(
       "--oauth-token <token>",
-      "OAuth access token (required when strategy is oauth or auto)",
+      "OAuth access token (required when mode is oauth)",
     )
     .addHelpText(
       "after",
@@ -494,15 +489,10 @@ Examples:
         cmd: Command,
       ) => {
         await run(cmd, async () => {
-          const strategy = opts.strategy as TwitterStrategy;
-          if (
-            strategy !== "oauth" &&
-            strategy !== "browser" &&
-            strategy !== "auto" &&
-            strategy !== "managed"
-          ) {
+          const mode = opts.strategy as TwitterMode;
+          if (mode !== "oauth" && mode !== "managed") {
             throw new Error(
-              `Invalid strategy "${opts.strategy}". Must be oauth, browser, auto, or managed.`,
+              `Invalid mode "${opts.strategy}". Must be oauth or managed.`,
             );
           }
           // Extract tweet ID: either a bare numeric ID or the last numeric segment of a URL
@@ -513,7 +503,7 @@ Examples:
           const inReplyToTweetId = idMatch[1];
           const { result, pathUsed } = await routedPostTweet(text, {
             inReplyToTweetId,
-            strategy,
+            mode,
             oauthToken: opts.oauthToken,
           });
           return {
@@ -560,25 +550,20 @@ Examples:
         cmd: Command,
       ) => {
         await run(cmd, async () => {
-          const strategy = (opts.strategy ?? "browser") as TwitterStrategy;
-          if (
-            strategy !== "oauth" &&
-            strategy !== "browser" &&
-            strategy !== "auto" &&
-            strategy !== "managed"
-          ) {
+          const mode = (opts.strategy ?? "managed") as TwitterMode;
+          if (mode !== "oauth" && mode !== "managed") {
             throw new Error(
-              `Invalid strategy "${opts.strategy}". Must be oauth, browser, auto, or managed.`,
+              `Invalid mode "${opts.strategy}". Must be oauth or managed.`,
             );
           }
           const { result: user, pathUsed } = await routedGetUserByScreenName(
             screenName.replace(/^@/, ""),
-            { strategy },
+            { mode },
           );
           const { result: tweets } = await routedGetUserTweets(
             user.userId,
             parseInt(opts.count, 10),
-            { strategy },
+            { mode },
           );
           return { user, tweets, pathUsed };
         });
@@ -622,20 +607,15 @@ Examples:
           const idMatch = tweetIdOrUrl.match(/(\d+)\s*$/);
           if (!idMatch)
             throw new Error(`Could not extract tweet ID from: ${tweetIdOrUrl}`);
-          const strategy = (opts.strategy ?? "browser") as TwitterStrategy;
-          if (
-            strategy !== "oauth" &&
-            strategy !== "browser" &&
-            strategy !== "auto" &&
-            strategy !== "managed"
-          ) {
+          const mode = (opts.strategy ?? "managed") as TwitterMode;
+          if (mode !== "oauth" && mode !== "managed") {
             throw new Error(
-              `Invalid strategy "${opts.strategy}". Must be oauth, browser, auto, or managed.`,
+              `Invalid mode "${opts.strategy}". Must be oauth or managed.`,
             );
           }
           const { result: tweets, pathUsed } = await routedGetTweetDetail(
             idMatch[1],
-            { strategy },
+            { mode },
           );
           return { tweets, pathUsed };
         });
@@ -682,22 +662,17 @@ Examples:
         cmd: Command,
       ) => {
         await run(cmd, async () => {
-          const strategy = (opts.strategy ?? "browser") as TwitterStrategy;
-          if (
-            strategy !== "oauth" &&
-            strategy !== "browser" &&
-            strategy !== "auto" &&
-            strategy !== "managed"
-          ) {
+          const mode = (opts.strategy ?? "managed") as TwitterMode;
+          if (mode !== "oauth" && mode !== "managed") {
             throw new Error(
-              `Invalid strategy "${opts.strategy}". Must be oauth, browser, auto, or managed.`,
+              `Invalid mode "${opts.strategy}". Must be oauth or managed.`,
             );
           }
           const product = opts.product as "Top" | "Latest" | "People" | "Media";
           const { result: tweets, pathUsed } = await routedSearchTweets(
             query,
             product,
-            { strategy },
+            { mode },
           );
           return { query, tweets, pathUsed };
         });

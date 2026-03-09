@@ -1,6 +1,6 @@
 /**
- * Strategy router for Twitter operations.
- * Selects managed proxy, OAuth, or browser path based on the caller-provided strategy.
+ * Mode router for Twitter operations.
+ * Selects managed proxy or OAuth path based on the caller-provided integration mode.
  */
 
 import {
@@ -12,46 +12,26 @@ import {
   TwitterProxyError,
 } from "../../../twitter/platform-proxy-client.js";
 import type { PostTweetResult, TweetEntry, UserInfo } from "./client.js";
-import {
-  getTweetDetail as browserGetTweetDetail,
-  getUserByScreenName as browserGetUserByScreenName,
-  getUserTweets as browserGetUserTweets,
-  postTweet as browserPostTweet,
-  searchTweets as browserSearchTweets,
-  SessionExpiredError,
-} from "./client.js";
-import {
-  oauthIsAvailable,
-  oauthPostTweet,
-  oauthSupportsOperation,
-} from "./oauth-client.js";
+import { oauthIsAvailable, oauthPostTweet } from "./oauth-client.js";
 
-export type TwitterStrategy = "oauth" | "browser" | "auto" | "managed";
+export type TwitterMode = "oauth" | "managed";
 
 export interface RoutedResult<T> {
   result: T;
-  pathUsed: TwitterStrategy;
-}
-
-export interface RoutedError {
-  message: string;
-  pathUsed: TwitterStrategy;
-  suggestAlternative?: TwitterStrategy;
-  alternativeSetupHint?: string;
+  pathUsed: TwitterMode;
 }
 
 export async function routedPostTweet(
   text: string,
   opts: {
     inReplyToTweetId?: string;
-    strategy: TwitterStrategy;
+    mode: TwitterMode;
     oauthToken?: string;
   },
 ): Promise<RoutedResult<PostTweetResult>> {
-  const strategy = opts.strategy;
-  const operation = opts.inReplyToTweetId ? "reply" : "post";
+  const mode = opts.mode;
 
-  if (strategy === "managed") {
+  if (mode === "managed") {
     // Route through platform proxy — the platform holds the OAuth credentials
     try {
       const response = await managedPostTweet(text, {
@@ -91,16 +71,15 @@ export async function routedPostTweet(
     }
   }
 
-  if (strategy === "oauth") {
+  if (mode === "oauth") {
     // User explicitly wants OAuth
     if (!oauthIsAvailable(opts.oauthToken)) {
       throw Object.assign(
         new Error(
-          "OAuth is not configured. Provide your X developer credentials here in the chat to set up OAuth, or switch to browser strategy: `assistant config set twitter.operationStrategy browser`.",
+          "OAuth is not configured. Connect your X developer credentials to set up OAuth.",
         ),
         {
           pathUsed: "oauth" as const,
-          suggestAlternative: "browser" as const,
         },
       );
     }
@@ -118,68 +97,9 @@ export async function routedPostTweet(
     };
   }
 
-  if (strategy === "browser") {
-    // User explicitly wants browser
-    try {
-      const result = await browserPostTweet(text, {
-        inReplyToTweetId: opts.inReplyToTweetId,
-      });
-      return { result, pathUsed: "browser" };
-    } catch (err) {
-      if (err instanceof SessionExpiredError) {
-        throw Object.assign(err, {
-          pathUsed: "browser" as const,
-          suggestAlternative: "oauth" as const,
-        });
-      }
-      throw err;
-    }
-  }
-
-  // auto strategy: try OAuth first if available and supported, fallback to browser
-  let oauthError: Error | undefined;
-  if (oauthIsAvailable(opts.oauthToken) && oauthSupportsOperation(operation)) {
-    try {
-      const result = await oauthPostTweet(text, {
-        inReplyToTweetId: opts.inReplyToTweetId,
-        oauthToken: opts.oauthToken!,
-      });
-      return {
-        result: {
-          tweetId: result.tweetId,
-          text: result.text,
-          url: result.url ?? `https://x.com/i/status/${result.tweetId}`,
-        },
-        pathUsed: "oauth",
-      };
-    } catch (err) {
-      oauthError = err instanceof Error ? err : new Error(String(err));
-      // Fall through to browser
-    }
-  }
-
-  // Fallback to browser
-  try {
-    const result = await browserPostTweet(text, {
-      inReplyToTweetId: opts.inReplyToTweetId,
-    });
-    return { result, pathUsed: "browser" };
-  } catch (err) {
-    if (err instanceof SessionExpiredError) {
-      throw Object.assign(err, {
-        pathUsed: "auto" as const,
-        oauthError: oauthError?.message,
-      });
-    }
-    if (oauthError) {
-      const browserError = err instanceof Error ? err : new Error(String(err));
-      throw Object.assign(browserError, {
-        pathUsed: "auto" as const,
-        oauthError: oauthError.message,
-      });
-    }
-    throw err;
-  }
+  // Exhaustive check — should never reach here
+  const _exhaustive: never = mode;
+  throw new Error(`Unknown mode: ${_exhaustive}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,13 +108,13 @@ export async function routedPostTweet(
 
 /**
  * Look up a user by screen name.
- * Managed mode uses GET /2/users/by/username/:username; browser mode uses GraphQL.
+ * Managed mode uses GET /2/users/by/username/:username.
  */
 export async function routedGetUserByScreenName(
   screenName: string,
-  opts: { strategy: TwitterStrategy },
+  opts: { mode: TwitterMode },
 ): Promise<RoutedResult<UserInfo>> {
-  if (opts.strategy === "managed") {
+  if (opts.mode === "managed") {
     try {
       const response = await managedGetUserByUsername(screenName, {
         "user.fields": "id,name,username",
@@ -228,21 +148,29 @@ export async function routedGetUserByScreenName(
     }
   }
 
-  // Browser path (used for browser, oauth, auto — read operations always go through browser)
-  const result = await browserGetUserByScreenName(screenName);
-  return { result, pathUsed: "browser" };
+  if (opts.mode === "oauth") {
+    throw Object.assign(
+      new Error(
+        "Read operations are not supported via OAuth. Use managed mode for read access.",
+      ),
+      { pathUsed: "oauth" as const },
+    );
+  }
+
+  const _exhaustive: never = opts.mode;
+  throw new Error(`Unknown mode: ${_exhaustive}`);
 }
 
 /**
  * Fetch a user's recent tweets.
- * Managed mode uses GET /2/users/:id/tweets; browser mode uses GraphQL.
+ * Managed mode uses GET /2/users/:id/tweets.
  */
 export async function routedGetUserTweets(
   userId: string,
   count: number,
-  opts: { strategy: TwitterStrategy },
+  opts: { mode: TwitterMode },
 ): Promise<RoutedResult<TweetEntry[]>> {
-  if (opts.strategy === "managed") {
+  if (opts.mode === "managed") {
     try {
       const response = await managedGetUserTweets(userId, {
         max_results: String(Math.min(count, 100)),
@@ -269,19 +197,28 @@ export async function routedGetUserTweets(
     }
   }
 
-  const result = await browserGetUserTweets(userId, count);
-  return { result, pathUsed: "browser" };
+  if (opts.mode === "oauth") {
+    throw Object.assign(
+      new Error(
+        "Read operations are not supported via OAuth. Use managed mode for read access.",
+      ),
+      { pathUsed: "oauth" as const },
+    );
+  }
+
+  const _exhaustive: never = opts.mode;
+  throw new Error(`Unknown mode: ${_exhaustive}`);
 }
 
 /**
  * Fetch a single tweet by ID.
- * Managed mode uses GET /2/tweets/:id; browser mode uses GraphQL TweetDetail.
+ * Managed mode uses GET /2/tweets/:id.
  */
 export async function routedGetTweetDetail(
   tweetId: string,
-  opts: { strategy: TwitterStrategy },
+  opts: { mode: TwitterMode },
 ): Promise<RoutedResult<TweetEntry[]>> {
-  if (opts.strategy === "managed") {
+  if (opts.mode === "managed") {
     try {
       const response = await managedGetTweet(tweetId, {
         "tweet.fields": "id,text,created_at,author_id,conversation_id",
@@ -340,20 +277,29 @@ export async function routedGetTweetDetail(
     }
   }
 
-  const result = await browserGetTweetDetail(tweetId);
-  return { result, pathUsed: "browser" };
+  if (opts.mode === "oauth") {
+    throw Object.assign(
+      new Error(
+        "Read operations are not supported via OAuth. Use managed mode for read access.",
+      ),
+      { pathUsed: "oauth" as const },
+    );
+  }
+
+  const _exhaustive: never = opts.mode;
+  throw new Error(`Unknown mode: ${_exhaustive}`);
 }
 
 /**
  * Search tweets.
- * Managed mode uses GET /2/tweets/search/recent; browser mode uses GraphQL SearchTimeline.
+ * Managed mode uses GET /2/tweets/search/recent.
  */
 export async function routedSearchTweets(
   query: string,
   product: "Top" | "Latest" | "People" | "Media",
-  opts: { strategy: TwitterStrategy },
+  opts: { mode: TwitterMode },
 ): Promise<RoutedResult<TweetEntry[]>> {
-  if (opts.strategy === "managed") {
+  if (opts.mode === "managed") {
     if (product === "People" || product === "Media") {
       throw Object.assign(
         new Error(
@@ -391,6 +337,15 @@ export async function routedSearchTweets(
     }
   }
 
-  const result = await browserSearchTweets(query, product);
-  return { result, pathUsed: "browser" };
+  if (opts.mode === "oauth") {
+    throw Object.assign(
+      new Error(
+        "Read operations are not supported via OAuth. Use managed mode for read access.",
+      ),
+      { pathUsed: "oauth" as const },
+    );
+  }
+
+  const _exhaustive: never = opts.mode;
+  throw new Error(`Unknown mode: ${_exhaustive}`);
 }

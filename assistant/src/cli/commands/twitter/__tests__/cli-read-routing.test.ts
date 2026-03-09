@@ -23,37 +23,6 @@ let mockManagedSearchRecentTweetsResult: {
 } | null = null;
 let mockManagedSearchRecentTweetsError: Error | null = null;
 
-let mockBrowserGetUserByScreenNameResult: {
-  userId: string;
-  screenName: string;
-  name: string;
-} | null = null;
-let mockBrowserGetUserByScreenNameError: Error | null = null;
-
-let mockBrowserGetUserTweetsResult: Array<{
-  tweetId: string;
-  text: string;
-  url: string;
-  createdAt: string;
-}> | null = null;
-let mockBrowserGetUserTweetsError: Error | null = null;
-
-let mockBrowserGetTweetDetailResult: Array<{
-  tweetId: string;
-  text: string;
-  url: string;
-  createdAt: string;
-}> | null = null;
-let mockBrowserGetTweetDetailError: Error | null = null;
-
-let mockBrowserSearchTweetsResult: Array<{
-  tweetId: string;
-  text: string;
-  url: string;
-  createdAt: string;
-}> | null = null;
-let mockBrowserSearchTweetsError: Error | null = null;
-
 // --- Mock TwitterProxyError ---
 
 class MockTwitterProxyError extends Error {
@@ -107,45 +76,12 @@ mock.module("../../../../twitter/platform-proxy-client.js", () => ({
   TwitterProxyError: MockTwitterProxyError,
 }));
 
-class MockSessionExpiredError extends Error {
-  constructor(reason: string) {
-    super(reason);
-    this.name = "SessionExpiredError";
-  }
-}
-
 mock.module("../client.js", () => ({
-  postTweet: async () => {
-    throw new Error("Not used in read tests");
-  },
-  getUserByScreenName: async () => {
-    if (mockBrowserGetUserByScreenNameError)
-      throw mockBrowserGetUserByScreenNameError;
-    if (mockBrowserGetUserByScreenNameResult)
-      return mockBrowserGetUserByScreenNameResult;
-    throw new Error("Browser getUserByScreenName mock not configured");
-  },
-  getUserTweets: async () => {
-    if (mockBrowserGetUserTweetsError) throw mockBrowserGetUserTweetsError;
-    if (mockBrowserGetUserTweetsResult) return mockBrowserGetUserTweetsResult;
-    throw new Error("Browser getUserTweets mock not configured");
-  },
-  getTweetDetail: async () => {
-    if (mockBrowserGetTweetDetailError) throw mockBrowserGetTweetDetailError;
-    if (mockBrowserGetTweetDetailResult) return mockBrowserGetTweetDetailResult;
-    throw new Error("Browser getTweetDetail mock not configured");
-  },
-  searchTweets: async () => {
-    if (mockBrowserSearchTweetsError) throw mockBrowserSearchTweetsError;
-    if (mockBrowserSearchTweetsResult) return mockBrowserSearchTweetsResult;
-    throw new Error("Browser searchTweets mock not configured");
-  },
-  SessionExpiredError: MockSessionExpiredError,
+  // No browser functions needed — router no longer imports them
 }));
 
 mock.module("../oauth-client.js", () => ({
   oauthIsAvailable: () => false,
-  oauthSupportsOperation: () => false,
   oauthPostTweet: async () => {
     throw new Error("Not used in read tests");
   },
@@ -184,14 +120,6 @@ beforeEach(() => {
   mockManagedGetTweetError = null;
   mockManagedSearchRecentTweetsResult = null;
   mockManagedSearchRecentTweetsError = null;
-  mockBrowserGetUserByScreenNameResult = null;
-  mockBrowserGetUserByScreenNameError = null;
-  mockBrowserGetUserTweetsResult = null;
-  mockBrowserGetUserTweetsError = null;
-  mockBrowserGetTweetDetailResult = null;
-  mockBrowserGetTweetDetailError = null;
-  mockBrowserSearchTweetsResult = null;
-  mockBrowserSearchTweetsError = null;
 });
 
 describe("Twitter read routing", () => {
@@ -199,14 +127,14 @@ describe("Twitter read routing", () => {
   // User lookup
   // =========================================================================
   describe("routedGetUserByScreenName", () => {
-    test("managed strategy routes through proxy", async () => {
+    test("managed mode routes through proxy", async () => {
       mockManagedGetUserByUsernameResult = {
         data: { data: { id: "123", username: "testuser", name: "Test User" } },
         status: 200,
       };
 
       const { result, pathUsed } = await routedGetUserByScreenName("testuser", {
-        strategy: "managed",
+        mode: "managed",
       });
 
       expect(pathUsed).toBe("managed");
@@ -215,39 +143,20 @@ describe("Twitter read routing", () => {
       expect(result.name).toBe("Test User");
     });
 
-    test("browser strategy uses browser path", async () => {
-      mockBrowserGetUserByScreenNameResult = {
-        userId: "456",
-        screenName: "browseruser",
-        name: "Browser User",
-      };
-
-      const { result, pathUsed } = await routedGetUserByScreenName(
-        "browseruser",
-        { strategy: "browser" },
-      );
-
-      expect(pathUsed).toBe("browser");
-      expect(result.userId).toBe("456");
-      expect(result.screenName).toBe("browseruser");
+    test("oauth mode throws clear error for read operations", async () => {
+      try {
+        await routedGetUserByScreenName("testuser", { mode: "oauth" });
+        expect(true).toBe(false);
+      } catch (err) {
+        const e = err as Error & { pathUsed: string };
+        expect(e.message).toContain(
+          "Read operations are not supported via OAuth",
+        );
+        expect(e.pathUsed).toBe("oauth");
+      }
     });
 
-    test("auto strategy falls through to browser", async () => {
-      mockBrowserGetUserByScreenNameResult = {
-        userId: "789",
-        screenName: "autouser",
-        name: "Auto User",
-      };
-
-      const { result, pathUsed } = await routedGetUserByScreenName("autouser", {
-        strategy: "auto",
-      });
-
-      expect(pathUsed).toBe("browser");
-      expect(result.userId).toBe("789");
-    });
-
-    test("managed strategy surfaces proxy errors with metadata", async () => {
+    test("managed mode surfaces proxy errors with metadata", async () => {
       mockManagedGetUserByUsernameError = new MockTwitterProxyError(
         "Rate limit exceeded — retry later",
         "rate_limit",
@@ -256,7 +165,7 @@ describe("Twitter read routing", () => {
       );
 
       try {
-        await routedGetUserByScreenName("testuser", { strategy: "managed" });
+        await routedGetUserByScreenName("testuser", { mode: "managed" });
         expect(true).toBe(false);
       } catch (err) {
         const e = err as Error & {
@@ -276,7 +185,7 @@ describe("Twitter read routing", () => {
   // User tweets
   // =========================================================================
   describe("routedGetUserTweets", () => {
-    test("managed strategy routes through proxy", async () => {
+    test("managed mode routes through proxy", async () => {
       mockManagedGetUserTweetsResult = {
         data: {
           data: [
@@ -296,7 +205,7 @@ describe("Twitter read routing", () => {
       };
 
       const { result, pathUsed } = await routedGetUserTweets("123", 20, {
-        strategy: "managed",
+        mode: "managed",
       });
 
       expect(pathUsed).toBe("managed");
@@ -307,23 +216,17 @@ describe("Twitter read routing", () => {
       expect(result[1].tweetId).toBe("t2");
     });
 
-    test("browser strategy uses browser path", async () => {
-      mockBrowserGetUserTweetsResult = [
-        {
-          tweetId: "bt1",
-          text: "Browser tweet",
-          url: "https://x.com/user/status/bt1",
-          createdAt: "2025-01-01",
-        },
-      ];
-
-      const { result, pathUsed } = await routedGetUserTweets("456", 20, {
-        strategy: "browser",
-      });
-
-      expect(pathUsed).toBe("browser");
-      expect(result).toHaveLength(1);
-      expect(result[0].tweetId).toBe("bt1");
+    test("oauth mode throws clear error for read operations", async () => {
+      try {
+        await routedGetUserTweets("456", 20, { mode: "oauth" });
+        expect(true).toBe(false);
+      } catch (err) {
+        const e = err as Error & { pathUsed: string };
+        expect(e.message).toContain(
+          "Read operations are not supported via OAuth",
+        );
+        expect(e.pathUsed).toBe("oauth");
+      }
     });
   });
 
@@ -331,7 +234,7 @@ describe("Twitter read routing", () => {
   // Tweet detail
   // =========================================================================
   describe("routedGetTweetDetail", () => {
-    test("managed strategy routes through proxy", async () => {
+    test("managed mode routes through proxy", async () => {
       mockManagedGetTweetResult = {
         data: {
           data: {
@@ -344,7 +247,7 @@ describe("Twitter read routing", () => {
       };
 
       const { result, pathUsed } = await routedGetTweetDetail("tweet-123", {
-        strategy: "managed",
+        mode: "managed",
       });
 
       expect(pathUsed).toBe("managed");
@@ -353,31 +256,20 @@ describe("Twitter read routing", () => {
       expect(result[0].text).toBe("A specific tweet");
     });
 
-    test("browser strategy uses browser path", async () => {
-      mockBrowserGetTweetDetailResult = [
-        {
-          tweetId: "detail-1",
-          text: "Thread tweet 1",
-          url: "https://x.com/user/status/detail-1",
-          createdAt: "2025-01-01",
-        },
-        {
-          tweetId: "detail-2",
-          text: "Reply tweet",
-          url: "https://x.com/user/status/detail-2",
-          createdAt: "2025-01-01",
-        },
-      ];
-
-      const { result, pathUsed } = await routedGetTweetDetail("detail-1", {
-        strategy: "browser",
-      });
-
-      expect(pathUsed).toBe("browser");
-      expect(result).toHaveLength(2);
+    test("oauth mode throws clear error for read operations", async () => {
+      try {
+        await routedGetTweetDetail("tweet-123", { mode: "oauth" });
+        expect(true).toBe(false);
+      } catch (err) {
+        const e = err as Error & { pathUsed: string };
+        expect(e.message).toContain(
+          "Read operations are not supported via OAuth",
+        );
+        expect(e.pathUsed).toBe("oauth");
+      }
     });
 
-    test("managed strategy surfaces proxy errors", async () => {
+    test("managed mode surfaces proxy errors", async () => {
       mockManagedGetTweetError = new MockTwitterProxyError(
         "Forbidden: insufficient permissions",
         "forbidden",
@@ -386,7 +278,7 @@ describe("Twitter read routing", () => {
       );
 
       try {
-        await routedGetTweetDetail("tweet-123", { strategy: "managed" });
+        await routedGetTweetDetail("tweet-123", { mode: "managed" });
         expect(true).toBe(false);
       } catch (err) {
         const e = err as Error & {
@@ -403,7 +295,7 @@ describe("Twitter read routing", () => {
   // Search
   // =========================================================================
   describe("routedSearchTweets", () => {
-    test("managed strategy routes through proxy", async () => {
+    test("managed mode routes through proxy", async () => {
       mockManagedSearchRecentTweetsResult = {
         data: {
           data: [
@@ -420,7 +312,7 @@ describe("Twitter read routing", () => {
       const { result, pathUsed } = await routedSearchTweets(
         "AI agents",
         "Top",
-        { strategy: "managed" },
+        { mode: "managed" },
       );
 
       expect(pathUsed).toBe("managed");
@@ -429,50 +321,24 @@ describe("Twitter read routing", () => {
       expect(result[0].text).toBe("Search result 1");
     });
 
-    test("browser strategy uses browser path", async () => {
-      mockBrowserSearchTweetsResult = [
-        {
-          tweetId: "bs1",
-          text: "Browser search result",
-          url: "https://x.com/user/status/bs1",
-          createdAt: "2025-01-01",
-        },
-      ];
-
-      const { result, pathUsed } = await routedSearchTweets(
-        "test query",
-        "Latest",
-        { strategy: "browser" },
-      );
-
-      expect(pathUsed).toBe("browser");
-      expect(result).toHaveLength(1);
-      expect(result[0].tweetId).toBe("bs1");
+    test("oauth mode throws clear error for read operations", async () => {
+      try {
+        await routedSearchTweets("test query", "Latest", { mode: "oauth" });
+        expect(true).toBe(false);
+      } catch (err) {
+        const e = err as Error & { pathUsed: string };
+        expect(e.message).toContain(
+          "Read operations are not supported via OAuth",
+        );
+        expect(e.pathUsed).toBe("oauth");
+      }
     });
 
-    test("auto strategy falls through to browser for search", async () => {
-      mockBrowserSearchTweetsResult = [
-        {
-          tweetId: "auto-s1",
-          text: "Auto search result",
-          url: "https://x.com/user/status/auto-s1",
-          createdAt: "2025-01-01",
-        },
-      ];
-
-      const { result, pathUsed } = await routedSearchTweets("test", "Top", {
-        strategy: "auto",
-      });
-
-      expect(pathUsed).toBe("browser");
-      expect(result[0].tweetId).toBe("auto-s1");
-    });
-
-    test("managed strategy re-throws non-proxy errors", async () => {
+    test("managed mode re-throws non-proxy errors", async () => {
       mockManagedSearchRecentTweetsError = new Error("Network failure");
 
       try {
-        await routedSearchTweets("test", "Top", { strategy: "managed" });
+        await routedSearchTweets("test", "Top", { mode: "managed" });
         expect(true).toBe(false);
       } catch (err) {
         expect((err as Error).message).toBe("Network failure");
