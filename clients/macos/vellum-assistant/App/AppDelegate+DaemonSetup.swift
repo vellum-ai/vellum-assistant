@@ -70,6 +70,7 @@ extension AppDelegate {
     func configureDaemonTransport(for assistant: LockfileAssistant?) {
         isCurrentAssistantRemote = assistant?.isRemote ?? false
         isCurrentAssistantManaged = assistant?.isManaged ?? false
+        let launchEnvironment = ProcessInfo.processInfo.environment
 
         // Managed assistant: use platform proxy URLs with session token auth.
         if let assistant, assistant.isManaged {
@@ -95,7 +96,8 @@ extension AppDelegate {
         guard let assistant, assistant.isRemote, let runtimeUrl = assistant.runtimeUrl else {
             // Local assistant or no assistant — use HTTP transport to the local daemon.
             // Bearer token is nil; resolved lazily at connect time.
-            let port = assistant?.resolvedDaemonPort() ?? (Int(ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] ?? "") ?? 7821)
+            let port = assistant?.resolvedDaemonPort(environment: launchEnvironment)
+                ?? (Int(launchEnvironment["RUNTIME_HTTP_PORT"] ?? "") ?? 7821)
             let baseURL = "http://localhost:\(port)"
             let conversationKey = assistant?.assistantId ?? UUID().uuidString
             let instanceDir = assistant?.instanceDir
@@ -130,13 +132,16 @@ extension AppDelegate {
         hasSetupDaemon = true
 
         let assistant = loadAssistantFromLockfile()
+        let launchEnvironment = ProcessInfo.processInfo.environment
 
         // Ensure the daemon starts its runtime HTTP server so the
-        // gateway can proxy iOS traffic to it. Use the lockfile's allocated
-        // daemon port when available (multi-instance), otherwise default to 7821.
-        if ProcessInfo.processInfo.environment["RUNTIME_HTTP_PORT"] == nil {
-            let daemonPort = assistant?.resolvedDaemonPort() ?? 7821
-            setenv("RUNTIME_HTTP_PORT", String(daemonPort), 0)
+        // gateway can proxy iOS traffic to it. When a local assistant has a
+        // lockfile-assigned daemon port, use that instead of the generic default.
+        if let assistant, !assistant.isRemote {
+            let port = assistant.resolvedDaemonPort(environment: launchEnvironment)
+            setenv("RUNTIME_HTTP_PORT", String(port), 1)
+        } else if launchEnvironment["RUNTIME_HTTP_PORT"] == nil {
+            setenv("RUNTIME_HTTP_PORT", "7821", 0)
         }
 
         // Start the keychain broker before the daemon so it is listening
