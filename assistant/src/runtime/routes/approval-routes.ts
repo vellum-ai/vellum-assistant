@@ -65,14 +65,71 @@ export async function handleConfirm(
     );
   }
 
-  const interaction = pendingInteractions.resolve(requestId);
-  if (!interaction) {
+  // Peek first (non-destructive) so validation failures don't consume the
+  // pending interaction — the client can retry with corrected values.
+  const peeked = pendingInteractions.get(requestId);
+  if (!peeked) {
     return httpError(
       "NOT_FOUND",
       "No pending interaction found for this requestId",
       404,
     );
   }
+
+  // For decisions that persist trust rules, validate that selectedPattern
+  // and selectedScope are among the options the server actually offered.
+  // This prevents a crafted request from injecting overly-broad rules.
+  const persistsRule =
+    decision === "always_allow" ||
+    decision === "always_deny" ||
+    decision === "always_allow_high_risk";
+  if (persistsRule && (selectedPattern || selectedScope)) {
+    const confirmation = peeked.confirmationDetails;
+    if (!confirmation) {
+      return httpError(
+        "CONFLICT",
+        "No confirmation details available for this request",
+        409,
+      );
+    }
+
+    if (selectedPattern) {
+      const validPatterns = (confirmation.allowlistOptions ?? []).map(
+        (o) => o.pattern,
+      );
+      if (!validPatterns.includes(selectedPattern)) {
+        return httpError(
+          "FORBIDDEN",
+          "selectedPattern does not match any server-provided allowlist option",
+          403,
+        );
+      }
+    }
+
+    if (selectedScope) {
+      const validScopes = (confirmation.scopeOptions ?? []).map(
+        (o) => o.scope,
+      );
+      if (validScopes.length === 0) {
+        if (selectedScope !== "everywhere") {
+          return httpError(
+            "FORBIDDEN",
+            'non-scoped tools only accept scope "everywhere"',
+            403,
+          );
+        }
+      } else if (!validScopes.includes(selectedScope)) {
+        return httpError(
+          "FORBIDDEN",
+          "selectedScope does not match any server-provided scope option",
+          403,
+        );
+      }
+    }
+  }
+
+  // Validation passed — consume the pending interaction.
+  const interaction = pendingInteractions.resolve(requestId)!;
 
   interaction.session.handleConfirmationResponse(
     requestId,
