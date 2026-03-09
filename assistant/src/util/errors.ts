@@ -151,6 +151,18 @@ export class ConfigError extends AssistantError {
   }
 }
 
+export class ProviderNotConfiguredError extends ConfigError {
+  constructor(
+    public readonly requestedProvider: string,
+    public readonly registeredProviders: string[],
+  ) {
+    super(
+      `No providers available. Requested: "${requestedProvider}". Registered: ${registeredProviders.join(", ") || "none"}`,
+    );
+    this.name = "ProviderNotConfiguredError";
+  }
+}
+
 export class DaemonError extends AssistantError {
   constructor(message: string, options?: { cause?: unknown }) {
     super(message, ErrorCode.DAEMON_ERROR, options);

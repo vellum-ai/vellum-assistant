@@ -152,6 +152,19 @@ interface HealthResponse {
   message?: string;
 }
 
+/** Extract human-readable message from a daemon JSON error response. */
+function friendlyErrorMessage(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string } };
+    if (parsed?.error?.message) {
+      return parsed.error.message;
+    }
+  } catch {
+    // Not JSON — fall through
+  }
+  return `HTTP ${status}: ${body || "Unknown error"}`;
+}
+
 async function runtimeRequest<T>(
   baseUrl: string,
   assistantId: string,
@@ -171,7 +184,7 @@ async function runtimeRequest<T>(
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`HTTP ${response.status}: ${body || response.statusText}`);
+    throw new Error(friendlyErrorMessage(response.status, body));
   }
 
   if (response.status === 204) {
@@ -1758,7 +1771,8 @@ function ChatApp({
           clearTimeout(timeoutId);
           h.setBusy(false);
           h.hideSpinner();
-          const errorMsg = `Failed to send: ${sendErr instanceof Error ? sendErr.message : sendErr}`;
+          const errorMsg =
+            sendErr instanceof Error ? sendErr.message : String(sendErr);
           h.showError(errorMsg);
           chatLogRef.current.push({ role: "error", content: errorMsg });
           return;
