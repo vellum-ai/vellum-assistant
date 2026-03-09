@@ -79,7 +79,7 @@
       "key": "local_http_enabled",
       "label": "Local HTTP Enabled",
       "description": "Enable local HTTP transport mode in macOS app",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "command-palette",
