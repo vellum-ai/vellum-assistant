@@ -62,7 +62,9 @@ export function clearSession(): void {
 /**
  * Import cookies from a Ride Shotgun recording file.
  */
-export function importFromRecording(recordingPath: string): DoorDashSession {
+export async function importFromRecording(
+  recordingPath: string,
+): Promise<DoorDashSession> {
   if (!existsSync(recordingPath)) {
     throw new ConfigError(`Recording not found: ${recordingPath}`);
   }
@@ -70,6 +72,9 @@ export function importFromRecording(recordingPath: string): DoorDashSession {
     readFileSync(recordingPath, "utf-8"),
   ) as SessionRecording;
   if (!recording.cookies?.length) {
+    if (recording.targetDomain) {
+      return importFromCredentialStore(recording.targetDomain);
+    }
     throw new ConfigError("Recording contains no cookies");
   }
   const session: DoorDashSession = {

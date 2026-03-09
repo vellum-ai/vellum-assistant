@@ -18,6 +18,7 @@ export interface AmazonSession {
 
 interface SessionRecording {
   cookies?: ExtractedCredential[];
+  targetDomain?: string;
 }
 
 export async function loadSession(): Promise<AmazonSession | null> {
@@ -75,6 +76,9 @@ export async function importFromRecording(
     readFileSync(recordingPath, "utf-8"),
   ) as SessionRecording;
   if (!recording.cookies?.length) {
+    if (recording.targetDomain) {
+      return importFromCredentialStore(recording.targetDomain);
+    }
     throw new Error("Recording contains no cookies");
   }
 

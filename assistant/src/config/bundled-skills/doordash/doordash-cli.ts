@@ -112,7 +112,7 @@ export function registerDoordashCommand(program: Command): void {
     .requiredOption("--recording <path>", "Path to the recording JSON file")
     .action(async (opts: { recording: string }, cmd: Command) => {
       await run(cmd, async () => {
-        const session = importFromRecording(opts.recording);
+        const session = await importFromRecording(opts.recording);
         return {
           message: "Session imported successfully",
           cookieCount: session.cookies.length,

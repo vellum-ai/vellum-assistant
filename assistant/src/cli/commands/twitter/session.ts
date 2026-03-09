@@ -23,6 +23,7 @@ export interface TwitterSession {
 
 interface SessionRecording {
   cookies?: ExtractedCredential[];
+  targetDomain?: string;
 }
 
 interface ExtractedCredential {
@@ -90,6 +91,9 @@ export async function importFromRecording(
       readFileSync(recordingPath, "utf-8"),
     ) as SessionRecording;
     if (!recording.cookies?.length) {
+      if (recording.targetDomain) {
+        return importFromCredentialStore(recording.targetDomain);
+      }
       throw new ConfigError("Recording contains no cookies");
     }
 
