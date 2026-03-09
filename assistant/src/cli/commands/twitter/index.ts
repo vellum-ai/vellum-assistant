@@ -170,7 +170,7 @@ Examples:
     )
     .action(async (opts: { recording: string }, cmd: Command) => {
       await run(cmd, async () => {
-        const session = importFromRecording(opts.recording);
+        const session = await importFromRecording(opts.recording);
         return {
           message: "Session imported successfully",
           cookieCount: session.cookies.length,
@@ -193,8 +193,8 @@ OAuth credentials are not affected.
 Examples:
   $ assistant x logout`,
     )
-    .action((_opts: unknown, cmd: Command) => {
-      clearSession();
+    .action(async (_opts: unknown, cmd: Command) => {
+      await clearSession();
       output({ ok: true, message: "Session cleared" }, getJson(cmd));
     });
 
@@ -233,7 +233,7 @@ Examples:
       try {
         const result = await startLearnSession(duration);
         if (result.recordingPath) {
-          const session = importFromRecording(result.recordingPath);
+          const session = await importFromRecording(result.recordingPath);
 
           // Hide Chrome after capturing session
           try {
@@ -286,7 +286,7 @@ Examples:
   $ assistant x status --json`,
     )
     .action(async (_opts: unknown, cmd: Command) => {
-      const session = loadSession();
+      const session = await loadSession();
       const browserInfo: Record<string, unknown> = session
         ? {
             browserSessionActive: true,
@@ -1031,9 +1031,7 @@ async function startLearnSession(
 
         if (status.bootstrapFailureReason) {
           reject(
-            new Error(
-              `Learn session failed: ${status.bootstrapFailureReason}`,
-            ),
+            new Error(`Learn session failed: ${status.bootstrapFailureReason}`),
           );
           return;
         }
@@ -1046,9 +1044,7 @@ async function startLearnSession(
             });
           } else {
             reject(
-              new Error(
-                "Learn session completed but no recording was saved.",
-              ),
+              new Error("Learn session completed but no recording was saved."),
             );
           }
           return;
