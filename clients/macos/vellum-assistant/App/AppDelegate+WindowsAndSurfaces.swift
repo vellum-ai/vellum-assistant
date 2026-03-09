@@ -268,10 +268,22 @@ extension AppDelegate {
     /// Returns `true` when `~/.vellum.lock.json` contains at least one
     /// assistant entry.
     func lockfileHasAssistants() -> Bool {
-        guard let json = LockfilePaths.read(),
-              let assistants = json["assistants"] as? [[String: Any]] else {
+        let primaryPath = LockfilePaths.primaryPath
+        let fileExists = FileManager.default.fileExists(atPath: primaryPath)
+        log.info("[lockfileCheck] primaryPath=\(primaryPath, privacy: .public) exists=\(fileExists)")
+
+        guard let json = LockfilePaths.read() else {
+            log.warning("[lockfileCheck] LockfilePaths.read() returned nil — no valid lockfile found")
             return false
         }
+
+        guard let assistants = json["assistants"] as? [[String: Any]] else {
+            let keys = json.keys.joined(separator: ", ")
+            log.warning("[lockfileCheck] lockfile has no 'assistants' array, keys: \(keys, privacy: .public)")
+            return false
+        }
+
+        log.info("[lockfileCheck] found \(assistants.count) assistant(s)")
         return !assistants.isEmpty
     }
 

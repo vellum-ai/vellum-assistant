@@ -178,6 +178,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         #if DEBUG
         let skipOnboarding = CommandLine.arguments.contains("--skip-onboarding")
+            || UserDefaults.standard.bool(forKey: "SKIP_ONBOARDING")
         #else
         let skipOnboarding = false
         #endif

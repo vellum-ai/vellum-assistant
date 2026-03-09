@@ -101,13 +101,16 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   await ensureAssistantHatched();
   skipAssistantOnboarding();
   ensureApiKeyInDefaults();
+  setSkipOnboarding();
   logFixtureState();
 
   return {
     teardown: async () => {
+      collectAppLogs();
       retireAssistant();
       quitApp(appDisplayName);
       collectHatchLogs();
+      clearSkipOnboarding();
       cleanupTestDataDir(baseDataDir);
     },
   };
@@ -556,6 +559,57 @@ function ensureApiKeyInDefaults(): void {
  * This runs after all setup (hatch, onboarding skip, API key write) so we
  * can diagnose exactly what the app will see on launch.
  */
+/**
+ * Tells the DEBUG-mode macOS app to skip the onboarding/lockfile check.
+ * Works around environments where NSHomeDirectory() in the app process
+ * may not match Node's os.homedir(), causing lockfileHasAssistants()
+ * to miss the lockfile written by the CLI.
+ */
+function setSkipOnboarding(): void {
+  const domain = defaultsDomain();
+  try {
+    execSync(
+      `defaults write ${domain} SKIP_ONBOARDING -bool YES`,
+      { timeout: 5_000 },
+    );
+    console.error("[fixture] Set SKIP_ONBOARDING=YES in UserDefaults");
+  } catch (err) {
+    console.error(
+      `[fixture] Failed to set SKIP_ONBOARDING: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+}
+
+function clearSkipOnboarding(): void {
+  const domain = defaultsDomain();
+  try {
+    execSync(`defaults delete ${domain} SKIP_ONBOARDING 2>/dev/null || true`, {
+      timeout: 5_000,
+    });
+  } catch {
+    // best-effort cleanup
+  }
+}
+
+/**
+ * Collects the app's os_log output so we can see lockfileCheck diagnostics.
+ */
+function collectAppLogs(): void {
+  try {
+    const logs = execSync(
+      `log show --predicate 'subsystem == "com.vellum.vellum-assistant"' --last 5m --style compact 2>/dev/null | tail -100`,
+      { encoding: "utf-8", timeout: 10_000 },
+    ).trim();
+    if (logs) {
+      console.error(`[fixture] App os_log (last 5min, tail 100):\n${logs}`);
+    } else {
+      console.error("[fixture] No app os_log entries found");
+    }
+  } catch {
+    console.error("[fixture] Failed to collect app os_log");
+  }
+}
+
 function logFixtureState(): void {
   const lockfilePath = path.join(os.homedir(), ".vellum.lock.json");
   const domain = defaultsDomain();
