@@ -740,7 +740,9 @@ private struct AuthenticatedImageView: View {
                 image = loadedImage
                 if image == nil { failed = true }
             } catch {
-                failed = true
+                if !Task.isCancelled {
+                    failed = true
+                }
             }
         }
     }
