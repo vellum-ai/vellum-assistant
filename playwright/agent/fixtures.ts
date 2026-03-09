@@ -101,7 +101,6 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
   await ensureAssistantHatched();
   skipAssistantOnboarding();
   ensureApiKeyInDefaults();
-  setSkipOnboarding();
   logFixtureState();
 
   return {
@@ -110,7 +109,6 @@ async function createDesktopAppHatchedFixture(options: FixtureOptions): Promise<
       retireAssistant();
       quitApp(appDisplayName);
       collectHatchLogs();
-      clearSkipOnboarding();
       cleanupTestDataDir(baseDataDir);
     },
   };
@@ -551,43 +549,6 @@ function ensureApiKeyInDefaults(): void {
     console.error(
       `[fixture] Failed to write/verify API key in defaults: ${err instanceof Error ? err.message : err}`,
     );
-  }
-}
-
-/**
- * Logs the complete fixture state right before the test agent takes over.
- * This runs after all setup (hatch, onboarding skip, API key write) so we
- * can diagnose exactly what the app will see on launch.
- */
-/**
- * Tells the DEBUG-mode macOS app to skip the onboarding/lockfile check.
- * Works around environments where NSHomeDirectory() in the app process
- * may not match Node's os.homedir(), causing lockfileHasAssistants()
- * to miss the lockfile written by the CLI.
- */
-function setSkipOnboarding(): void {
-  const domain = defaultsDomain();
-  try {
-    execSync(
-      `defaults write ${domain} SKIP_ONBOARDING -bool YES`,
-      { timeout: 5_000 },
-    );
-    console.error("[fixture] Set SKIP_ONBOARDING=YES in UserDefaults");
-  } catch (err) {
-    console.error(
-      `[fixture] Failed to set SKIP_ONBOARDING: ${err instanceof Error ? err.message : err}`,
-    );
-  }
-}
-
-function clearSkipOnboarding(): void {
-  const domain = defaultsDomain();
-  try {
-    execSync(`defaults delete ${domain} SKIP_ONBOARDING 2>/dev/null || true`, {
-      timeout: 5_000,
-    });
-  } catch {
-    // best-effort cleanup
   }
 }
 

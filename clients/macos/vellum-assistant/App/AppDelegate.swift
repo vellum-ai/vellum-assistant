@@ -178,7 +178,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
 
         #if DEBUG
         let skipOnboarding = CommandLine.arguments.contains("--skip-onboarding")
-            || UserDefaults.standard.bool(forKey: "SKIP_ONBOARDING")
         #else
         let skipOnboarding = false
         #endif
@@ -187,11 +186,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         setupMenuBar()
         setupHotKey()
 
-        if !skipOnboarding && !lockfileHasAssistants() {
+        let hasAssistants = lockfileHasAssistants()
+        log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")
+
+        if !skipOnboarding && !hasAssistants {
+            log.info("[appLaunch] → showOnboarding()")
             showOnboarding()
             return
         }
 
+        log.info("[appLaunch] → startAuthenticatedFlow()")
         startAuthenticatedFlow()
     }
 
