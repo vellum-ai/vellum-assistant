@@ -10,13 +10,13 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 extension AppDelegate {
 
-    func startAuthenticatedFlow() {
+    func startAuthenticatedFlow(hasAssistants: Bool = false) {
         Task {
             await authManager.checkSession()
             let isAuthed = authManager.isAuthenticated
             let hasKey = APIKeyManager.hasAnyKey()
-            log.error("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
-            if isAuthed || hasKey {
+            log.error("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey) hasAssistants=\(hasAssistants)")
+            if isAuthed || hasKey || hasAssistants {
                 log.error("[authFlow] → proceedToApp()")
                 proceedToApp()
             } else {
