@@ -358,7 +358,7 @@ export async function handleSessionCreate(
     title,
     threadType,
   });
-  const session = await ctx.getOrCreateSession(conversation.id, true, {
+  const session = await ctx.getOrCreateSession(conversation.id, {
     systemPromptOverride: msg.systemPromptOverride,
     maxResponseTokens: msg.maxResponseTokens,
     transport: msg.transport,
@@ -478,9 +478,9 @@ export async function switchSession(
 
   if (isHeadlessLocked) {
     // Load the session without rebinding the client — the session stays headless
-    await ctx.getOrCreateSession(sessionId, false);
+    await ctx.getOrCreateSession(sessionId);
   } else {
-    const session = await ctx.getOrCreateSession(sessionId, true);
+    const session = await ctx.getOrCreateSession(sessionId);
     // Only wire the escalation handler if one isn't already set — handleTaskSubmit
     // sets a handler with the client's actual screen dimensions, and overwriting it
     // here would replace those dimensions with the daemon's defaults.

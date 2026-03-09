@@ -273,7 +273,7 @@ export class RuntimeHttpServer {
             // Broadcast to all clients via the event hub so HTTP/SSE clients
             // (e.g. macOS app) receive pairing approval requests.
             ipcBroadcast(msg);
-            assistantEventHub.publish(
+            void assistantEventHub.publish(
               buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, msg),
             );
           }

@@ -71,7 +71,6 @@ mock.module("../util/platform.js", () => ({
   writeLockfile: () => {},
   readPlatformToken: () => null,
   readSessionToken: () => null,
-  removeSocketFile: () => {},
   getTCPPort: () => 8765,
   isTCPEnabled: () => false,
   getTCPHost: () => "127.0.0.1",

@@ -1,7 +1,7 @@
 /**
  * Twitter session persistence.
- * Delegates to the shared cookie-session primitive for CRUD and cookie header
- * logic; keeps Twitter-specific cookie validation and CSRF extraction.
+ * Delegates to the shared cookie-session primitive for CRUD;
+ * keeps Twitter-specific cookie validation and CSRF extraction.
  */
 
 import type { CookieSession } from "../../../util/cookie-session.js";
@@ -24,8 +24,6 @@ const store = createSessionStore("twitter");
 export const loadSession: () => TwitterSession | null = store.loadSession;
 export const saveSession: (session: TwitterSession) => void = store.saveSession;
 export const clearSession: () => void = store.clearSession;
-export const getCookieHeader: (session: TwitterSession) => string =
-  store.getCookieHeader;
 
 /**
  * Import cookies from a Ride Shotgun recording file.

@@ -830,7 +830,7 @@ export async function handleUserMessage(
   const requestId = uuid();
   const rlog = log.child({ sessionId: msg.sessionId, requestId });
   try {
-    const session = await ctx.getOrCreateSession(msg.sessionId, true);
+    const session = await ctx.getOrCreateSession(msg.sessionId);
     // Only wire the escalation handler if one isn't already set — handleTaskSubmit
     // sets a handler with the client's actual screen dimensions, and overwriting it
     // here would replace those dimensions with the daemon's defaults.

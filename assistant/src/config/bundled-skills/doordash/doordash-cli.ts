@@ -1009,9 +1009,8 @@ async function startLearnSession(
   const startTime = Date.now();
 
   return new Promise<LearnResult>((resolve, reject) => {
-    const poll = setInterval(async () => {
+    const pollOnce = async () => {
       if (Date.now() - startTime > timeoutMs) {
-        clearInterval(poll);
         reject(
           new Error(`Learn session timed out after ${durationSeconds + 30}s`),
         );
@@ -1031,7 +1030,6 @@ async function startLearnSession(
 
           // Session failed without producing a recording
           if (status.bootstrapFailureReason) {
-            clearInterval(poll);
             reject(
               new Error(
                 `Learn session failed: ${status.bootstrapFailureReason}`,
@@ -1042,8 +1040,6 @@ async function startLearnSession(
 
           // Session completed — check for the correlated recording file
           if (status.status === "completed") {
-            clearInterval(poll);
-
             if (status.savedRecordingPath && status.recordingId) {
               resolve({
                 recordingId: status.recordingId,
@@ -1068,11 +1064,13 @@ async function startLearnSession(
                 });
                 return;
               } catch {
-                // Recording file not yet written — will retry
+                // Recording file not yet written — continue polling
+                setTimeout(pollOnce, pollIntervalMs);
+                return;
               }
             }
 
-            // Completed but no recording saved
+            // Completed but no recordingId — cannot correlate
             reject(
               new Error(
                 "Learn session completed but no recording was saved.",
@@ -1084,6 +1082,10 @@ async function startLearnSession(
       } catch {
         // Status endpoint not reachable — continue polling
       }
-    }, pollIntervalMs);
+
+      setTimeout(pollOnce, pollIntervalMs);
+    };
+
+    setTimeout(pollOnce, pollIntervalMs);
   });
 }
