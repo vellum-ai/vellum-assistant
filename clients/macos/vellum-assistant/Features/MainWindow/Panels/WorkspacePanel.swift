@@ -479,6 +479,11 @@ private struct WorkspaceTreeRow: View {
                     for key in cacheKeys {
                         state.directoryCache.removeValue(forKey: key)
                     }
+                    // Re-fetch contents for directories that remain expanded under the new path
+                    let newExpandedDirs = state.expandedDirs.filter { $0 == newPath || $0.hasPrefix(newPath + "/") }
+                    for dir in newExpandedDirs {
+                        await state.refreshDirectory(dir, using: daemonClient)
+                    }
                 }
             }
             state.renamingPath = nil
