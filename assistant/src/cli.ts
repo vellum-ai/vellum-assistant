@@ -11,6 +11,7 @@ import {
 } from "./cli/main-screen.jsx";
 import { hasNoAuthOverride } from "./daemon/connection-policy.js";
 import { shouldAutoStartDaemon } from "./daemon/connection-policy.js";
+import { ensureDaemonRunning } from "./daemon/lifecycle.js";
 import {
   type ClientMessage,
   type ConfirmationRequest,
@@ -18,7 +19,6 @@ import {
   serialize,
   type ServerMessage,
 } from "./daemon/message-protocol.js";
-import { ensureDaemonRunning } from "./daemon/lifecycle.js";
 import {
   copyToClipboard,
   extractLastCodeBlock,
