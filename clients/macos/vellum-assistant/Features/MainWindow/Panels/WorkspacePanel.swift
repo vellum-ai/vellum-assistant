@@ -375,23 +375,45 @@ private struct AuthenticatedImageView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task {
-            var request = URLRequest(url: url)
-            if let token = ActorTokenManager.getToken(), !token.isEmpty {
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
+        .task(id: url) {
+            image = nil
+            failed = false
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                    failed = true
-                    return
-                }
-                image = NSImage(data: data)
+                let loadedImage = try await Self.fetchImage(url: url)
+                image = loadedImage
                 if image == nil { failed = true }
             } catch {
                 failed = true
             }
         }
+    }
+
+    private static func fetchImage(url: URL) async throws -> NSImage? {
+        var request = URLRequest(url: url)
+        if let token = ActorTokenManager.getToken(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            return nil
+        }
+        // On 401, clear stale credentials and retry once
+        if http.statusCode == 401 {
+            ActorTokenManager.deleteAllCredentials()
+            var retryRequest = URLRequest(url: url)
+            if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
+                retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
+            }
+            let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
+            guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
+                return nil
+            }
+            return NSImage(data: retryData)
+        }
+        guard (200...299).contains(http.statusCode) else {
+            return nil
+        }
+        return NSImage(data: data)
     }
 }
 
@@ -427,6 +449,11 @@ private struct WorkspaceVideoPlayer: View {
         .onChange(of: url) { _, _ in
             player?.pause()
             player = nil
+            failed = false
+            if let tempFileURL {
+                try? FileManager.default.removeItem(at: tempFileURL)
+            }
+            tempFileURL = nil
             Task { await loadVideo() }
         }
         .onDisappear {
@@ -439,23 +466,54 @@ private struct WorkspaceVideoPlayer: View {
     }
 
     private func loadVideo() async {
+        do {
+            let result = try await Self.downloadVideo(url: url)
+            guard let localURL = result else {
+                failed = true
+                return
+            }
+            tempFileURL = localURL
+            player = AVPlayer(url: localURL)
+        } catch {
+            failed = true
+        }
+    }
+
+    /// Downloads video to a temp file using streaming (avoids buffering entire file in memory).
+    /// Returns the local file URL on success, nil on non-success HTTP status.
+    /// On 401, clears stale credentials and retries once.
+    private static func downloadVideo(url: URL) async throws -> URL? {
         var request = URLRequest(url: url)
         if let token = ActorTokenManager.getToken(), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                failed = true
-                return
-            }
-            let tmpDir = FileManager.default.temporaryDirectory
-            let tmpFile = tmpDir.appendingPathComponent(UUID().uuidString + ".mp4")
-            try data.write(to: tmpFile)
-            tempFileURL = tmpFile
-            player = AVPlayer(url: tmpFile)
-        } catch {
-            failed = true
+        let (downloadedURL, response) = try await URLSession.shared.download(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            return nil
         }
+        // On 401, clear stale credentials and retry once
+        if http.statusCode == 401 {
+            try? FileManager.default.removeItem(at: downloadedURL)
+            ActorTokenManager.deleteAllCredentials()
+            var retryRequest = URLRequest(url: url)
+            if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
+                retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
+            }
+            let (retryURL, retryResponse) = try await URLSession.shared.download(for: retryRequest)
+            guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
+                try? FileManager.default.removeItem(at: retryURL)
+                return nil
+            }
+            let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+            try FileManager.default.moveItem(at: retryURL, to: dest)
+            return dest
+        }
+        guard (200...299).contains(http.statusCode) else {
+            try? FileManager.default.removeItem(at: downloadedURL)
+            return nil
+        }
+        let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
+        try FileManager.default.moveItem(at: downloadedURL, to: dest)
+        return dest
     }
 }
