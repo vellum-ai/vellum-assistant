@@ -491,7 +491,7 @@ struct CloudCredentialsStepView: View {
 
     private func saveAndContinue() {
         guard !continueDisabled else { return }
-        state.isHatching = true
+        state.advance()
     }
 }
 
