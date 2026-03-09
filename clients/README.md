@@ -46,7 +46,7 @@ clients/
 **Purpose**: Platform-agnostic code shared between macOS and iOS apps
 
 **Contains**:
-- **Network layer** (`DaemonClient`, `IPCMessages`, `Generated/IPCContractGenerated`) - HTTP+SSE communication with the assistant
+- **Network layer** (`DaemonClient`, `IPCMessages`, `Generated/GeneratedAPITypes`) - HTTP+SSE communication with the assistant
   - macOS: HTTP+SSE to the local daemon runtime server
   - iOS: HTTP+SSE through the gateway
   - Wire types are auto-generated from the TS contract; `IPCMessages.swift` provides

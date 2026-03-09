@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Manual Type Allowlist
 //
 // Most message types are auto-generated from the TS contract into
-// IPCContractGenerated.swift and referenced here via typealiases.
+// GeneratedAPITypes.swift and referenced here via typealiases.
 // The following structs are **intentionally** hand-maintained because
 // the code generator cannot express their requirements:
 //
@@ -741,7 +741,7 @@ extension IPCGetSigningIdentityResponse {
 // MARK: - Server → Client Messages (Decodable)
 //
 // These typealiases point to the auto-generated types in
-// IPCContractGenerated.swift. Convenience inits preserve backward
+// GeneratedAPITypes.swift. Convenience inits preserve backward
 // compatibility with existing call sites (the generated structs
 // include a `type` field that the old hand-maintained types omitted).
 
