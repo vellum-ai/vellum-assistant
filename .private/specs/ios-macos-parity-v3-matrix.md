@@ -29,7 +29,7 @@
 | 10 | Deep-link send | None | Yes | `portable-stable` (reverse-parity) | `vellum://send?message=...` URL scheme + `DeepLinkManager` |
 | 11 | Computer-use loop | macOS only | N/A | `desktop-only` | `cu_observation`, `cu_action`, `cu_session_create` (AX tree, CGEvent, ScreenCaptureKit) |
 | 12 | Menu-bar lifecycle/hotkeys | macOS only | N/A | `desktop-only` | `NSStatusItem`, Carbon `RegisterEventHotKey` (no daemon IPC) |
-| 13 | Ambient agent (Ride Shotgun) | macOS only | N/A | `desktop-only` | Local-only session management (`ride_shotgun_start`, `ride_shotgun_stop`, `watch_observation`) |
+| 13 | Ambient agent (Ride Shotgun) | Full | Full (`AmbientAgentManager`, `RideShotgunSession`) | `portable-stable` (already cross-platform) | `ride_shotgun_start`, `ride_shotgun_stop`, `watch_started`, `ride_shotgun_progress`, `ride_shotgun_result` |
 | 14 | Screen recording | macOS only | N/A | `desktop-only` | ScreenCaptureKit (no daemon IPC) |
 | 15 | Document editor (inline) | Partial | None | `defer-unstable` | `document_editor_show`, `document_editor_update` |
 | 16 | Constellation view | macOS only, experimental | N/A | `defer-unstable` | No stable contract |
@@ -61,7 +61,7 @@ Capabilities deferred from the parity v3 milestone:
 |---|---|---|---|
 | 11 | Computer-use loop | `desktop-only` | Requires AX tree, CGEvent, and ScreenCaptureKit — no iOS equivalent APIs |
 | 12 | Menu-bar lifecycle/hotkeys | `desktop-only` | NSStatusItem and Carbon hotkey registration are macOS-only system APIs |
-| 13 | Ambient agent (Ride Shotgun) | `desktop-only` | Depends on continuous screen capture and AX observation unavailable on iOS |
+| 13 | Ambient agent (Ride Shotgun) | `portable-stable` (already cross-platform) | iOS already implements the full Ride Shotgun flow via `AmbientAgentManager.swift` and `RideShotgunSession.swift`; no parity work needed |
 | 14 | Screen recording | `desktop-only` | ScreenCaptureKit has no iOS counterpart for app-level screen capture |
 | 15 | Document editor (inline) | `defer-unstable` | Contract (`document_editor_show`, `document_editor_update`) is still partial; inline editing UX not finalized |
 | 16 | Constellation view | `defer-unstable` | Experimental feature with no stable IPC contract |
